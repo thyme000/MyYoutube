@@ -1,7 +1,7 @@
 {
   "name": "myyoutube",
   "version": "1.0.0",
-  "description": "MyYoutube Vue 前端骨架",
+  "description": "MyYoutube",
   "type": "module",
   "scripts": {
     "dev": "vite",

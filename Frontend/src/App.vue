@@ -157,7 +157,7 @@ onMounted(async () => {
         <div class="top-actions">
           <button class="action-btn" @click="onCreate">创建</button>
           <button class="action-btn" @click="onNotify">通知</button>
-          <button class="avatar-btn" title="个人中心" @click="onProfile">J</button>
+          <button class="avatar-btn" title="个人中心" @click="onProfile">我</button>
         </div>
       </header>
 
