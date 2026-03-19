@@ -1,9 +1,11 @@
 package cn.diaojiahong.myyoutube;
 
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
+@MapperScan("cn.diaojiahong.myyoutube.*.mapper")
 public class MyYoutubeApplication {
 
 	public static void main(String[] args) {

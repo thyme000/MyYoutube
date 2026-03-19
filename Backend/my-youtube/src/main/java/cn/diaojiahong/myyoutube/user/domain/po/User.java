@@ -76,5 +76,33 @@ public class User implements Serializable {
      */
     private Integer isDelete;
 
+    /**
+     * 粉丝数量
+     */
+    private Long fans;
 
+    /**
+     * 关注数量
+     */
+     private Long attentionCount;
+
+    /**
+     * 视频发布数量
+     */
+     private Long videoCount;
+
+    /**
+     * 个人介绍
+     */
+    private String introduction;
+
+    /**
+     * 主页背景图片URL地址
+     */
+    private String bgImage;
+
+    /**
+     * 喜欢数量
+     */
+    private Long likeCount;
 }
