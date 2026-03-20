@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.user.controller;
 
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
+import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,8 +32,8 @@ public class UserController {
      * 获取用户信息
      */
     @GetMapping("/info")
-    public Result<User> getUserInfo() {
-        return Result.success();
+    public Result<UserVO> getUserInfo() {
+        return userService.getUserInfo();
     }
 
 }

@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.user.service;
 
+import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
+import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 /**
@@ -12,5 +14,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
  * @since 2026-03-18
  */
 public interface IUserService extends IService<User> {
+
+    Result<UserVO> getUserInfo();
 
 }
