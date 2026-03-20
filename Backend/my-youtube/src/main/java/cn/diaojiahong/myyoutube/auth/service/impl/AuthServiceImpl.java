@@ -1,15 +1,15 @@
-package cn.diaojiahong.myyoutube.login.service.impl;
+package cn.diaojiahong.myyoutube.auth.service.impl;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.CaptchaUtils;
 import cn.diaojiahong.myyoutube.common.utils.PasswordEncoder;
 import cn.diaojiahong.myyoutube.common.utils.RegexUtils;
-import cn.diaojiahong.myyoutube.login.controller.domain.dto.CaptchaDTO;
-import cn.diaojiahong.myyoutube.login.controller.domain.dto.ForgetPasswordDTO;
-import cn.diaojiahong.myyoutube.login.controller.domain.dto.LoginRequestDTO;
-import cn.diaojiahong.myyoutube.login.controller.domain.dto.RegisterRequestDTO;
-import cn.diaojiahong.myyoutube.login.service.IAuthService;
+import cn.diaojiahong.myyoutube.auth.controller.domain.dto.CaptchaDTO;
+import cn.diaojiahong.myyoutube.auth.controller.domain.dto.ForgetPasswordDTO;
+import cn.diaojiahong.myyoutube.auth.controller.domain.dto.LoginRequestDTO;
+import cn.diaojiahong.myyoutube.auth.controller.domain.dto.RegisterRequestDTO;
+import cn.diaojiahong.myyoutube.auth.service.IAuthService;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.hutool.core.bean.BeanUtil;

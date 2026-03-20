@@ -14,6 +14,14 @@ export function getRegisterCaptcha(phone) {
   });
 }
 
+// 忘记密码：验证码请求需要同时传 username + phone
+export function getForgotPasswordCaptcha({ username, phone }) {
+  return httpRequest("/captcha", {
+    method: "POST",
+    body: { username, phone },
+  });
+}
+
 export function loginApi(payload) {
   return httpRequest("/login", {
     method: "POST",
@@ -29,7 +37,7 @@ export function registerApi(payload) {
 }
 
 export function forgotPasswordApi(payload) {
-  return httpRequest("/forgot-password", {
+  return httpRequest("/forget-password", {
     method: "POST",
     body: payload,
   });

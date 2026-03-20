@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.login.controller.domain.dto;
+package cn.diaojiahong.myyoutube.auth.controller.domain.dto;
 
 import lombok.Data;
 

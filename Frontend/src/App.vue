@@ -4,6 +4,7 @@ import { clearToken, getApiBaseUrl, getToken, setToken } from "./api/http";
 import {
   forgotPasswordApi,
   getLoginCaptcha,
+  getForgotPasswordCaptcha,
   getRegisterCaptcha,
   loginApi,
   registerApi,
@@ -154,7 +155,7 @@ async function fetchLoginCaptcha() {
   if (loginCaptchaRemain.value > 0) return;
   try {
     loginCaptchaPreview.value = await getLoginCaptcha(loginForm.value.username.trim());
-    authMessage.value = "登录验证码获取成功（当前开发阶段直接显示）。";
+    authMessage.value = "登录验证码获取成功。";
 
     loginCaptchaRemain.value = 60;
     if (loginCaptchaTimer) clearInterval(loginCaptchaTimer);
@@ -179,7 +180,7 @@ async function fetchRegisterCaptcha() {
   if (registerCaptchaRemain.value > 0) return;
   try {
     registerCaptchaPreview.value = await getRegisterCaptcha(registerForm.value.phone.trim());
-    authMessage.value = "注册验证码获取成功（当前开发阶段直接显示）。";
+    authMessage.value = "注册验证码获取成功。";
 
     registerCaptchaRemain.value = 60;
     if (registerCaptchaTimer) clearInterval(registerCaptchaTimer);
@@ -209,13 +210,20 @@ function openForgot() {
 }
 
 async function fetchForgotCaptcha() {
+  if (!forgotForm.value.username.trim()) {
+    forgotMessage.value = "请先填写用户名，再获取验证码。";
+    return;
+  }
   if (!forgotForm.value.phone.trim()) {
     forgotMessage.value = "请先填写手机号，再获取验证码。";
     return;
   }
   if (forgotCaptchaRemain.value > 0) return;
   try {
-    forgotCaptchaPreview.value = await getRegisterCaptcha(forgotForm.value.phone.trim());
+    forgotCaptchaPreview.value = await getForgotPasswordCaptcha({
+      username: forgotForm.value.username,
+      phone: forgotForm.value.phone.trim(),
+    });
     forgotMessage.value = "";
 
     forgotCaptchaRemain.value = 60;

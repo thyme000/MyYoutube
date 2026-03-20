@@ -28,7 +28,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/register",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
-                        "/captcha"
+                        "/captcha",
+                        "/forget-password"
                 );
     }
 }
