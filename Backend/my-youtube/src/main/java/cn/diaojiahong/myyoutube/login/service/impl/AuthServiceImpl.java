@@ -6,9 +6,10 @@ import cn.diaojiahong.myyoutube.common.utils.CaptchaUtils;
 import cn.diaojiahong.myyoutube.common.utils.PasswordEncoder;
 import cn.diaojiahong.myyoutube.common.utils.RegexUtils;
 import cn.diaojiahong.myyoutube.login.controller.domain.dto.CaptchaDTO;
+import cn.diaojiahong.myyoutube.login.controller.domain.dto.ForgetPasswordDTO;
 import cn.diaojiahong.myyoutube.login.controller.domain.dto.LoginRequestDTO;
 import cn.diaojiahong.myyoutube.login.controller.domain.dto.RegisterRequestDTO;
-import cn.diaojiahong.myyoutube.login.service.ILoginService;
+import cn.diaojiahong.myyoutube.login.service.IAuthService;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.hutool.core.bean.BeanUtil;
@@ -26,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class LoginServiceImpl implements ILoginService {
+public class AuthServiceImpl implements IAuthService {
 
     private final IUserService userService;
     private final StringRedisTemplate redisTemplate;
@@ -121,8 +122,14 @@ public class LoginServiceImpl implements ILoginService {
     @Override
     public Result<String> captcha(CaptchaDTO captchaDTO) {
         String code = CaptchaUtils.generateNumCaptcha(6);
-
-        if (captchaDTO.getUsername() != null) {
+        if (captchaDTO.getPhone() != null && captchaDTO.getUsername() != null) {
+            // 忘记密码验证码，以手机号为 key
+            redisTemplate.opsForValue().set(
+                    RedisConstants.CAPTCHA_FORGET + captchaDTO.getPhone(),
+                    code, RedisConstants.CAPTCHA_EXPIRE, TimeUnit.SECONDS);
+            log.info("忘记密码验证码已生成，手机号：{}", captchaDTO.getPhone());
+        }
+        else if (captchaDTO.getUsername() != null) {
             // 登录验证码，以用户名为 key
             redisTemplate.opsForValue().set(
                     RedisConstants.CAPTCHA_LOGIN + captchaDTO.getUsername(),
@@ -138,6 +145,37 @@ public class LoginServiceImpl implements ILoginService {
             return Result.fail("请输入用户名或手机号!");
         }
 
+        return Result.success();
+    }
+
+    @Override
+    public Result<String> forgetPassword(ForgetPasswordDTO forgetPasswordDTO) {
+        // 校验字段
+        String newPassword = forgetPasswordDTO.getNewPassword();
+        if (RegexUtils.isPasswordInvalid(newPassword)) {
+            return Result.fail("密码格式错误，需10~32位字母/数字/下划线!");
+        }
+        // 校验字段是否有效
+        User user = userService.lambdaQuery()
+                .eq(User::getUsername, forgetPasswordDTO.getUsername())
+                .eq(User::getPhone, forgetPasswordDTO.getPhone())
+                .one();
+        if (user == null) {
+            return Result.fail("用户不存在!");
+        }
+
+        // 校验验证码
+        String captchaKey = RedisConstants.CAPTCHA_FORGET + forgetPasswordDTO.getPhone();
+        String storedCaptcha = redisTemplate.opsForValue().get(captchaKey);
+        if (storedCaptcha != null && !storedCaptcha.equals(forgetPasswordDTO.getCaptcha())) {
+            return Result.fail("验证码错误或已过期!");
+        }
+        redisTemplate.delete(captchaKey);
+
+        //校验通过,把新密码加密后更新数据库
+        user.setPassword(PasswordEncoder.encode(newPassword));
+        userService.updateById(user);
+        log.info("用户 [{}] 重置密码成功", forgetPasswordDTO.getUsername());
         return Result.success();
     }
 }
