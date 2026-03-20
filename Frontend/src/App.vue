@@ -67,6 +67,7 @@ const loginCaptchaRemain = ref(0);
 const registerCaptchaRemain = ref(0);
 let loginCaptchaTimer = null;
 let registerCaptchaTimer = null;
+let forgotCaptchaTimer = null;
 
 const forgotOpen = ref(false);
 const forgotLoading = ref(false);
@@ -74,9 +75,11 @@ const forgotMessage = ref("");
 const forgotForm = ref({
   username: "",
   phone: "",
-  password: "",
   newPassword: "",
+  captcha: "",
 });
+const forgotCaptchaRemain = ref(0);
+const forgotCaptchaPreview = ref("");
 
 function getMockCards(moduleLabel, moduleKey) {
   return Array.from({ length: 8 }).map((_, index) => ({
@@ -199,13 +202,44 @@ function openForgot() {
   forgotForm.value = {
     username: loginForm.value.username,
     phone: "",
-    password: "",
     newPassword: "",
+    captcha: "",
   };
+  forgotCaptchaPreview.value = "";
+}
+
+async function fetchForgotCaptcha() {
+  if (!forgotForm.value.phone.trim()) {
+    forgotMessage.value = "请先填写手机号，再获取验证码。";
+    return;
+  }
+  if (forgotCaptchaRemain.value > 0) return;
+  try {
+    forgotCaptchaPreview.value = await getRegisterCaptcha(forgotForm.value.phone.trim());
+    forgotMessage.value = "";
+
+    forgotCaptchaRemain.value = 60;
+    if (forgotCaptchaTimer) clearInterval(forgotCaptchaTimer);
+    forgotCaptchaTimer = setInterval(() => {
+      forgotCaptchaRemain.value -= 1;
+      if (forgotCaptchaRemain.value <= 0) {
+        forgotCaptchaRemain.value = 0;
+        clearInterval(forgotCaptchaTimer);
+        forgotCaptchaTimer = null;
+      }
+    }, 1000);
+  } catch (error) {
+    forgotMessage.value = `获取验证码失败：${error.message}`;
+  }
 }
 
 function closeForgot() {
   forgotOpen.value = false;
+  forgotCaptchaRemain.value = 0;
+  if (forgotCaptchaTimer) {
+    clearInterval(forgotCaptchaTimer);
+    forgotCaptchaTimer = null;
+  }
 }
 
 async function submitForgot() {
@@ -220,19 +254,19 @@ async function submitForgot() {
       forgotMessage.value = "请输入手机号。";
       return;
     }
-    if (!forgotForm.value.password) {
-      forgotMessage.value = "请输入密码。";
-      return;
-    }
     if (!forgotForm.value.newPassword) {
       forgotMessage.value = "请输入新密码。";
+      return;
+    }
+    if (!forgotForm.value.captcha.trim()) {
+      forgotMessage.value = "请输入验证码。";
       return;
     }
     const payload = {
       username: forgotForm.value.username.trim(),
       phone: forgotForm.value.phone.trim(),
-      password: forgotForm.value.password,
       newPassword: forgotForm.value.newPassword,
+      captcha: forgotForm.value.captcha.trim(),
     };
 
     const message = await forgotPasswordApi(payload);
@@ -308,6 +342,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (loginCaptchaTimer) clearInterval(loginCaptchaTimer);
   if (registerCaptchaTimer) clearInterval(registerCaptchaTimer);
+  if (forgotCaptchaTimer) clearInterval(forgotCaptchaTimer);
 });
 </script>
 
@@ -463,44 +498,97 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="forgotOpen" class="modal-overlay" @click.self="closeForgot">
-        <div class="modal-card">
-          <h3>Forgot your password?</h3>
-          <form class="modal-form" @submit.prevent="submitForgot">
-            <div class="input-group modal-input">
-              <span class="input-icon"><i class="ri-user-line"></i></span>
-              <input v-model="forgotForm.username" type="text" placeholder="User name" required title="Username: 登录用户名(必须唯一)" />
-            </div>
-            <div class="input-group modal-input">
-              <span class="input-icon"><i class="ri-smartphone-line"></i></span>
-              <input v-model="forgotForm.phone" type="text" placeholder="Phone" required title="Phone: 11位手机号" />
-            </div>
-            <div class="input-group password-group modal-input">
-              <span class="input-icon"><i class="ri-lock-2-line"></i></span>
-              <input
-                v-model="forgotForm.password"
-                type="password"
-                placeholder="Password"
-                required
-                title="Password: 按后端要求（如原密码或验证码等）"
-              />
-            </div>
-            <div class="input-group password-group modal-input">
-              <span class="input-icon"><i class="ri-lock-unlock-line"></i></span>
-              <input
-                v-model="forgotForm.newPassword"
-                type="password"
-                placeholder="New password"
-                required
-                title="New password: 10~32 位(字母/数字/下划线)"
-              />
+        <div class="modal-card forgot-modal-card" @click.stop>
+          <div class="forgot-modal-grid">
+            <div class="forgot-mascot" aria-hidden="true">
+              <svg class="forgot-mascot-svg" viewBox="0 0 200 260" xmlns="http://www.w3.org/2000/svg">
+                <g class="mascot-body">
+                  <g class="mascot-head">
+                    <circle cx="100" cy="108" r="70" fill="#ffe8c8" stroke="rgba(40,40,40,0.85)" stroke-width="2.2" />
+                    <path
+                      class="mascot-brow-left"
+                      d="M 52 78 Q 68 68 86 76"
+                      stroke="rgba(40,40,40,0.9)"
+                      fill="none"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      class="mascot-brow-right"
+                      d="M 114 72 Q 132 62 152 76"
+                      stroke="rgba(40,40,40,0.9)"
+                      fill="none"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                    />
+                    <ellipse cx="74" cy="102" rx="14" ry="16" fill="#fff" stroke="rgba(40,40,40,0.85)" stroke-width="2" />
+                    <ellipse cx="126" cy="102" rx="14" ry="16" fill="#fff" stroke="rgba(40,40,40,0.85)" stroke-width="2" />
+                    <g class="mascot-pupils">
+                      <circle cx="76" cy="102" r="5.5" fill="#1a1a1a" />
+                      <circle cx="128" cy="102" r="5.5" fill="#1a1a1a" />
+                    </g>
+                    <path
+                      class="mascot-mouth"
+                      d="M 72 138 Q 88 128 100 132 Q 112 128 128 138"
+                      stroke="rgba(40,40,40,0.9)"
+                      fill="none"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                    />
+                  </g>
+                  <text class="mascot-q" x="158" y="52" font-size="46" fill="#ffd54f" font-weight="800" font-family="Segoe UI, sans-serif">?</text>
+                  <g class="mascot-hands">
+                    <circle cx="38" cy="188" r="14" fill="#ffe8c8" stroke="rgba(40,40,40,0.85)" stroke-width="2" />
+                    <circle cx="162" cy="188" r="14" fill="#ffe8c8" stroke="rgba(40,40,40,0.85)" stroke-width="2" />
+                  </g>
+                </g>
+              </svg>
+              <p class="forgot-mascot-caption">Hmm… 密码跑哪去了？</p>
             </div>
 
-            <button type="submit" class="btn-submit" :disabled="forgotLoading">
-              {{ forgotLoading ? "PROCESSING..." : "SUBMIT" }}
-            </button>
-          </form>
-          <p v-if="forgotMessage" class="auth-message">{{ forgotMessage }}</p>
-          <button type="button" class="modal-close" @click="closeForgot">Close</button>
+            <div class="forgot-modal-form-wrap">
+              <h3>Forgot your password?</h3>
+              <form class="modal-form" @submit.prevent="submitForgot">
+                <div class="input-group modal-input">
+                  <span class="input-icon"><i class="ri-user-line"></i></span>
+                  <input v-model="forgotForm.username" type="text" placeholder="User name" required title="Username: 登录用户名(必须唯一)" />
+                </div>
+                <div class="input-group modal-input">
+                  <span class="input-icon"><i class="ri-smartphone-line"></i></span>
+                  <input v-model="forgotForm.phone" type="text" placeholder="Phone" required title="Phone: 11位手机号" />
+                </div>
+                <div class="input-group password-group modal-input">
+                  <span class="input-icon"><i class="ri-lock-unlock-line"></i></span>
+                  <input
+                    v-model="forgotForm.newPassword"
+                    type="password"
+                    placeholder="New password"
+                    required
+                    title="New password: 10~32 位(字母/数字/下划线)"
+                  />
+                </div>
+                <div class="input-group captcha-group modal-input">
+                  <span class="input-icon"><i class="ri-shield-keyhole-line"></i></span>
+                  <input v-model="forgotForm.captcha" type="text" placeholder="Captcha" required />
+                  <button
+                    type="button"
+                    class="btn-captcha"
+                    :disabled="forgotCaptchaRemain > 0"
+                    @click="fetchForgotCaptcha"
+                  >
+                    {{ forgotCaptchaRemain > 0 ? `${forgotCaptchaRemain}s` : "GET" }}
+                  </button>
+                </div>
+                <p v-if="forgotCaptchaPreview" class="captcha-tip forgot-captcha-tip">Dev captcha: {{ forgotCaptchaPreview }}</p>
+
+                <button type="submit" class="btn-submit" :disabled="forgotLoading">
+                  {{ forgotLoading ? "PROCESSING..." : "SUBMIT" }}
+                </button>
+              </form>
+              <p v-if="forgotMessage" class="auth-message forgot-modal-msg">{{ forgotMessage }}</p>
+              <button type="button" class="modal-close" @click="closeForgot">Close</button>
+            </div>
+          </div>
         </div>
       </div>
 

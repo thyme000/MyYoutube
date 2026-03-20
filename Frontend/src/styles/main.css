@@ -334,6 +334,193 @@ body {
   background: #2d2d2d;
 }
 
+/* 忘记密码：左右分栏 + 左侧疑惑小人动画 */
+.forgot-modal-card {
+  width: min(820px, 96vw);
+  max-width: 96vw;
+  padding: 20px 22px;
+}
+
+.forgot-modal-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(260px, 1.15fr);
+  gap: 22px;
+  align-items: stretch;
+}
+
+.forgot-mascot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  padding: 16px 12px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  animation: forgotMascotEnter 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.forgot-mascot-svg {
+  width: min(220px, 100%);
+  height: auto;
+  overflow: visible;
+}
+
+.forgot-mascot-caption {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.88);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.forgot-modal-form-wrap h3 {
+  margin: 0 0 14px;
+}
+
+.forgot-captcha-tip {
+  margin-top: 0;
+}
+
+.forgot-modal-msg {
+  margin-top: 10px;
+}
+
+@keyframes forgotMascotEnter {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.mascot-head {
+  transform-origin: 100px 108px;
+  animation: mascotHeadTilt 3.2s ease-in-out infinite;
+}
+
+.mascot-pupils {
+  animation: mascotPupilsLook 3.8s ease-in-out infinite;
+  transform-origin: 100px 102px;
+}
+
+.mascot-brow-right {
+  animation: mascotBrowConfused 2.6s ease-in-out infinite;
+  transform-origin: 132px 70px;
+}
+
+.mascot-mouth {
+  animation: mascotMouthWiggle 2.4s ease-in-out infinite;
+  transform-origin: 100px 132px;
+}
+
+.mascot-q {
+  animation: mascotQFloat 2.1s ease-in-out infinite;
+  transform-origin: 168px 48px;
+}
+
+.mascot-hands {
+  animation: mascotHandsShrug 2.8s ease-in-out infinite;
+  transform-origin: 100px 188px;
+}
+
+.mascot-body {
+  animation: mascotBodyBob 3.5s ease-in-out infinite;
+  transform-origin: 100px 200px;
+}
+
+@keyframes mascotHeadTilt {
+  0%,
+  100% {
+    transform: rotate(-5deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+
+@keyframes mascotPupilsLook {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(5px, -2px);
+  }
+  45% {
+    transform: translate(-4px, 3px);
+  }
+  70% {
+    transform: translate(3px, 1px);
+  }
+}
+
+@keyframes mascotBrowConfused {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(-6deg);
+  }
+}
+
+@keyframes mascotMouthWiggle {
+  0%,
+  100% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(0.92);
+  }
+}
+
+@keyframes mascotQFloat {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-6deg);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(-8px) rotate(6deg);
+    opacity: 0.92;
+  }
+}
+
+@keyframes mascotHandsShrug {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes mascotBodyBob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@media (max-width: 680px) {
+  .forgot-modal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .forgot-mascot {
+    min-height: 220px;
+  }
+}
+
 .app-layout {
   display: flex;
   min-height: 100vh;
