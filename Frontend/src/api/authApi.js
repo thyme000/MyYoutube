@@ -27,3 +27,10 @@ export function registerApi(payload) {
     body: payload,
   });
 }
+
+export function forgotPasswordApi(payload) {
+  return httpRequest("/forgot-password", {
+    method: "POST",
+    body: payload,
+  });
+}

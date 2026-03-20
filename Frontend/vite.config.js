@@ -23,4 +23,10 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // 直接输出到你现有的 Nginx 静态目录，减少手动拷贝步骤
+    outDir: "nginx-1.29.6/html",
+    assetsDir: "assets",
+    emptyOutDir: true,
+  },
 });

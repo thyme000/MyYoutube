@@ -1,7 +1,13 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { clearToken, getApiBaseUrl, getToken, setToken } from "./api/http";
-import { getLoginCaptcha, getRegisterCaptcha, loginApi, registerApi } from "./api/authApi";
+import {
+  forgotPasswordApi,
+  getLoginCaptcha,
+  getRegisterCaptcha,
+  loginApi,
+  registerApi,
+} from "./api/authApi";
 import { fetchVideosByModule, searchVideos } from "./api/videoApi";
 
 const primaryMenus = [
@@ -23,7 +29,7 @@ const exploreMenus = [
 
 const activeMenuKey = ref("home");
 const activeMenuLabel = ref("首页");
-const pageHint = ref(`当前是演示骨架页面。API 基础地址：${getApiBaseUrl()}`);
+const pageHint = ref(`欢迎来到 MyYoutube。请选择左侧模块查看内容。API 基础地址：${getApiBaseUrl()}`);
 const searchKeyword = ref("");
 const sidebarCollapsed = ref(false);
 const exploreExpanded = ref(true);
@@ -53,11 +59,30 @@ const loginCaptchaPreview = ref("");
 const registerCaptchaPreview = ref("");
 const isAuthed = computed(() => Boolean(token.value));
 
+const showLoginPassword = ref(false);
+const showRegisterPassword = ref(false);
+const showRegisterConfirmPassword = ref(false);
+
+const loginCaptchaRemain = ref(0);
+const registerCaptchaRemain = ref(0);
+let loginCaptchaTimer = null;
+let registerCaptchaTimer = null;
+
+const forgotOpen = ref(false);
+const forgotLoading = ref(false);
+const forgotMessage = ref("");
+const forgotForm = ref({
+  username: "",
+  phone: "",
+  password: "",
+  newPassword: "",
+});
+
 function getMockCards(moduleLabel, moduleKey) {
   return Array.from({ length: 8 }).map((_, index) => ({
     id: `${moduleKey}-${index + 1}`,
     title: `${moduleLabel} 示例内容 ${index + 1}`,
-    author: `频道演示 ${index + 1}`,
+    author: `MyYoutube频道示例 ${index + 1}`,
     viewsText: "1.2万次观看",
   }));
 }
@@ -73,7 +98,7 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       throw error;
     }
     cards.value = getMockCards(menu.label, menu.key);
-    pageHint.value = `接口暂不可用，已回退到本地演示数据。错误信息：${error.message}`;
+    pageHint.value = `接口暂不可用，已回退到本地示例数据。错误信息：${error.message}`;
   } finally {
     loading.value = false;
   }
@@ -100,7 +125,7 @@ async function onSearch() {
     pageHint.value = `搜索接口请求成功，关键词：「${keyword}」。`;
   } catch (error) {
     cards.value = getMockCards(`搜索：${keyword}`, "search");
-    pageHint.value = `搜索接口失败，已展示演示数据。错误信息：${error.message}`;
+    pageHint.value = `搜索接口失败，已展示示例数据。错误信息：${error.message}`;
   } finally {
     loading.value = false;
   }
@@ -123,9 +148,21 @@ async function fetchLoginCaptcha() {
     authMessage.value = "请先填写登录用户名，再获取验证码。";
     return;
   }
+  if (loginCaptchaRemain.value > 0) return;
   try {
     loginCaptchaPreview.value = await getLoginCaptcha(loginForm.value.username.trim());
     authMessage.value = "登录验证码获取成功（当前开发阶段直接显示）。";
+
+    loginCaptchaRemain.value = 60;
+    if (loginCaptchaTimer) clearInterval(loginCaptchaTimer);
+    loginCaptchaTimer = setInterval(() => {
+      loginCaptchaRemain.value -= 1;
+      if (loginCaptchaRemain.value <= 0) {
+        loginCaptchaRemain.value = 0;
+        clearInterval(loginCaptchaTimer);
+        loginCaptchaTimer = null;
+      }
+    }, 1000);
   } catch (error) {
     authMessage.value = `获取登录验证码失败：${error.message}`;
   }
@@ -136,11 +173,76 @@ async function fetchRegisterCaptcha() {
     authMessage.value = "请先填写手机号，再获取验证码。";
     return;
   }
+  if (registerCaptchaRemain.value > 0) return;
   try {
     registerCaptchaPreview.value = await getRegisterCaptcha(registerForm.value.phone.trim());
     authMessage.value = "注册验证码获取成功（当前开发阶段直接显示）。";
+
+    registerCaptchaRemain.value = 60;
+    if (registerCaptchaTimer) clearInterval(registerCaptchaTimer);
+    registerCaptchaTimer = setInterval(() => {
+      registerCaptchaRemain.value -= 1;
+      if (registerCaptchaRemain.value <= 0) {
+        registerCaptchaRemain.value = 0;
+        clearInterval(registerCaptchaTimer);
+        registerCaptchaTimer = null;
+      }
+    }, 1000);
   } catch (error) {
     authMessage.value = `获取注册验证码失败：${error.message}`;
+  }
+}
+
+function openForgot() {
+  forgotOpen.value = true;
+  forgotMessage.value = "";
+  forgotForm.value = {
+    username: loginForm.value.username,
+    phone: "",
+    password: "",
+    newPassword: "",
+  };
+}
+
+function closeForgot() {
+  forgotOpen.value = false;
+}
+
+async function submitForgot() {
+  forgotLoading.value = true;
+  forgotMessage.value = "";
+  try {
+    if (!forgotForm.value.username.trim()) {
+      forgotMessage.value = "请输入用户名。";
+      return;
+    }
+    if (!forgotForm.value.phone.trim()) {
+      forgotMessage.value = "请输入手机号。";
+      return;
+    }
+    if (!forgotForm.value.password) {
+      forgotMessage.value = "请输入密码。";
+      return;
+    }
+    if (!forgotForm.value.newPassword) {
+      forgotMessage.value = "请输入新密码。";
+      return;
+    }
+    const payload = {
+      username: forgotForm.value.username.trim(),
+      phone: forgotForm.value.phone.trim(),
+      password: forgotForm.value.password,
+      newPassword: forgotForm.value.newPassword,
+    };
+
+    const message = await forgotPasswordApi(payload);
+    forgotMessage.value = message || "已提交忘记密码请求，请稍后登录。";
+    closeForgot();
+    activeAuthTab.value = "login";
+  } catch (error) {
+    forgotMessage.value = `请求失败：${error.message}`;
+  } finally {
+    forgotLoading.value = false;
   }
 }
 
@@ -202,6 +304,11 @@ onMounted(async () => {
   const homeMenu = primaryMenus[0];
   await loadModuleCards(homeMenu);
 });
+
+onBeforeUnmount(() => {
+  if (loginCaptchaTimer) clearInterval(loginCaptchaTimer);
+  if (registerCaptchaTimer) clearInterval(registerCaptchaTimer);
+});
 </script>
 
 <template>
@@ -230,17 +337,41 @@ onMounted(async () => {
             <span class="input-icon"><i class="ri-user-line"></i></span>
             <input v-model="loginForm.username" type="text" placeholder="User name" required />
           </div>
-          <div class="input-group">
+            <div class="input-group password-group">
             <span class="input-icon"><i class="ri-lock-2-line"></i></span>
-            <input v-model="loginForm.password" type="password" placeholder="Password" required />
+              <input
+                v-model="loginForm.password"
+                :type="showLoginPassword ? 'text' : 'password'"
+                placeholder="Password"
+                required
+                title="Password: 10~32 位(字母/数字/下划线)"
+              />
+              <button
+                type="button"
+                class="eye-btn"
+                v-show="loginForm.password"
+                @click="showLoginPassword = !showLoginPassword"
+              >
+                <i class="ri-eye-line" v-if="!showLoginPassword"></i>
+                <i class="ri-eye-off-line" v-else></i>
+              </button>
           </div>
           <div class="input-group captcha-group">
             <span class="input-icon"><i class="ri-shield-keyhole-line"></i></span>
-            <input v-model="loginForm.captcha" type="text" placeholder="Captcha" required />
-            <button type="button" class="btn-captcha" @click="fetchLoginCaptcha">GET</button>
+              <input v-model="loginForm.captcha" type="text" placeholder="Captcha" required />
+              <button
+                type="button"
+                class="btn-captcha"
+                :disabled="loginCaptchaRemain > 0"
+                @click="fetchLoginCaptcha"
+              >
+                {{ loginCaptchaRemain > 0 ? `${loginCaptchaRemain}s` : "GET" }}
+              </button>
           </div>
           <p v-if="loginCaptchaPreview" class="captcha-tip">Dev captcha: {{ loginCaptchaPreview }}</p>
-          <p class="forgot-pass"><a href="javascript:void(0)">Forgot your password?</a></p>
+          <p class="forgot-pass">
+            <a href="javascript:void(0)" @click="openForgot">Forgot your password?</a>
+          </p>
           <button type="submit" class="btn-submit" :disabled="authLoading">
             {{ authLoading ? "PROCESSING..." : "SIGN IN" }}
           </button>
@@ -253,28 +384,71 @@ onMounted(async () => {
           <form class="auth-panel auth-back" @submit.prevent="submitRegister">
           <div class="input-group">
             <span class="input-icon"><i class="ri-user-line"></i></span>
-            <input v-model="registerForm.username" type="text" placeholder="User name" required />
+              <input v-model="registerForm.username" type="text" placeholder="User name" required title="Username: 登录用户名(必须唯一)" />
           </div>
           <div class="input-group">
             <span class="input-icon"><i class="ri-mail-line"></i></span>
-            <input v-model="registerForm.email" type="email" placeholder="Email" required />
+              <input
+                v-model="registerForm.email"
+                type="email"
+                placeholder="Email"
+                required
+                title="Email: example@domain.com"
+              />
           </div>
           <div class="input-group">
             <span class="input-icon"><i class="ri-smartphone-line"></i></span>
-            <input v-model="registerForm.phone" type="text" placeholder="Phone" required />
+              <input v-model="registerForm.phone" type="text" placeholder="Phone" required title="Phone: 11位手机号" />
           </div>
-          <div class="input-group">
+          <div class="input-group password-group">
             <span class="input-icon"><i class="ri-lock-2-line"></i></span>
-            <input v-model="registerForm.password" type="password" placeholder="Password (10~32)" required />
+            <input
+              v-model="registerForm.password"
+              :type="showRegisterPassword ? 'text' : 'password'"
+              placeholder="Password (10~32)"
+              required
+              title="Password: 10~32 位(字母/数字/下划线)"
+            />
+            <button
+              type="button"
+              class="eye-btn"
+              v-show="registerForm.password"
+              @click="showRegisterPassword = !showRegisterPassword"
+            >
+              <i class="ri-eye-line" v-if="!showRegisterPassword"></i>
+              <i class="ri-eye-off-line" v-else></i>
+            </button>
           </div>
-          <div class="input-group">
+          <div class="input-group password-group">
             <span class="input-icon"><i class="ri-checkbox-circle-line"></i></span>
-            <input v-model="registerForm.confirmPassword" type="password" placeholder="Confirm password" required />
+            <input
+              v-model="registerForm.confirmPassword"
+              :type="showRegisterConfirmPassword ? 'text' : 'password'"
+              placeholder="Confirm password"
+              required
+              title="Confirm password: 与 Password 保持一致"
+            />
+            <button
+              type="button"
+              class="eye-btn"
+              v-show="registerForm.confirmPassword"
+              @click="showRegisterConfirmPassword = !showRegisterConfirmPassword"
+            >
+              <i class="ri-eye-line" v-if="!showRegisterConfirmPassword"></i>
+              <i class="ri-eye-off-line" v-else></i>
+            </button>
           </div>
           <div class="input-group captcha-group">
             <span class="input-icon"><i class="ri-shield-keyhole-line"></i></span>
-            <input v-model="registerForm.captcha" type="text" placeholder="Captcha" required />
-            <button type="button" class="btn-captcha" @click="fetchRegisterCaptcha">GET</button>
+              <input v-model="registerForm.captcha" type="text" placeholder="Captcha" required />
+              <button
+                type="button"
+                class="btn-captcha"
+                :disabled="registerCaptchaRemain > 0"
+                @click="fetchRegisterCaptcha"
+              >
+                {{ registerCaptchaRemain > 0 ? `${registerCaptchaRemain}s` : "GET" }}
+              </button>
           </div>
           <p v-if="registerCaptchaPreview" class="captcha-tip">Dev captcha: {{ registerCaptchaPreview }}</p>
           <button type="submit" class="btn-submit" :disabled="authLoading">
@@ -288,8 +462,49 @@ onMounted(async () => {
         </div>
       </div>
 
+      <div v-if="forgotOpen" class="modal-overlay" @click.self="closeForgot">
+        <div class="modal-card">
+          <h3>Forgot your password?</h3>
+          <form class="modal-form" @submit.prevent="submitForgot">
+            <div class="input-group modal-input">
+              <span class="input-icon"><i class="ri-user-line"></i></span>
+              <input v-model="forgotForm.username" type="text" placeholder="User name" required title="Username: 登录用户名(必须唯一)" />
+            </div>
+            <div class="input-group modal-input">
+              <span class="input-icon"><i class="ri-smartphone-line"></i></span>
+              <input v-model="forgotForm.phone" type="text" placeholder="Phone" required title="Phone: 11位手机号" />
+            </div>
+            <div class="input-group password-group modal-input">
+              <span class="input-icon"><i class="ri-lock-2-line"></i></span>
+              <input
+                v-model="forgotForm.password"
+                type="password"
+                placeholder="Password"
+                required
+                title="Password: 按后端要求（如原密码或验证码等）"
+              />
+            </div>
+            <div class="input-group password-group modal-input">
+              <span class="input-icon"><i class="ri-lock-unlock-line"></i></span>
+              <input
+                v-model="forgotForm.newPassword"
+                type="password"
+                placeholder="New password"
+                required
+                title="New password: 10~32 位(字母/数字/下划线)"
+              />
+            </div>
+
+            <button type="submit" class="btn-submit" :disabled="forgotLoading">
+              {{ forgotLoading ? "PROCESSING..." : "SUBMIT" }}
+            </button>
+          </form>
+          <p v-if="forgotMessage" class="auth-message">{{ forgotMessage }}</p>
+          <button type="button" class="modal-close" @click="closeForgot">Close</button>
+        </div>
+      </div>
+
       <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
-      <p class="auth-api-hint">API：{{ getApiBaseUrl() }}</p>
     </section>
   </div>
 
