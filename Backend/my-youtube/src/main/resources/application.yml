@@ -12,11 +12,11 @@ spring:
   # ===== MySQL 数据源 =====
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:my_youtube}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:}
+    url: jdbc:mysql://${DATASOURCE_HOST:localhost}:3306/my_youtube?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: ${DATASOURCE_USERNAME}
+    password: ${DATASOURCE_PASSWORD}
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: 1
       minimum-idle: 5
       connection-timeout: 30000
       idle-timeout: 600000
@@ -59,11 +59,10 @@ springdoc:
     path: /v3/api-docs
 
 # ===== 阿里云 OSS（与 application-local.yml 中 my-youtube.alioss 字段一致；密钥勿提交）=====
-# 环境变量名对应 Spring Boot 松散绑定：my-youtube.alioss.xxx → MY_YOUTUBE_ALIOSS_XXX
 my-youtube:
   alioss:
-    bucket-name: ${MY_YOUTUBE_ALIOSS_BUCKET_NAME:}
-    access-key-id: ${MY_YOUTUBE_ALIOSS_ACCESS_KEY_ID:}
-    access-key-secret: ${MY_YOUTUBE_ALIOSS_ACCESS_KEY_SECRET:}
-    endpoint: ${MY_YOUTUBE_ALIOSS_ENDPOINT:}
+    bucket-name: ${ALIOSS_BUCKET_NAME}
+    access-key-id: ${ALIOSS_ACCESS_KEY_ID}
+    access-key-secret: ${ALIOSS_ACCESS_KEY_SECRET}
+    endpoint: ${ALIOSS_ENDPOINT}
 
