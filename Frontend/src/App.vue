@@ -10,22 +10,24 @@ import {
   registerApi,
 } from "./api/authApi";
 import { fetchVideosByModule, searchVideos } from "./api/videoApi";
+import profileAvatar from "../static/cat.jpg";
+import profileBanner from "../static/cartoon.jpg";
 
 const primaryMenus = [
-  { key: "home", label: "首页", icon: "🏠" },
-  { key: "shorts", label: "短视频 (Shorts)", icon: "🎬" },
-  { key: "subscribed", label: "关注", icon: "⭐" },
-  { key: "history", label: "历史播放记录", icon: "🕘" },
-  { key: "liked", label: "赞过的视频", icon: "👍" },
-  { key: "watchLater", label: "稍后再看", icon: "🧾" },
+  { key: "home", label: "首页", icon: "ri-home-4-line" },
+  { key: "shorts", label: "短视频", icon: "ri-video-line" },
+  { key: "subscribed", label: "关注", icon: "ri-star-line" },
+  { key: "history", label: "历史播放记录", icon: "ri-history-line" },
+  { key: "liked", label: "赞过的视频", icon: "ri-thumb-up-line" },
+  { key: "watchLater", label: "稍后再看", icon: "ri-time-line" },
 ];
 
 const exploreMenus = [
-  { key: "music", label: "音乐", icon: "🎵" },
-  { key: "movies", label: "电影", icon: "🎞️" },
-  { key: "live", label: "直播", icon: "📡" },
-  { key: "news", label: "新闻", icon: "📰" },
-  { key: "fashion", label: "时尚", icon: "👗" },
+  { key: "music", label: "音乐", icon: "ri-music-2-line" },
+  { key: "movies", label: "电影", icon: "ri-film-line" },
+  { key: "live", label: "直播", icon: "ri-broadcast-line" },
+  { key: "news", label: "新闻", icon: "ri-newspaper-line" },
+  { key: "fashion", label: "时尚", icon: "ri-shirt-line" },
 ];
 
 const activeMenuKey = ref("home");
@@ -81,6 +83,42 @@ const forgotForm = ref({
 });
 const forgotCaptchaRemain = ref(0);
 const forgotCaptchaPreview = ref("");
+const showProfileCenter = ref(false);
+const relationTableOpen = ref(false);
+const relationTableTitle = ref("");
+const relationTableUsers = ref([]);
+const feedCoverPool = [
+  "https://images.unsplash.com/photo-1516117172878-fd2c41f4a759?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1489515217757-5fd1be406fef?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=1200&q=80",
+];
+
+const profileWorks = [
+  { id: "work-1", title: "直到某一天 你的行为不再左右我", likes: "3911", image: profileBanner },
+  { id: "work-2", title: "0-0 美瞳推荐 #美瞳", likes: "8336", image: profileBanner },
+  { id: "work-3", title: "我要成为这个世界的大王", likes: "8.2万", image: profileBanner },
+  { id: "work-4", title: "把春天穿在身上 舒胡噜的这天", likes: "2.8万", image: profileBanner },
+  { id: "work-5", title: "夜晚车窗前的小情绪记录", likes: "1.4万", image: profileBanner },
+  { id: "work-6", title: "今天的穿搭分享 #ootd", likes: "7693", image: profileBanner },
+  { id: "work-7", title: "花束与温柔都要给自己", likes: "5231", image: profileBanner },
+  { id: "work-8", title: "阳光刚刚好 出门随拍", likes: "1.1万", image: profileBanner },
+];
+const profileFirstRowWorks = computed(() => profileWorks.slice(0, 4));
+const profileRestWorks = computed(() => profileWorks.slice(4));
+
+const followingUsers = [
+  { id: 1, username: "alice", nickName: "Alice", intro: "分享旅行和摄影" },
+  { id: 2, username: "tom", nickName: "Tom", intro: "热爱剪辑与音乐" },
+  { id: 3, username: "luna", nickName: "Luna", intro: "日常生活记录" },
+];
+
+const followerUsers = [
+  { id: 11, username: "ivy", nickName: "Ivy", intro: "关注穿搭和美妆" },
+  { id: 12, username: "ken", nickName: "Ken", intro: "喜欢技术和视频制作" },
+  { id: 13, username: "mia", nickName: "Mia", intro: "每天更新短视频" },
+  { id: 14, username: "ryan", nickName: "Ryan", intro: "电影爱好者" },
+];
 
 function getMockCards(moduleLabel, moduleKey) {
   return Array.from({ length: 8 }).map((_, index) => ({
@@ -89,6 +127,10 @@ function getMockCards(moduleLabel, moduleKey) {
     author: `MyYoutube频道示例 ${index + 1}`,
     viewsText: "1.2万次观看",
   }));
+}
+
+function getCardCover(index) {
+  return feedCoverPool[index % feedCoverPool.length];
 }
 
 async function loadModuleCards(menu, { fallback = true } = {}) {
@@ -109,6 +151,7 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
 }
 
 async function setActiveMenu(menu) {
+  showProfileCenter.value = false;
   activeMenuKey.value = menu.key;
   activeMenuLabel.value = menu.label;
   await loadModuleCards(menu);
@@ -144,7 +187,24 @@ function onNotify() {
 }
 
 function onProfile() {
-  pageHint.value = "点击了个人中心：后续可跳转到用户主页或设置页面。";
+  showProfileCenter.value = true;
+  activeMenuLabel.value = "个人中心";
+  pageHint.value = "这里展示用户主页、作品和数据概览。";
+}
+
+function openRelationTable(type) {
+  if (type === "following") {
+    relationTableTitle.value = "关注列表";
+    relationTableUsers.value = followingUsers;
+  } else {
+    relationTableTitle.value = "粉丝列表";
+    relationTableUsers.value = followerUsers;
+  }
+  relationTableOpen.value = true;
+}
+
+function closeRelationTable() {
+  relationTableOpen.value = false;
 }
 
 async function fetchLoginCaptcha() {
@@ -336,6 +396,7 @@ function logout() {
   clearToken();
   token.value = "";
   cards.value = [];
+  showProfileCenter.value = false;
   authMessage.value = "你已退出登录。";
 }
 
@@ -612,16 +673,16 @@ onBeforeUnmount(() => {
       </div>
 
       <nav class="nav-section">
-        <button
-          v-for="menu in primaryMenus"
-          :key="menu.key"
-          class="nav-item"
-          :class="{ active: menu.key === activeMenuKey }"
-          @click="setActiveMenu(menu)"
-        >
-          <span class="nav-icon">{{ menu.icon }}</span>
-          <span class="nav-label">{{ menu.label }}</span>
-        </button>
+        <template v-for="menu in primaryMenus" :key="menu.key">
+          <button
+            class="nav-item"
+            :class="{ active: menu.key === activeMenuKey }"
+            @click="setActiveMenu(menu)"
+          >
+            <span class="nav-icon"><i :class="menu.icon"></i></span>
+            <span class="nav-label">{{ menu.label }}</span>
+          </button>
+        </template>
       </nav>
 
       <section class="nav-section">
@@ -637,7 +698,7 @@ onBeforeUnmount(() => {
             :class="{ active: menu.key === activeMenuKey }"
             @click="setActiveMenu(menu)"
           >
-            <span class="nav-icon">{{ menu.icon }}</span>
+            <span class="nav-icon"><i :class="menu.icon"></i></span>
             <span class="nav-label">{{ menu.label }}</span>
           </button>
         </div>
@@ -666,22 +727,114 @@ onBeforeUnmount(() => {
       </header>
 
       <main class="content">
-        <section class="welcome-card">
+        <section v-if="!showProfileCenter" class="welcome-card">
           <h2>{{ activeMenuLabel }}</h2>
           <p>{{ pageHint }}</p>
         </section>
 
-        <section class="card-grid">
+        <section v-if="showProfileCenter" class="profile-page">
+          <section class="profile-top-row">
+            <aside class="profile-side-card">
+              <img :src="profileAvatar" alt="小猫头像" class="profile-avatar-sm" />
+              <h4>个人资料</h4>
+              <p>创作者：thyme</p>
+              <p>平台：MyYoutube</p>
+              <p>地区：广东 · 深圳</p>
+              <div class="profile-stat-list">
+                <button type="button" class="profile-stat-row profile-stat-btn" @click="openRelationTable('following')">
+                  <span class="profile-stat-left">关注 <i class="ri-play-fill stat-triangle"></i></span>
+                  <strong>120</strong>
+                </button>
+                <button type="button" class="profile-stat-row profile-stat-btn" @click="openRelationTable('followers')">
+                  <span class="profile-stat-left">粉丝 <i class="ri-play-fill stat-triangle"></i></span>
+                  <strong>3.6万</strong>
+                </button>
+                <div class="profile-stat-row">
+                  <span>获赞</span>
+                  <strong>25.8万</strong>
+                </div>
+                <div class="profile-stat-row">
+                  <span>作品数</span>
+                  <strong>{{ profileWorks.length }}</strong>
+                </div>
+              </div>
+              <div class="profile-intro">
+                <h5>个人简介</h5>
+                <p>嗨，我是 thyme，喜欢记录日常生活、穿搭分享和有趣瞬间。欢迎来关注我，一起交流视频创作！</p>
+              </div>
+            </aside>
+
+            <section class="profile-first-row">
+              <section class="profile-hero" :style="{ backgroundImage: `url(${profileBanner})` }">
+                <div class="profile-hero-mask"></div>
+              </section>
+              <div class="profile-works-title">
+                <h4>作品列表</h4>
+                <span>共 {{ profileWorks.length }} 条</span>
+              </div>
+              <div class="works-grid works-grid-first-row">
+                <article v-for="item in profileFirstRowWorks" :key="item.id" class="work-card">
+                  <img :src="item.image" :alt="item.title" />
+                  <div class="work-overlay">
+                    <span class="work-like"><i class="ri-heart-line"></i> {{ item.likes }}</span>
+                    <p>{{ item.title }}</p>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </section>
+
+          <section class="profile-rest-row">
+            <div class="works-grid works-grid-rest-row">
+              <article v-for="item in profileRestWorks" :key="item.id" class="work-card">
+                <img :src="item.image" :alt="item.title" />
+                <div class="work-overlay">
+                  <span class="work-like"><i class="ri-heart-line"></i> {{ item.likes }}</span>
+                  <p>{{ item.title }}</p>
+                </div>
+              </article>
+            </div>
+          </section>
+        </section>
+
+        <div v-if="relationTableOpen" class="modal-overlay" @click.self="closeRelationTable">
+          <div class="modal-card relation-table-card">
+            <h3>{{ relationTableTitle }}</h3>
+            <div class="relation-table-wrap">
+              <table class="relation-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>用户名</th>
+                    <th>昵称</th>
+                    <th>简介</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="user in relationTableUsers" :key="user.id">
+                    <td>{{ user.id }}</td>
+                    <td>{{ user.username }}</td>
+                    <td>{{ user.nickName }}</td>
+                    <td>{{ user.intro }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button type="button" class="modal-close" @click="closeRelationTable">关闭</button>
+          </div>
+        </div>
+
+        <section v-if="!showProfileCenter" class="card-grid">
           <article v-if="loading" class="video-card">
-            <div class="video-cover">加载中...</div>
+            <div class="video-cover video-cover-loading">加载中...</div>
             <div class="video-info">
               <strong>正在请求后端数据</strong>
               <span>请稍候</span>
             </div>
           </article>
 
-          <article v-for="card in cards" :key="card.id" class="video-card">
-            <div class="video-cover">16:9 封面占位</div>
+          <article v-for="(card, index) in cards" :key="card.id" class="video-card">
+            <img class="video-cover" :src="getCardCover(index)" :alt="card.title" />
             <div class="video-info">
               <strong>{{ card.title }}</strong>
               <span>{{ card.author }} · {{ card.viewsText || "1.2万次观看" }}</span>
