@@ -20,6 +20,8 @@ function normalizeVideo(item, index) {
     title: item.title ?? "未命名视频",
     author: item.author ?? item.channelName ?? "未知频道",
     viewsText: item.viewsText ?? item.viewCountText ?? "0次观看",
+    videoUrl: item.videoUrl ?? item.playUrl ?? item.url ?? "",
+    avatarUrl: item.avatarUrl ?? item.authorAvatar ?? item.coverUrl ?? "",
   };
 }
 
