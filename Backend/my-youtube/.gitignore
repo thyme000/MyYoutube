@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# 本地真实配置（含密码），勿提交
+**/application-local.yml

@@ -5,12 +5,13 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.*;
 
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * <p>
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Slf4j
 @RequestMapping("/user")
 @RequiredArgsConstructor
+@Tag(name = "用户模块")
 public class UserController {
 
     private final IUserService userService;
@@ -31,9 +33,35 @@ public class UserController {
     /**
      * 获取用户信息
      */
+    @Operation(summary = "获取用户信息")
     @GetMapping("/info")
     public Result<UserVO> getUserInfo() {
         return userService.getUserInfo();
     }
+
+    /**
+     * 更新用户头像
+     *
+     * @param avatar 头像文件
+     * @return
+     */
+    @Operation(summary = "用户修改头像")
+    @PostMapping("/avatar")
+    public Result<String> updateAvatar(@RequestParam("avatar") MultipartFile avatar) {
+        return userService.updateAvatar(avatar);
+    }
+
+    /**
+     * 更新用户背景图片
+     *
+     * @param bgImage 背景图片文件
+     * @return
+     */
+    @Operation(summary = "用户修改背景图片")
+    @PostMapping("/bg-image")
+    public Result<String> updateBgImage(@RequestParam("bgImage") MultipartFile bgImage) {
+        return userService.updateBgImage(bgImage);
+    }
+
 
 }
