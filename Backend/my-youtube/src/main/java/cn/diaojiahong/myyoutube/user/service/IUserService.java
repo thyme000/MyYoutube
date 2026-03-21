@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.user.service;
 
 import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import com.baomidou.mybatisplus.extension.service.IService;
@@ -21,4 +22,6 @@ public interface IUserService extends IService<User> {
     Result<String> updateAvatar(MultipartFile avatar);
 
     Result<String> updateBgImage(MultipartFile bgImage);
+
+    Result<String> updateUser(Long id, UserDTO userDTO);
 }

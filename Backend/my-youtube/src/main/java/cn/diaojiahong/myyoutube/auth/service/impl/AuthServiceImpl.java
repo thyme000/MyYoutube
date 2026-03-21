@@ -64,7 +64,7 @@ public class AuthServiceImpl implements IAuthService {
 
         Map<String, String> userMap = new HashMap<>(1);
         userMap.put("id", String.valueOf(user.getId()));
-        userMap.put("nickName", user.getNickname());
+        userMap.put("nickname", user.getNickname());
         redisTemplate.opsForHash().putAll(tokenKey, userMap);
         redisTemplate.expire(tokenKey, RedisConstants.USER_TOKEN_EXPIRE, TimeUnit.HOURS);
 

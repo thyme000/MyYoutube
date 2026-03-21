@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.user.controller;
 
 
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.user.domain.po.User;
+import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -63,5 +63,15 @@ public class UserController {
         return userService.updateBgImage(bgImage);
     }
 
-
+    /**
+     * 更新用户资料
+     * @param id
+     * @param userDTO
+     * @return
+     */
+    @Operation(summary = "用户修改资料")
+    @PutMapping("/{id}")
+    public Result<String> updateUser(@PathVariable Long id, @RequestBody UserDTO userDTO) {
+        return userService.updateUser(id, userDTO);
+    }
 }

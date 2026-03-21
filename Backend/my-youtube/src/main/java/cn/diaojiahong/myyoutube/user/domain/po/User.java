@@ -28,8 +28,8 @@ public class User implements Serializable {
     /**
      * 用户主键ID，自增（唯一标识用户）
      */
-    @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
+    private Long id;
 
     /**
      * 用户名，唯一（登录/展示用，如：zhangsan123）

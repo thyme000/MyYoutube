@@ -11,6 +11,7 @@ import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -24,6 +25,7 @@ import java.io.IOException;
  * @author thyme
  * @since 2026-03-18
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
@@ -77,5 +79,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         updateById(user);
 
         return Result.success(upload);
+    }
+
+    @Override
+    public Result<String> updateUser(Long id, UserDTO userDTO) {
+        if (id == null) {
+            return Result.fail("用户ID不能为空");
+        }
+        boolean success = lambdaUpdate()
+                .set(User::getNickname, userDTO.getNickname())
+                .set(User::getIntroduction, userDTO.getIntroduction())
+                .eq(User::getId, id)
+                .update();
+        if (!success) {
+            return Result.fail("服务器繁忙,请稍后再试～");
+        }
+        log.info("用户{},更新用户资料成功...", id);
+        return Result.success("修改成功");
     }
 }

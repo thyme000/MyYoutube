@@ -11,7 +11,7 @@ public class UserVO {
     // 用户id
     private Long id;
     // 用户昵称
-    private String nickName;
+    private String nickname;
     // 用户头像url
     private String avatarUrl;
     // 用户粉丝数

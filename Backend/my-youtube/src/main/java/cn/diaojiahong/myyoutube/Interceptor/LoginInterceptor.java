@@ -37,7 +37,6 @@ public class LoginInterceptor implements HandlerInterceptor {
         if (userMap.isEmpty()) {
             //解析token失败,返回未登录错误
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("未登录");
             return false;
         }
 
