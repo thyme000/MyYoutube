@@ -54,3 +54,11 @@ springdoc:
     path: /swagger-ui.html
   api-docs:
     path: /v3/api-docs
+# ===== 阿里云 OSS =====
+my-youtube:
+  alioss:
+    bucketName: thyme
+    accessKeyId: LTAI5tEwG8YzMX1s73yzhUfD
+    accessKeySecret: IiImFsz59ECf4JNPj7VYOo5wkHQA9d
+    endpoint: oss-ap-southeast-1.aliyuncs.com
+

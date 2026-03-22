@@ -1,4 +1,40 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+/**
+ * Nginx 反代时 API 应与页面同源（如 /captcha、/user/info），否则会跨域直连 :8080，OPTIONS 常 403。
+ * - 生产环境：默认强制相对路径，忽略误打包进 dist 的 VITE_API_BASE_URL（除非 VITE_API_ALLOW_CROSS_ORIGIN=true）。
+ * - 开发环境：仍读环境变量；空则走 Vite proxy。
+ */
+function resolveApiBaseUrl() {
+  const allowCrossOrigin =
+    String(import.meta.env.VITE_API_ALLOW_CROSS_ORIGIN || "").toLowerCase() === "true";
+  const raw = (import.meta.env.VITE_API_BASE_URL || "").trim();
+
+  if (import.meta.env.PROD && !allowCrossOrigin) {
+    if (raw) {
+      console.warn(
+        "[myyoutube] 生产环境已强制使用同源 API 路径（忽略 VITE_API_BASE_URL）。需跨域直连请设 VITE_API_ALLOW_CROSS_ORIGIN=true。"
+      );
+    }
+    return "";
+  }
+
+  if (!raw) return "";
+  if (allowCrossOrigin) return raw;
+
+  try {
+    const apiOrigin = new URL(raw).origin;
+    if (apiOrigin !== window.location.origin) {
+      console.warn(
+        "[myyoutube] VITE_API_BASE_URL 与当前页面不同源，已改为同源请求（请走 Nginx 反代）。"
+      );
+      return "";
+    }
+  } catch {
+    return raw;
+  }
+  return raw;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 const TOKEN_KEY = "myyoutube_token";
 
 function buildUrl(path, query) {
@@ -11,6 +47,40 @@ function buildUrl(path, query) {
     });
   }
   return API_BASE_URL ? url.toString() : `${url.pathname}${url.search}`;
+}
+
+/**
+ * multipart/form-data 上传（如头像、背景图），不要手动设置 Content-Type，以便浏览器自动带 boundary。
+ */
+export async function uploadMultipart(path, formData, { query, headers } = {}) {
+  const finalUrl = buildUrl(path, query);
+  const token = getToken();
+  const response = await fetch(finalUrl, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: token } : {}),
+      ...headers,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `请求失败：${response.status}`);
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const payload = await response.json();
+    if (payload && typeof payload === "object" && "code" in payload && "message" in payload) {
+      if (payload.code !== 200) {
+        throw new Error(payload.message || "请求失败");
+      }
+      return payload.data;
+    }
+    return payload;
+  }
+  return response.text();
 }
 
 export async function httpRequest(path, { method = "GET", query, body, headers } = {}) {
@@ -47,7 +117,7 @@ export async function httpRequest(path, { method = "GET", query, body, headers }
 }
 
 export function getApiBaseUrl() {
-  return API_BASE_URL || "(同源 /api)";
+  return API_BASE_URL || "(同源，由 Nginx 反代到后端)";
 }
 
 export function getToken() {
