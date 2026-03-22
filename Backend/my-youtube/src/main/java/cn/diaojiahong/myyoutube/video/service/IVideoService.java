@@ -1,16 +1,29 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
+import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.domain.vo.VideoDetailVO;
+import cn.diaojiahong.myyoutube.video.domain.vo.VideoListVO;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 /**
  * <p>
- * 视频核心表（包含长视频/短视频，分类：音乐/电影/新闻/时尚） 服务类
+ * 视频信息表 服务类
  * </p>
  *
  * @author thyme
- * @since 2026-03-18
+ * @since 2026-03-22
  */
 public interface IVideoService extends IService<Video> {
 
+    Result<String> publishVideo(VideoDTO videoDTO);
+
+    Result<PageResult<VideoListVO>> getVideoList(VideoPageQuery pageQuery);
+
+    Result<VideoDetailVO> getVideoDetail(Long videoId);
+
+    Result<PageResult<VideoListVO>> getVideoListByAuthorId(Long authorId, VideoPageQuery pageQuery);
 }

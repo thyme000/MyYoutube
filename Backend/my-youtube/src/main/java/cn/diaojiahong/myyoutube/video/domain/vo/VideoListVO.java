@@ -1,0 +1,41 @@
+package cn.diaojiahong.myyoutube.video.domain.vo;
+
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+/**
+ * 视频列表 / 卡片展示：不包含正片地址、简介等，减少暴露字段
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class VideoListVO {
+
+    // 视频id
+    private Long id;
+    // 标题
+    private String title;
+    // 封面图 url
+    private String coverUrl;
+    // 时长（秒）
+    private Integer duration;
+    // 视频形态 short / long
+    private String videoType;
+    // 视频分类
+    private VideoCategoryEnum category;
+    // 播放量
+    private Long playCount;
+    // 点赞数
+    private Long likeCount;
+
+    // 作者用户 id
+    private Long authorId;
+    // 可见范围 public / private / unlisted
+    private String visibility;
+    // 创建时间
+    private LocalDateTime createTime;
+}

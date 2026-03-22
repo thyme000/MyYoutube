@@ -1,3 +1,6 @@
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\admin\controller\AdminController.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\admin\service\IAdminService.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\admin\service\impl\AdminServiceImpl.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\auth\controller\AuthController.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\auth\controller\domain\dto\CaptchaDTO.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\auth\controller\domain\dto\ForgetPasswordDTO.java
@@ -5,6 +8,11 @@ E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\au
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\auth\controller\domain\dto\RegisterRequestDTO.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\auth\service\IAuthService.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\auth\service\impl\AuthServiceImpl.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\comment\controller\VideoCommentController.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\comment\domain\po\VideoComment.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\comment\mapper\VideoCommentMapper.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\comment\service\impl\VideoCommentServiceImpl.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\comment\service\IVideoCommentService.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\constants\RedisConstants.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\page\PageQuery.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\page\PageResult.java
@@ -16,6 +24,7 @@ E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\co
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\PasswordEncoder.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\RegexPatterns.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\RegexUtils.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\StrUtils.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\UserContext.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\config\SwaggerConfig.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\config\WebMvcConfig.java
@@ -29,7 +38,16 @@ E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\us
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\user\service\impl\UserServiceImpl.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\user\service\IUserService.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\controller\VideoController.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\domain\dto\VideoDTO.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\domain\dto\VideoPageQuery.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\domain\enums\VideoCategoryEnum.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\domain\enums\VideoSortEnum.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\domain\enums\VideoStatusEnum.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\domain\enums\VideoTypeEnum.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\domain\po\Video.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\domain\vo\VideoDetailVO.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\domain\vo\VideoListVO.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\domain\vo\VideoVoConverter.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\mapper\VideoMapper.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\service\impl\VideoServiceImpl.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\video\service\IVideoService.java

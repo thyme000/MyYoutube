@@ -1,5 +1,8 @@
 package cn.diaojiahong.myyoutube.video.domain.po;
 
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -11,11 +14,11 @@ import lombok.experimental.Accessors;
 
 /**
  * <p>
- * 视频核心表（包含长视频/短视频，分类：音乐/电影/新闻/时尚）
+ * 视频信息表
  * </p>
  *
  * @author thyme
- * @since 2026-03-18
+ * @since 2026-03-22
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
@@ -26,10 +29,10 @@ public class Video implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * 视频主键ID，自增
+     * 视频唯一ID（主键）
      */
-    @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
+    private Long id;
 
     /**
      * 视频标题
@@ -37,52 +40,102 @@ public class Video implements Serializable {
     private String title;
 
     /**
-     * 视频封面图片URL地址
+     * 视频简介/描述
+     */
+    private String description;
+
+    /**
+     * 封面图地址
      */
     private String coverUrl;
 
     /**
-     * 视频播放URL地址
+     * 视频文件地址
      */
     private String videoUrl;
 
     /**
-     * 视频时长，单位：秒（长视频>60秒，短视频≤60秒）
+     * 视频时长（单位：秒）
      */
     private Integer duration;
 
     /**
-     * 视频类型：0=长视频，1=短视频（Shorts）
+     * 视频类型（short/long）
      */
-    private Integer videoType;
+    private String videoType;
 
     /**
-     * 视频分类：音乐/电影/新闻/时尚/其他
+     * 视频分类（如：游戏、生活）
      */
-    private String category;
+    private VideoCategoryEnum category;
 
     /**
-     * 发布者ID（关联user表id，0表示未关联）
+     * 标签（JSON数组或逗号分隔字符串）
      */
-    private Integer authorId;
+    private String tags;
 
     /**
-     * 视频播放量，默认0
+     * 作者ID（关联用户表）
      */
-    private Integer playCount;
+    private Long authorId;
 
     /**
-     * 视频发布时间，默认当前时间
+     * 播放次数
+     */
+    private Long playCount;
+
+    /**
+     * 点赞数
+     */
+    private Long likeCount;
+
+    /**
+     * 收藏数
+     */
+    private Long collectCount;
+
+    /**
+     * 评论数
+     */
+    private Long commentCount;
+
+    /**
+     * 分享数
+     */
+    private Long shareCount;
+
+    /**
+     * 视频状态（draft/review/published/banned）
+     */
+    private VideoStatusEnum status;
+
+    /**
+     * 可见范围（public/private/unlisted）
+     */
+    private String visibility;
+
+    /**
+     * 是否允许评论（0-不允许，1-允许）
+     */
+    private Integer allowComment;
+
+    /**
+     * 发布地区（用于地域推荐）
+     */
+    private String region;
+
+    /**
+     * 创建时间
      */
     private LocalDateTime createTime;
 
     /**
-     * 视频更新时间，自动刷新
+     * 更新时间
      */
     private LocalDateTime updateTime;
 
     /**
-     * 逻辑删除：0=未删除，1=已删除
+     * 逻辑删除标记（0-未删除，1-已删除）
      */
     private Integer isDelete;
 
