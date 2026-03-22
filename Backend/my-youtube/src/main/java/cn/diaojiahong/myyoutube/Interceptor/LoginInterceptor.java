@@ -1,12 +1,11 @@
 package cn.diaojiahong.myyoutube.Interceptor;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
-import cn.diaojiahong.myyoutube.common.utils.UserContest;
+import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.hutool.core.bean.BeanUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -30,25 +29,27 @@ public class LoginInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request,
                              HttpServletResponse response, Object handler) throws Exception {
         String token = request.getHeader("Authorization");
+        if (token == null) {
+            return false;
+        }
 
         Map<Object, Object> userMap = redisTemplate.opsForHash().entries(RedisConstants.USER_TOKEN + token);
         if (userMap.isEmpty()) {
             //解析token失败,返回未登录错误
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("未登录");
             return false;
         }
 
         // 解析token成功,将用户id放入threadLocal
         UserDTO user = BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false);
 
-        UserContest.setUser(user);
+        UserContext.setUser(user);
         return true;
     }
 
     @Override
     public void afterCompletion(HttpServletRequest request,
                                 HttpServletResponse response, Object handler, Exception ex) throws Exception {
-        UserContest.removeUser();
+        UserContext.removeUser();
     }
 }

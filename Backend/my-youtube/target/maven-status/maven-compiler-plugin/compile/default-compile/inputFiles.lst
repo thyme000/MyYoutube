@@ -16,7 +16,7 @@ E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\co
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\PasswordEncoder.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\RegexPatterns.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\RegexUtils.java
-E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\UserContest.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\UserContext.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\config\SwaggerConfig.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\config\WebMvcConfig.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\Interceptor\LoginInterceptor.java

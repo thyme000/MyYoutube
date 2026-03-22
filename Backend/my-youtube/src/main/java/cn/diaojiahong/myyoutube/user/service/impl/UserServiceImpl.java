@@ -11,6 +11,7 @@ import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -24,6 +25,7 @@ import java.io.IOException;
  * @author thyme
  * @since 2026-03-18
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
@@ -41,7 +43,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public Result<String> updateAvatar(MultipartFile avatar) {
-        String upload = updateFile(avatar);
+        String upload = updateFile(avatar, "avatar");
         if (upload == null) {
             return Result.fail("上传头像失败");
         }
@@ -53,7 +55,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         return Result.success(upload);
     }
 
-    private String updateFile(MultipartFile file) {
+    private String updateFile(MultipartFile file, String bizPrefix) {
         byte[] bytes = null;
         try {
             bytes = file.getBytes();
@@ -61,12 +63,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return null;
         }
         String originalFilename = file.getOriginalFilename();
-        return aliOssUtil.upload(bytes, originalFilename);
+        Long userId = UserContext.getUser().getId();
+        return aliOssUtil.upload(bytes, originalFilename, userId, bizPrefix);
     }
 
     @Override
     public Result<String> updateBgImage(MultipartFile bgImage) {
-        String upload = updateFile(bgImage);
+        String upload = updateFile(bgImage, "bg");
         if (upload == null) {
             return Result.fail("上传背景图片失败");
         }
@@ -76,5 +79,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         updateById(user);
 
         return Result.success(upload);
+    }
+
+    @Override
+    public Result<String> updateUser(Long id, UserDTO userDTO) {
+        if (id == null) {
+            return Result.fail("用户ID不能为空");
+        }
+        boolean success = lambdaUpdate()
+                .set(User::getNickname, userDTO.getNickname())
+                .set(User::getIntroduction, userDTO.getIntroduction())
+                .eq(User::getId, id)
+                .update();
+        if (!success) {
+            return Result.fail("服务器繁忙,请稍后再试～");
+        }
+        log.info("用户{},更新用户资料成功...", id);
+        return Result.success("修改成功");
     }
 }

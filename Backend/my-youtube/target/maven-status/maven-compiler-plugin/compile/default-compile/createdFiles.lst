@@ -18,7 +18,6 @@ cn\diaojiahong\myyoutube\video\controller\VideoController.class
 cn\diaojiahong\myyoutube\common\result\ResultCode.class
 cn\diaojiahong\myyoutube\common\page\PageQuery.class
 cn\diaojiahong\myyoutube\user\mapper\UserMapper.class
-cn\diaojiahong\myyoutube\common\utils\UserContest.class
 cn\diaojiahong\myyoutube\config\WebMvcConfig.class
 cn\diaojiahong\myyoutube\user\domain\po\User.class
 cn\diaojiahong\myyoutube\video\service\impl\VideoServiceImpl.class

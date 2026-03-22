@@ -64,7 +64,7 @@ public class AuthServiceImpl implements IAuthService {
 
         Map<String, String> userMap = new HashMap<>(1);
         userMap.put("id", String.valueOf(user.getId()));
-        userMap.put("nickName", user.getNickname());
+        userMap.put("nickname", user.getNickname());
         redisTemplate.opsForHash().putAll(tokenKey, userMap);
         redisTemplate.expire(tokenKey, RedisConstants.USER_TOKEN_EXPIRE, TimeUnit.HOURS);
 
@@ -81,7 +81,7 @@ public class AuthServiceImpl implements IAuthService {
         // 校验注册验证码
         String captchaKey = RedisConstants.CAPTCHA_REGISTER + registerRequestDTO.getPhone();
         String storedCaptcha = redisTemplate.opsForValue().get(captchaKey);
-        if (storedCaptcha != null && !storedCaptcha.equals(registerRequestDTO.getCaptcha())) {
+        if (storedCaptcha != null && !Objects.equals(registerRequestDTO.getCaptcha(), storedCaptcha)) {
             return Result.fail("验证码错误或已过期!");
         }
         redisTemplate.delete(captchaKey);
@@ -96,9 +96,6 @@ public class AuthServiceImpl implements IAuthService {
         // 手机号格式校验
         if (RegexUtils.isPhoneInvalid(registerRequestDTO.getPhone())) {
             return Result.fail("手机号格式错误!");
-        }
-        if (!Objects.equals(registerRequestDTO.getCaptcha(), storedCaptcha)) {
-            return Result.fail("验证码错误或已过期!");
         }
 
         // 用户名唯一性校验
