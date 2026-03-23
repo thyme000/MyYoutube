@@ -72,4 +72,5 @@ public class VideoController {
     public Result<PageResult<VideoListVO>> getVideoListByAuthorId(@PathVariable Long authorId, @ModelAttribute VideoPageQuery pageQuery) {
         return videoService.getVideoListByAuthorId(authorId, pageQuery);
     }
+
 }

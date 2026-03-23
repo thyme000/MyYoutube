@@ -37,7 +37,7 @@ public class VideoListVO {
 
     // 作者用户 id
     private Long authorId;
-    /** 作者昵称（列表接口单独填充，便于前端展示） */
+    // 作者昵称
     private String authorNickname;
     // 可见范围 public / private / unlisted
     private String visibility;
