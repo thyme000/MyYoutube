@@ -25,6 +25,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.PUBLISHED;
@@ -99,6 +102,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         List<VideoListVO> list = result.getRecords().stream()
                 .map(VideoVoConverter::toListVo)
                 .collect(Collectors.toList());
+        fillAuthorNicknames(list);
         return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
     }
 
@@ -141,6 +145,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             list = result.getRecords().stream()
                     .map(VideoVoConverter::toListVo)
                     .toList();
+            fillAuthorNicknames(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         } else if (pageQuery.getVideoType().getCode().equals(SHORT_VIDEO.getCode())) {
             // 查询短视频
@@ -148,6 +153,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             list = result.getRecords().stream()
                 .map(VideoVoConverter::toListVo)
                     .toList();
+            fillAuthorNicknames(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         } else {
             // 查询长视频
@@ -155,7 +161,37 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             list = result.getRecords().stream()
                     .map(VideoVoConverter::toListVo)
                     .toList();
+            fillAuthorNicknames(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
+        }
+    }
+
+    /**
+     * 批量查询作者昵称，避免前端仅展示「用户 作者id」。
+     */
+    private void fillAuthorNicknames(List<VideoListVO> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        Set<Long> ids = list.stream()
+                .map(VideoListVO::getAuthorId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) {
+            return;
+        }
+        List<User> users = userService.listByIds(ids);
+        Map<Long, String> idToNick = users.stream()
+                .filter(u -> u.getId() != null)
+                .collect(Collectors.toMap(User::getId, u -> u.getNickname() != null ? u.getNickname() : "", (a, b) -> a));
+        for (VideoListVO vo : list) {
+            Long aid = vo.getAuthorId();
+            if (aid != null && idToNick.containsKey(aid)) {
+                String nick = idToNick.get(aid);
+                if (nick != null && !nick.isBlank()) {
+                    vo.setAuthorNickname(nick);
+                }
+            }
         }
     }
 

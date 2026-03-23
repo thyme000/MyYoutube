@@ -9,7 +9,16 @@ import {
   loginApi,
   registerApi,
 } from "./api/authApi";
-import { fetchVideosByModule, searchVideos } from "./api/videoApi";
+import {
+  fetchVideosByModule,
+  searchVideos,
+  fetchVideoListPage,
+  fetchAuthorVideos,
+  fetchVideoDetail,
+  normalizeVideoDetail,
+  publishVideo,
+} from "./api/videoApi";
+import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
 import {
   getUserInfo,
   getUserProfileById,
@@ -128,6 +137,67 @@ const relationFollowerMenuId = ref(null);
 const profileEditOpen = ref(false);
 const profileEditForm = ref({ nickName: "", introduction: "" });
 const profileEditSaving = ref(false);
+/** 创作中心（全屏主区，模拟 YouTube Studio） */
+const showStudio = ref(false);
+/** 进入创作中心时 pushState，便于浏览器后退与「返回」同步 */
+const studioHistoryPushed = ref(false);
+const homeCategoryKey = ref("all");
+const studioSideNav = ref("info");
+/** 频道内容子 tab：video=全部作品 shorts=短视频 live=直播（直播接口未就绪时仅占位） */
+const studioContentTab = ref("video");
+const studioPageNo = ref(1);
+const studioPageSize = ref(10);
+const studioRows = ref([]);
+const studioTotal = ref(0);
+const studioPages = ref(0);
+const studioLoading = ref(false);
+const studioMsg = ref("");
+const uploadModalOpen = ref(false);
+const uploadFileInputRef = ref(null);
+/** 视频详情页 */
+const showVideoDetail = ref(false);
+const videoDetail = ref(null);
+const detailLoading = ref(false);
+const detailErrorMsg = ref("");
+const detailPlayerRef = ref(null);
+/** 因浏览器策略改用静音自动播放时提示用户可开声 */
+const detailAutoplayMutedFallback = ref(false);
+const detailSidebarTab = ref("all");
+const detailSidebarList = ref([]);
+const detailSidebarPageNo = ref(1);
+const detailSidebarPages = ref(0);
+const detailSidebarLoading = ref(false);
+const detailSidebarLoadingMore = ref(false);
+const detailSidebarHasMore = ref(true);
+const detailSidebarScrollRef = ref(null);
+const DETAIL_SIDEBAR_PAGE_SIZE = 10;
+/** 地址栏 ?v= 与 sessionStorage 恢复详情页（刷新不丢） */
+const VIDEO_URL_PARAM = "v";
+const VIDEO_DETAIL_STORAGE_PREFIX = "myyoutube_vdetail_";
+
+const detailSidebarTabs = [
+  { key: "all", label: "全部" },
+  { key: "long", label: "视频" },
+  { key: "short", label: "短视频" },
+];
+
+/** 评论区占位（后端未就绪） */
+const detailMockComments = [
+  {
+    user: "@demo_user",
+    time: "2个月前",
+    text: "占位评论：后端接入后将显示真实评论。",
+    likes: 42,
+    avatar: profileAvatar,
+  },
+  {
+    user: "@viewer",
+    time: "1周前",
+    text: "👍 期待接口上线。",
+    likes: 12,
+    avatar: profileAvatar,
+  },
+];
 /** 短视频全屏播放（纵向视频两侧模糊填充） */
 const shortPlayerOpen = ref(false);
 const shortPlayerVideoSrc = ref("");
@@ -301,6 +371,33 @@ const introDisplayText = computed(() => {
     return t;
   }
   return isViewingSelf.value ? "暂无简介，点击此处编辑" : "暂无简介";
+});
+
+/** 顶栏「我」头像：登录后优先用户头像，否则默认图 */
+const topbarAvatarSrc = computed(() => {
+  const u = profileUser.value;
+  const url = u?.avatarUrl ? sanitizeImageUrl(u.avatarUrl) : "";
+  return url || profileAvatar;
+});
+
+const studioTabs = [
+  { key: "video", label: "视频" },
+  { key: "shorts", label: "短视频" },
+  { key: "live", label: "直播" },
+];
+
+const detailAuthorAvatar = computed(() => {
+  const u = videoDetail.value?.authorAvatarUrl;
+  const url = u ? sanitizeImageUrl(u) : "";
+  return url || profileAvatar;
+});
+
+const detailFanText = computed(() => {
+  const n = videoDetail.value?.authorFanCount;
+  if (n == null || n === "") {
+    return "粉丝 —";
+  }
+  return `${n} 位粉丝`;
 });
 
 /** 裁剪区域（归一化相对原图）：仅自己主页使用，本地按「用户 + 图片 URL」记忆 */
@@ -654,7 +751,11 @@ function getShortsLocalFallbackCards() {
     author: "MyYoutube",
     viewsText: "本地",
     videoUrl: url,
+    coverUrl: feedCoverPool[index % feedCoverPool.length],
     avatarUrl: feedCoverPool[index % feedCoverPool.length],
+    authorAvatarUrl: feedCoverPool[(index + 2) % feedCoverPool.length],
+    authorId: 100,
+    videoType: "SHORT_VIDEO",
   }));
 }
 
@@ -665,12 +766,474 @@ function getMockCards(moduleLabel, moduleKey) {
     author: `MyYoutube频道示例 ${index + 1}`,
     viewsText: "1.2万次观看",
     videoUrl: index % 2 === 0 ? DEMO_VIDEO_PORTRAIT : DEMO_VIDEO_LANDSCAPE,
+    coverUrl: feedCoverPool[index % feedCoverPool.length],
     avatarUrl: feedCoverPool[index % feedCoverPool.length],
+    authorAvatarUrl: feedCoverPool[(index + 1) % feedCoverPool.length],
+    authorId: 10001 + index,
+    videoType: index % 3 === 0 ? "SHORT_VIDEO" : "LONG_VIDEO",
   }));
 }
 
 function getCardCover(index) {
   return feedCoverPool[index % feedCoverPool.length];
+}
+
+/** 仅当 id 为纯数字字符串时可用于 /videos/detail/{id}，全程用字符串避免精度丢失 */
+function parseVideoIdForApi(id) {
+  if (id == null || id === "") {
+    return null;
+  }
+  const s = String(id).trim();
+  if (/^\d+$/.test(s)) {
+    return s;
+  }
+  return null;
+}
+
+function buildDetailFromCard(card) {
+  const vid = parseVideoIdForApi(card?.id);
+  return normalizeVideoDetail({
+    id: vid ?? (card?.id != null ? String(card.id) : ""),
+    title: card?.title ?? "未命名视频",
+    description: "（示例数据）视频简介占位，连接后端后将显示真实描述。",
+    coverUrl: card?.coverUrl || card?.avatarUrl || "",
+    videoUrl: resolveVideoUrl(card) || DEMO_VIDEO_LANDSCAPE,
+    videoType: card?.videoType ?? "LONG_VIDEO",
+    playCount: 0,
+    likeCount: 0,
+    commentCount: 0,
+    authorId: card?.authorId ?? null,
+    authorNickname: card?.authorNickname ?? card?.author ?? "频道",
+    authorAvatarUrl: card?.authorAvatarUrl || "",
+    authorFanCount: 0,
+  });
+}
+
+function isLongVideoItem(item) {
+  const t = item?.videoType;
+  if (t == null || t === "") {
+    return true;
+  }
+  const s = String(t).toUpperCase();
+  if (s.includes("SHORT") || s === "SHORT_VIDEO" || t === "short") {
+    return false;
+  }
+  return true;
+}
+
+function genMockSidebarList(tab) {
+  const n = 8;
+  const base = (videoDetail.value?.authorId ?? 1) * 17;
+  return Array.from({ length: n }).map((_, i) => ({
+    id: `mock-side-${tab}-${base}-${i}`,
+    title: `推荐内容 ${i + 1}`,
+    author: videoDetail.value?.authorNickname ?? "示例频道",
+    viewsText: `${(i + 1) * 1200} 次播放`,
+    videoUrl: i % 2 === 0 ? DEMO_VIDEO_PORTRAIT : DEMO_VIDEO_LANDSCAPE,
+    coverUrl: feedCoverPool[(base + i) % feedCoverPool.length],
+    avatarUrl: feedCoverPool[(base + i) % feedCoverPool.length],
+    authorAvatarUrl: profileAvatar,
+    authorId: videoDetail.value?.authorId ?? null,
+    videoType: tab === "short" ? "SHORT_VIDEO" : "LONG_VIDEO",
+  }));
+}
+
+function cardAuthorAvatar(card, index) {
+  const u = card?.authorAvatarUrl ? sanitizeImageUrl(card.authorAvatarUrl) : "";
+  return u || profileAvatar;
+}
+
+function cardCoverSrc(card, index) {
+  return card?.coverUrl || card?.avatarUrl || getCardCover(index);
+}
+
+/** 列表/侧栏与详情同一套昵称：优先接口 authorNickname，否则用已拼好的 author */
+function cardAuthorLabel(card) {
+  if (!card) {
+    return "";
+  }
+  const nick = card.authorNickname;
+  if (typeof nick === "string" && nick.trim()) {
+    return nick.trim();
+  }
+  const a = card.author;
+  if (typeof a === "string" && a.trim()) {
+    return a.trim();
+  }
+  return "—";
+}
+
+function videoIdsEqual(a, b) {
+  if (a == null || b == null) {
+    return false;
+  }
+  return String(a) === String(b);
+}
+
+function snapshotVideoDetailForRestore(d) {
+  if (!d || d.id == null) {
+    return;
+  }
+  const key = `${VIDEO_DETAIL_STORAGE_PREFIX}${encodeURIComponent(String(d.id))}`;
+  const snap = {
+    id: d.id,
+    title: d.title ?? "",
+    author: d.authorNickname ?? "",
+    authorNickname: d.authorNickname ?? "",
+    viewsText: d.viewsText,
+    videoUrl: d.videoUrl ?? "",
+    coverUrl: d.coverUrl ?? "",
+    avatarUrl: d.coverUrl ?? "",
+    authorAvatarUrl: d.authorAvatarUrl ?? "",
+    authorId: d.authorId,
+    videoType: d.videoType,
+    description: d.description,
+  };
+  try {
+    sessionStorage.setItem(key, JSON.stringify(snap));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+/**
+ * 从首页进入详情：pushState，浏览器「返回」可回到无 ?v= 的首页。
+ * 在详情内切换视频：replaceState，不增加历史记录。
+ */
+function syncVideoDetailToAddressBar(wasAlreadyInDetail) {
+  const d = videoDetail.value;
+  if (!d || d.id == null) {
+    return;
+  }
+  try {
+    const url = new URL(window.location.href);
+    const nextV = String(d.id);
+    const curV = url.searchParams.get(VIDEO_URL_PARAM);
+    if (curV != null && curV === nextV) {
+      return;
+    }
+    url.searchParams.set(VIDEO_URL_PARAM, nextV);
+    const next = url.toString();
+    if (wasAlreadyInDetail) {
+      history.replaceState({ myyoutubeVideo: true }, "", next);
+    } else {
+      history.pushState({ myyoutubeVideo: true }, "", next);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearVideoDetailFromAddressBar() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete(VIDEO_URL_PARAM);
+    const q = url.searchParams.toString();
+    const next = `${url.pathname}${q ? `?${q}` : ""}${url.hash}`;
+    history.replaceState({}, "", next);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function restoreVideoDetailFromUrl(vidRaw) {
+  if (!vidRaw) {
+    return false;
+  }
+  const key = `${VIDEO_DETAIL_STORAGE_PREFIX}${encodeURIComponent(vidRaw)}`;
+  const stored = sessionStorage.getItem(key);
+  if (stored) {
+    try {
+      const card = JSON.parse(stored);
+      await openVideoDetail(card);
+      return true;
+    } catch {
+      /* fall through */
+    }
+  }
+  const numericId = parseVideoIdForApi(vidRaw);
+  if (numericId != null) {
+    await openVideoDetail({ id: numericId });
+    return true;
+  }
+  return false;
+}
+
+async function tryDetailVideoAutoplay() {
+  const el = detailPlayerRef.value;
+  if (!el || !videoDetail.value?.videoUrl) {
+    return;
+  }
+  if (!el.paused) {
+    return;
+  }
+  try {
+    el.playsInline = true;
+  } catch {
+    /* ignore */
+  }
+  try {
+    el.muted = false;
+    detailAutoplayMutedFallback.value = false;
+    await el.play();
+  } catch {
+    try {
+      el.muted = true;
+      detailAutoplayMutedFallback.value = true;
+      await el.play();
+    } catch {
+      /* 静音仍被拦截则只能由用户点击控件播放 */
+    }
+  }
+}
+
+function onDetailVideoCanPlay() {
+  void tryDetailVideoAutoplay();
+}
+
+function onDetailVideoVolumeChange() {
+  const el = detailPlayerRef.value;
+  if (el && !el.muted) {
+    detailAutoplayMutedFallback.value = false;
+  }
+}
+
+function scheduleDetailVideoAutoplayRetries() {
+  void tryDetailVideoAutoplay();
+  setTimeout(() => void tryDetailVideoAutoplay(), 80);
+  setTimeout(() => void tryDetailVideoAutoplay(), 320);
+  setTimeout(() => void tryDetailVideoAutoplay(), 700);
+  setTimeout(() => void tryDetailVideoAutoplay(), 1200);
+  setTimeout(() => void tryDetailVideoAutoplay(), 2000);
+  setTimeout(() => void tryDetailVideoAutoplay(), 3000);
+  setTimeout(() => void tryDetailVideoAutoplay(), 4500);
+}
+
+/** 刷新 / 往返缓存后 DOM 就绪较晚，多补几轮 */
+function onWindowPageShow() {
+  if (!showVideoDetail.value || !videoDetail.value?.videoUrl) {
+    return;
+  }
+  nextTick(() => {
+    scheduleDetailVideoAutoplayRetries();
+    setTimeout(() => scheduleDetailVideoAutoplayRetries(), 150);
+    setTimeout(() => scheduleDetailVideoAutoplayRetries(), 600);
+  });
+}
+
+function getMenuByActiveKey() {
+  const p = primaryMenus.find((m) => m.key === activeMenuKey.value);
+  if (p) {
+    return p;
+  }
+  const e = exploreMenus.find((m) => m.key === activeMenuKey.value);
+  if (e) {
+    return e;
+  }
+  return primaryMenus[0];
+}
+
+/** 离开详情 / 关闭创作中心后刷新列表，避免主区空白 */
+async function reloadFeedAfterLeavingDetail() {
+  if (showProfileCenter.value || showStudio.value) {
+    return;
+  }
+  const menu = getMenuByActiveKey();
+  await loadModuleCards(menu);
+  if (menu.key === "shorts") {
+    nextTick(() => {
+      shortsFeedFgRef.value?.load();
+      shortsFeedBgRef.value?.load();
+    });
+  }
+}
+
+async function openVideoDetail(card) {
+  if (!card) {
+    return;
+  }
+  detailAutoplayMutedFallback.value = false;
+  const wasAlreadyInDetail = showVideoDetail.value;
+  showVideoDetail.value = true;
+  showProfileCenter.value = false;
+  showStudio.value = false;
+  uploadModalOpen.value = false;
+  videoDetail.value = null;
+  detailErrorMsg.value = "";
+  detailLoading.value = true;
+  const vid = parseVideoIdForApi(card.id);
+  try {
+    if (vid != null) {
+      const raw = await fetchVideoDetail(vid);
+      const d = normalizeVideoDetail(raw);
+      if (d && card) {
+        if (d.authorId == null && card.authorId != null) {
+          d.authorId = card.authorId;
+        }
+        if (!d.authorAvatarUrl && card.authorAvatarUrl) {
+          d.authorAvatarUrl = card.authorAvatarUrl;
+        }
+        const listNick = cardAuthorLabel(card);
+        if (
+          listNick &&
+          listNick !== "—" &&
+          (!d.authorNickname ||
+            String(d.authorNickname).startsWith("用户 ") ||
+            d.authorNickname === "频道")
+        ) {
+          d.authorNickname = listNick;
+        }
+      }
+      videoDetail.value = d;
+    } else {
+      videoDetail.value = buildDetailFromCard(card);
+    }
+  } catch (e) {
+    videoDetail.value = buildDetailFromCard(card);
+    detailErrorMsg.value = `详情接口不可用，已展示本地数据：${e.message}`;
+  } finally {
+    detailLoading.value = false;
+  }
+  detailSidebarTab.value = "all";
+  await loadDetailSidebar(true);
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      scheduleDetailVideoAutoplayRetries();
+      setTimeout(() => scheduleDetailVideoAutoplayRetries(), 400);
+    });
+    const sc = detailSidebarScrollRef.value;
+    if (sc) {
+      sc.scrollTop = 0;
+    }
+    if (videoDetail.value) {
+      snapshotVideoDetailForRestore(videoDetail.value);
+      syncVideoDetailToAddressBar(wasAlreadyInDetail);
+    }
+  });
+}
+
+function closeVideoDetail() {
+  detailAutoplayMutedFallback.value = false;
+  try {
+    detailPlayerRef.value?.pause?.();
+  } catch {
+    /* ignore */
+  }
+  const hasV = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
+  if (hasV && typeof window.history.length === "number" && window.history.length > 1) {
+    history.back();
+    return;
+  }
+  showVideoDetail.value = false;
+  videoDetail.value = null;
+  detailErrorMsg.value = "";
+  detailSidebarList.value = [];
+  clearVideoDetailFromAddressBar();
+}
+
+function isSidebarItemNowPlaying(item) {
+  return item && videoDetail.value && videoIdsEqual(item.id, videoDetail.value.id);
+}
+
+function setDetailSidebarTab(key) {
+  if (detailSidebarTab.value === key) {
+    return;
+  }
+  detailSidebarTab.value = key;
+  loadDetailSidebar(true);
+}
+
+async function loadDetailSidebar(reset) {
+  if (!videoDetail.value) {
+    return;
+  }
+  if (reset) {
+    detailSidebarPageNo.value = 1;
+    detailSidebarList.value = [];
+    detailSidebarHasMore.value = true;
+  }
+  if (!detailSidebarHasMore.value && !reset) {
+    return;
+  }
+  if (detailSidebarLoading.value || detailSidebarLoadingMore.value) {
+    return;
+  }
+  const authorId = videoDetail.value.authorId;
+  if (authorId == null) {
+    detailSidebarList.value = genMockSidebarList(detailSidebarTab.value);
+    detailSidebarHasMore.value = false;
+    return;
+  }
+  const isFirst = reset || detailSidebarList.value.length === 0;
+  if (isFirst) {
+    detailSidebarLoading.value = true;
+  } else {
+    detailSidebarLoadingMore.value = true;
+  }
+  try {
+    const tab = detailSidebarTab.value;
+    const vt = tab === "short" ? "SHORT_VIDEO" : "LONG_VIDEO";
+    const res = await fetchAuthorVideos(authorId, {
+      pageNo: detailSidebarPageNo.value,
+      pageSize: DETAIL_SIDEBAR_PAGE_SIZE,
+      videoType: vt,
+    });
+    let batch = res.list || [];
+    if (tab === "long") {
+      batch = batch.filter(isLongVideoItem);
+    }
+    if (reset) {
+      detailSidebarList.value = batch;
+    } else {
+      detailSidebarList.value = [...detailSidebarList.value, ...batch];
+    }
+    detailSidebarPages.value = res.pages ?? 0;
+    detailSidebarHasMore.value = detailSidebarPageNo.value < (res.pages || 0);
+    if (detailSidebarHasMore.value) {
+      detailSidebarPageNo.value += 1;
+    }
+  } catch {
+    detailSidebarList.value = genMockSidebarList(detailSidebarTab.value);
+    detailSidebarHasMore.value = false;
+  } finally {
+    detailSidebarLoading.value = false;
+    detailSidebarLoadingMore.value = false;
+  }
+}
+
+function onDetailSidebarScroll(e) {
+  const el = e.target;
+  if (!el) {
+    return;
+  }
+  if (detailSidebarLoading.value || detailSidebarLoadingMore.value) {
+    return;
+  }
+  if (!detailSidebarHasMore.value) {
+    return;
+  }
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 140) {
+    loadDetailSidebar(false);
+  }
+}
+
+function openVideoDetailFromSidebar(item) {
+  if (!item || item.id === videoDetail.value?.id) {
+    return;
+  }
+  openVideoDetail({
+    id: item.id,
+    title: item.title,
+    author: item.author,
+    authorNickname: item.authorNickname ?? item.author,
+    viewsText: item.viewsText,
+    videoUrl: item.videoUrl,
+    coverUrl: item.coverUrl || item.avatarUrl,
+    avatarUrl: item.coverUrl || item.avatarUrl,
+    authorAvatarUrl: item.authorAvatarUrl,
+    authorId: item.authorId,
+    videoType: item.videoType,
+  });
 }
 
 function onShortsFeedFgEnded() {
@@ -692,18 +1255,34 @@ function onShortsFeedFgEnded() {
 async function loadModuleCards(menu, { fallback = true } = {}) {
   loading.value = true;
   try {
+    if (menu.key === "home") {
+      const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === homeCategoryKey.value);
+      const res = await fetchVideoListPage({
+        pageNo: 1,
+        pageSize: 24,
+        category: chip?.code || undefined,
+        sort: "LATEST",
+      });
+      cards.value = res.list.length ? res.list : getMockCards(menu.label, menu.key);
+      pageHint.value = `首页 · ${chip?.label ?? "全部"} · /videos/list`;
+      return;
+    }
     const list = await fetchVideosByModule(menu.key);
     if (menu.key === "shorts") {
       cards.value = list.length ? list : getShortsLocalFallbackCards();
     } else {
-    cards.value = list.length ? list : getMockCards(menu.label, menu.key);
+      cards.value = list.length ? list : getMockCards(menu.label, menu.key);
     }
     pageHint.value = `你正在查看「${menu.label}」模块。当前数据来源：Spring Boot 接口。`;
   } catch (error) {
     if (!fallback) {
       throw error;
     }
-    cards.value = menu.key === "shorts" ? getShortsLocalFallbackCards() : getMockCards(menu.label, menu.key);
+    if (menu.key === "home") {
+      cards.value = getMockCards(menu.label, menu.key);
+    } else {
+      cards.value = menu.key === "shorts" ? getShortsLocalFallbackCards() : getMockCards(menu.label, menu.key);
+    }
     pageHint.value = `接口暂不可用，已回退到本地示例数据。错误信息：${error.message}`;
   } finally {
     loading.value = false;
@@ -711,6 +1290,13 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
 }
 
 async function setActiveMenu(menu) {
+  showStudio.value = false;
+  uploadModalOpen.value = false;
+  if (showVideoDetail.value) {
+    clearVideoDetailFromAddressBar();
+  }
+  showVideoDetail.value = false;
+  videoDetail.value = null;
   showProfileCenter.value = false;
   mediaPreviewOpen.value = false;
   activeMenuKey.value = menu.key;
@@ -750,8 +1336,149 @@ async function onSearch() {
 }
 
 function onCreate() {
-  pageHint.value = "点击了创建按钮：后续可打开上传弹窗或发布流程。";
+  if (!isAuthed.value) {
+    pageHint.value = "请先登录后再使用创作中心。";
+    return;
+  }
+  if (showStudio.value) {
+    uploadModalOpen.value = true;
+    return;
+  }
+  showStudio.value = true;
+  if (showVideoDetail.value) {
+    clearVideoDetailFromAddressBar();
+  }
+  showVideoDetail.value = false;
+  videoDetail.value = null;
+  showProfileCenter.value = false;
+  mediaPreviewOpen.value = false;
+  studioSideNav.value = "info";
+  studioContentTab.value = "video";
+  studioPageNo.value = 1;
+  loadStudioVideos();
+  try {
+    history.pushState({ myyoutubeStudio: true }, "", window.location.href);
+    studioHistoryPushed.value = true;
+  } catch {
+    studioHistoryPushed.value = false;
+  }
 }
+
+function closeStudio() {
+  if (studioHistoryPushed.value) {
+    history.back();
+    return;
+  }
+  showStudio.value = false;
+  uploadModalOpen.value = false;
+  void reloadFeedAfterLeavingDetail();
+}
+
+function selectStudioSideNav(key) {
+  studioSideNav.value = key;
+  if (key === "info") {
+    loadStudioVideos();
+  }
+}
+
+function selectHomeCategory(chip) {
+  homeCategoryKey.value = chip.key;
+  if (activeMenuKey.value === "home") {
+    loadModuleCards(primaryMenus[0]);
+  }
+}
+
+function switchStudioTab(key) {
+  studioContentTab.value = key;
+  studioPageNo.value = 1;
+  loadStudioVideos();
+}
+
+async function loadStudioVideos() {
+  if (studioSideNav.value !== "info") {
+    return;
+  }
+  if (!getToken()) {
+    studioMsg.value = "请先登录";
+    return;
+  }
+  if (!currentUserId.value) {
+    await loadProfileUser();
+  }
+  const uid = currentUserId.value;
+  if (!uid) {
+    studioMsg.value = "无法获取当前用户 ID";
+    studioRows.value = [];
+    return;
+  }
+  studioLoading.value = true;
+  studioMsg.value = "";
+  try {
+    if (studioContentTab.value === "live") {
+      studioRows.value = [];
+      studioTotal.value = 0;
+      studioPages.value = 0;
+      studioMsg.value = "直播内容尚未接入，敬请期待。";
+      return;
+    }
+    const vt = studioContentTab.value === "shorts" ? "SHORT_VIDEO" : "LONG_VIDEO";
+    const res = await fetchAuthorVideos(uid, {
+      pageNo: studioPageNo.value,
+      pageSize: studioPageSize.value,
+      videoType: vt,
+    });
+    studioRows.value = res.list;
+    studioTotal.value = res.total;
+    studioPages.value = res.pages;
+  } catch (e) {
+    studioRows.value = [];
+    studioMsg.value = `加载失败：${e.message}`;
+  } finally {
+    studioLoading.value = false;
+  }
+}
+
+function openUploadModal() {
+  uploadModalOpen.value = true;
+}
+
+function closeUploadModal() {
+  uploadModalOpen.value = false;
+}
+
+function triggerUploadPick() {
+  uploadFileInputRef.value?.click();
+}
+
+function pickUploadFile(e) {
+  if (e?.dataTransfer?.files?.length) {
+    return e.dataTransfer.files[0];
+  }
+  if (e?.target?.files?.length) {
+    return e.target.files[0];
+  }
+  return null;
+}
+
+function onUploadInputOrDrop(e) {
+  const f = pickUploadFile(e);
+  if (e?.target && "value" in e.target) {
+    e.target.value = "";
+  }
+  if (!f) {
+    return;
+  }
+  pageHint.value = `已选择：${f.name}（视频文件需后端存储与发布接口，当前为前端占位）`;
+  uploadModalOpen.value = false;
+}
+
+function onTopbarAvatarError(evt) {
+  const el = evt?.target;
+  if (el) {
+    el.src = profileAvatar;
+  }
+}
+
 
 function onNotify() {
   pageHint.value = "点击了通知按钮：后续可展示消息列表和未读状态。";
@@ -893,6 +1620,13 @@ async function onBgFileChange(event) {
 }
 
 function onProfile() {
+  showStudio.value = false;
+  uploadModalOpen.value = false;
+  if (showVideoDetail.value) {
+    clearVideoDetailFromAddressBar();
+  }
+  showVideoDetail.value = false;
+  videoDetail.value = null;
   profileTargetUserId.value = null;
   showProfileCenter.value = true;
   activeMenuLabel.value = "个人中心";
@@ -1098,10 +1832,10 @@ function onShortFgSeeked(e) {
 }
 
 function onVideoCardClick(card) {
-  if (!videoCardPlayable(card) || activeMenuKey.value === "shorts") {
+  if (activeMenuKey.value === "shorts") {
     return;
   }
-  openShortVideo(card);
+  openVideoDetail(card);
 }
 
 function shortsFeedPrev() {
@@ -1536,7 +2270,17 @@ async function submitLogin() {
     authMessage.value = "登录成功。";
     const homeMenu = primaryMenus[0];
     activeMenuLabel.value = "首页";
-    await loadModuleCards(homeMenu);
+    await loadProfileUser();
+    const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
+    if (v) {
+      const ok = await restoreVideoDetailFromUrl(v);
+      if (!ok) {
+        clearVideoDetailFromAddressBar();
+        await loadModuleCards(homeMenu);
+      }
+    } else {
+      await loadModuleCards(homeMenu);
+    }
   } catch (error) {
     authMessage.value = `登录失败：${error.message}`;
   } finally {
@@ -1571,6 +2315,12 @@ function logout() {
   token.value = "";
   cards.value = [];
   showProfileCenter.value = false;
+  showStudio.value = false;
+  studioHistoryPushed.value = false;
+  uploadModalOpen.value = false;
+  clearVideoDetailFromAddressBar();
+  showVideoDetail.value = false;
+  videoDetail.value = null;
   profileUser.value = null;
   currentUserId.value = null;
   profileTargetUserId.value = null;
@@ -1578,15 +2328,76 @@ function logout() {
   authMessage.value = "你已退出登录。";
 }
 
+function onWindowPopState() {
+  if (showStudio.value) {
+    showStudio.value = false;
+    uploadModalOpen.value = false;
+    studioHistoryPushed.value = false;
+    void reloadFeedAfterLeavingDetail();
+    return;
+  }
+  const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
+  if (!v && showVideoDetail.value) {
+    detailAutoplayMutedFallback.value = false;
+    try {
+      detailPlayerRef.value?.pause?.();
+    } catch {
+      /* ignore */
+    }
+    showVideoDetail.value = false;
+    videoDetail.value = null;
+    detailErrorMsg.value = "";
+    detailSidebarList.value = [];
+    void reloadFeedAfterLeavingDetail();
+  }
+}
+
+watch(
+  () => [showVideoDetail.value, detailLoading.value, videoDetail.value?.videoUrl],
+  ([show, loading, url]) => {
+    if (!show || loading || !url) {
+      return;
+    }
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        scheduleDetailVideoAutoplayRetries();
+        setTimeout(() => scheduleDetailVideoAutoplayRetries(), 500);
+      });
+    });
+  },
+  { flush: "post" },
+);
+
 onMounted(async () => {
   if (!isAuthed.value) {
     return;
   }
+  await loadProfileUser();
   const homeMenu = primaryMenus[0];
-  await loadModuleCards(homeMenu);
+  const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
+  if (v) {
+    const ok = await restoreVideoDetailFromUrl(v);
+    if (!ok) {
+      clearVideoDetailFromAddressBar();
+      await loadModuleCards(homeMenu);
+    } else {
+      await nextTick();
+      requestAnimationFrame(() => {
+        scheduleDetailVideoAutoplayRetries();
+        setTimeout(() => scheduleDetailVideoAutoplayRetries(), 400);
+        setTimeout(() => scheduleDetailVideoAutoplayRetries(), 1200);
+      });
+    }
+  } else {
+    await loadModuleCards(homeMenu);
+  }
+  window.addEventListener("popstate", onWindowPopState);
+  window.addEventListener("pageshow", onWindowPageShow);
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("popstate", onWindowPopState);
+  window.removeEventListener("pageshow", onWindowPageShow);
   if (loginCaptchaTimer) clearInterval(loginCaptchaTimer);
   if (registerCaptchaTimer) clearInterval(registerCaptchaTimer);
   if (forgotCaptchaTimer) clearInterval(forgotCaptchaTimer);
@@ -1848,7 +2659,7 @@ onBeforeUnmount(() => {
   </div>
 
   <div v-else class="app-layout">
-    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
+    <aside v-if="!showStudio && !showVideoDetail" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-header">
         <button class="icon-btn" title="折叠侧边栏" @click="sidebarCollapsed = !sidebarCollapsed">☰</button>
         <h1 class="brand">MyYoutube</h1>
@@ -1901,17 +2712,165 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="top-actions">
-          <button class="action-btn" @click="onCreate">创建</button>
+          <button v-if="showVideoDetail" type="button" class="action-btn" @click="closeVideoDetail">返回</button>
+          <button v-else-if="showStudio" type="button" class="action-btn" @click="closeStudio">返回</button>
+          <button class="action-btn" @click="onCreate">{{ showStudio ? "上传视频" : "创建" }}</button>
           <button class="action-btn" @click="onNotify">通知</button>
-          <button class="avatar-btn" title="个人中心" @click="onProfile">我</button>
+          <button
+            type="button"
+            class="avatar-btn avatar-btn--img"
+            title="个人中心"
+            aria-label="个人中心"
+            @click="onProfile"
+          >
+            <img :src="topbarAvatarSrc" alt="" class="topbar-avatar-img" @error="onTopbarAvatarError" />
+          </button>
           <button class="action-btn" @click="logout">退出</button>
         </div>
       </header>
 
       <main
+        v-show="!showVideoDetail"
         class="content"
-        :class="{ 'content--shorts': !showProfileCenter && activeMenuKey === 'shorts' }"
+        :class="{
+          'content--shorts':
+            !showProfileCenter && activeMenuKey === 'shorts' && !showStudio && !showVideoDetail,
+          'content--studio': showStudio,
+        }"
       >
+        <!-- 创作中心（YouTube Studio 风格） -->
+        <div v-if="showStudio" class="studio-page">
+          <aside class="studio-sidebar">
+            <div class="studio-sidebar-user">
+              <img :src="topbarAvatarSrc" alt="" class="studio-sidebar-avatar" />
+              <div class="studio-sidebar-meta">
+                <span class="studio-sidebar-title">我的频道</span>
+                <span class="studio-sidebar-name">{{ displayNickname }}</span>
+              </div>
+            </div>
+            <nav class="studio-side-nav">
+              <button
+                type="button"
+                class="studio-side-link"
+                :class="{ active: studioSideNav === 'info' }"
+                @click="selectStudioSideNav('info')"
+              >
+                <i class="ri-dashboard-3-line"></i> 信息中心
+              </button>
+              <button
+                type="button"
+                class="studio-side-link"
+                :class="{ active: studioSideNav === 'data' }"
+                @click="selectStudioSideNav('data')"
+              >
+                <i class="ri-bar-chart-2-line"></i> 数据分析
+              </button>
+              <button
+                type="button"
+                class="studio-side-link"
+                :class="{ active: studioSideNav === 'audio' }"
+                @click="selectStudioSideNav('audio')"
+              >
+                <i class="ri-music-2-line"></i> 音频库
+              </button>
+            </nav>
+          </aside>
+          <div class="studio-body">
+            <div class="studio-body-head">
+              <h2 class="studio-body-title">频道内容</h2>
+              <div v-if="studioSideNav === 'info'" class="studio-tabs">
+                <button
+                  v-for="tab in studioTabs"
+                  :key="tab.key"
+                  type="button"
+                  class="studio-tab"
+                  :class="{ active: studioContentTab === tab.key }"
+                  @click="switchStudioTab(tab.key)"
+                >
+                  {{ tab.label }}
+                </button>
+              </div>
+            </div>
+            <div v-if="studioSideNav === 'data'" class="studio-placeholder-card">
+              <p>数据分析功能开发中，敬请期待。</p>
+            </div>
+            <div v-else-if="studioSideNav === 'audio'" class="studio-placeholder-card">
+              <p>音频库功能开发中，敬请期待。</p>
+            </div>
+            <template v-else>
+              <div v-if="studioContentTab === 'live'" class="studio-placeholder-card">
+                <p>{{ studioMsg || "直播内容尚未接入。" }}</p>
+              </div>
+              <div v-else-if="studioLoading" class="studio-placeholder-card">加载中…</div>
+              <div v-else class="studio-table-panel">
+                <table class="studio-table">
+                  <thead>
+                    <tr>
+                      <th>视频</th>
+                      <th>公开范围</th>
+                      <th>日期</th>
+                      <th>观看次数</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-if="!studioRows.length">
+                      <td colspan="4" class="studio-table-empty">没有可显示的内容</td>
+                    </tr>
+                    <tr v-for="row in studioRows" :key="row.id">
+                      <td>
+                        <div class="studio-td-video">
+                          <img :src="row.avatarUrl || profileBanner" alt="" class="studio-thumb" />
+                          <span>{{ row.title }}</span>
+                        </div>
+                      </td>
+                      <td>公开</td>
+                      <td>—</td>
+                      <td>{{ row.viewsText }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="studio-pager">
+                  <button
+                    type="button"
+                    class="studio-pager-btn"
+                    :disabled="studioPageNo <= 1"
+                    @click="studioPageNo--; loadStudioVideos()"
+                  >
+                    上一页
+                  </button>
+                  <span class="studio-pager-info">{{ studioPageNo }} / {{ Math.max(1, studioPages || 1) }}</span>
+                  <button
+                    type="button"
+                    class="studio-pager-btn"
+                    :disabled="studioPageNo >= (studioPages || 1)"
+                    @click="studioPageNo++; loadStudioVideos()"
+                  >
+                    下一页
+                  </button>
+                </div>
+                <p v-if="studioMsg && studioContentTab !== 'live'" class="studio-hint">{{ studioMsg }}</p>
+                <button type="button" class="studio-upload-fab" @click="openUploadModal">上传视频</button>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <template v-else>
+        <div v-if="activeMenuKey === 'home' && !showProfileCenter" class="home-feed-header">
+          <nav class="home-category-bar" role="navigation" aria-label="视频分类">
+            <button
+              v-for="chip in VIDEO_CATEGORY_CHIPS"
+              :key="chip.key"
+              type="button"
+              class="home-chip"
+              :class="{ 'home-chip--active': homeCategoryKey === chip.key }"
+              @click="selectHomeCategory(chip)"
+            >
+              {{ chip.label }}
+            </button>
+          </nav>
+        </div>
+
         <section v-if="showProfileCenter" class="profile-page">
           <input
             ref="avatarFileInput"
@@ -2420,14 +3379,201 @@ onBeforeUnmount(() => {
             :class="{ 'video-card--playable': videoCardPlayable(card) }"
             @click="onVideoCardClick(card)"
           >
-            <img class="video-cover" :src="getCardCover(index)" :alt="card.title" />
+            <img class="video-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
             <div class="video-info">
-              <strong>{{ card.title }}</strong>
-              <span>{{ card.author }} · {{ card.viewsText || "1.2万次观看" }}</span>
+              <img
+                class="video-card-author-avatar"
+                :src="cardAuthorAvatar(card, index)"
+                alt=""
+                @error="(e) => (e.target.src = profileAvatar)"
+              />
+              <div class="video-info-text">
+                <strong>{{ card.title }}</strong>
+                <span>{{ cardAuthorLabel(card) }} · {{ card.viewsText || "1.2万次观看" }}</span>
+              </div>
             </div>
           </article>
         </section>
+        </template>
       </main>
+
+      <div v-if="showVideoDetail" class="video-detail-page video-detail-page--layer">
+        <div v-if="detailLoading" class="video-detail-loading">加载中…</div>
+        <template v-else-if="videoDetail">
+          <div class="video-detail-layout">
+            <div class="video-detail-main">
+              <div class="video-detail-player-wrap">
+                <video
+                  v-if="videoDetail.videoUrl"
+                  :key="String(videoDetail.id)"
+                  ref="detailPlayerRef"
+                  class="video-detail-player"
+                  controls
+                  playsinline
+                  preload="auto"
+                  autoplay
+                  :poster="videoDetail.coverUrl || undefined"
+                  :src="videoDetail.videoUrl"
+                  @canplay="onDetailVideoCanPlay"
+                  @loadeddata="() => void tryDetailVideoAutoplay()"
+                  @loadedmetadata="() => void tryDetailVideoAutoplay()"
+                  @canplaythrough="() => void tryDetailVideoAutoplay()"
+                  @volumechange="onDetailVideoVolumeChange"
+                />
+                <div v-else class="video-detail-player-empty">暂无播放地址</div>
+                <p v-if="detailAutoplayMutedFallback" class="video-detail-autoplay-hint">
+                  浏览器限制自动播放已静音，请点播放器音量图标开声
+                </p>
+              </div>
+              <h1 class="video-detail-title">{{ videoDetail.title }}</h1>
+              <div class="video-detail-meta-row">
+                <div class="video-detail-channel">
+                  <div class="video-detail-channel-avatar-wrap">
+                    <img
+                      :src="detailAuthorAvatar"
+                      alt=""
+                      class="video-detail-channel-avatar"
+                      @error="(e) => (e.target.src = profileAvatar)"
+                    />
+                  </div>
+                  <div class="video-detail-channel-text">
+                    <strong>{{ videoDetail.authorNickname }}</strong>
+                    <span>{{ detailFanText }}</span>
+                  </div>
+                  <button type="button" class="video-detail-subscribe" disabled>关注</button>
+                </div>
+                <div class="video-detail-actions">
+                  <button type="button" class="video-detail-action-pill" disabled>
+                    <i class="ri-thumb-up-line"></i> {{ videoDetail.likeCount ?? 0 }}
+                  </button>
+                  <button type="button" class="video-detail-action-pill" disabled>
+                    <i class="ri-share-forward-line"></i> 分享
+                  </button>
+                </div>
+              </div>
+              <p class="video-detail-views">{{ videoDetail.viewsText }}</p>
+              <p v-if="detailErrorMsg" class="video-detail-api-hint">{{ detailErrorMsg }}</p>
+              <p v-if="videoDetail.description" class="video-detail-desc">{{ videoDetail.description }}</p>
+
+              <section class="video-detail-comments" aria-label="评论区">
+                <div class="video-detail-comments-head">
+                  <h3>评论</h3>
+                  <span class="video-detail-comments-note">（评论功能即将接入后端）</span>
+                  <button type="button" class="video-detail-sort-btn" disabled>
+                    <i class="ri-menu-line"></i> 排序
+                  </button>
+                </div>
+                <div class="video-detail-comment-input">
+                  <img :src="topbarAvatarSrc" alt="" class="video-detail-comment-avatar" @error="onTopbarAvatarError" />
+                  <input type="text" class="video-detail-comment-field" disabled placeholder="添加评论…" />
+                </div>
+                <ul class="video-detail-comments-mock">
+                  <li v-for="(c, ci) in detailMockComments" :key="ci" class="video-detail-comment-item">
+                    <img :src="c.avatar" alt="" class="video-detail-comment-avatar" />
+                    <div>
+                      <div class="video-detail-comment-meta">
+                        <span class="video-detail-comment-user">{{ c.user }}</span>
+                        <span class="video-detail-comment-time">{{ c.time }}</span>
+                      </div>
+                      <p class="video-detail-comment-text">{{ c.text }}</p>
+                      <div class="video-detail-comment-actions">
+                        <span><i class="ri-thumb-up-line"></i> {{ c.likes }}</span>
+                        <span>回复</span>
+                      </div>
+                    </div>
+                  </li>
+                </ul>
+              </section>
+            </div>
+
+            <aside class="video-detail-side" aria-label="更多内容">
+              <div class="video-detail-side-chips">
+                <button
+                  v-for="tab in detailSidebarTabs"
+                  :key="tab.key"
+                  type="button"
+                  class="video-detail-chip"
+                  :class="{ 'video-detail-chip--active': detailSidebarTab === tab.key }"
+                  @click="setDetailSidebarTab(tab.key)"
+                >
+                  {{ tab.label }}
+                </button>
+              </div>
+              <div ref="detailSidebarScrollRef" class="video-detail-side-scroll" @scroll.passive="onDetailSidebarScroll">
+                <p v-if="detailSidebarLoading && !detailSidebarList.length" class="video-detail-side-hint">加载中…</p>
+                <button
+                  v-for="item in detailSidebarList"
+                  :key="item.id"
+                  type="button"
+                  class="video-detail-side-item"
+                  :class="{ 'video-detail-side-item--current': isSidebarItemNowPlaying(item) }"
+                  @click="openVideoDetailFromSidebar(item)"
+                >
+                  <div class="video-detail-side-thumb-wrap">
+                    <img :src="item.coverUrl || item.avatarUrl || profileBanner" alt="" class="video-detail-side-thumb" />
+                    <div
+                      v-if="isSidebarItemNowPlaying(item)"
+                      class="video-detail-now-playing"
+                      aria-hidden="true"
+                    >
+                      <i class="ri-play-fill video-detail-now-playing-icon" aria-hidden="true"></i>
+                      <span class="video-detail-now-playing-text">正在播放</span>
+                    </div>
+                  </div>
+                  <div class="video-detail-side-info">
+                    <span class="video-detail-side-title">{{ item.title }}</span>
+                    <span class="video-detail-side-sub">{{ cardAuthorLabel(item) }} · {{ item.viewsText }}</span>
+                  </div>
+                </button>
+                <p v-if="detailSidebarLoadingMore" class="video-detail-side-hint">加载更多…</p>
+                <p v-if="!detailSidebarLoading && !detailSidebarList.length" class="video-detail-side-hint">暂无推荐</p>
+              </div>
+            </aside>
+          </div>
+        </template>
+      </div>
+
+      <input
+        ref="uploadFileInputRef"
+        type="file"
+        accept="video/*"
+        class="visually-hidden"
+        aria-hidden="true"
+        @change="onUploadInputOrDrop"
+      />
+
+      <div
+        v-if="uploadModalOpen"
+        class="modal-overlay upload-modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label="上传视频"
+        @click.self="closeUploadModal"
+      >
+        <div class="upload-modal" @click.stop>
+          <div class="upload-modal-head">
+            <h3>上传视频</h3>
+            <button type="button" class="upload-modal-close" aria-label="关闭" @click="closeUploadModal">
+              <i class="ri-close-line"></i>
+            </button>
+          </div>
+          <div
+            class="upload-modal-drop"
+            @dragover.prevent
+            @drop.prevent="onUploadInputOrDrop"
+          >
+            <div class="upload-modal-icon">
+              <i class="ri-upload-cloud-2-line"></i>
+            </div>
+            <p class="upload-modal-main-text">将要上传的视频文件拖放到此处</p>
+            <p class="upload-modal-sub">你的视频在发布之前将处于私享状态。</p>
+            <button type="button" class="upload-modal-select" @click="triggerUploadPick">选择文件</button>
+          </div>
+          <p class="upload-modal-foot">
+            上传即表示你同意平台服务条款与社区准则。请勿侵犯他人版权或隐私。
+          </p>
+        </div>
+      </div>
     </div>
   </div>
 </template>

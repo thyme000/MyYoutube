@@ -2,6 +2,8 @@ package cn.diaojiahong.myyoutube.video.domain.vo;
 
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -17,7 +19,8 @@ import java.time.LocalDateTime;
 public class VideoDetailVO {
 
     // 视频id
-    private Long id;
+    @JsonSerialize(using = ToStringSerializer.class)
+    private String id;
     // 标题
     private String title;
     // 简介/描述
