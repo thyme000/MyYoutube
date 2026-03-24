@@ -88,6 +88,11 @@
 			<version>3.17.4</version>
 			<scope>compile</scope>
 		</dependency>
+		<dependency>
+			<groupId>com.aliyun</groupId>
+			<artifactId>aliyun-java-sdk-sts</artifactId>
+			<version>3.1.0</version>
+		</dependency>
 
 		<!--commons.io-->
 		<dependency>

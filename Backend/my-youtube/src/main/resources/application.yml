@@ -73,3 +73,7 @@ my-youtube:
     access-key-secret: ${ALIOSS_ACCESS_KEY_SECRET}
     endpoint: ${ALIOSS_ENDPOINT}
 
+  sts:
+    access-key-id: ${STS_ACCESS_KEY_ID}
+    access-key-secret: ${STS_ACCESS_KEY_SECRET}
+    role-arn: ${STS_ROLE_ARN}

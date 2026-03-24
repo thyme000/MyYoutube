@@ -15,6 +15,7 @@ E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\co
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\comment\service\IVideoCommentService.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\constants\RabbitMqConstants.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\constants\RedisConstants.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\exception\BizException.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\page\PageQuery.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\page\PageResult.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\properties\AliOssProperties.java
@@ -23,6 +24,7 @@ E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\co
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\schedule\VideoPlayCountScheduleJob.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\AliOssUtil.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\CaptchaUtils.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\DownLoadMP4ToTemp.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\PasswordEncoder.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\RegexPatterns.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\RegexUtils.java
@@ -30,13 +32,19 @@ E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\co
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\UserContext.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\VideoAutoCoverUtil.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\common\utils\VideoPlayCountShardUtil.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\config\OssClientConfig.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\config\RabbitMqConfig.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\config\SwaggerConfig.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\config\WebMvcConfig.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\handler\GlobalExceptionHandler.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\Interceptor\LoginInterceptor.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\mq\listener\VideoCoverListener.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\mq\message\VideoCoverMessage.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\MyYoutubeApplication.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\other\controller\OtherController.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\other\domain\vo\OssStsVO.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\other\service\impl\OtherService.java
+E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\other\service\IOtherService.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\user\controller\UserController.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\user\domain\dto\UserDTO.java
 E:\cursor\MyYoutube\Backend\my-youtube\src\main\java\cn\diaojiahong\myyoutube\user\domain\po\User.java

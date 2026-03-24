@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.utils;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.properties.AliOssProperties;
 import com.aliyun.oss.*;
 import com.aliyun.oss.common.auth.CredentialsProviderFactory;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.io.ByteArrayInputStream;
+import java.net.URI;
 import java.net.URL;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -40,7 +42,17 @@ public class AliOssUtil {
      */
     public String upload(byte[] bytes, String originalFilename, Long userId, String bizPrefix) {
         String objectKey = buildUniqueObjectKey(userId, bizPrefix, originalFilename);
-        return putObject(bytes, objectKey);
+        putObject(bytes, objectKey);
+        return buildObjectUrl(objectKey);
+    }
+
+    /**
+     * 上传文件并返回 objectKey（私有桶推荐入库该值）。
+     */
+    public String uploadForObjectKey(byte[] bytes, String originalFilename, Long userId, String bizPrefix) {
+        String objectKey = buildUniqueObjectKey(userId, bizPrefix, originalFilename);
+        putObject(bytes, objectKey);
+        return objectKey;
     }
 
     /**
@@ -98,7 +110,63 @@ public class AliOssUtil {
         return base;
     }
 
-    private String putObject(byte[] bytes, String objectKey) {
+    /**
+     * 将输入统一为 objectKey：
+     * - 已是 key：原样返回
+     * - 是 http/https URL：提取 path 作为 key
+     */
+    public String normalizeToObjectKey(String keyOrUrl) {
+        if (!StringUtils.hasText(keyOrUrl)) {
+            return keyOrUrl;
+        }
+        String value = keyOrUrl.trim();
+        if (!(value.startsWith("http://") || value.startsWith("https://"))) {
+            return value;
+        }
+        try {
+            URI uri = URI.create(value);
+            String path = uri.getPath();
+            if (!StringUtils.hasText(path)) {
+                return value;
+            }
+            return path.startsWith("/") ? path.substring(1) : path;
+        } catch (Exception e) {
+            log.warn("URL 转 objectKey 失败，原样返回: {}", value);
+            return value;
+        }
+    }
+
+    /**
+     * 生成私有读 GET 预签名 URL。
+     * 支持传入 objectKey 或 URL（会自动提取 key）。
+     */
+    public String signGetUrl(String keyOrUrl, long expireSeconds) {
+        if (!StringUtils.hasText(keyOrUrl)) {
+            return keyOrUrl;
+        }
+        String objectKey = normalizeToObjectKey(keyOrUrl);
+        if (!StringUtils.hasText(objectKey)) {
+            return keyOrUrl;
+        }
+        String endpoint = properties.getEndpoint();
+        String accessKeyId = properties.getAccessKeyId();
+        String accessKeySecret = properties.getAccessKeySecret();
+        String bucketName = properties.getBucketName();
+
+        OSS ossClient = new OSSClientBuilder().build(endpoint, accessKeyId, accessKeySecret);
+        try {
+            GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucketName, objectKey, HttpMethod.GET);
+            request.setExpiration(new Date(System.currentTimeMillis() + Math.max(1, expireSeconds) * 1000L));
+            return ossClient.generatePresignedUrl(request).toString();
+        } catch (Exception e) {
+            log.warn("生成 GET 预签名失败，降级返回原值: {}", objectKey, e);
+            return keyOrUrl;
+        } finally {
+            ossClient.shutdown();
+        }
+    }
+
+    private void putObject(byte[] bytes, String objectKey) {
         String endpoint = properties.getEndpoint();
         String accessKeyId = properties.getAccessKeyId();
         String accessKeySecret = properties.getAccessKeySecret();
@@ -115,124 +183,26 @@ public class AliOssUtil {
             System.out.println("Error Code:" + oe.getErrorCode());
             System.out.println("Request ID:" + oe.getRequestId());
             System.out.println("Host ID:" + oe.getHostId());
+
+            throw new BizException(BizException.OSS_ERROR, oe.getMessage());
         } catch (ClientException ce) {
             System.out.println("Caught an ClientException, which means the client encountered "
                     + "a serious internal problem while trying to communicate with OSS, "
                     + "such as not being able to access the network.");
             System.out.println("Error Message:" + ce.getMessage());
+
+            throw new BizException(BizException.OSS_ERROR, "oss连接异常");
         } finally {
             ossClient.shutdown();
         }
 
-        String url = "https://" + bucketName + "." + endpoint + "/" + objectKey;
-        log.info("文件上传到: {}", url);
-        return url;
+        log.info("文件上传到 objectKey: {}", objectKey);
     }
 
-    /**
-     * 生成put预签名(上传)
-     * @param objectName Object完整路径中不能包含Bucket名称。
-     */
-    public static String GetPutSignUrl(String objectName) throws Throwable {
-        // 以华东1（杭州）的外网Endpoint为例，其它Region请按实际情况填写。
-        String endpoint = "https://oss-cn-hangzhou.aliyuncs.com";
-        // 从环境变量中获取访问凭证。运行本代码示例之前，请确保已设置环境变量OSS_ACCESS_KEY_ID和OSS_ACCESS_KEY_SECRET。
-        EnvironmentVariableCredentialsProvider credentialsProvider = CredentialsProviderFactory.newEnvironmentVariableCredentialsProvider();
-        // 填写Bucket名称，例如examplebucket。
-        String bucketName = "thyme";
-        // 填写Bucket所在地域。以华东1（杭州）为例，Region填写为cn-hangzhou。
-        String region = "ap-southeast-1";
-
-        // 创建OSSClient实例。
-        // 当OSSClient实例不再使用时，调用shutdown方法以释放资源。
-        ClientBuilderConfiguration clientBuilderConfiguration = new ClientBuilderConfiguration();
-        clientBuilderConfiguration.setSignatureVersion(SignVersion.V4);
-        OSS ossClient = OSSClientBuilder.create()
-                .endpoint(endpoint)
-                .credentialsProvider(credentialsProvider)
-                .clientConfiguration(clientBuilderConfiguration)
-                .region(region)
-                .build();
-
-        URL signedUrl = null;
-        try {
-            // 指定生成的预签名URL过期时间，单位为毫秒。
-            Date expiration = new Date(System.currentTimeMillis() + 3600 * 1000L); // 两天
-
-            // 生成预签名URL。
-            GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucketName, objectName, HttpMethod.PUT);
-            // 设置过期时间。
-            request.setExpiration(expiration);
-            // 通过HTTP PUT请求生成预签名URL。
-            signedUrl = ossClient.generatePresignedUrl(request);
-            // 打印预签名URL。
-            System.out.println("signed url for putObject: " + signedUrl);
-
-        } catch (OSSException oe) {
-            System.out.println("Caught an OSSException, which means your request made it to OSS, "
-                    + "but was rejected with an error response for some reason.");
-            System.out.println("Error Message:" + oe.getErrorMessage());
-            System.out.println("Error Code:" + oe.getErrorCode());
-            System.out.println("Request ID:" + oe.getRequestId());
-            System.out.println("Host ID:" + oe.getHostId());
-        } catch (ClientException ce) {
-            System.out.println("Caught an ClientException, which means the client encountered "
-                    + "a serious internal problem while trying to communicate with OSS, "
-                    + "such as not being able to access the network.");
-            System.out.println("Error Message:" + ce.getMessage());
-        }
-
-        return signedUrl == null ? null : signedUrl.toString();
-    }
-
-    /**
-     * 生成get签名(下载)
-     * @param objectName Object完整路径中不能包含Bucket名称。
-     * @throws Throwable
-     */
-    public static String getSignUrlForGetObject(String objectName) throws Throwable {
-        // 以华东1（杭州）的外网Endpoint为例，其它Region请按实际情况填写。
-        String endpoint = "https://oss-cn-hangzhou.aliyuncs.com";
-        // 从环境变量中获取访问凭证。运行本代码示例之前，请确保已设置环境变量OSS_ACCESS_KEY_ID和OSS_ACCESS_KEY_SECRET。
-        EnvironmentVariableCredentialsProvider credentialsProvider = CredentialsProviderFactory.newEnvironmentVariableCredentialsProvider();
-        // 填写Bucket名称，例如examplebucket。
-        String bucketName = "thyme";
-        // 填写Bucket所在地域。以华东1（杭州）为例，Region填写为cn-hangzhou。
-        String region = "ap-southeast-1";
-
-        // 创建OSSClient实例。
-        // 当OSSClient实例不再使用时，调用shutdown方法以释放资源。
-        ClientBuilderConfiguration clientBuilderConfiguration = new ClientBuilderConfiguration();
-        clientBuilderConfiguration.setSignatureVersion(SignVersion.V4);
-        OSS ossClient = OSSClientBuilder.create()
-                .endpoint(endpoint)
-                .credentialsProvider(credentialsProvider)
-                .clientConfiguration(clientBuilderConfiguration)
-                .region(region)
-                .build();
-        URL url = null;
-        try {
-            // 设置预签名URL过期时间，单位为毫秒。本示例以设置过期时间为1小时为例。
-            Date expiration = new Date(System.currentTimeMillis() + 3600 * 1000L);
-            // 生成以GET方法访问的预签名URL。本示例没有额外请求头，其他人可以直接通过浏览器访问相关内容。
-            url = ossClient.generatePresignedUrl(bucketName, objectName, expiration);
-        } catch (OSSException oe) {
-            System.out.println("Caught an OSSException, which means your request made it to OSS, "
-                    + "but was rejected with an error response for some reason.");
-            System.out.println("Error Message:" + oe.getErrorMessage());
-            System.out.println("Error Code:" + oe.getErrorCode());
-            System.out.println("Request ID:" + oe.getRequestId());
-            System.out.println("Host ID:" + oe.getHostId());
-        } catch (ClientException ce) {
-            System.out.println("Caught an ClientException, which means the client encountered "
-                    + "a serious internal problem while trying to communicate with OSS, "
-                    + "such as not being able to access the network.");
-            System.out.println("Error Message:" + ce.getMessage());
-        } finally {
-            if (ossClient != null) {
-                ossClient.shutdown();
-            }
-        }
-        return url == null ? null : url.toString();
+    private String buildObjectUrl(String objectKey) {
+        String endpoint = properties.getEndpoint();
+        String bucketName = properties.getBucketName();
+        String host = endpoint.replaceFirst("^https?://", "");
+        return "https://" + bucketName + "." + host + "/" + objectKey;
     }
 }

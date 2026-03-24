@@ -50,7 +50,7 @@ public class VideoCoverListener {
         Path taskDir = null;
 
         try {
-            if (msg.getVideoOssUrl() == null || msg.getVideoOssUrl().isBlank()) {
+            if (msg.getVideoOssObjectKey() == null || msg.getVideoOssObjectKey().isBlank()) {
                 url = VideoAutoCoverUtil.DEFAULT_FALLBACK_COVER_URL;
             } else {
                 String taskId = java.util.UUID.randomUUID().toString().replace("-", "");
@@ -61,7 +61,9 @@ public class VideoCoverListener {
                 Files.createDirectories(taskDir);
 
                 // 1) 下载视频到本地
-                tempPath = DownLoadMP4ToTemp.downloadToFixedDir(msg.getVideoOssUrl(), taskDir, ".mp4");
+                tempPath = DownLoadMP4ToTemp.downloadToFixedDir(
+                        aliOssUtil.signGetUrl(msg.getVideoOssObjectKey(), 3600 * 2),
+                        taskDir, ".mp4");
 
                 // 2) 生成封面
                 VideoAutoCoverUtil.Options opt = new VideoAutoCoverUtil.Options();
@@ -76,7 +78,7 @@ public class VideoCoverListener {
                 if (result.selectedCoverPath() != null) {
                     byte[] bytes = Files.readAllBytes(result.selectedCoverPath());
                     String fileName = result.selectedCoverPath().getFileName().toString();
-                    url = aliOssUtil.upload(bytes, fileName, msg.getUserId(), PREFIX_OSS);
+                    url = aliOssUtil.uploadForObjectKey(bytes, fileName, msg.getUserId(), PREFIX_OSS);
                 } else {
                     url = (result.selectedCoverUrl() != null && !result.selectedCoverUrl().isBlank())
                             ? result.selectedCoverUrl()
@@ -109,7 +111,7 @@ public class VideoCoverListener {
         }
 
         videoService.lambdaUpdate()
-                .set(Video::getCoverUrl, url)
+                .set(Video::getCoverUrl, aliOssUtil.normalizeToObjectKey(url))
                 .eq(Video::getId, msg.getVideoId())
                 .update();
     }

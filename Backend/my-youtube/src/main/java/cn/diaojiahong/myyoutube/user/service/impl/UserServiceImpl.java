@@ -31,6 +31,7 @@ import java.io.IOException;
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
 
     private final AliOssUtil aliOssUtil;
+    private static final Long OSS_EXPIRE = 60 * 2L;// 2小时过期时间
 
     @Override
     public Result<UserVO> getUserInfo() {
@@ -38,46 +39,48 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
         User user = getById(userDTO.getId());
 
+        user.setAvatarUrl(aliOssUtil.signGetUrl(user.getAvatarUrl(), OSS_EXPIRE));
+        user.setBgImage(aliOssUtil.signGetUrl(user.getBgImage(), OSS_EXPIRE));
+
         return Result.success(BeanUtil.toBean(user, UserVO.class));
     }
 
     @Override
     public Result<String> updateAvatar(MultipartFile avatar) {
-        String upload = updateFile(avatar, "avatar");
+        String upload = getUpdatedUrl(avatar, "avatar");
         if (upload == null) {
             return Result.fail("上传头像失败");
         }
         // 更新用户头像url
-        User user = getById(UserContext.getUser().getId());
-        user.setAvatarUrl(upload);
-        updateById(user);
-
+        lambdaUpdate()
+                .set(User::getAvatarUrl, upload)
+                .eq(User::getId, UserContext.getUser().getId())
+                .update();
         return Result.success(upload);
     }
 
-    private String updateFile(MultipartFile file, String bizPrefix) {
+    private String getUpdatedUrl(MultipartFile file, String bizPrefix) {
         byte[] bytes = null;
         try {
             bytes = file.getBytes();
         } catch (IOException e) {
-            return null;
+            log.error("更新头像或背景图片失败...", e);
         }
-        String originalFilename = file.getOriginalFilename();
-        Long userId = UserContext.getUser().getId();
-        return aliOssUtil.upload(bytes, originalFilename, userId, bizPrefix);
+        return aliOssUtil.uploadForObjectKey(bytes, file.getOriginalFilename(),
+                UserContext.getUser().getId(), bizPrefix);
     }
 
     @Override
     public Result<String> updateBgImage(MultipartFile bgImage) {
-        String upload = updateFile(bgImage, "bg");
+        String upload = getUpdatedUrl(bgImage, "bg");
         if (upload == null) {
             return Result.fail("上传背景图片失败");
         }
-        // 更新用户背景图片(bgImage);
-        User user = getById(UserContext.getUser().getId());
-        user.setBgImage(upload);
-        updateById(user);
-
+        // 更新用户头像url
+        lambdaUpdate()
+                .set(User::getBgImage, upload)
+                .eq(User::getId, UserContext.getUser().getId())
+                .update();
         return Result.success(upload);
     }
 

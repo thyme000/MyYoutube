@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.VideoPlayCountShardUtil;
 import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
@@ -51,8 +52,10 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     private final IUserService userService;
     private final StringRedisTemplate redisTemplate;
     private final RabbitTemplate rabbitTemplate;
+    private final AliOssUtil aliOssUtil;
 
     private static final int SHORT_VIDEO_DURATION = 300;
+    private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 2 * 60 * 60;
 
     @Override
     public Result<String> publishVideo(VideoDTO videoDTO) {
@@ -66,6 +69,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
 
         Video video = BeanUtil.toBean(videoDTO, Video.class);
+        video.setVideoUrl(aliOssUtil.normalizeToObjectKey(video.getVideoUrl()));
 
         video.setAuthorId(user.getId());
 
@@ -79,6 +83,15 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
 
         save(video);
+
+        // 发送消息给RabbitMQ,用于自动生成视频封面
+        rabbitTemplate.convertAndSend(RabbitMqConstants.VIDEO_COVER_EXCHANGE,
+                RabbitMqConstants.VIDEO_COVER_ROUTING_KEY,
+                VideoCoverMessage.builder()
+                        .videoId(video.getId())
+                        .userId(UserContext.getUser().getId())
+                        .videoOssObjectKey(videoDTO.getVideoUrl())
+                        .build());
 
         return Result.success("视频发布成功,等待审核中...");
     }
@@ -111,6 +124,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .map(VideoVoConverter::toListVo)
                 .collect(Collectors.toList());
         fillAuthorNicknames(list);
+        signListCoverUrls(list);
         return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
     }
 
@@ -126,6 +140,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
 
         VideoDetailVO detailVo = VideoVoConverter.toDetailVo(video);
+        detailVo.setVideoUrl(aliOssUtil.signGetUrl(detailVo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+        detailVo.setCoverUrl(aliOssUtil.signGetUrl(detailVo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
 
         if (!video.getAuthorId().equals(UserContext.getUser().getId())) {
             // 增加播放量：写入分片 Hash，避免单 key 过大（field 仍为 videoId 字符串）
@@ -160,6 +176,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                     .map(VideoVoConverter::toListVo)
                     .toList();
             fillAuthorNicknames(list);
+            signListCoverUrls(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         } else if (pageQuery.getVideoType().getCode().equals(SHORT_VIDEO.getCode())) {
             // 查询短视频
@@ -168,6 +185,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .map(VideoVoConverter::toListVo)
                     .toList();
             fillAuthorNicknames(list);
+            signListCoverUrls(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         } else {
             // 查询长视频
@@ -176,6 +194,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                     .map(VideoVoConverter::toListVo)
                     .toList();
             fillAuthorNicknames(list);
+            signListCoverUrls(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         }
     }
@@ -198,6 +217,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         List<MyVideoListVO> result = list.getRecords().stream()
                 .map(VideoVoConverter::toMyListVo)
                 .toList();
+        signMyListCoverUrls(result);
         log.info("查询用户 {} 的视频列表，共 {} 条", UserContext.getUser().getId(), result.size());
         return Result.success(PageResult.of(list.getTotal(), list.getPages(), result));
     }
@@ -237,6 +257,24 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                     vo.setAuthorNickname(nick);
                 }
             }
+        }
+    }
+
+    private void signListCoverUrls(List<VideoListVO> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        for (VideoListVO vo : list) {
+            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+        }
+    }
+
+    private void signMyListCoverUrls(List<MyVideoListVO> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        for (MyVideoListVO vo : list) {
+            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 
