@@ -1,16 +1,20 @@
 package cn.diaojiahong.myyoutube.video.service.impl;
 
+import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.utils.VideoPlayCountShardUtil;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.domain.vo.MyVideoListVO;
 import cn.diaojiahong.myyoutube.video.domain.vo.VideoDetailVO;
 import cn.diaojiahong.myyoutube.video.domain.vo.VideoListVO;
 import cn.diaojiahong.myyoutube.video.domain.vo.VideoVoConverter;
@@ -22,6 +26,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -43,6 +49,8 @@ import static cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum.SHORT_VI
 public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements IVideoService {
 
     private final IUserService userService;
+    private final StringRedisTemplate redisTemplate;
+    private final RabbitTemplate rabbitTemplate;
 
     private static final int SHORT_VIDEO_DURATION = 300;
 
@@ -119,6 +127,12 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
         VideoDetailVO detailVo = VideoVoConverter.toDetailVo(video);
 
+        if (!video.getAuthorId().equals(UserContext.getUser().getId())) {
+            // 增加播放量：写入分片 Hash，避免单 key 过大（field 仍为 videoId 字符串）
+            String playPendingKey = VideoPlayCountShardUtil.redisHashKey(videoId);
+            redisTemplate.opsForHash().increment(playPendingKey, String.valueOf(videoId), 1);
+        }
+
         // 获取作者的信息
         User author = userService.getById(video.getAuthorId());
         detailVo.setAuthorFanCount(author.getFans());
@@ -164,6 +178,37 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             fillAuthorNicknames(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         }
+    }
+
+    @Override
+    public Result<PageResult<MyVideoListVO>> getMyVideoList(VideoPageQuery pageQuery) {
+        Page<Video> page = pageQuery.toPage();
+
+        LambdaQueryWrapper<Video> q = new LambdaQueryWrapper<>();
+        q.eq(Video::getAuthorId, UserContext.getUser().getId());
+        if (pageQuery.getVisibility() != null) {
+            q.eq(Video::getVisibility, pageQuery.getVisibility().getCode());
+        }
+        if (pageQuery.getVideoType() != null) {
+            q.eq(Video::getVideoType, pageQuery.getVideoType().getCode());
+        }
+        q.orderByDesc(Video::getCreateTime);
+        Page<Video> list = page(page, q);
+
+        List<MyVideoListVO> result = list.getRecords().stream()
+                .map(VideoVoConverter::toMyListVo)
+                .toList();
+        log.info("查询用户 {} 的视频列表，共 {} 条", UserContext.getUser().getId(), result.size());
+        return Result.success(PageResult.of(list.getTotal(), list.getPages(), result));
+    }
+
+    @Override
+    public Result<String> generateVideoCover(VideoCoverMessage videoCoverMessage) {
+        // 发送消息给rabbitMQ,异步去获取视频封面
+        rabbitTemplate.convertAndSend(RabbitMqConstants.VIDEO_COVER_EXCHANGE,
+                RabbitMqConstants.VIDEO_COVER_ROUTING_KEY, videoCoverMessage);
+        log.info("发送视频封面消息到 rabbitMQ, 视频id: {}", videoCoverMessage.getVideoId());
+        return Result.success("发布成功");
     }
 
     /**

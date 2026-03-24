@@ -3,8 +3,10 @@ package cn.diaojiahong.myyoutube.video.controller;
 
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
+import cn.diaojiahong.myyoutube.video.domain.vo.MyVideoListVO;
 import cn.diaojiahong.myyoutube.video.domain.vo.VideoDetailVO;
 import cn.diaojiahong.myyoutube.video.domain.vo.VideoListVO;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
@@ -71,6 +73,28 @@ public class VideoController {
     @Operation(summary = "获取作者视频列表")
     public Result<PageResult<VideoListVO>> getVideoListByAuthorId(@PathVariable Long authorId, @ModelAttribute VideoPageQuery pageQuery) {
         return videoService.getVideoListByAuthorId(authorId, pageQuery);
+    }
+
+    /**
+     * 获取我的视频列表
+     * @param pageQuery 分页参数
+     * @return
+     */
+    @GetMapping("/me/list")
+    @Operation(summary = "获取我的视频列表")
+    public Result<PageResult<MyVideoListVO>> getMyVideoList(@ModelAttribute VideoPageQuery pageQuery) {
+        return videoService.getMyVideoList(pageQuery);
+    }
+
+    /**
+     * 根据用户上传的视频,自动生成封面
+     * @param request 视频url
+     * @return
+     */
+    @Operation(summary = "自动生成视频封面")
+    @PostMapping("/generate-cover")
+    public Result<String> generateCover(@RequestBody VideoCoverMessage request) {
+        return videoService.generateVideoCover(request);
     }
 
 }

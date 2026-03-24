@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -31,5 +32,8 @@ public class VideoPageQuery extends PageQuery {
 
     // 视频类型
     private VideoTypeEnum videoType;
+
+    // 视频可见性
+    private VideoVisibilityEnum visibility;
 
 }

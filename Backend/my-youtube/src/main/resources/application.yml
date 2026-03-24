@@ -37,6 +37,13 @@ spring:
           min-idle: 1
           max-wait: 1000ms
 
+  # === RabbitMQ ===
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
 server:
   port: ${SERVER_PORT:8080}
 

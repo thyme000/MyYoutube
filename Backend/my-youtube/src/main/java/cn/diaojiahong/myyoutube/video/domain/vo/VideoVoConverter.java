@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.video.domain.vo;
 
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.bean.copier.CopyOptions;
 
 /**
  * 实体 {@link Video} → 对外 VO：与项目里用户侧 VO 一样，优先用 BeanUtil 拷贝，status 等与实体类型不一致的再手动设。
@@ -29,11 +28,16 @@ public final class VideoVoConverter {
             return null;
         }
         VideoDetailVO vo = new VideoDetailVO();
-        BeanUtil.copyProperties(
-                v,
-                vo,
-                CopyOptions.create());
+        BeanUtil.copyProperties(v, vo);
         return vo;
     }
 
+    public static MyVideoListVO toMyListVo(Video v) {
+        if (v == null) {
+            return null;
+        }
+        MyVideoListVO vo = new MyVideoListVO();
+        BeanUtil.copyProperties(v, vo);
+        return vo;
+    }
 }

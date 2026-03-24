@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.video.domain.vo;
 
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.AllArgsConstructor;
@@ -34,13 +35,13 @@ public class VideoListVO {
     private Long playCount;
     // 点赞数
     private Long likeCount;
+    // 创建时间
+    private LocalDateTime createTime;
 
     // 作者用户 id
     private Long authorId;
     // 作者昵称
     private String authorNickname;
     // 可见范围 public / private / unlisted
-    private String visibility;
-    // 创建时间
-    private LocalDateTime createTime;
+    private VideoVisibilityEnum visibility;
 }

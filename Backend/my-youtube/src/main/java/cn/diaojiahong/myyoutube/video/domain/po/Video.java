@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.video.domain.po;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -112,7 +113,7 @@ public class Video implements Serializable {
     /**
      * 可见范围（public/private/unlisted）
      */
-    private String visibility;
+    private VideoVisibilityEnum visibility;
 
     /**
      * 是否允许评论（0-不允许，1-允许）

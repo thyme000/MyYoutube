@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.video.domain.vo;
 
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.AllArgsConstructor;
@@ -48,7 +49,7 @@ public class VideoDetailVO {
     // 分享数
     private Long shareCount;
     // 可见范围
-    private String visibility;
+    private VideoVisibilityEnum visibility;
     // 是否允许评论 0/1
     private Integer allowComment;
     // 发布地区

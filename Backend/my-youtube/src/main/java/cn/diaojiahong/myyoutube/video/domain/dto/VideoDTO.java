@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.video.domain.dto;
 
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -18,11 +19,6 @@ public class VideoDTO {
      * 视频简介/描述
      */
     private String description;
-
-    /**
-     * 封面图地址
-     */
-    private String coverUrl;
 
     /**
      * 视频文件地址
@@ -46,7 +42,7 @@ public class VideoDTO {
     /**
      * 可见范围（public/private/unlisted）
      */
-    private String visibility;
+    private VideoVisibilityEnum visibility;
 
     /**
      * 是否允许评论（0-不允许，1-允许）
