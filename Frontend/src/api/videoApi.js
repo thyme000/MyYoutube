@@ -69,11 +69,20 @@ export function normalizeVideoListVo(item, index) {
       : item.viewsText ?? "—";
   const cover = item.coverUrl ?? "";
   const nick = pickAuthorNickname(item);
+  const likeRaw = item.likeCount ?? item.likes ?? item.likeNum;
+  let likeCount;
+  if (likeRaw != null && likeRaw !== "") {
+    const n = Number(likeRaw);
+    likeCount = Number.isFinite(n) ? n : undefined;
+  } else {
+    likeCount = undefined;
+  }
   return {
     id: safeVideoId(item.id, `v-${index}`),
     title: item.title ?? "未命名视频",
     author: nick || (item.authorId != null ? `用户 ${item.authorId}` : "频道"),
     viewsText,
+    likeCount,
     videoUrl: item.videoUrl ?? "",
     coverUrl: cover,
     /** 封面图（与 coverUrl 一致，兼容旧模板） */
@@ -182,6 +191,14 @@ export async function fetchVideoDetail(videoId) {
  */
 export async function fetchAuthorVideos(authorId, query = {}) {
   const data = await httpRequest(`/videos/${authorId}`, { method: "GET", query });
+  return normalizePageResult(data);
+}
+
+/**
+ * GET /videos/me/list 我的作品分页（需登录）
+ */
+export async function fetchMyVideos(query = {}) {
+  const data = await httpRequest("/videos/me/list", { method: "GET", query });
   return normalizePageResult(data);
 }
 

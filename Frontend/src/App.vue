@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import OSS from "ali-oss";
 import { clearToken, getApiBaseUrl, getToken, setToken } from "./api/http";
 import {
   forgotPasswordApi,
@@ -14,10 +15,12 @@ import {
   searchVideos,
   fetchVideoListPage,
   fetchAuthorVideos,
+  fetchMyVideos,
   fetchVideoDetail,
   normalizeVideoDetail,
   publishVideo,
 } from "./api/videoApi";
+import { getOssSts } from "./api/otherApi";
 import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
 import {
   getUserInfo,
@@ -154,6 +157,34 @@ const studioLoading = ref(false);
 const studioMsg = ref("");
 const uploadModalOpen = ref(false);
 const uploadFileInputRef = ref(null);
+const uploadForm = ref({
+  title: "",
+  description: "",
+  category: "LIFE",
+  visibility: "PUBLIC",
+  tags: "",
+  allowComment: 1,
+});
+const uploadPickedFile = ref(null);
+const uploadPickedDuration = ref(0);
+const uploadSubmitting = ref(false);
+const uploadMsg = ref("");
+const uploadProgress = ref(0);
+const uploadCategoryOptions = [
+  { value: "GAME", label: "游戏" },
+  { value: "MOVIE", label: "影视" },
+  { value: "MUSIC", label: "音乐" },
+  { value: "KNOWLEDGE", label: "知识" },
+  { value: "LIFE", label: "生活" },
+  { value: "TECH", label: "科技" },
+  { value: "ENTERTAINMENT", label: "娱乐" },
+  { value: "OTHER", label: "其他" },
+];
+const uploadVisibilityOptions = [
+  { value: "PUBLIC", label: "公开" },
+  { value: "PRIVATE", label: "私有" },
+  { value: "UNLISTED", label: "不公开" },
+];
 /** 视频详情页 */
 const showVideoDetail = ref(false);
 const videoDetail = ref(null);
@@ -234,7 +265,7 @@ const DEMO_VIDEO_LANDSCAPE =
 const DEMO_VIDEO_PORTRAIT =
   "https://assets.mixkit.co/videos/preview/mixkit-tree-with-yellow-flowers-1173-large.mp4";
 
-const profileWorks = [
+const profileWorksFallback = [
   {
     id: "work-1",
     title: "直到某一天 你的行为不再左右我",
@@ -292,6 +323,44 @@ const profileWorks = [
     videoUrl: DEMO_VIDEO_LANDSCAPE,
   },
 ];
+
+const profileWorksRows = ref([]);
+const profileWorksLoading = ref(false);
+const feedScope = ref("shorts");
+const profileFeedQueue = ref([]);
+const profileFeedOpen = ref(false);
+
+function formatWorkLikeText(item) {
+  const v = item?.likeCount ?? item?.likes;
+  if (v === undefined || v === null || v === "") {
+    return "—";
+  }
+  if (typeof v === "string" && /[万千]/.test(v)) {
+    return v;
+  }
+  const num = Number(v);
+  if (!Number.isFinite(num)) {
+    return "—";
+  }
+  if (num >= 10000) {
+    return `${(num / 10000).toFixed(1)}万`;
+  }
+  return String(num);
+}
+
+const profileWorksDisplay = computed(() => {
+  if (profileWorksRows.value.length) {
+    return profileWorksRows.value.map((item) => ({
+      id: item.id,
+      title: item.title || "未命名视频",
+      image: item.coverUrl || item.avatarUrl || profileBanner,
+      likes: formatWorkLikeText(item),
+      videoUrl: resolveVideoUrl(item),
+    }));
+  }
+  return profileWorksFallback;
+});
+
 const avatarImgError = ref(false);
 const bgImgError = ref(false);
 
@@ -1052,6 +1121,9 @@ async function openVideoDetail(card) {
   if (!card) {
     return;
   }
+  if (profileFeedOpen.value) {
+    closeProfileFeed();
+  }
   detailAutoplayMutedFallback.value = false;
   const wasAlreadyInDetail = showVideoDetail.value;
   showVideoDetail.value = true;
@@ -1237,7 +1309,7 @@ function openVideoDetailFromSidebar(item) {
 }
 
 function onShortsFeedFgEnded() {
-  const n = cards.value.length;
+  const n = unifiedFeedList.value.length;
   if (n <= 1) {
     const v = shortsFeedFgRef.value;
     const bg = shortsFeedBgRef.value;
@@ -1290,6 +1362,9 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
 }
 
 async function setActiveMenu(menu) {
+  if (profileFeedOpen.value) {
+    closeProfileFeed();
+  }
   showStudio.value = false;
   uploadModalOpen.value = false;
   if (showVideoDetail.value) {
@@ -1343,6 +1418,9 @@ function onCreate() {
   if (showStudio.value) {
     uploadModalOpen.value = true;
     return;
+  }
+  if (profileFeedOpen.value) {
+    closeProfileFeed();
   }
   showStudio.value = true;
   if (showVideoDetail.value) {
@@ -1439,10 +1517,15 @@ async function loadStudioVideos() {
 }
 
 function openUploadModal() {
+  uploadMsg.value = "";
+  uploadProgress.value = 0;
   uploadModalOpen.value = true;
 }
 
 function closeUploadModal() {
+  if (uploadSubmitting.value) {
+    return;
+  }
   uploadModalOpen.value = false;
 }
 
@@ -1468,8 +1551,9 @@ function onUploadInputOrDrop(e) {
   if (!f) {
     return;
   }
-  pageHint.value = `已选择：${f.name}（视频文件需后端存储与发布接口，当前为前端占位）`;
-  uploadModalOpen.value = false;
+  uploadPickedFile.value = f;
+  uploadMsg.value = `已选择：${f.name}`;
+  void readVideoDuration(f);
 }
 
 function onTopbarAvatarError(evt) {
@@ -1509,6 +1593,38 @@ async function loadProfileUser() {
   } finally {
     profileLoading.value = false;
     applyCropsFromStorage();
+  }
+  void loadProfileWorks();
+}
+
+async function loadProfileWorks() {
+  const uid = profileTargetUserId.value ?? currentUserId.value;
+  if (!uid) {
+    profileWorksRows.value = [];
+    return;
+  }
+  profileWorksLoading.value = true;
+  try {
+    const isSelf = profileTargetUserId.value == null;
+    const [longRes, shortRes] = isSelf
+      ? await Promise.all([
+          fetchMyVideos({ pageNo: 1, pageSize: 24, videoType: "LONG_VIDEO" }),
+          fetchMyVideos({ pageNo: 1, pageSize: 24, videoType: "SHORT_VIDEO" }),
+        ])
+      : await Promise.all([
+          fetchAuthorVideos(uid, { pageNo: 1, pageSize: 24, videoType: "LONG_VIDEO" }),
+          fetchAuthorVideos(uid, { pageNo: 1, pageSize: 24, videoType: "SHORT_VIDEO" }),
+        ]);
+    const map = new Map();
+    for (const item of [...(longRes?.list || []), ...(shortRes?.list || [])]) {
+      if (!item?.id) continue;
+      map.set(String(item.id), item);
+    }
+    profileWorksRows.value = Array.from(map.values());
+  } catch {
+    profileWorksRows.value = [];
+  } finally {
+    profileWorksLoading.value = false;
   }
 }
 
@@ -1737,8 +1853,203 @@ function videoCardPlayable(card) {
   return Boolean(resolveVideoUrl(card));
 }
 
+function sanitizeUploadFilename(name) {
+  const base = String(name || "video.mp4").replace(/[^a-zA-Z0-9._-]/g, "_");
+  return base || "video.mp4";
+}
+
+function buildUploadObjectKey(sts, file) {
+  const dir = String(sts?.dir || "uploads/video/anonymous/");
+  const safeDir = dir.endsWith("/") ? dir : `${dir}/`;
+  const safeFile = sanitizeUploadFilename(file?.name);
+  return `${safeDir}${Date.now()}-${Math.random().toString(16).slice(2, 10)}-${safeFile}`;
+}
+
+function tryParseJsonLike(input) {
+  if (typeof input !== "string") return input;
+  const text = input.trim();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
+function pickStsField(obj, keys) {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+  }
+  return "";
+}
+
+function deepCollectObjects(input, out = []) {
+  const node = tryParseJsonLike(input);
+  if (!node) return out;
+  if (Array.isArray(node)) {
+    node.forEach((it) => deepCollectObjects(it, out));
+    return out;
+  }
+  if (typeof node !== "object") return out;
+  out.push(node);
+  Object.values(node).forEach((v) => deepCollectObjects(v, out));
+  return out;
+}
+
+function normalizeStsPayload(raw) {
+  const r0 = tryParseJsonLike(raw);
+  const x0 = r0?.data ?? r0?.result ?? r0 ?? {};
+  const objects = deepCollectObjects(x0, []);
+  let finalObj = {};
+  for (const obj of objects) {
+    const accessKeyId = pickStsField(obj, ["accessKeyId", "AccessKeyId", "accessKeyID", "ak", "access_key_id"]);
+    const accessKeySecret = pickStsField(obj, ["accessKeySecret", "AccessKeySecret", "sk", "access_key_secret"]);
+    const securityToken = pickStsField(obj, ["securityToken", "SecurityToken", "stsToken", "token"]);
+    const bucket = pickStsField(obj, ["bucket", "bucketName", "Bucket", "bucket_name"]);
+    const region = pickStsField(obj, ["region", "Region", "regionId"]);
+    if (accessKeyId || accessKeySecret || securityToken || bucket || region) {
+      finalObj = obj;
+      break;
+    }
+  }
+  if (!Object.keys(finalObj).length && r0 && typeof r0 === "object") {
+    finalObj = r0;
+  }
+  return {
+    accessKeyId: pickStsField(finalObj, ["accessKeyId", "AccessKeyId", "accessKeyID", "ak", "access_key_id"]),
+    accessKeySecret: pickStsField(finalObj, ["accessKeySecret", "AccessKeySecret", "sk", "access_key_secret"]),
+    securityToken: pickStsField(finalObj, ["securityToken", "SecurityToken", "stsToken", "token"]),
+    bucket: pickStsField(finalObj, ["bucket", "bucketName", "Bucket", "bucket_name"]),
+    endpoint: pickStsField(finalObj, ["endpoint", "EndPoint", "host"]),
+    region: pickStsField(finalObj, ["region", "Region", "regionId"]),
+    dir: pickStsField(finalObj, ["dir", "uploadDir", "prefix"]) || "uploads/video/anonymous/",
+    expiration: pickStsField(finalObj, ["expiration", "Expiration"]),
+    __rawKeys: Object.keys(finalObj),
+    __rawType: Array.isArray(r0) ? "array" : typeof r0,
+  };
+}
+
+function createOssClient(sts) {
+  const regionRaw = String(sts?.region || "").trim();
+  const region = regionRaw.startsWith("oss-") ? regionRaw : `oss-${regionRaw}`;
+  return new OSS({
+    region,
+    accessKeyId: sts.accessKeyId,
+    accessKeySecret: sts.accessKeySecret,
+    stsToken: sts.securityToken,
+    bucket: sts.bucket,
+    secure: true,
+  });
+}
+
+function readVideoDuration(file) {
+  return new Promise((resolve) => {
+    try {
+      const el = document.createElement("video");
+      const objectUrl = URL.createObjectURL(file);
+      el.preload = "metadata";
+      el.src = objectUrl;
+      el.onloadedmetadata = () => {
+        const sec = Number.isFinite(el.duration) ? Math.max(1, Math.ceil(el.duration)) : 0;
+        uploadPickedDuration.value = sec;
+        URL.revokeObjectURL(objectUrl);
+        resolve(sec);
+      };
+      el.onerror = () => {
+        uploadPickedDuration.value = 0;
+        URL.revokeObjectURL(objectUrl);
+        resolve(0);
+      };
+    } catch {
+      uploadPickedDuration.value = 0;
+      resolve(0);
+    }
+  });
+}
+
+async function submitUploadVideo() {
+  if (uploadSubmitting.value) {
+    return;
+  }
+  const file = uploadPickedFile.value;
+  if (!file) {
+    uploadMsg.value = "请先选择视频文件";
+    return;
+  }
+  const title = String(uploadForm.value.title || "").trim();
+  if (!title) {
+    uploadMsg.value = "请填写视频标题";
+    return;
+  }
+  uploadSubmitting.value = true;
+  uploadMsg.value = "正在获取上传凭证…";
+  uploadProgress.value = 0;
+  try {
+    const rawSts = await getOssSts();
+    const sts = normalizeStsPayload(rawSts);
+    if (!sts.accessKeyId || !sts.accessKeySecret || !sts.securityToken || !sts.bucket || !sts.region) {
+      throw new Error(
+        `STS 凭证不完整（缺少 accessKeyId/accessKeySecret/securityToken/bucket/region）。响应类型：${sts.__rawType || "unknown"}；已收到字段：${(sts.__rawKeys || []).join(",") || "无"}`,
+      );
+    }
+    const client = createOssClient(sts);
+    const objectKey = buildUploadObjectKey(sts, file);
+    uploadMsg.value = "正在上传到 OSS…";
+    await client.put(objectKey, file, {
+      progress: (p) => {
+        uploadProgress.value = Math.max(0, Math.min(100, Math.round((p || 0) * 100)));
+      },
+    });
+
+    const duration = uploadPickedDuration.value || (await readVideoDuration(file));
+    uploadMsg.value = "正在发布视频…";
+    await publishVideo({
+      title,
+      description: String(uploadForm.value.description || "").trim(),
+      videoUrl: objectKey,
+      duration: Number(duration || 1),
+      category: uploadForm.value.category,
+      tags: String(uploadForm.value.tags || "").trim(),
+      visibility: uploadForm.value.visibility,
+      allowComment: Number(uploadForm.value.allowComment ? 1 : 0),
+    });
+
+    uploadMsg.value = "上传并发布成功";
+    pageHint.value = `已发布：${title}`;
+    uploadModalOpen.value = false;
+    uploadPickedFile.value = null;
+    uploadPickedDuration.value = 0;
+    uploadForm.value = {
+      title: "",
+      description: "",
+      category: "LIFE",
+      visibility: "PUBLIC",
+      tags: "",
+      allowComment: 1,
+    };
+    if (showStudio.value) {
+      void loadStudioVideos();
+    }
+    if (showProfileCenter.value) {
+      void loadProfileWorks();
+    }
+  } catch (e) {
+    uploadMsg.value = `发布失败：${e.message || e}`;
+  } finally {
+    uploadSubmitting.value = false;
+  }
+}
+
+const unifiedFeedList = computed(() => {
+  if (feedScope.value === "profile") {
+    return profileFeedQueue.value;
+  }
+  return cards.value;
+});
+
 const shortsFeedCurrent = computed(() => {
-  const list = cards.value;
+  const list = unifiedFeedList.value;
   if (!list.length) {
     return null;
   }
@@ -1839,7 +2150,7 @@ function onVideoCardClick(card) {
 }
 
 function shortsFeedPrev() {
-  const n = cards.value.length;
+  const n = unifiedFeedList.value.length;
   if (!n) {
     return;
   }
@@ -1847,7 +2158,7 @@ function shortsFeedPrev() {
 }
 
 function shortsFeedNext() {
-  const n = cards.value.length;
+  const n = unifiedFeedList.value.length;
   if (!n) {
     return;
   }
@@ -2057,11 +2368,50 @@ function onShortsFeedTouchEnd(ev) {
   }
 }
 
+function openProfileWorkFeed(item) {
+  const url = resolveVideoUrl(item);
+  if (!url) {
+    pageHint.value = "该内容暂无视频地址";
+    return;
+  }
+  const playableQueue = profileWorksRows.value.length
+    ? profileWorksRows.value.filter((x) => resolveVideoUrl(x))
+    : profileWorksFallback.filter((x) => resolveVideoUrl(x));
+  if (!playableQueue.length) {
+    pageHint.value = "没有可播放的作品";
+    return;
+  }
+  const idx = playableQueue.findIndex((x) => String(x.id) === String(item.id));
+  feedScope.value = "profile";
+  profileFeedQueue.value = playableQueue;
+  shortsFeedIndex.value = idx >= 0 ? idx : 0;
+  shortsFeedAutoplayPending.value = true;
+  profileFeedOpen.value = true;
+  nextTick(() => {
+    shortsFeedFgRef.value?.load();
+    shortsFeedBgRef.value?.load();
+  });
+}
+
+function closeProfileFeed() {
+  shortsFeedFgRef.value?.pause();
+  shortsFeedBgRef.value?.pause();
+  profileFeedOpen.value = false;
+  feedScope.value = "shorts";
+  profileFeedQueue.value = [];
+}
+
+function onProfileFeedKeydown(ev) {
+  if (ev.key === "Escape") {
+    closeProfileFeed();
+  }
+}
+
 function onWorkCardClick(item) {
   if (!resolveVideoUrl(item)) {
     return;
   }
-  openShortVideo(item);
+  openProfileWorkFeed(item);
 }
 
 function onShortPlayerKeydown(ev) {
@@ -2078,13 +2428,21 @@ watch(shortPlayerOpen, (open) => {
   }
 });
 
-watch(cards, (list) => {
+watch(unifiedFeedList, (list) => {
   if (!list.length) {
     shortsFeedIndex.value = 0;
     return;
   }
   if (shortsFeedIndex.value >= list.length) {
     shortsFeedIndex.value = 0;
+  }
+});
+
+watch(profileFeedOpen, (open) => {
+  if (open) {
+    window.addEventListener("keydown", onProfileFeedKeydown);
+  } else {
+    window.removeEventListener("keydown", onProfileFeedKeydown);
   }
 });
 
@@ -2941,7 +3299,7 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="profile-stat-row">
                   <span>作品数</span>
-                  <strong>{{ profileUser?.videoCount ?? profileWorks.length }}</strong>
+                  <strong>{{ profileUser?.videoCount ?? profileWorksDisplay.length }}</strong>
                 </div>
               </div>
               <div
@@ -2983,20 +3341,23 @@ onBeforeUnmount(() => {
           <section class="profile-works-section">
               <div class="profile-works-title">
                 <h4>作品列表</h4>
-                <span>共 {{ profileWorks.length }} 条</span>
+                <span>共 {{ profileWorksDisplay.length }} 条</span>
               </div>
+              <p v-if="profileWorksLoading" class="profile-api-hint">正在加载作品列表…</p>
               <div class="works-grid works-grid-profile">
                 <article
-                  v-for="item in profileWorks"
+                  v-for="item in profileWorksDisplay"
                   :key="item.id"
                   class="work-card"
                   :class="{ 'work-card--playable': resolveVideoUrl(item) }"
                   @click="onWorkCardClick(item)"
                 >
-                  <img :src="item.image" :alt="item.title" />
-                  <div class="work-overlay">
-                    <span class="work-like"><i class="ri-heart-line"></i> {{ item.likes }}</span>
-                    <p>{{ item.title }}</p>
+                  <div class="work-thumb">
+                    <img :src="item.image" :alt="item.title" />
+                    <span class="work-like work-like--bottom-left"><i class="ri-heart-line"></i> {{ item.likes }}</span>
+                  </div>
+                  <div class="work-meta">
+                    <p class="work-title">{{ item.title }}</p>
                   </div>
                 </article>
               </div>
@@ -3204,8 +3565,20 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <section v-if="!showProfileCenter && activeMenuKey === 'shorts'" class="shorts-feed">
-          <div v-if="loading" class="shorts-feed-loading">正在加载短视频…</div>
+        <section
+          v-if="profileFeedOpen || (!showProfileCenter && activeMenuKey === 'shorts')"
+          :class="profileFeedOpen ? 'profile-feed-overlay' : 'shorts-feed'"
+        >
+          <button
+            v-if="profileFeedOpen"
+            type="button"
+            class="profile-feed-close"
+            aria-label="关闭作品连播"
+            @click="closeProfileFeed"
+          >
+            <i class="ri-close-line"></i>
+          </button>
+          <div v-if="loading && !profileFeedOpen" class="shorts-feed-loading">正在加载短视频…</div>
           <template v-else-if="shortsFeedVideoSrc">
             <div class="shorts-feed-body">
               <div
@@ -3550,10 +3923,16 @@ onBeforeUnmount(() => {
         aria-label="上传视频"
         @click.self="closeUploadModal"
       >
-        <div class="upload-modal" @click.stop>
+        <form class="upload-modal" @submit.prevent="submitUploadVideo" @click.stop>
           <div class="upload-modal-head">
             <h3>上传视频</h3>
-            <button type="button" class="upload-modal-close" aria-label="关闭" @click="closeUploadModal">
+            <button
+              type="button"
+              class="upload-modal-close"
+              aria-label="关闭"
+              :disabled="uploadSubmitting"
+              @click="closeUploadModal"
+            >
               <i class="ri-close-line"></i>
             </button>
           </div>
@@ -3566,13 +3945,59 @@ onBeforeUnmount(() => {
               <i class="ri-upload-cloud-2-line"></i>
             </div>
             <p class="upload-modal-main-text">将要上传的视频文件拖放到此处</p>
-            <p class="upload-modal-sub">你的视频在发布之前将处于私享状态。</p>
-            <button type="button" class="upload-modal-select" @click="triggerUploadPick">选择文件</button>
+            <p class="upload-modal-sub">选择文件后将使用 STS 直传 OSS，再调用发布接口。</p>
+            <button type="button" class="upload-modal-select" :disabled="uploadSubmitting" @click="triggerUploadPick">
+              选择文件
+            </button>
+            <p v-if="uploadPickedFile" class="upload-picked-file">已选：{{ uploadPickedFile.name }}</p>
+            <p v-if="uploadPickedDuration" class="upload-progress-text">时长约 {{ uploadPickedDuration }} 秒</p>
+            <p v-if="uploadSubmitting" class="upload-progress-text">上传进度：{{ uploadProgress }}%</p>
           </div>
+
+          <div class="upload-meta-grid">
+            <label class="upload-field">
+              <span>标题</span>
+              <input v-model="uploadForm.title" type="text" maxlength="120" required placeholder="请输入视频标题" />
+            </label>
+            <label class="upload-field">
+              <span>分类</span>
+              <select v-model="uploadForm.category">
+                <option v-for="c in uploadCategoryOptions" :key="c.value" :value="c.value">{{ c.label }}</option>
+              </select>
+            </label>
+            <label class="upload-field upload-field--full">
+              <span>简介</span>
+              <textarea v-model="uploadForm.description" rows="3" maxlength="500" placeholder="请输入视频简介（可选）"></textarea>
+            </label>
+            <label class="upload-field">
+              <span>可见性</span>
+              <select v-model="uploadForm.visibility">
+                <option v-for="v in uploadVisibilityOptions" :key="v.value" :value="v.value">{{ v.label }}</option>
+              </select>
+            </label>
+            <label class="upload-field">
+              <span>标签</span>
+              <input v-model="uploadForm.tags" type="text" maxlength="200" placeholder="多个标签用逗号分隔" />
+            </label>
+            <label class="upload-field upload-field--full upload-switch">
+              <input v-model="uploadForm.allowComment" type="checkbox" :true-value="1" :false-value="0" />
+              <span>允许评论</span>
+            </label>
+          </div>
+
+          <p v-if="uploadMsg" class="upload-modal-msg">{{ uploadMsg }}</p>
           <p class="upload-modal-foot">
             上传即表示你同意平台服务条款与社区准则。请勿侵犯他人版权或隐私。
           </p>
-        </div>
+          <div class="upload-modal-actions">
+            <button type="button" class="upload-action upload-action--ghost" :disabled="uploadSubmitting" @click="closeUploadModal">
+              取消
+            </button>
+            <button type="submit" class="upload-action upload-action--primary" :disabled="uploadSubmitting">
+              {{ uploadSubmitting ? "发布中…" : "上传并发布" }}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
