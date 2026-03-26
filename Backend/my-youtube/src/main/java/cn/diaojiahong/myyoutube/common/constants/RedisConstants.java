@@ -28,4 +28,11 @@ public class RedisConstants {
         }
         return VIDEO_PLAY_COUNT + shard;
     }
+
+    // 用户看过的视频id
+    public static final String USER_VIEWED = "user:viewed:";
+    // 30天后过期
+    public static final Long USER_VIEWED_EXPIRE = 30L;
+    // 用户踩过的视频id
+    public static final String USER_DISLIKE = "user:dislike:";
 }

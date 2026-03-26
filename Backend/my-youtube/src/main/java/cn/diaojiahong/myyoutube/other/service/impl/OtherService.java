@@ -35,12 +35,12 @@ public class OtherService implements IOtherService {
         String dir = "uploads/video/" + userId + "/";
         String roleSessionName = "u-" + userId;
 
-        // 仅允许写自己目录
         String policy = String.format(
                 "{\"Version\":\"1\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"oss:PutObject\",\"oss:AbortMultipartUpload\",\"oss:ListParts\",\"oss:CompleteMultipartUpload\"],\"Resource\":[\"acs:oss:*:*:%s/%s*\"]}]}",
                 aliOssProperties.getBucketName(),
                 dir
         );
+
 
         DefaultProfile profile = DefaultProfile.getProfile(
                 "ap-southeast-1",
@@ -52,7 +52,7 @@ public class OtherService implements IOtherService {
         request.setSysMethod(com.aliyuncs.http.MethodType.POST);
         request.setRoleArn(roleArn);
         request.setRoleSessionName(roleSessionName);
-        request.setDurationSeconds(3600L); // 1小时
+        request.setDurationSeconds(3600 * 2L); // 2小时
         request.setPolicy(policy);
         AssumeRoleResponse response = null;
         try {

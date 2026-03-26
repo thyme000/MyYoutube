@@ -14,7 +14,10 @@ public enum VideoSortEnum {
     MOST_SHARED("mostShared", "最多分享"),
 
     /** 最多观看视频 */
-    MOST_PLAYED("mostPlayed", "最多观看");
+    MOST_PLAYED("mostPlayed", "最多观看"),
+
+    /** 推荐 */
+    RECOMMENDED("recommended", "推荐");
 
     /** 排序字段名 */
     private final String field;

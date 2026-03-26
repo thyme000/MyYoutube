@@ -7,6 +7,8 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
+import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
@@ -30,6 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
@@ -53,10 +56,13 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     private final StringRedisTemplate redisTemplate;
     private final RabbitTemplate rabbitTemplate;
     private final AliOssUtil aliOssUtil;
+    private final IVideoTagService videoTagService;
+    private final IRecommendService recommendService;
 
     private static final int SHORT_VIDEO_DURATION = 300;
     private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 2 * 60 * 60;
 
+    @Transactional
     @Override
     public Result<String> publishVideo(VideoDTO videoDTO) {
         if (StrUtils.isEmpty(videoDTO.getVideoUrl())) {
@@ -82,7 +88,16 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             video.setVideoType(LONG_VIDEO.getCode());
         }
 
+        // 判断用户有没有输入标签
+        if (StrUtils.isEmpty(videoDTO.getTags())) {
+            // 使用标题填充
+            video.setTags(videoDTO.getTitle().replaceAll("\\s+", ","));
+        }
+
         save(video);
+
+        // 异步保存到标签表中
+        videoTagService.saveTagsAsync(video.getTags(), video.getId(), video);
 
         // 发送消息给RabbitMQ,用于自动生成视频封面
         rabbitTemplate.convertAndSend(RabbitMqConstants.VIDEO_COVER_EXCHANGE,
@@ -93,11 +108,48 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                         .videoOssObjectKey(videoDTO.getVideoUrl())
                         .build());
 
-        return Result.success("视频发布成功,等待审核中...");
+        return Result.success(video.getId() + "/" + "视频发布成功,等待审核中....");
     }
 
     @Override
     public Result<PageResult<VideoListVO>> getVideoList(VideoPageQuery pageQuery) {
+        UserDTO user = UserContext.getUser();
+
+        // 推荐视频
+        if (pageQuery.getSort() == VideoSortEnum.RECOMMENDED) {
+            List<Long> ids = recommendService.recommend(
+                    user.getId(),
+                    pageQuery.getCategory() != null ? pageQuery.getCategory().getCode() : null,
+                    pageQuery.getVideoType() != null ? pageQuery.getVideoType().getCode() : null,
+                    pageQuery.getPageNo(),
+                    pageQuery.getPageSize()
+            );
+            if (!ids.isEmpty()) {
+                // 用 MySQL 按 ids 批量查详情（保持字段一致）
+                List<Video> videos = listByIds(ids);
+                // 保持 ES 返回的顺序
+                Map<Long, Video> map = videos.stream()
+                        .collect(Collectors.toMap(Video::getId, v -> v));
+                List<VideoListVO> list = ids.stream()
+                        .map(map::get)
+                        .filter(Objects::nonNull)
+                        .map(VideoVoConverter::toListVo)
+                        .toList();
+                fillAuthorNicknames(list);
+                signListCoverUrls(list);
+
+                // TODO暂时用 list.size() < pageSize 来判断是否还有下一页
+                long total = list.size() < pageQuery.getPageSize() ?
+                        (long)(pageQuery.getPageNo() - 1) * pageQuery.getPageSize() + list.size() :
+                        (long)pageQuery.getPageNo() * pageQuery.getPageSize() + 1;
+                long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
+
+                return Result.success(PageResult.of(total, pages, list));
+            }
+
+        }
+
+        // 普通视频
         Page<Video> page = pageQuery.toPage();
         LambdaQueryWrapper<Video> q = new LambdaQueryWrapper<>();
         q.eq(Video::getIsDelete, 0);
@@ -105,8 +157,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (pageQuery.getCategory() != null) {
             q.eq(Video::getCategory, pageQuery.getCategory());
         }
-        if (pageQuery.getUserId() != null) {
-            q.eq(Video::getAuthorId, pageQuery.getUserId());
+        if (pageQuery.getAuthorId() != null) {
+            q.eq(Video::getAuthorId, pageQuery.getAuthorId());
+            q.ne(Video::getAuthorId, user.getId());
         }
         if (pageQuery.getBegin() != null) {
             q.ge(Video::getCreateTime, pageQuery.getBegin());
@@ -288,6 +341,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             case MOST_LIKED -> q.orderByDesc(Video::getLikeCount);
             case MOST_SHARED -> q.orderByDesc(Video::getShareCount);
             case MOST_PLAYED -> q.orderByDesc(Video::getPlayCount);
+            case RECOMMENDED -> q.orderByDesc(Video::getPlayCount);
             default -> q.orderByDesc(Video::getCreateTime);
         }
     }

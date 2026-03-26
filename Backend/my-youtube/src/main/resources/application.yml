@@ -9,6 +9,10 @@ spring:
       max-file-size: 500MB
       max-request-size: 500MB
 
+  # ===== Elasticsearch =====
+  elasticsearch:
+    uris: http://localhost:9201
+
   # ===== MySQL 数据源 =====
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver

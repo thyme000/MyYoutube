@@ -21,8 +21,8 @@ public class VideoPageQuery extends PageQuery {
     // 结束时间
     private LocalDateTime end;
 
-    // 用户id
-    private Long userId;
+    // 作者id
+    private Long authorId;
 
     // 视频标签
     private String tags;
