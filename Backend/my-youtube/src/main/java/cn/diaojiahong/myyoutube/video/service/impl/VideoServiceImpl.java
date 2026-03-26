@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.video.service.impl;
 
 import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.VideoPlayCountShardUtil;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -17,10 +19,7 @@ import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.domain.vo.MyVideoListVO;
-import cn.diaojiahong.myyoutube.video.domain.vo.VideoDetailVO;
-import cn.diaojiahong.myyoutube.video.domain.vo.VideoListVO;
-import cn.diaojiahong.myyoutube.video.domain.vo.VideoVoConverter;
+import cn.diaojiahong.myyoutube.video.domain.vo.*;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
@@ -34,10 +33,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.PUBLISHED;
@@ -114,6 +110,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     @Override
     public Result<PageResult<VideoListVO>> getVideoList(VideoPageQuery pageQuery) {
         UserDTO user = UserContext.getUser();
+        if (user == null) {
+            throw new BizException(BizException.USER_ERROR, "用户信息获取失败");
+        }
 
         // 推荐视频
         if (pageQuery.getSort() == VideoSortEnum.RECOMMENDED) {
@@ -127,7 +126,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             if (!ids.isEmpty()) {
                 // 用 MySQL 按 ids 批量查详情（保持字段一致）
                 List<Video> videos = listByIds(ids);
-                // 保持 ES 返回的顺序
+                // 保持 ES 返回的顺序 (listByIds不保证返回的顺序)
                 Map<Long, Video> map = videos.stream()
                         .collect(Collectors.toMap(Video::getId, v -> v));
                 List<VideoListVO> list = ids.stream()
@@ -136,7 +135,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                         .map(VideoVoConverter::toListVo)
                         .toList();
                 fillAuthorNicknames(list);
-                signListCoverUrls(list);
+                signListCoverUrlsForVideoListVO(list);
 
                 // TODO暂时用 list.size() < pageSize 来判断是否还有下一页
                 long total = list.size() < pageQuery.getPageSize() ?
@@ -159,7 +158,6 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
         if (pageQuery.getAuthorId() != null) {
             q.eq(Video::getAuthorId, pageQuery.getAuthorId());
-            q.ne(Video::getAuthorId, user.getId());
         }
         if (pageQuery.getBegin() != null) {
             q.ge(Video::getCreateTime, pageQuery.getBegin());
@@ -171,13 +169,16 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             q.like(Video::getTags, pageQuery.getTags().trim());
         }
 
+        // 排除自己的视频
+        q.ne(Video::getAuthorId, user.getId());
+
         applySort(q, pageQuery.getSort());
         Page<Video> result = page(page, q.eq(Video::getStatus, PUBLISHED));
         List<VideoListVO> list = result.getRecords().stream()
                 .map(VideoVoConverter::toListVo)
                 .collect(Collectors.toList());
         fillAuthorNicknames(list);
-        signListCoverUrls(list);
+        signListCoverUrlsForVideoListVO(list);
         return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
     }
 
@@ -211,6 +212,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         return Result.success(detailVo);
     }
 
+
     @Override
     public Result<PageResult<VideoListVO>> getVideoListByAuthorId(Long authorId, VideoPageQuery pageQuery) {
         Page<Video> page = pageQuery.toPage();
@@ -229,7 +231,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                     .map(VideoVoConverter::toListVo)
                     .toList();
             fillAuthorNicknames(list);
-            signListCoverUrls(list);
+            signListCoverUrlsForVideoListVO(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         } else if (pageQuery.getVideoType().getCode().equals(SHORT_VIDEO.getCode())) {
             // 查询短视频
@@ -238,7 +240,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .map(VideoVoConverter::toListVo)
                     .toList();
             fillAuthorNicknames(list);
-            signListCoverUrls(list);
+            signListCoverUrlsForVideoListVO(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         } else {
             // 查询长视频
@@ -247,7 +249,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                     .map(VideoVoConverter::toListVo)
                     .toList();
             fillAuthorNicknames(list);
-            signListCoverUrls(list);
+            signListCoverUrlsForVideoListVO(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         }
     }
@@ -284,6 +286,50 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         return Result.success("发布成功");
     }
 
+    @Override
+    public Result<PageResult<ShortsVO>> getShortsFeed(PageQuery pageQuery) {
+        UserDTO user = UserContext.getUser();
+        if (user == null) {
+            throw new BizException(BizException.USER_ERROR, "用户信息获取失败");
+        }
+        // 获得推荐短视频id
+        List<Long> videoIds = recommendService.recommend(user.getId(),
+                null, SHORT_VIDEO.getCode(),
+                pageQuery.getPageNo(), pageQuery.getPageSize());
+        if (videoIds.isEmpty()) {
+            // 直接返回空列表
+            return Result.success(PageResult.of(0,0, Collections.emptyList()));
+        }
+        // 查询视频信息
+        List<Video> videos = listByIds(videoIds);
+        Map<Long, Video> map = videos.stream()
+                .collect(Collectors.toMap(Video::getId, v -> v));
+        List<ShortsVO> voList = videoIds.stream()
+                .map(map::get)
+                .filter(Objects::nonNull)
+                .map(VideoVoConverter::toShortsVo)
+                .toList();
+
+        // 获取所有作者id
+        List<Long> authorIds = voList.stream().map(ShortsVO::getAuthorId).toList();
+        // 查询作者昵称
+        Map<Long, String> authorNicknames = userService.getAuthorNicknames(authorIds);
+        // 填充
+        voList.forEach(vo -> vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId())));
+        // 签名封面url
+        signListCoverUrlsForShortsVO(voList);
+        // 签名视频url
+        signListVideoUrlForShortsVO(voList);
+
+        // TODO暂时用 list.size() < pageSize 来判断是否还有下一页
+        long total = voList.size() < pageQuery.getPageSize() ?
+                (long)(pageQuery.getPageNo() - 1) * pageQuery.getPageSize() + voList.size() :
+                (long)pageQuery.getPageNo() * pageQuery.getPageSize() + 1;
+        long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
+
+        return Result.success(PageResult.of(total, pages, voList));
+    }
+
     /**
      * 批量查询作者昵称，避免前端仅展示「用户 作者id」。
      */
@@ -313,12 +359,30 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
     }
 
-    private void signListCoverUrls(List<VideoListVO> list) {
+    private void signListCoverUrlsForVideoListVO(List<VideoListVO> list) {
         if (list == null || list.isEmpty()) {
             return;
         }
         for (VideoListVO vo : list) {
             vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+        }
+    }
+
+    private void signListCoverUrlsForShortsVO(List<ShortsVO> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        for (ShortsVO vo : list) {
+            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+        }
+    }
+
+    private void signListVideoUrlForShortsVO(List<ShortsVO> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        for (ShortsVO vo : list) {
+            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 

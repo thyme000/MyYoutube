@@ -56,6 +56,18 @@ public class RecommendServiceImpl implements IRecommendService {
         NativeQuery query;
         Pageable pageable = PageRequest.of(page - 1, size);
 
+        // 查询用户看过和踩过的视频id
+        Set<String> viewedVideoIds = redisTemplate.opsForSet().members(RedisConstants.USER_VIEWED + userId);
+        Set<String> dislikeVideoIds = redisTemplate.opsForSet().members(RedisConstants.USER_DISLIKE + userId);
+        // 合并
+        Set<String> excludeVideoIds = new HashSet<>();
+        if (viewedVideoIds != null) {
+            excludeVideoIds.addAll(viewedVideoIds);
+        }
+        if (dislikeVideoIds != null) {
+            excludeVideoIds.addAll(dislikeVideoIds);
+        }
+
         // 判断用户是否有偏好(新用户不具有偏好) -> 按热度推荐
         if (preferences.isEmpty()) {
             // 不具有
@@ -67,6 +79,9 @@ public class RecommendServiceImpl implements IRecommendService {
                                 }
                                 if (videoType != null) {
                                     b.must(m -> m.term(t -> t.field("videoType").value(videoType)));
+                                }
+                                if (!excludeVideoIds.isEmpty()) {
+                                    b.mustNot(m -> m.ids(ids -> ids.values(excludeVideoIds.stream().toList())));
                                 }
                                 b.mustNot(m -> m.term(t -> t.field("authorId").value(userId)));
                                 return b;
@@ -83,18 +98,6 @@ public class RecommendServiceImpl implements IRecommendService {
                             .weight((double) p.getScore())
                     ))
                     .toList();
-
-            // 查询用户看过和踩过的视频id
-            Set<String> viewedVideoIds = redisTemplate.opsForSet().members(RedisConstants.USER_VIEWED + userId);
-            Set<String> dislikeVideoIds = redisTemplate.opsForSet().members(RedisConstants.USER_DISLIKE + userId);
-            // 合并
-            Set<String> excludeVideoIds = new HashSet<>();
-            if (viewedVideoIds != null) {
-                excludeVideoIds.addAll(viewedVideoIds);
-            }
-            if (dislikeVideoIds != null) {
-                excludeVideoIds.addAll(dislikeVideoIds);
-            }
 
             query = NativeQuery.builder()
                     .withQuery(q -> q.functionScore(fs -> fs

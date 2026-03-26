@@ -10,6 +10,7 @@ public class BizException extends RuntimeException {
 
     public static final int OSS_ERROR = 10001;
     public static final int TAG_ERROR = 10002;
+    public static final int USER_ERROR = 10003;
 
     private final int code;
     private final String message;

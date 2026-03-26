@@ -12,7 +12,6 @@ import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserVideoBehaviorService;
 import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import jdk.jfr.Registered;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;

@@ -40,4 +40,13 @@ public final class VideoVoConverter {
         BeanUtil.copyProperties(v, vo);
         return vo;
     }
+
+    public static ShortsVO toShortsVo(Video v) {
+        if (v == null) {
+            return null;
+        }
+        ShortsVO vo = new ShortsVO();
+        BeanUtil.copyProperties(v, vo);
+        return vo;
+    }
 }

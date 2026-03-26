@@ -1,12 +1,14 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
 
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.vo.MyVideoListVO;
+import cn.diaojiahong.myyoutube.video.domain.vo.ShortsVO;
 import cn.diaojiahong.myyoutube.video.domain.vo.VideoDetailVO;
 import cn.diaojiahong.myyoutube.video.domain.vo.VideoListVO;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
@@ -97,4 +99,14 @@ public class VideoController {
         return videoService.generateVideoCover(request);
     }
 
+    /**
+     * 获取短视频列表(按用户喜好)
+     * @param pageQuery
+     * @return
+     */
+    @Operation(summary = "获取短视频列表")
+    @GetMapping("/shorts/feed")
+    public Result<PageResult<ShortsVO>> getShortsFeed(@ModelAttribute PageQuery pageQuery) {
+        return videoService.getShortsFeed(pageQuery);
+    }
 }
