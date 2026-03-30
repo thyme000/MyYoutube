@@ -1,20 +1,26 @@
 package cn.diaojiahong.myyoutube.common.schedule;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class VideoPlayCountScheduleJob {
+public class ScheduleJob {
 
     private final StringRedisTemplate redisTemplate;
     private final IVideoService videoService;
@@ -45,6 +51,36 @@ public class VideoPlayCountScheduleJob {
                 redisTemplate.opsForHash().delete(redisHashKey, videoId);
             } else {
                 log.warn("更新视频播放量失败, redisKey={}, 视频id:{}", redisHashKey, videoId);
+            }
+        }
+    }
+
+    /**
+     * 每周日执行一次
+     * 清理用户已过期的观看历史记录
+     */
+    @Scheduled(cron = "0 0 3 * * 0")
+    public void cleanUserExpiredVideoRecord() {
+        // 计算过期时间
+        long ts = System.currentTimeMillis();
+        long end = ts - 30L * 24 * 3600 * 1000;
+        // 清理过期记录
+        // 使用SCAN遍历清除所有用户的过期的播放记录
+        ScanOptions options = ScanOptions.scanOptions().match(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + "*").build();
+        try (Cursor<String> cursor = redisTemplate.scan(options)) {
+            while (cursor.hasNext()) {
+                String zsetKey = cursor.next();
+                String userId = zsetKey.split(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP)[1];
+                String hashKey = RedisConstants.USER_PLAYBACK_RESUME + userId;
+                // 获取过期的视频记录(id)
+                Set<String> videoIds = redisTemplate.opsForZSet().rangeByScore(zsetKey, 0, end);
+                // 清理过期记录
+                redisTemplate.opsForZSet().removeRangeByScore(zsetKey, 0, end);
+                if (videoIds == null || videoIds.isEmpty()) {
+                    return;
+                }
+                // 清理过期的视频记录
+                redisTemplate.opsForHash().delete(hashKey, videoIds);
             }
         }
     }

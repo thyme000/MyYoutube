@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
+import cn.diaojiahong.myyoutube.video.domain.dto.RecordUserWatchTimeDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.vo.MyVideoListVO;
@@ -110,5 +111,14 @@ public class VideoController {
         return videoService.getShortsFeed(pageQuery);
     }
 
-
+    /**
+     * 在redis中记录用户观看长视频的时长记录
+     * @param userWatchTimeDTO
+     * @return
+     */
+    @Operation(summary = "用户播放视频时长记录")
+    @PutMapping("/playback/resume")
+    public Result<Void> updatePlaybackResume(@RequestBody RecordUserWatchTimeDTO userWatchTimeDTO) {
+        return videoService.updatePlaybackResume(userWatchTimeDTO);
+    }
 }

@@ -1,10 +1,10 @@
 package cn.diaojiahong.myyoutube.video.service.impl;
 
 import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.utils.VideoPlayCountShardUtil;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
@@ -15,6 +15,7 @@ import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
+import cn.diaojiahong.myyoutube.video.domain.dto.RecordUserWatchTimeDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
@@ -35,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.PUBLISHED;
@@ -55,6 +57,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     private final AliOssUtil aliOssUtil;
     private final IVideoTagService videoTagService;
     private final IRecommendService recommendService;
+    private final StringRedisTemplate redisTemplate;
 
     private static final int SHORT_VIDEO_DURATION = 300;
     private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
@@ -187,6 +190,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
     @Override
     public Result<VideoDetailVO> getVideoDetail(Long videoId) {
+        if (UserContext.getUser() == null) {
+            throw new BizException(BizException.USER_ERROR, "用户信息获取失败");
+        }
         Video video = getById(videoId);
 
         if (video == null ) {
@@ -199,6 +205,15 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         VideoDetailVO detailVo = VideoVoConverter.toDetailVo(video);
         detailVo.setVideoUrl(aliOssUtil.signGetUrl(detailVo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         detailVo.setCoverUrl(aliOssUtil.signGetUrl(detailVo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+
+        // 查看历史播放记录,看是否有播放记录,如果有完成续播功能
+        Long playTime = (Long) redisTemplate
+                .opsForHash()
+                .get(RedisConstants.USER_PLAYBACK_RESUME + UserContext.getUser().getId(), videoId.toString());
+        if (playTime != null) {
+            // 说明存在播放记录,则设置播放时间
+            detailVo.setPlaybackTime(playTime);
+        }
 
         // 获取作者的信息
         User author = userService.getById(video.getAuthorId());
@@ -341,6 +356,18 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
 
         return Result.success(PageResult.of(total, pages, voList));
+    }
+
+    @Override
+    public Result<Void> updatePlaybackResume(RecordUserWatchTimeDTO userWatchTimeDTO) {
+        // 记录当前的时间戳
+        redisTemplate.opsForZSet().add(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userWatchTimeDTO.getUserId(),
+                userWatchTimeDTO.getVideoId().toString(),
+                System.currentTimeMillis());
+        // 记录用户观看的时长记录
+        redisTemplate.opsForHash().put(RedisConstants.USER_PLAYBACK_RESUME + userWatchTimeDTO.getUserId(),
+                userWatchTimeDTO.getVideoId().toString(), userWatchTimeDTO.getPlayTime());
+        return Result.success();
     }
 
     /**

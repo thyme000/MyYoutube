@@ -64,4 +64,6 @@ public class VideoDetailVO {
     private Long authorFanCount;
     // 作者头像的url地址
     private String authorAvatarUrl;
+    // 用户播放时间(毫秒)
+    private Long playbackTime;
 }
