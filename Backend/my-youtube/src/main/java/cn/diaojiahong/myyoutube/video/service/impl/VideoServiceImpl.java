@@ -33,10 +33,12 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.PUBLISHED;
+import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.REVIEW;
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum.LONG_VIDEO;
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum.SHORT_VIDEO;
 
@@ -49,14 +51,13 @@ import static cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum.SHORT_VI
 public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements IVideoService {
 
     private final IUserService userService;
-    private final StringRedisTemplate redisTemplate;
     private final RabbitTemplate rabbitTemplate;
     private final AliOssUtil aliOssUtil;
     private final IVideoTagService videoTagService;
     private final IRecommendService recommendService;
 
     private static final int SHORT_VIDEO_DURATION = 300;
-    private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 2 * 60 * 60;
+    private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
     @Transactional
     @Override
@@ -89,7 +90,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             // 使用标题填充
             video.setTags(videoDTO.getTitle().replaceAll("\\s+", ","));
         }
-
+        video.setCreateTime(LocalDateTime.now());
+        video.setStatus(REVIEW);
         save(video);
 
         // 异步保存到标签表中
@@ -136,7 +138,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                         .toList();
                 fillAuthorNicknames(list);
                 signListCoverUrlsForVideoListVO(list);
-
+                signListVideoUrlsForVideoListVO(list);
                 // TODO暂时用 list.size() < pageSize 来判断是否还有下一页
                 long total = list.size() < pageQuery.getPageSize() ?
                         (long)(pageQuery.getPageNo() - 1) * pageQuery.getPageSize() + list.size() :
@@ -179,6 +181,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .collect(Collectors.toList());
         fillAuthorNicknames(list);
         signListCoverUrlsForVideoListVO(list);
+        signListVideoUrlsForVideoListVO(list);
         return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
     }
 
@@ -196,12 +199,6 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         VideoDetailVO detailVo = VideoVoConverter.toDetailVo(video);
         detailVo.setVideoUrl(aliOssUtil.signGetUrl(detailVo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         detailVo.setCoverUrl(aliOssUtil.signGetUrl(detailVo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
-
-        if (!video.getAuthorId().equals(UserContext.getUser().getId())) {
-            // 增加播放量：写入分片 Hash，避免单 key 过大（field 仍为 videoId 字符串）
-            String playPendingKey = VideoPlayCountShardUtil.redisHashKey(videoId);
-            redisTemplate.opsForHash().increment(playPendingKey, String.valueOf(videoId), 1);
-        }
 
         // 获取作者的信息
         User author = userService.getById(video.getAuthorId());
@@ -255,26 +252,37 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     }
 
     @Override
-    public Result<PageResult<MyVideoListVO>> getMyVideoList(VideoPageQuery pageQuery) {
+    public Result<PageResult<VideoListVO>> getMyVideoList(VideoPageQuery pageQuery) {
         Page<Video> page = pageQuery.toPage();
 
         LambdaQueryWrapper<Video> q = new LambdaQueryWrapper<>();
         q.eq(Video::getAuthorId, UserContext.getUser().getId());
-        if (pageQuery.getVisibility() != null) {
-            q.eq(Video::getVisibility, pageQuery.getVisibility().getCode());
-        }
+        q.orderByDesc(Video::getCreateTime);
         if (pageQuery.getVideoType() != null) {
             q.eq(Video::getVideoType, pageQuery.getVideoType().getCode());
         }
-        q.orderByDesc(Video::getCreateTime);
+        if (pageQuery.getVisibility() != null) {
+            // 查询指定可见性
+            q.eq(Video::getVisibility, pageQuery.getVisibility().getCode());
+        }
         Page<Video> list = page(page, q);
 
-        List<MyVideoListVO> result = list.getRecords().stream()
-                .map(VideoVoConverter::toMyListVo)
+        List<VideoListVO> result = list.getRecords().stream()
+                .map(VideoVoConverter::toListVo)
                 .toList();
-        signMyListCoverUrls(result);
+        // 封面url
+        signListCoverUrlsForVideoListVO(result);
+        // 视频url
+        signListVideoUrlsForVideoListVO(result);
         log.info("查询用户 {} 的视频列表，共 {} 条", UserContext.getUser().getId(), result.size());
         return Result.success(PageResult.of(list.getTotal(), list.getPages(), result));
+    }
+
+    private void signListVideoUrlsForVideoListVO(List<VideoListVO> list) {
+        if (list.isEmpty()) {
+            return;
+        }
+        list.forEach(vo -> vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS)));
     }
 
     @Override
@@ -314,8 +322,13 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         List<Long> authorIds = voList.stream().map(ShortsVO::getAuthorId).toList();
         // 查询作者昵称
         Map<Long, String> authorNicknames = userService.getAuthorNicknames(authorIds);
+        // 作者头像url
+        Map<Long, String> authorAvatarUrls = userService.getAuthorAvatarUrls(authorIds);
         // 填充
         voList.forEach(vo -> vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId())));
+        voList.forEach(vo -> {
+            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_READ_SIGN_EXPIRE_SECONDS));
+        });
         // 签名封面url
         signListCoverUrlsForShortsVO(voList);
         // 签名视频url

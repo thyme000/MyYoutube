@@ -84,7 +84,7 @@ public class VideoController {
      */
     @GetMapping("/me/list")
     @Operation(summary = "获取我的视频列表")
-    public Result<PageResult<MyVideoListVO>> getMyVideoList(@ModelAttribute VideoPageQuery pageQuery) {
+    public Result<PageResult<VideoListVO>> getMyVideoList(@ModelAttribute VideoPageQuery pageQuery) {
         return videoService.getMyVideoList(pageQuery);
     }
 
@@ -109,4 +109,6 @@ public class VideoController {
     public Result<PageResult<ShortsVO>> getShortsFeed(@ModelAttribute PageQuery pageQuery) {
         return videoService.getShortsFeed(pageQuery);
     }
+
+
 }

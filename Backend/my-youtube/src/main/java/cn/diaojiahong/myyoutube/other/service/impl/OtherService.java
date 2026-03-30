@@ -52,7 +52,7 @@ public class OtherService implements IOtherService {
         request.setSysMethod(com.aliyuncs.http.MethodType.POST);
         request.setRoleArn(roleArn);
         request.setRoleSessionName(roleSessionName);
-        request.setDurationSeconds(3600 * 2L); // 2小时
+        request.setDurationSeconds(3600L); // 1小时有效期
         request.setPolicy(policy);
         AssumeRoleResponse response = null;
         try {

@@ -36,6 +36,30 @@ function resolveApiBaseUrl() {
 
 const API_BASE_URL = resolveApiBaseUrl();
 const TOKEN_KEY = "myyoutube_token";
+const AUTH_EXPIRED_EVENT = "myyoutube:auth-expired";
+
+function emitAuthExpired(reason = "登录状态已过期，请重新登录") {
+  clearToken();
+  try {
+    window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT, { detail: { reason } }));
+  } catch {
+    // ignore
+  }
+}
+
+function isLikelyAuthExpiredStatus(status) {
+  return status === 401 || status === 403;
+}
+
+function isLikelyAuthExpiredPayload(payload) {
+  const code = Number(payload?.code);
+  const msg = String(payload?.message || "");
+  if (code === 401 || code === 403) return true;
+  if (msg.includes("登录") && (msg.includes("过期") || msg.includes("失效") || msg.includes("未登录"))) {
+    return true;
+  }
+  return false;
+}
 
 function buildUrl(path, query) {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin);
@@ -65,6 +89,9 @@ export async function uploadMultipart(path, formData, { query, headers } = {}) {
   });
 
   if (!response.ok) {
+    if (isLikelyAuthExpiredStatus(response.status)) {
+      emitAuthExpired();
+    }
     const errorText = await response.text();
     throw new Error(errorText || `请求失败：${response.status}`);
   }
@@ -74,6 +101,9 @@ export async function uploadMultipart(path, formData, { query, headers } = {}) {
     const payload = await response.json();
     if (payload && typeof payload === "object" && "code" in payload && "message" in payload) {
       if (payload.code !== 200) {
+        if (isLikelyAuthExpiredPayload(payload)) {
+          emitAuthExpired(payload.message);
+        }
         throw new Error(payload.message || "请求失败");
       }
       return payload.data;
@@ -97,6 +127,9 @@ export async function httpRequest(path, { method = "GET", query, body, headers }
   });
 
   if (!response.ok) {
+    if (isLikelyAuthExpiredStatus(response.status)) {
+      emitAuthExpired();
+    }
     const errorText = await response.text();
     throw new Error(errorText || `请求失败：${response.status}`);
   }
@@ -107,6 +140,9 @@ export async function httpRequest(path, { method = "GET", query, body, headers }
     // 兼容后端统一返回格式：{ code, message, data }
     if (payload && typeof payload === "object" && "code" in payload && "message" in payload) {
       if (payload.code !== 200) {
+        if (isLikelyAuthExpiredPayload(payload)) {
+          emitAuthExpired(payload.message);
+        }
         throw new Error(payload.message || "请求失败");
       }
       return payload.data;
@@ -130,4 +166,8 @@ export function setToken(token) {
 
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getAuthExpiredEventName() {
+  return AUTH_EXPIRED_EVENT;
 }

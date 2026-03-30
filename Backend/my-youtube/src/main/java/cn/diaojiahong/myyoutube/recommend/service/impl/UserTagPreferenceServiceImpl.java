@@ -34,6 +34,9 @@ public class UserTagPreferenceServiceImpl extends ServiceImpl<UserTagPreferenceM
     @Override
     @Transactional
     public void saveUserTagPreferenceAsync(List<Long> list, Long userId, EventEnum eventEnum) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
         List<UserTagPreference> original = lambdaQuery().eq(UserTagPreference::getUserId, userId)
                 .in(UserTagPreference::getTagId, list)
                 .list();
@@ -46,7 +49,6 @@ public class UserTagPreferenceServiceImpl extends ServiceImpl<UserTagPreferenceM
                 .stream()
                 .collect(Collectors.toMap(UserTagPreference::getTagId, UserTagPreference::getId));
         // 更新用户偏好标签数据
-
         List<UserTagPreference> result = new ArrayList<>(list.size());
 
         list.forEach(tagId -> {

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import OSS from "ali-oss";
-import { clearToken, getApiBaseUrl, getToken, setToken } from "./api/http";
+import { clearToken, getApiBaseUrl, getAuthExpiredEventName, getToken, setToken } from "./api/http";
 import {
   forgotPasswordApi,
   getLoginCaptcha,
@@ -16,10 +16,12 @@ import {
   fetchVideoListPage,
   fetchAuthorVideos,
   fetchMyVideos,
+  fetchShortsFeedPage,
   fetchVideoDetail,
   normalizeVideoDetail,
   publishVideo,
 } from "./api/videoApi";
+import { reportVideoBehavior } from "./api/behaviorApi";
 import { getOssSts } from "./api/otherApi";
 import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
 import {
@@ -35,14 +37,19 @@ import {
   normalizeRect,
   saveCropToStorage,
 } from "./utils/imageCropStorage";
-import { normalizeUserProfile, sanitizeImageUrl } from "./utils/userProfile";
-import profileAvatar from "../static/cat.jpg";
-import profileBanner from "../static/cartoon.jpg";
+import {
+  normalizeUserProfile,
+  sanitizeImageUrl,
+  DEFAULT_PROFILE_AVATAR_URL as profileAvatar,
+  DEFAULT_PROFILE_BG_URL as profileBanner,
+} from "./utils/userProfile";
+import { parseDigitSnowflakeId, safeSnowflakeId } from "./utils/snowflakeId.js";
 /** 短视频无接口数据时的本地 fallback（static 目录下四个 mp4） */
 import localShortV1 from "../static/c7bed897269ef9d11cfcaf38c27e855d.mp4?url";
 import localShortV2 from "../static/8d20eed729b54235eeaca56d49808aa9.mp4?url";
 import localShortV3 from "../static/d7527aad3983ad86bd80b09c5e4d826c.mp4?url";
 import localShortV4 from "../static/a5da19be6fe54cb2ca9f50d87315c755.mp4?url";
+import appIco from "../static/11.ico?url";
 
 const primaryMenus = [
   { key: "home", label: "首页", icon: "ri-home-4-line" },
@@ -65,10 +72,28 @@ const activeMenuKey = ref("home");
 const activeMenuLabel = ref("首页");
 const pageHint = ref(`欢迎来到 MyYoutube。请选择左侧模块查看内容。API 基础地址：${getApiBaseUrl()}`);
 const searchKeyword = ref("");
+const searchInputRef = ref(null);
 const sidebarCollapsed = ref(false);
 const exploreExpanded = ref(true);
 const loading = ref(false);
 const cards = ref([]);
+const viewportWidth = ref(typeof window !== "undefined" ? window.innerWidth : 1440);
+const homeShortsRows = ref([]);
+const homeShortsPageNo = ref(1);
+const homeShortsPages = ref(0);
+const homeShortsLoadingMore = ref(false);
+const homeShortsStripRef = ref(null);
+const homeLongPageNo = ref(1);
+const homeLongPages = ref(0);
+const homeLongLoadingMore = ref(false);
+const homeLongHasMore = computed(() => homeLongPageNo.value < (homeLongPages.value || 0));
+const homeLongLoadLock = ref(false);
+/** 离开首页或打开个人中心前保存，回到首页时可无请求恢复，减少列表跳动 */
+const homeFeedSnapshot = ref(null);
+const hoveringPreviewCardId = ref("");
+const activePreviewCardId = ref("");
+const activePreviewVideoUrl = ref("");
+let hoverPreviewTimer = null;
 const authLoading = ref(false);
 const authMessage = ref("");
 const activeAuthTab = ref("login");
@@ -123,6 +148,9 @@ const profileUser = ref(null);
 const profileLoading = ref(false);
 const profileMsg = ref("");
 const profileUploadBusy = ref(false);
+const pendingCropUploadFile = ref(null);
+const pendingCropUploadType = ref(null);
+const pendingCropUploadUrl = ref("");
 const avatarFileInput = ref(null);
 const bgFileInput = ref(null);
 /** 头像 / 背景 方形预览弹层 */
@@ -145,8 +173,17 @@ const showStudio = ref(false);
 /** 进入创作中心时 pushState，便于浏览器后退与「返回」同步 */
 const studioHistoryPushed = ref(false);
 const homeCategoryKey = ref("all");
+const homeSortKey = ref("RECOMMENDED");
+const homeSortOptions = [
+  { value: "RECOMMENDED", label: "推荐优先" },
+  { value: "LATEST", label: "最新发布" },
+  { value: "MOST_PLAYED", label: "最多播放" },
+  { value: "MOST_LIKED", label: "最多点赞" },
+];
+const HOME_LONG_HEAD_COUNT_DESKTOP = 9;
+const HOME_LONG_HEAD_COUNT_MOBILE = 6;
 const studioSideNav = ref("info");
-/** 频道内容子 tab：video=全部作品 shorts=短视频 live=直播（直播接口未就绪时仅占位） */
+/** 频道内容子 tab：video=长视频 shorts=短视频 live=直播（直播接口未就绪时仅占位） */
 const studioContentTab = ref("video");
 const studioPageNo = ref(1);
 const studioPageSize = ref(10);
@@ -165,6 +202,8 @@ const uploadForm = ref({
   tags: "",
   allowComment: 1,
 });
+const uploadTagEditorOpen = ref(false);
+const uploadTagDraft = ref("");
 const uploadPickedFile = ref(null);
 const uploadPickedDuration = ref(0);
 const uploadSubmitting = ref(false);
@@ -252,6 +291,17 @@ const shortsFeedPaused = ref(true);
 const shortsFeedAutoplayPending = ref(false);
 /** 当前作者是否已关注（按视频 id） */
 const shortsFollowedMap = ref({});
+/** PLAY 上报：累计顺播时长达到总时长比例，且排除拖动（单次 timeupdate 跳跃过大不计入） */
+const BEHAVIOR_PLAY_THRESHOLD = 0.7;
+const BEHAVIOR_MAX_PLAY_DELTA_SEC = 3;
+const reportedPlayReportedSet = ref(new Set());
+/** 详情页：顺播累计秒数 */
+const detailPlaybackAccSec = ref(0);
+const detailLastTimeSec = ref(null);
+/** 短视频流：顺播累计秒数 + 当前条 id */
+const shortsPlaybackAccSec = ref(0);
+const shortsLastTimeSec = ref(null);
+const shortsAccVideoId = ref("");
 const feedCoverPool = [
   "https://images.unsplash.com/photo-1516117172878-fd2c41f4a759?auto=format&fit=crop&w=1200&q=80",
   "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=80",
@@ -264,71 +314,45 @@ const DEMO_VIDEO_LANDSCAPE =
   "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 const DEMO_VIDEO_PORTRAIT =
   "https://assets.mixkit.co/videos/preview/mixkit-tree-with-yellow-flowers-1173-large.mp4";
+const LOCAL_STATIC_VIDEO_POOL = [localShortV1, localShortV2, localShortV3, localShortV4];
+const UI_STATE_STORAGE_KEY = "myyoutube_ui_state_v1";
 
-const profileWorksFallback = [
-  {
-    id: "work-1",
-    title: "直到某一天 你的行为不再左右我",
-    likes: "3911",
-    image: profileBanner,
-    videoUrl: DEMO_VIDEO_PORTRAIT,
-  },
-  {
-    id: "work-2",
-    title: "0-0 美瞳推荐 #美瞳",
-    likes: "8336",
-    image: profileBanner,
-    videoUrl: DEMO_VIDEO_LANDSCAPE,
-  },
-  {
-    id: "work-3",
-    title: "我要成为这个世界的大王",
-    likes: "8.2万",
-    image: profileBanner,
-    videoUrl: DEMO_VIDEO_PORTRAIT,
-  },
-  {
-    id: "work-4",
-    title: "把春天穿在身上 舒胡噜的这天",
-    likes: "2.8万",
-    image: profileBanner,
-    videoUrl: DEMO_VIDEO_LANDSCAPE,
-  },
-  {
-    id: "work-5",
-    title: "夜晚车窗前的小情绪记录",
-    likes: "1.4万",
-    image: profileBanner,
-    videoUrl: DEMO_VIDEO_PORTRAIT,
-  },
-  {
-    id: "work-6",
-    title: "今天的穿搭分享 #ootd",
-    likes: "7693",
-    image: profileBanner,
-    videoUrl: DEMO_VIDEO_LANDSCAPE,
-  },
-  {
-    id: "work-7",
-    title: "花束与温柔都要给自己",
-    likes: "5231",
-    image: profileBanner,
-    videoUrl: DEMO_VIDEO_PORTRAIT,
-  },
-  {
-    id: "work-8",
-    title: "阳光刚刚好 出门随拍",
-    likes: "1.1万",
-    image: profileBanner,
-    videoUrl: DEMO_VIDEO_LANDSCAPE,
-  },
-];
+function pickFallbackVideoUrl(seed = "") {
+  const s = String(seed || "");
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash * 31 + s.charCodeAt(i)) | 0;
+  }
+  const idx = Math.abs(hash || Math.floor(Math.random() * 9973)) % LOCAL_STATIC_VIDEO_POOL.length;
+  return LOCAL_STATIC_VIDEO_POOL[idx] || DEMO_VIDEO_LANDSCAPE;
+}
 
 const profileWorksRows = ref([]);
 const profileWorksLoading = ref(false);
+const profileWorksFilter = ref("ALL");
+const profileWorkVideoUrlCache = ref({});
+const profileWorkVideoUrlLoading = ref({});
+const profileWorkDetailCache = ref({});
 const feedScope = ref("shorts");
 const profileFeedQueue = ref([]);
 const profileFeedOpen = ref(false);
+const toasts = ref([]);
+let toastSeed = 0;
+
+/** 首页 Shorts 卡片：播放量 / 点赞展示 */
+function formatHomeShortStat(v) {
+  if (v === undefined || v === null || v === "") {
+    return "0";
+  }
+  const num = Number(v);
+  if (!Number.isFinite(num)) {
+    return "0";
+  }
+  if (num >= 10000) {
+    return `${(num / 10000).toFixed(1)}万`;
+  }
+  return String(num);
+}
 
 function formatWorkLikeText(item) {
   const v = item?.likeCount ?? item?.likes;
@@ -349,17 +373,100 @@ function formatWorkLikeText(item) {
 }
 
 const profileWorksDisplay = computed(() => {
-  if (profileWorksRows.value.length) {
-    return profileWorksRows.value.map((item) => ({
-      id: item.id,
-      title: item.title || "未命名视频",
-      image: item.coverUrl || item.avatarUrl || profileBanner,
-      likes: formatWorkLikeText(item),
-      videoUrl: resolveVideoUrl(item),
-    }));
+  const base = profileWorksRows.value.map((item) => ({
+    ...(profileWorkDetailCache.value[String(item.id)] || {}),
+    id: item.id,
+    title: item.title || "未命名视频",
+    image: item.coverUrl || item.avatarUrl || profileBanner,
+    likes: formatWorkLikeText(item),
+    playCount: item.playCount,
+    videoUrl: resolveVideoUrl(item),
+    authorNickname: item.authorNickname || item.author || "",
+    description: item.description || "",
+    tags: item.tags || "",
+    authorAvatarUrl: sanitizeImageUrl(item.authorAvatarUrl || item.authorAvatar || "") || profileDisplayAvatar.value,
+  }));
+  if (profileWorksFilter.value === "PRIVATE") {
+    return base.filter((item) => String(item.visibility || "").toUpperCase() === "PRIVATE");
   }
-  return profileWorksFallback;
+  if (profileWorksFilter.value === "PUBLIC") {
+    return base.filter((item) => String(item.visibility || "").toUpperCase() !== "PRIVATE");
+  }
+  return base;
 });
+
+const uploadTagList = computed(() =>
+  String(uploadForm.value.tags || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter((x) => x)
+);
+
+const homeLongHeadCount = computed(() =>
+  viewportWidth.value >= 1320 ? HOME_LONG_HEAD_COUNT_DESKTOP : HOME_LONG_HEAD_COUNT_MOBILE
+);
+
+const homeLongHeadCards = computed(() => {
+  if (activeMenuKey.value !== "home") return [];
+  return cards.value.slice(0, homeLongHeadCount.value);
+});
+
+const homeLongTailCards = computed(() => {
+  if (activeMenuKey.value !== "home") return [];
+  return cards.value.slice(homeLongHeadCount.value);
+});
+
+function parseTagsToList(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .replace(/[，\s]+/g, ",")
+    .split(",")
+    .map((x) => x.trim())
+    .filter((x) => x);
+}
+
+function stripUserIdLikeName(name) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  if (/^用户\s*\d+$/i.test(n)) return "";
+  return n;
+}
+
+function formatRelativeTimeText(raw) {
+  if (!raw) return "";
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return "";
+  const diff = Date.now() - d.getTime();
+  if (diff < 0) return "刚刚";
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return "刚刚";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}分钟前`;
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return `${hour}小时前`;
+  const day = Math.floor(hour / 24);
+  if (day < 30) return `${day}天前`;
+  const month = Math.floor(day / 30);
+  if (month < 12) return `${month}个月前`;
+  const year = Math.floor(month / 12);
+  return `${year}年前`;
+}
+
+function pushToast(message, type = "info") {
+  const text = String(message || "").trim();
+  if (!text) return;
+  toastSeed += 1;
+  const id = `toast-${Date.now()}-${toastSeed}`;
+  const next = [...toasts.value, { id, message: text, type }];
+  toasts.value = next.slice(-3);
+  window.setTimeout(() => {
+    removeToast(id);
+  }, 3000);
+}
+
+function removeToast(id) {
+  toasts.value = toasts.value.filter((t) => t.id !== id);
+}
 
 const avatarImgError = ref(false);
 const bgImgError = ref(false);
@@ -430,7 +537,7 @@ const isViewingSelf = computed(() => {
   if (currentUserId.value == null) {
     return false;
   }
-  return Number(profileTargetUserId.value) === Number(currentUserId.value);
+  return String(profileTargetUserId.value) === String(currentUserId.value);
 });
 
 /** 个人简介展示文案（自己主页可点进编辑） */
@@ -450,7 +557,7 @@ const topbarAvatarSrc = computed(() => {
 });
 
 const studioTabs = [
-  { key: "video", label: "视频" },
+  { key: "video", label: "长视频" },
   { key: "shorts", label: "短视频" },
   { key: "live", label: "直播" },
 ];
@@ -684,6 +791,9 @@ function onCropImgLoad(e) {
   const nw = img.naturalWidth;
   const nh = img.naturalHeight;
   cropNaturalSize.value = { w: nw, h: nh };
+  if (!pendingCropUploadFile.value) {
+    return;
+  }
   const { L, T, W, H } = cropRectDraft.value;
   const isFull = L <= 0.001 && T <= 0.001 && W >= 0.999 && H >= 0.999;
   if (isFull && nw > 0 && nh > 0) {
@@ -781,16 +891,27 @@ watch(
 );
 
 const mediaPreviewSrc = computed(() =>
-  mediaPreviewType.value === "avatar" ? profileDisplayAvatar.value : profileDisplayBg.value
+  pendingCropUploadUrl.value ||
+  (mediaPreviewType.value === "avatar" ? profileDisplayAvatar.value : profileDisplayBg.value)
 );
 
+function hashStringToIndex(str, mod) {
+  let h = 0;
+  const s = String(str ?? "");
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  }
+  return mod ? h % mod : h;
+}
+
 function buildMockOtherProfile(userId) {
-  const id = Number(userId);
+  const id = safeSnowflakeId(userId);
+  const idx = hashStringToIndex(id, feedCoverPool.length);
   return normalizeUserProfile({
     id,
     nickName: `用户 ${id}`,
-    avatarUrl: feedCoverPool[id % feedCoverPool.length],
-    bgImage: feedCoverPool[(id + 1) % feedCoverPool.length],
+    avatarUrl: feedCoverPool[idx],
+    bgImage: feedCoverPool[(idx + 1) % feedCoverPool.length],
     fans: 1200,
     likeCount: 3500,
     videoCount: 8,
@@ -819,6 +940,8 @@ function getShortsLocalFallbackCards() {
     title: `本地视频 ${index + 1}`,
     author: "MyYoutube",
     viewsText: "本地",
+    playCount: 1200 + index * 100,
+    likeCount: 30 + index * 5,
     videoUrl: url,
     coverUrl: feedCoverPool[index % feedCoverPool.length],
     avatarUrl: feedCoverPool[index % feedCoverPool.length],
@@ -834,7 +957,7 @@ function getMockCards(moduleLabel, moduleKey) {
     title: `${moduleLabel} 示例内容 ${index + 1}`,
     author: `MyYoutube频道示例 ${index + 1}`,
     viewsText: "1.2万次观看",
-    videoUrl: index % 2 === 0 ? DEMO_VIDEO_PORTRAIT : DEMO_VIDEO_LANDSCAPE,
+    videoUrl: pickFallbackVideoUrl(`${moduleKey}-${index + 1}`),
     coverUrl: feedCoverPool[index % feedCoverPool.length],
     avatarUrl: feedCoverPool[index % feedCoverPool.length],
     authorAvatarUrl: feedCoverPool[(index + 1) % feedCoverPool.length],
@@ -849,24 +972,103 @@ function getCardCover(index) {
 
 /** 仅当 id 为纯数字字符串时可用于 /videos/detail/{id}，全程用字符串避免精度丢失 */
 function parseVideoIdForApi(id) {
-  if (id == null || id === "") {
-    return null;
+  return parseDigitSnowflakeId(id);
+}
+
+function formatBehaviorWatchTime(date = new Date()) {
+  const pad = (v) => String(v).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function behaviorPlayReportKey(videoId) {
+  return String(videoId ?? "");
+}
+
+function markPlayReported(videoId) {
+  const key = behaviorPlayReportKey(videoId);
+  if (!key) return;
+  const next = new Set(reportedPlayReportedSet.value);
+  next.add(key);
+  reportedPlayReportedSet.value = next;
+}
+
+function hasPlayReported(videoId) {
+  return reportedPlayReportedSet.value.has(behaviorPlayReportKey(videoId));
+}
+
+function clearPreviewTimer() {
+  if (hoverPreviewTimer) {
+    clearTimeout(hoverPreviewTimer);
+    hoverPreviewTimer = null;
   }
-  const s = String(id).trim();
-  if (/^\d+$/.test(s)) {
-    return s;
+}
+
+function stopCardHoverPreview() {
+  clearPreviewTimer();
+  hoveringPreviewCardId.value = "";
+  activePreviewCardId.value = "";
+  activePreviewVideoUrl.value = "";
+}
+
+function cardPreviewKey(card, listKey = "") {
+  return `${listKey}:${String(card?.id ?? "")}`;
+}
+
+function isCardPreviewPlaying(card, listKey = "") {
+  return activePreviewCardId.value && activePreviewCardId.value === cardPreviewKey(card, listKey);
+}
+
+function onCardHoverEnter(card, listKey = "") {
+  const url = resolveVideoUrl(card);
+  if (!url) return;
+  const key = cardPreviewKey(card, listKey);
+  clearPreviewTimer();
+  hoveringPreviewCardId.value = key;
+  hoverPreviewTimer = setTimeout(() => {
+    if (hoveringPreviewCardId.value !== key) return;
+    activePreviewCardId.value = key;
+    activePreviewVideoUrl.value = url;
+  }, 500);
+}
+
+function onCardHoverLeave(card, listKey = "") {
+  const key = cardPreviewKey(card, listKey);
+  if (hoveringPreviewCardId.value === key) {
+    hoveringPreviewCardId.value = "";
   }
-  return null;
+  if (activePreviewCardId.value === key) {
+    stopCardHoverPreview();
+  } else {
+    clearPreviewTimer();
+  }
+}
+
+async function reportBehaviorSilently(videoIdLike, event, watchDurationMs = 0) {
+  if (!isAuthed.value) return;
+  const videoId = parseDigitSnowflakeId(videoIdLike);
+  if (!videoId) return;
+  try {
+    await reportVideoBehavior({
+      videoId,
+      event,
+      watchTime: formatBehaviorWatchTime(new Date()),
+      watchDuration: Math.max(0, Math.floor(Number(watchDurationMs) || 0)),
+    });
+  } catch {
+    // 静默上报，不打断用户体验
+  }
 }
 
 function buildDetailFromCard(card) {
   const vid = parseVideoIdForApi(card?.id);
+  const fallbackVideoUrl = pickFallbackVideoUrl(card?.id ?? card?.title ?? "");
+  const fallbackCover = feedCoverPool[Math.floor(Math.random() * feedCoverPool.length)] || profileBanner;
   return normalizeVideoDetail({
     id: vid ?? (card?.id != null ? String(card.id) : ""),
     title: card?.title ?? "未命名视频",
     description: "（示例数据）视频简介占位，连接后端后将显示真实描述。",
-    coverUrl: card?.coverUrl || card?.avatarUrl || "",
-    videoUrl: resolveVideoUrl(card) || DEMO_VIDEO_LANDSCAPE,
+    coverUrl: card?.coverUrl || card?.avatarUrl || fallbackCover,
+    videoUrl: resolveVideoUrl(card) || fallbackVideoUrl,
     videoType: card?.videoType ?? "LONG_VIDEO",
     playCount: 0,
     likeCount: 0,
@@ -892,7 +1094,7 @@ function isLongVideoItem(item) {
 
 function genMockSidebarList(tab) {
   const n = 8;
-  const base = (videoDetail.value?.authorId ?? 1) * 17;
+  const base = hashStringToIndex(String(videoDetail.value?.authorId ?? "1"), 100000);
   return Array.from({ length: n }).map((_, i) => ({
     id: `mock-side-${tab}-${base}-${i}`,
     title: `推荐内容 ${i + 1}`,
@@ -1067,6 +1269,55 @@ function onDetailVideoVolumeChange() {
   }
 }
 
+function onDetailVideoTimeUpdate(e) {
+  const el = e?.target;
+  if (!el) return;
+  const d = videoDetail.value;
+  if (!d?.id) return;
+  const duration = Number(el.duration);
+  const current = Number(el.currentTime || 0);
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return;
+  }
+  const prev = detailLastTimeSec.value;
+  detailLastTimeSec.value = current;
+  if (prev != null) {
+    const delta = current - prev;
+    if (delta > 0 && delta <= BEHAVIOR_MAX_PLAY_DELTA_SEC) {
+      detailPlaybackAccSec.value += delta;
+    }
+  }
+  if (
+    detailPlaybackAccSec.value >= duration * BEHAVIOR_PLAY_THRESHOLD &&
+    !hasPlayReported(d.id)
+  ) {
+    markPlayReported(d.id);
+    void reportBehaviorSilently(d.id, "PLAY", current * 1000);
+  }
+}
+
+function onDetailVideoEnded(e) {
+  const el = e?.target;
+  const d = videoDetail.value;
+  if (!d?.id) return;
+  const current = Number(el?.currentTime || 0);
+  void reportBehaviorSilently(d.id, "FINISH", current * 1000);
+}
+
+function onDetailLikeClick() {
+  const d = videoDetail.value;
+  if (!d?.id) return;
+  const current = Number(detailPlayerRef.value?.currentTime || 0);
+  void reportBehaviorSilently(d.id, "LIKE", current * 1000);
+}
+
+function onDetailDislikeClick() {
+  const d = videoDetail.value;
+  if (!d?.id) return;
+  const current = Number(detailPlayerRef.value?.currentTime || 0);
+  void reportBehaviorSilently(d.id, "DISLIKE", current * 1000);
+}
+
 function scheduleDetailVideoAutoplayRetries() {
   void tryDetailVideoAutoplay();
   setTimeout(() => void tryDetailVideoAutoplay(), 80);
@@ -1121,6 +1372,8 @@ async function openVideoDetail(card) {
   if (!card) {
     return;
   }
+  detailPlaybackAccSec.value = 0;
+  detailLastTimeSec.value = null;
   if (profileFeedOpen.value) {
     closeProfileFeed();
   }
@@ -1134,6 +1387,12 @@ async function openVideoDetail(card) {
   detailErrorMsg.value = "";
   detailLoading.value = true;
   const vid = parseVideoIdForApi(card.id);
+  const instantDetail = buildDetailFromCard(card);
+  videoDetail.value = instantDetail;
+  detailLoading.value = false;
+  nextTick(() => {
+    scheduleDetailVideoAutoplayRetries();
+  });
   try {
     if (vid != null) {
       const raw = await fetchVideoDetail(vid);
@@ -1155,17 +1414,22 @@ async function openVideoDetail(card) {
         ) {
           d.authorNickname = listNick;
         }
+        if (!d.videoUrl) {
+          d.videoUrl = pickFallbackVideoUrl(d.id || card?.id || card?.title || "");
+        }
+        if (!d.coverUrl) {
+          d.coverUrl = card?.coverUrl || card?.avatarUrl || feedCoverPool[Math.floor(Math.random() * feedCoverPool.length)];
+        }
       }
       videoDetail.value = d;
     } else {
-      videoDetail.value = buildDetailFromCard(card);
+      videoDetail.value = instantDetail;
     }
   } catch (e) {
-    videoDetail.value = buildDetailFromCard(card);
+    videoDetail.value = instantDetail;
     detailErrorMsg.value = `详情接口不可用，已展示本地数据：${e.message}`;
-  } finally {
-    detailLoading.value = false;
   }
+  detailLoading.value = false;
   detailSidebarTab.value = "all";
   await loadDetailSidebar(true);
   nextTick(() => {
@@ -1309,6 +1573,11 @@ function openVideoDetailFromSidebar(item) {
 }
 
 function onShortsFeedFgEnded() {
+  const cur = shortsFeedCurrent.value;
+  const now = Number(shortsFeedCurrentTime.value || 0);
+  if (cur?.id) {
+    void reportBehaviorSilently(cur.id, "FINISH", now * 1000);
+  }
   const n = unifiedFeedList.value.length;
   if (n <= 1) {
     const v = shortsFeedFgRef.value;
@@ -1324,22 +1593,263 @@ function onShortsFeedFgEnded() {
   shortsFeedNext();
 }
 
+function onWindowResize() {
+  viewportWidth.value = window.innerWidth || 1440;
+}
+
+function saveHomeFeedSnapshot() {
+  if (activeMenuKey.value !== "home") {
+    return;
+  }
+  homeFeedSnapshot.value = {
+    cards: [...cards.value],
+    homeShortsRows: [...homeShortsRows.value],
+    homeLongPageNo: homeLongPageNo.value,
+    homeLongPages: homeLongPages.value,
+    homeShortsPageNo: homeShortsPageNo.value,
+    homeShortsPages: homeShortsPages.value,
+    homeCategoryKey: homeCategoryKey.value,
+    homeSortKey: homeSortKey.value,
+  };
+}
+
+function restoreHomeFeedSnapshot() {
+  const s = homeFeedSnapshot.value;
+  if (!s) {
+    return false;
+  }
+  cards.value = [...s.cards];
+  homeShortsRows.value = [...s.homeShortsRows];
+  homeLongPageNo.value = s.homeLongPageNo;
+  homeLongPages.value = s.homeLongPages;
+  homeShortsPageNo.value = s.homeShortsPageNo;
+  homeShortsPages.value = s.homeShortsPages;
+  homeCategoryKey.value = s.homeCategoryKey;
+  homeSortKey.value = s.homeSortKey;
+  return true;
+}
+
+async function loadHomeShortsMore() {
+  if (homeShortsLoadingMore.value) return;
+  if (homeShortsPageNo.value >= (homeShortsPages.value || 0)) return;
+  homeShortsLoadingMore.value = true;
+  try {
+    const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === homeCategoryKey.value);
+    const nextPage = homeShortsPageNo.value + 1;
+    const res = await fetchShortsFeedPage({
+      pageNo: nextPage,
+      pageSize: 18,
+      category: chip?.code || undefined,
+    });
+    const nextList = Array.isArray(res.list) ? res.list : [];
+    if (nextList.length) {
+      homeShortsRows.value = [...homeShortsRows.value, ...nextList];
+    }
+    homeShortsPages.value = res.pages ?? homeShortsPages.value;
+    homeShortsPageNo.value = nextPage;
+  } catch {
+    // 保持当前列表，避免影响首页主流
+  } finally {
+    homeShortsLoadingMore.value = false;
+    if (activeMenuKey.value === "home") {
+      saveHomeFeedSnapshot();
+    }
+  }
+}
+
+function maybeLoadMoreHomeShortsByElement(el) {
+  if (!el) return;
+  const remain = el.scrollWidth - el.scrollLeft - el.clientWidth;
+  if (remain < 260) {
+    void loadHomeShortsMore();
+  }
+}
+
+function onHomeShortsStripScroll(e) {
+  stopCardHoverPreview();
+  maybeLoadMoreHomeShortsByElement(e?.target);
+}
+
+function onHomeShortsStripWheel(e) {
+  const el = homeShortsStripRef.value;
+  if (!el) return;
+  e.stopPropagation();
+  stopCardHoverPreview();
+  const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  el.scrollLeft += delta;
+  maybeLoadMoreHomeShortsByElement(el);
+}
+
+/** 首页 Shorts 条：接近列表末尾时预拉下一页（与横向条共用 loadHomeShortsMore） */
+const HOME_SHORTS_FEED_PREFETCH_THRESHOLD = 3;
+
+function maybePrefetchHomeShortsForFeed() {
+  if (feedScope.value !== "home") {
+    return;
+  }
+  if (activeMenuKey.value !== "shorts") {
+    return;
+  }
+  const list = homeShortsRows.value;
+  const i = shortsFeedIndex.value;
+  if (!list.length) {
+    return;
+  }
+  const remainToEnd = list.length - 1 - i;
+  if (remainToEnd < HOME_SHORTS_FEED_PREFETCH_THRESHOLD) {
+    void loadHomeShortsMore();
+  }
+}
+
+/**
+ * 从首页 Shorts 条进入全屏短视频流：只使用已加载的 homeShortsRows，不立即请求接口；
+ * 划到接近末尾时再分页（maybePrefetchHomeShortsForFeed）。
+ */
+function openHomeShortVideoInFeed(card, index) {
+  if (activeMenuKey.value === "home") {
+    saveHomeFeedSnapshot();
+  }
+  closeShortPlayer();
+  if (showVideoDetail.value) {
+    clearVideoDetailFromAddressBar();
+  }
+  showVideoDetail.value = false;
+  videoDetail.value = null;
+  showProfileCenter.value = false;
+  showStudio.value = false;
+  uploadModalOpen.value = false;
+  mediaPreviewOpen.value = false;
+
+  feedScope.value = "home";
+  const idx = homeShortsRows.value.findIndex((c) => c && card && String(c.id) === String(card.id));
+  shortsFeedIndex.value = idx >= 0 ? idx : Math.max(0, Number(index) || 0);
+  shortsFeedAutoplayPending.value = true;
+
+  activeMenuKey.value = "shorts";
+  const shortsMenu = primaryMenus.find((m) => m.key === "shorts");
+  activeMenuLabel.value = shortsMenu?.label ?? "短视频";
+  try {
+    history.pushState({ myyoutubeMenu: "shorts" }, "", window.location.href);
+  } catch {
+    /* ignore */
+  }
+
+  nextTick(() => {
+    shortsFeedFgRef.value?.load();
+    shortsFeedBgRef.value?.load();
+    maybePrefetchHomeShortsForFeed();
+  });
+}
+
+function onHomeShortCardClick(card, index) {
+  openHomeShortVideoInFeed(card, index);
+}
+
+async function loadHomeLongMore() {
+  if (homeLongLoadLock.value || homeLongLoadingMore.value) return;
+  if (!homeLongHasMore.value) return;
+  if (activeMenuKey.value !== "home" || showVideoDetail.value || showProfileCenter.value || showStudio.value) return;
+  homeLongLoadLock.value = true;
+  homeLongLoadingMore.value = true;
+  try {
+    const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === homeCategoryKey.value);
+    const nextPage = homeLongPageNo.value + 1;
+    const res = await fetchVideoListPage({
+      pageNo: nextPage,
+      pageSize: 24,
+      category: chip?.code || undefined,
+      sort: homeSortKey.value,
+      videoType: "LONG_VIDEO",
+    });
+    const nextList = Array.isArray(res.list) ? res.list : [];
+    if (nextList.length) {
+      cards.value = [...cards.value, ...nextList];
+    }
+    homeLongPages.value = res.pages ?? homeLongPages.value;
+    homeLongPageNo.value = nextPage;
+  } catch {
+    // 静默失败，不影响当前浏览
+  } finally {
+    homeLongLoadingMore.value = false;
+    homeLongLoadLock.value = false;
+    if (activeMenuKey.value === "home") {
+      saveHomeFeedSnapshot();
+    }
+  }
+}
+
+function maybeLoadMoreHomeLongByWindow() {
+  if (activeMenuKey.value !== "home") return;
+  if (loading.value || homeLongLoadingMore.value) return;
+  const doc = document.documentElement;
+  const remain = doc.scrollHeight - window.scrollY - window.innerHeight;
+  if (remain < 280) {
+    void loadHomeLongMore();
+  }
+}
+
+function onWindowScroll() {
+  if (activePreviewCardId.value) {
+    stopCardHoverPreview();
+  }
+  maybeLoadMoreHomeLongByWindow();
+}
+
+function onContentScroll(e) {
+  if (activePreviewCardId.value) {
+    stopCardHoverPreview();
+  }
+  if (activeMenuKey.value !== "home" || loading.value || homeLongLoadingMore.value) return;
+  const el = e?.target;
+  if (!el) return;
+  const remain = el.scrollHeight - el.scrollTop - el.clientHeight;
+  if (remain < 260) {
+    void loadHomeLongMore();
+  }
+}
+
 async function loadModuleCards(menu, { fallback = true } = {}) {
   loading.value = true;
   try {
     if (menu.key === "home") {
       const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === homeCategoryKey.value);
-      const res = await fetchVideoListPage({
-        pageNo: 1,
-        pageSize: 24,
-        category: chip?.code || undefined,
-        sort: "LATEST",
+      const [longRes, shortRes] = await Promise.all([
+        fetchVideoListPage({
+          pageNo: 1,
+          pageSize: 24,
+          category: chip?.code || undefined,
+          sort: homeSortKey.value,
+          videoType: "LONG_VIDEO",
+        }),
+        fetchShortsFeedPage({
+          pageNo: 1,
+          pageSize: 18,
+          category: chip?.code || undefined,
+        }),
+      ]);
+      cards.value = longRes.list.length ? longRes.list : getMockCards(menu.label, menu.key);
+      homeLongPageNo.value = 1;
+      homeLongPages.value = longRes.pages ?? 0;
+      homeShortsRows.value = shortRes.list.length ? shortRes.list : getShortsLocalFallbackCards();
+      homeShortsPageNo.value = 1;
+      homeShortsPages.value = shortRes.pages ?? 0;
+      const sortLabel = homeSortOptions.find((x) => x.value === homeSortKey.value)?.label || "排序";
+      pageHint.value = `首页 · 长视频(/videos/list) + 短视频(/videos/shorts/feed) · ${chip?.label ?? "全部"} · ${sortLabel}`;
+      nextTick(() => {
+        maybeLoadMoreHomeLongByWindow();
       });
-      cards.value = res.list.length ? res.list : getMockCards(menu.label, menu.key);
-      pageHint.value = `首页 · ${chip?.label ?? "全部"} · /videos/list`;
+      saveHomeFeedSnapshot();
       return;
     }
-    const list = await fetchVideosByModule(menu.key);
+    homeShortsRows.value = [];
+    homeShortsPageNo.value = 1;
+    homeShortsPages.value = 0;
+    homeLongPageNo.value = 1;
+    homeLongPages.value = 0;
+    const list =
+      menu.key === "shorts"
+        ? (await fetchShortsFeedPage({ pageNo: 1, pageSize: 24 })).list
+        : await fetchVideosByModule(menu.key);
     if (menu.key === "shorts") {
       cards.value = list.length ? list : getShortsLocalFallbackCards();
     } else {
@@ -1352,8 +1862,17 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
     }
     if (menu.key === "home") {
       cards.value = getMockCards(menu.label, menu.key);
+      homeLongPageNo.value = 1;
+      homeLongPages.value = 1;
+      homeShortsRows.value = getShortsLocalFallbackCards();
+      homeShortsPageNo.value = 1;
+      homeShortsPages.value = 1;
+      saveHomeFeedSnapshot();
     } else {
       cards.value = menu.key === "shorts" ? getShortsLocalFallbackCards() : getMockCards(menu.label, menu.key);
+      homeShortsRows.value = [];
+      homeShortsPageNo.value = 1;
+      homeShortsPages.value = 0;
     }
     pageHint.value = `接口暂不可用，已回退到本地示例数据。错误信息：${error.message}`;
   } finally {
@@ -1362,6 +1881,8 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
 }
 
 async function setActiveMenu(menu) {
+  const prevMenuKey = activeMenuKey.value;
+  const prevShowProfile = showProfileCenter.value;
   if (profileFeedOpen.value) {
     closeProfileFeed();
   }
@@ -1376,9 +1897,48 @@ async function setActiveMenu(menu) {
   mediaPreviewOpen.value = false;
   activeMenuKey.value = menu.key;
   activeMenuLabel.value = menu.label;
+  if (menu.key !== "home") {
+    try {
+      history.pushState({ myyoutubeMenu: menu.key }, "", window.location.href);
+    } catch {
+      /* ignore */
+    }
+  }
   if (menu.key === "shorts") {
+    feedScope.value = "shorts";
     shortsFeedIndex.value = 0;
     shortsFeedAutoplayPending.value = true;
+  }
+
+  if (menu.key === "home") {
+    if (prevMenuKey === "home" && prevShowProfile) {
+      if (restoreHomeFeedSnapshot()) {
+        loading.value = false;
+        nextTick(() => {
+          maybeLoadMoreHomeLongByWindow();
+        });
+        return;
+      }
+      await loadModuleCards(menu);
+      return;
+    }
+    if (prevMenuKey === "home" && !prevShowProfile) {
+      await loadModuleCards(menu);
+      return;
+    }
+    if (homeFeedSnapshot.value && restoreHomeFeedSnapshot()) {
+      loading.value = false;
+      nextTick(() => {
+        maybeLoadMoreHomeLongByWindow();
+      });
+      return;
+    }
+    await loadModuleCards(menu);
+    return;
+  }
+
+  if (prevMenuKey === "home") {
+    saveHomeFeedSnapshot();
   }
   await loadModuleCards(menu);
   if (menu.key === "shorts") {
@@ -1393,6 +1953,7 @@ async function onSearch() {
   const keyword = searchKeyword.value.trim();
   if (!keyword) {
     pageHint.value = "请输入关键词后再搜索。";
+    pushToast("请输入关键词后再搜索", "info");
     return;
   }
 
@@ -1402,9 +1963,11 @@ async function onSearch() {
     cards.value = list.length ? list : getMockCards(`搜索：${keyword}`, "search");
     activeMenuLabel.value = `搜索结果：${keyword}`;
     pageHint.value = `搜索接口请求成功，关键词：「${keyword}」。`;
+    pushToast(`搜索完成：${keyword}`, "success");
   } catch (error) {
     cards.value = getMockCards(`搜索：${keyword}`, "search");
     pageHint.value = `搜索接口失败，已展示示例数据。错误信息：${error.message}`;
+    pushToast(`搜索失败：${error.message || "请稍后重试"}`, "error");
   } finally {
     loading.value = false;
   }
@@ -1413,6 +1976,7 @@ async function onSearch() {
 function onCreate() {
   if (!isAuthed.value) {
     pageHint.value = "请先登录后再使用创作中心。";
+    pushToast("请先登录后再使用创作中心", "info");
     return;
   }
   if (showStudio.value) {
@@ -1466,6 +2030,44 @@ function selectHomeCategory(chip) {
   }
 }
 
+function selectHomeSort(sortValue) {
+  homeSortKey.value = sortValue;
+  if (activeMenuKey.value === "home") {
+    loadModuleCards(primaryMenus[0]);
+  }
+}
+
+function formatStudioDate(row) {
+  const raw = row?.createTime ?? row?.createAt ?? row?.createdAt ?? row?.publishTime;
+  if (!raw) return "—";
+  if (typeof raw === "string") {
+    if (raw.includes("T")) {
+      return raw.replace("T", " ").slice(0, 19);
+    }
+    return raw.length > 19 ? raw.slice(0, 19) : raw;
+  }
+  try {
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return "—";
+    const yyyy = d.getFullYear();
+    const MM = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${yyyy}-${MM}-${dd} ${hh}:${mm}`;
+  } catch {
+    return "—";
+  }
+}
+
+function formatStudioVisibility(row) {
+  const v = row?.visibility?.code ?? row?.visibility?.name ?? row?.visibility ?? "PUBLIC";
+  const s = String(v).toUpperCase();
+  if (s.includes("PRIVATE")) return "私有";
+  if (s.includes("UNLISTED")) return "不公开";
+  return "公开";
+}
+
 function switchStudioTab(key) {
   studioContentTab.value = key;
   studioPageNo.value = 1;
@@ -1500,7 +2102,7 @@ async function loadStudioVideos() {
       return;
     }
     const vt = studioContentTab.value === "shorts" ? "SHORT_VIDEO" : "LONG_VIDEO";
-    const res = await fetchAuthorVideos(uid, {
+    const res = await fetchMyVideos({
       pageNo: studioPageNo.value,
       pageSize: studioPageSize.value,
       videoType: vt,
@@ -1519,6 +2121,8 @@ async function loadStudioVideos() {
 function openUploadModal() {
   uploadMsg.value = "";
   uploadProgress.value = 0;
+  uploadTagEditorOpen.value = false;
+  uploadTagDraft.value = "";
   uploadModalOpen.value = true;
 }
 
@@ -1526,6 +2130,8 @@ function closeUploadModal() {
   if (uploadSubmitting.value) {
     return;
   }
+  uploadTagEditorOpen.value = false;
+  uploadTagDraft.value = "";
   uploadModalOpen.value = false;
 }
 
@@ -1541,6 +2147,29 @@ function pickUploadFile(e) {
     return e.target.files[0];
   }
   return null;
+}
+
+function openUploadTagEditor() {
+  uploadTagEditorOpen.value = true;
+  uploadTagDraft.value = "";
+}
+
+function appendUploadTag() {
+  const tag = String(uploadTagDraft.value || "")
+    .replace(/[，,\s]+/g, " ")
+    .trim();
+  if (!tag) return;
+  const normalized = tag.replace(/\s+/g, "");
+  const existing = uploadTagList.value.map((x) => x.toLowerCase());
+  if (!existing.includes(normalized.toLowerCase())) {
+    uploadForm.value.tags = [...uploadTagList.value, normalized].join(",");
+  }
+  uploadTagDraft.value = "";
+  uploadTagEditorOpen.value = false;
+}
+
+function removeUploadTag(tag) {
+  uploadForm.value.tags = uploadTagList.value.filter((x) => x !== tag).join(",");
 }
 
 function onUploadInputOrDrop(e) {
@@ -1563,9 +2192,24 @@ function onTopbarAvatarError(evt) {
   }
 }
 
+function applyAppFavicon() {
+  if (!appIco) return;
+  const head = document.head || document.getElementsByTagName("head")[0];
+  if (!head) return;
+  let link = document.querySelector("link[rel='icon']");
+  if (!link) {
+    link = document.createElement("link");
+    link.setAttribute("rel", "icon");
+    head.appendChild(link);
+  }
+  link.setAttribute("type", "image/x-icon");
+  link.setAttribute("href", appIco);
+}
+
 
 function onNotify() {
   pageHint.value = "点击了通知按钮：后续可展示消息列表和未读状态。";
+  pushToast("通知功能开发中", "info");
 }
 
 async function loadProfileUser() {
@@ -1598,27 +2242,36 @@ async function loadProfileUser() {
 }
 
 async function loadProfileWorks() {
+  profileWorksFilter.value = "ALL";
   const uid = profileTargetUserId.value ?? currentUserId.value;
   if (!uid) {
     profileWorksRows.value = [];
+    profileWorkVideoUrlCache.value = {};
+    profileWorkVideoUrlLoading.value = {};
+    profileWorkDetailCache.value = {};
     return;
   }
   profileWorksLoading.value = true;
+  profileWorkVideoUrlCache.value = {};
+  profileWorkVideoUrlLoading.value = {};
+  profileWorkDetailCache.value = {};
   try {
     const isSelf = profileTargetUserId.value == null;
-    const [longRes, shortRes] = isSelf
-      ? await Promise.all([
-          fetchMyVideos({ pageNo: 1, pageSize: 24, videoType: "LONG_VIDEO" }),
-          fetchMyVideos({ pageNo: 1, pageSize: 24, videoType: "SHORT_VIDEO" }),
-        ])
-      : await Promise.all([
-          fetchAuthorVideos(uid, { pageNo: 1, pageSize: 24, videoType: "LONG_VIDEO" }),
-          fetchAuthorVideos(uid, { pageNo: 1, pageSize: 24, videoType: "SHORT_VIDEO" }),
-        ]);
+    const worksRes = isSelf
+      ? await fetchMyVideos({ pageNo: 1, pageSize: 24 })
+      : await fetchAuthorVideos(uid, { pageNo: 1, pageSize: 24 });
     const map = new Map();
-    for (const item of [...(longRes?.list || []), ...(shortRes?.list || [])]) {
+    const fallbackNick = stripUserIdLikeName(profileUser.value?.nickName || profileUser.value?.nickname);
+    for (const item of worksRes?.list || []) {
       if (!item?.id) continue;
-      map.set(String(item.id), item);
+      const row = { ...item };
+      row.authorNickname =
+        stripUserIdLikeName(row.authorNickname) ||
+        stripUserIdLikeName(row.author) ||
+        fallbackNick ||
+        row.authorNickname ||
+        row.author;
+      map.set(String(item.id), row);
     }
     profileWorksRows.value = Array.from(map.values());
   } catch {
@@ -1629,6 +2282,7 @@ async function loadProfileWorks() {
 }
 
 function openMediaPreview(type) {
+  clearPendingCropUpload();
   mediaPreviewType.value = type;
   const crop = type === "bg" ? cropRectBg.value : cropRectAvatar.value;
   cropRectDraft.value = { ...crop };
@@ -1637,9 +2291,10 @@ function openMediaPreview(type) {
 }
 
 function closeMediaPreview() {
-  if (isViewingSelf.value) {
+  if (isViewingSelf.value && !pendingCropUploadFile.value) {
     applyDraftCrop();
   }
+  clearPendingCropUpload();
   mediaPreviewOpen.value = false;
 }
 
@@ -1689,27 +2344,116 @@ function triggerBgPick() {
   bgFileInput.value?.click();
 }
 
+function clearPendingCropUpload() {
+  pendingCropUploadFile.value = null;
+  pendingCropUploadType.value = null;
+  if (pendingCropUploadUrl.value) {
+    try {
+      URL.revokeObjectURL(pendingCropUploadUrl.value);
+    } catch {
+      /* ignore */
+    }
+  }
+  pendingCropUploadUrl.value = "";
+}
+
+function beginCropUpload(type, file) {
+  clearPendingCropUpload();
+  pendingCropUploadFile.value = file;
+  pendingCropUploadType.value = type;
+  pendingCropUploadUrl.value = URL.createObjectURL(file);
+  mediaPreviewType.value = type;
+  cropRectDraft.value = { L: 0, T: 0, W: 1, H: 1 };
+  mediaPreviewOpen.value = true;
+}
+
+function imageFromUrl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("图片解码失败"));
+    img.src = url;
+  });
+}
+
+async function buildCroppedUploadFile(sourceUrl, type, rect, fallbackName) {
+  const img = await imageFromUrl(sourceUrl);
+  const nw = img.naturalWidth || 0;
+  const nh = img.naturalHeight || 0;
+  if (nw <= 0 || nh <= 0) {
+    throw new Error("无法读取图片尺寸");
+  }
+  const r = normalizeRect(rect);
+  const sx = Math.round(r.L * nw);
+  const sy = Math.round(r.T * nh);
+  const sw = Math.max(1, Math.round(r.W * nw));
+  const sh = Math.max(1, Math.round(r.H * nh));
+  const outW = type === "avatar" ? 640 : 1600;
+  const outH = type === "avatar" ? 640 : 500;
+  const canvas = document.createElement("canvas");
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("浏览器不支持画布裁剪");
+  }
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((b) => {
+      if (b) resolve(b);
+      else reject(new Error("导出裁剪图片失败"));
+    }, "image/jpeg", 0.92);
+  });
+  const safeName = String(fallbackName || `${type}-${Date.now()}.jpg`).replace(/\.[^.]+$/, "");
+  return new File([blob], `${safeName}-crop.jpg`, { type: "image/jpeg" });
+}
+
+async function submitCropUploadFromPreview() {
+  if (!pendingCropUploadFile.value || !pendingCropUploadType.value) {
+    return;
+  }
+  profileUploadBusy.value = true;
+  profileMsg.value = "";
+  try {
+    const rect = normalizeRect({ ...cropRectDraft.value });
+    const cropped = await buildCroppedUploadFile(
+      pendingCropUploadUrl.value,
+      pendingCropUploadType.value,
+      rect,
+      pendingCropUploadFile.value?.name
+    );
+    if (pendingCropUploadType.value === "avatar") {
+      const url = await updateUserAvatar(cropped);
+      if (profileUser.value) {
+        profileUser.value = normalizeUserProfile({ ...profileUser.value, avatarUrl: url });
+      }
+      cropRectAvatar.value = { L: 0, T: 0, W: 1, H: 1 };
+      profileMsg.value = "头像已裁剪并上传";
+    } else {
+      const url = await updateUserBgImage(cropped);
+      if (profileUser.value) {
+        profileUser.value = normalizeUserProfile({ ...profileUser.value, bgImage: url });
+      }
+      cropRectBg.value = { L: 0, T: 0, W: 1, H: 1 };
+      profileMsg.value = "背景图已裁剪并上传";
+    }
+    clearPendingCropUpload();
+    mediaPreviewOpen.value = false;
+  } catch (error) {
+    profileMsg.value = `裁剪上传失败：${error.message}`;
+  } finally {
+    profileUploadBusy.value = false;
+  }
+}
+
 async function onAvatarFileChange(event) {
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file) {
     return;
   }
-  profileUploadBusy.value = true;
-  profileMsg.value = "";
-  try {
-    const url = await updateUserAvatar(file);
-    if (profileUser.value) {
-      profileUser.value = normalizeUserProfile({ ...profileUser.value, avatarUrl: url });
-    } else {
-      await loadProfileUser();
-    }
-    profileMsg.value = "头像已更新";
-  } catch (error) {
-    profileMsg.value = `头像上传失败：${error.message}`;
-  } finally {
-    profileUploadBusy.value = false;
-  }
+  beginCropUpload("avatar", file);
+  profileMsg.value = "请先裁剪头像后再上传";
 }
 
 async function onBgFileChange(event) {
@@ -1718,24 +2462,14 @@ async function onBgFileChange(event) {
   if (!file) {
     return;
   }
-  profileUploadBusy.value = true;
-  profileMsg.value = "";
-  try {
-    const url = await updateUserBgImage(file);
-    if (profileUser.value) {
-      profileUser.value = normalizeUserProfile({ ...profileUser.value, bgImage: url });
-    } else {
-      await loadProfileUser();
-    }
-    profileMsg.value = "背景图已更新";
-  } catch (error) {
-    profileMsg.value = `背景图上传失败：${error.message}`;
-  } finally {
-    profileUploadBusy.value = false;
-  }
+  beginCropUpload("bg", file);
+  profileMsg.value = "请先裁剪背景图后再上传";
 }
 
 function onProfile() {
+  if (activeMenuKey.value === "home") {
+    saveHomeFeedSnapshot();
+  }
   showStudio.value = false;
   uploadModalOpen.value = false;
   if (showVideoDetail.value) {
@@ -1745,6 +2479,11 @@ function onProfile() {
   videoDetail.value = null;
   profileTargetUserId.value = null;
   showProfileCenter.value = true;
+  try {
+    history.pushState({ myyoutubeProfile: "self" }, "", window.location.href);
+  } catch {
+    /* ignore */
+  }
   activeMenuLabel.value = "个人中心";
   pageHint.value = "这里展示用户主页、作品和数据概览。";
   loadProfileUser();
@@ -1752,11 +2491,32 @@ function onProfile() {
 
 /** 进入他人主页（可从视频作者、关注列表等调用 userId；此处提供顶部「Ta」演示入口） */
 function openOtherUserProfile(userId) {
+  if (activeMenuKey.value === "home") {
+    saveHomeFeedSnapshot();
+  }
   profileTargetUserId.value = userId;
   showProfileCenter.value = true;
+  try {
+    history.pushState({ myyoutubeProfile: String(userId) }, "", window.location.href);
+  } catch {
+    /* ignore */
+  }
   activeMenuLabel.value = "个人中心";
   pageHint.value = "正在查看他人主页。";
   loadProfileUser();
+}
+
+function onAuthorAvatarClick(event, authorId) {
+  event?.stopPropagation?.();
+  if (authorId == null || authorId === "") {
+    return;
+  }
+  const current = currentUserId.value != null ? String(currentUserId.value) : "";
+  if (current && String(authorId) === current) {
+    onProfile();
+    return;
+  }
+  openOtherUserProfile(authorId);
 }
 
 function openRelationTable(type) {
@@ -1846,7 +2606,15 @@ async function saveProfileEdit() {
 }
 
 function resolveVideoUrl(item) {
+  const id = item?.id != null ? String(item.id) : "";
+  if (id && profileWorkVideoUrlCache.value[id]) {
+    return profileWorkVideoUrlCache.value[id];
+  }
   return item?.videoUrl || item?.playUrl || item?.url || "";
+}
+
+function resolveVideoUrlWithFallback(item, seed = "") {
+  return resolveVideoUrl(item) || pickFallbackVideoUrl(seed || item?.id || item?.title || "");
 }
 
 function videoCardPlayable(card) {
@@ -1940,6 +2708,8 @@ function createOssClient(sts) {
     stsToken: sts.securityToken,
     bucket: sts.bucket,
     secure: true,
+    /** 分片上传时单片请求易超时，适当拉长（毫秒） */
+    timeout: 120000,
   });
 }
 
@@ -1975,15 +2745,17 @@ async function submitUploadVideo() {
   const file = uploadPickedFile.value;
   if (!file) {
     uploadMsg.value = "请先选择视频文件";
+    pushToast("请先选择视频文件", "info");
     return;
   }
   const title = String(uploadForm.value.title || "").trim();
   if (!title) {
     uploadMsg.value = "请填写视频标题";
+    pushToast("请填写视频标题", "info");
     return;
   }
   uploadSubmitting.value = true;
-  uploadMsg.value = "正在获取上传凭证…";
+  uploadMsg.value = "";
   uploadProgress.value = 0;
   try {
     const rawSts = await getOssSts();
@@ -1995,12 +2767,15 @@ async function submitUploadVideo() {
     }
     const client = createOssClient(sts);
     const objectKey = buildUploadObjectKey(sts, file);
-    uploadMsg.value = "正在上传到 OSS…";
-    await client.put(objectKey, file, {
+    /** 大文件单次 put 易 Connect timeout，改用 SDK 分片上传 */
+    await client.multipartUpload(objectKey, file, {
+      parallel: 4,
+      partSize: 4 * 1024 * 1024,
       progress: (p) => {
         uploadProgress.value = Math.max(0, Math.min(100, Math.round((p || 0) * 100)));
       },
     });
+    uploadProgress.value = 100;
 
     const duration = uploadPickedDuration.value || (await readVideoDuration(file));
     uploadMsg.value = "正在发布视频…";
@@ -2010,12 +2785,13 @@ async function submitUploadVideo() {
       videoUrl: objectKey,
       duration: Number(duration || 1),
       category: uploadForm.value.category,
-      tags: String(uploadForm.value.tags || "").trim(),
+      tags: uploadTagList.value.join(","),
       visibility: uploadForm.value.visibility,
       allowComment: Number(uploadForm.value.allowComment ? 1 : 0),
     });
 
-    uploadMsg.value = "上传并发布成功";
+    uploadMsg.value = "上传成功，等待审核…";
+    pushToast("上传成功，等待审核…", "success");
     pageHint.value = `已发布：${title}`;
     uploadModalOpen.value = false;
     uploadPickedFile.value = null;
@@ -2028,6 +2804,8 @@ async function submitUploadVideo() {
       tags: "",
       allowComment: 1,
     };
+    uploadTagEditorOpen.value = false;
+    uploadTagDraft.value = "";
     if (showStudio.value) {
       void loadStudioVideos();
     }
@@ -2036,14 +2814,19 @@ async function submitUploadVideo() {
     }
   } catch (e) {
     uploadMsg.value = `发布失败：${e.message || e}`;
+    pushToast(`发布失败：${e.message || e}`, "error");
   } finally {
     uploadSubmitting.value = false;
+    uploadProgress.value = 0;
   }
 }
 
 const unifiedFeedList = computed(() => {
   if (feedScope.value === "profile") {
     return profileFeedQueue.value;
+  }
+  if (feedScope.value === "home") {
+    return homeShortsRows.value;
   }
   return cards.value;
 });
@@ -2059,12 +2842,39 @@ const shortsFeedCurrent = computed(() => {
 
 const shortsFeedVideoSrc = computed(() => resolveVideoUrl(shortsFeedCurrent.value));
 
+const shortsFeedAuthorName = computed(() => {
+  const c = shortsFeedCurrent.value;
+  const nick = stripUserIdLikeName(c?.authorNickname) || stripUserIdLikeName(c?.author);
+  if (nick) return nick;
+  if (feedScope.value === "profile") {
+    const p = stripUserIdLikeName(profileUser.value?.nickName || profileUser.value?.nickname);
+    if (p) return p;
+  }
+  return "创作者";
+});
+
+const shortsFeedMetaTimeText = computed(() => formatRelativeTimeText(shortsFeedCurrent.value?.createTime || ""));
+const shortsFeedTitleText = computed(() => shortsFeedCurrent.value?.title || "未命名主题");
+const shortsFeedDescText = computed(
+  () => shortsFeedCurrent.value?.description || shortsFeedCurrent.value?.title || ""
+);
+const shortsFeedTagText = computed(() => {
+  const tags = parseTagsToList(shortsFeedCurrent.value?.tags || "");
+  return tags.map((t) => `#${t}`).join(" ");
+});
+
+/** 仅认作者相关字段；列表里的 avatarUrl 多为封面，不能当作作者头像回退 */
 const shortsFeedAuthorAvatar = computed(() => {
   const c = shortsFeedCurrent.value;
-  if (c?.avatarUrl) {
-    return c.avatarUrl;
+  if (!c) {
+    return profileAvatar;
   }
-  return getCardCover(shortsFeedIndex.value);
+  const fromAuthor =
+    sanitizeImageUrl(c.authorAvatarUrl ?? "") || sanitizeImageUrl(c.authorAvatar ?? "");
+  if (fromAuthor) {
+    return fromAuthor;
+  }
+  return profileAvatar;
 });
 
 const shortsIsFollowedCurrent = computed(() => {
@@ -2084,22 +2894,6 @@ function toggleShortsFollow() {
   const next = { ...shortsFollowedMap.value };
   next[key] = !next[key];
   shortsFollowedMap.value = next;
-}
-
-function openShortVideo(item) {
-  const url = resolveVideoUrl(item);
-  if (!url) {
-    pageHint.value = "该内容暂无视频地址";
-    return;
-  }
-  shortPlayerVideoSrc.value = url;
-  shortPlayerTitle.value = item.title || "视频";
-  shortPlayerIsPortrait.value = false;
-  shortPlayerOpen.value = true;
-  nextTick(() => {
-    shortFgVideoRef.value?.load();
-    shortBgVideoRef.value?.load();
-  });
 }
 
 function closeShortPlayer() {
@@ -2150,6 +2944,12 @@ function onVideoCardClick(card) {
 }
 
 function shortsFeedPrev() {
+  const cur = shortsFeedCurrent.value;
+  const dur = Number(shortsFeedDuration.value || 0);
+  const now = Number(shortsFeedCurrentTime.value || 0);
+  if (cur?.id && dur > 0 && now / dur < 0.95) {
+    void reportBehaviorSilently(cur.id, "SKIP", now * 1000);
+  }
   const n = unifiedFeedList.value.length;
   if (!n) {
     return;
@@ -2158,6 +2958,12 @@ function shortsFeedPrev() {
 }
 
 function shortsFeedNext() {
+  const cur = shortsFeedCurrent.value;
+  const dur = Number(shortsFeedDuration.value || 0);
+  const now = Number(shortsFeedCurrentTime.value || 0);
+  if (cur?.id && dur > 0 && now / dur < 0.95) {
+    void reportBehaviorSilently(cur.id, "SKIP", now * 1000);
+  }
   const n = unifiedFeedList.value.length;
   if (!n) {
     return;
@@ -2199,6 +3005,32 @@ async function onShortsFeedFgLoadedMetadata(e) {
 function onShortsFeedFgTimeUpdate(e) {
   const fg = e.target;
   shortsFeedCurrentTime.value = fg.currentTime;
+  const cur = shortsFeedCurrent.value;
+  const duration = Number(fg.duration);
+  const current = Number(fg.currentTime || 0);
+  if (cur?.id && Number.isFinite(duration) && duration > 0) {
+    const idKey = String(cur.id);
+    if (shortsAccVideoId.value !== idKey) {
+      shortsAccVideoId.value = idKey;
+      shortsPlaybackAccSec.value = 0;
+      shortsLastTimeSec.value = null;
+    }
+    const prev = shortsLastTimeSec.value;
+    shortsLastTimeSec.value = current;
+    if (prev != null) {
+      const delta = current - prev;
+      if (delta > 0 && delta <= BEHAVIOR_MAX_PLAY_DELTA_SEC) {
+        shortsPlaybackAccSec.value += delta;
+      }
+    }
+    if (
+      shortsPlaybackAccSec.value >= duration * BEHAVIOR_PLAY_THRESHOLD &&
+      !hasPlayReported(cur.id)
+    ) {
+      markPlayReported(cur.id);
+      void reportBehaviorSilently(cur.id, "PLAY", current * 1000);
+    }
+  }
   const bg = shortsFeedBgRef.value;
   if (!bg || !fg) {
     return;
@@ -2298,7 +3130,108 @@ function onShortsFeedKeydown(ev) {
   } else if (k === "ArrowDown" || k === "s" || k === "S") {
     ev.preventDefault();
     shortsFeedNext();
+  } else if (k === " ") {
+    ev.preventDefault();
+    shortsTogglePlay();
   }
+}
+
+function onDetailPageKeydown(ev) {
+  if (!showVideoDetail.value || !detailPlayerRef.value) return;
+  const tag = ev.target?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
+  const player = detailPlayerRef.value;
+  const key = ev.key;
+  if (key === " ") {
+    ev.preventDefault();
+    if (player.paused) player.play().catch(() => {});
+    else player.pause();
+    return;
+  }
+  if (key === "f" || key === "F") {
+    ev.preventDefault();
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.();
+    } else {
+      player.requestFullscreen?.().catch(() => {});
+    }
+    return;
+  }
+  if (key === "m" || key === "M") {
+    ev.preventDefault();
+    player.muted = !player.muted;
+    return;
+  }
+  if (key === "ArrowLeft") {
+    ev.preventDefault();
+    player.currentTime = Math.max(0, Number(player.currentTime || 0) - 5);
+    return;
+  }
+  if (key === "ArrowRight") {
+    ev.preventDefault();
+    const duration = Number(player.duration || 0);
+    const next = Number(player.currentTime || 0) + 5;
+    player.currentTime = duration > 0 ? Math.min(duration, next) : next;
+  }
+}
+
+function closeTopMostOverlayByEsc() {
+  if (uploadModalOpen.value) {
+    uploadModalOpen.value = false;
+    return true;
+  }
+  if (mediaPreviewOpen.value) {
+    closeMediaPreview();
+    return true;
+  }
+  if (relationTableOpen.value) {
+    closeRelationTable();
+    return true;
+  }
+  if (profileEditOpen.value) {
+    closeProfileEdit();
+    return true;
+  }
+  if (shortPlayerOpen.value) {
+    closeShortPlayer();
+    return true;
+  }
+  if (profileFeedOpen.value) {
+    closeProfileFeed();
+    return true;
+  }
+  if (showVideoDetail.value) {
+    closeVideoDetail();
+    return true;
+  }
+  if (showStudio.value) {
+    closeStudio();
+    return true;
+  }
+  if (showProfileCenter.value) {
+    setActiveMenu(primaryMenus[0]);
+    return true;
+  }
+  return false;
+}
+
+function onGlobalKeydown(ev) {
+  const tag = ev.target?.tagName;
+  const inEditable = tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable;
+
+  if (ev.key === "Escape") {
+    ev.preventDefault();
+    closeTopMostOverlayByEsc();
+    return;
+  }
+
+  if (ev.key === "/" && !inEditable && !showVideoDetail.value) {
+    ev.preventDefault();
+    searchInputRef.value?.focus?.();
+    return;
+  }
+
+  onDetailPageKeydown(ev);
 }
 
 function onShortsFeedFgPlay() {
@@ -2312,11 +3245,28 @@ function onShortsFeedFgPause() {
 }
 
 function onShortsFeedFgSeeked(e) {
+  shortsLastTimeSec.value = null;
   const fg = e.target;
   const bg = shortsFeedBgRef.value;
   if (bg) {
     bg.currentTime = fg.currentTime;
   }
+}
+
+function onDetailVideoSeeked() {
+  detailLastTimeSec.value = null;
+}
+
+function onShortsLikeClick() {
+  const cur = shortsFeedCurrent.value;
+  if (!cur?.id) return;
+  void reportBehaviorSilently(cur.id, "LIKE", Number(shortsFeedCurrentTime.value || 0) * 1000);
+}
+
+function onShortsDislikeClick() {
+  const cur = shortsFeedCurrent.value;
+  if (!cur?.id) return;
+  void reportBehaviorSilently(cur.id, "DISLIKE", Number(shortsFeedCurrentTime.value || 0) * 1000);
 }
 
 function pauseShortsFeedVideos() {
@@ -2368,18 +3318,75 @@ function onShortsFeedTouchEnd(ev) {
   }
 }
 
-function openProfileWorkFeed(item) {
-  const url = resolveVideoUrl(item);
-  if (!url) {
+async function ensureProfileWorkVideoUrlById(videoId) {
+  const id = videoId != null ? String(videoId) : "";
+  if (!id) return "";
+  if (profileWorkVideoUrlCache.value[id]) return profileWorkVideoUrlCache.value[id];
+  if (profileWorkVideoUrlLoading.value[id]) return "";
+  const nextLoading = { ...profileWorkVideoUrlLoading.value, [id]: true };
+  profileWorkVideoUrlLoading.value = nextLoading;
+  try {
+    const raw = await fetchVideoDetail(id);
+    const d = normalizeVideoDetail(raw);
+    const url = d?.videoUrl ? String(d.videoUrl) : "";
+    if (d && typeof d === "object") {
+      profileWorkDetailCache.value = {
+        ...profileWorkDetailCache.value,
+        [id]: {
+          title: d.title || "",
+          description: d.description || "",
+          tags: d.tags || "",
+          authorNickname: d.authorNickname || "",
+          authorAvatarUrl: d.authorAvatarUrl || "",
+          videoUrl: url || "",
+        },
+      };
+    }
+    if (url) {
+      profileWorkVideoUrlCache.value = { ...profileWorkVideoUrlCache.value, [id]: url };
+      return url;
+    }
+    return "";
+  } catch {
+    return "";
+  } finally {
+    const m = { ...profileWorkVideoUrlLoading.value };
+    delete m[id];
+    profileWorkVideoUrlLoading.value = m;
+  }
+}
+
+async function openProfileWorkFeed(item) {
+  const source = profileWorksRows.value;
+  if (!source.length) {
+    pageHint.value = "该作者暂无可播放作品";
+    return;
+  }
+  let selectedUrl = resolveVideoUrl(item);
+  if (!selectedUrl && item?.id != null) {
+    selectedUrl = await ensureProfileWorkVideoUrlById(item.id);
+  }
+  if (!selectedUrl) {
     pageHint.value = "该内容暂无视频地址";
     return;
   }
-  const playableQueue = profileWorksRows.value.length
-    ? profileWorksRows.value.filter((x) => resolveVideoUrl(x))
-    : profileWorksFallback.filter((x) => resolveVideoUrl(x));
-  if (!playableQueue.length) {
-    pageHint.value = "没有可播放的作品";
-    return;
+  const playableQueue = source
+    .map((x) => {
+      const url = resolveVideoUrl(x);
+      return { ...x, videoUrl: url };
+    })
+    .filter((x) => x.videoUrl);
+  if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
+    playableQueue.unshift({ ...item, videoUrl: selectedUrl });
+  }
+  source.forEach((x) => {
+    const xid = x?.id != null ? String(x.id) : "";
+    if (xid && !profileWorkVideoUrlCache.value[xid] && !profileWorkVideoUrlLoading.value[xid]) {
+      void ensureProfileWorkVideoUrlById(xid);
+    }
+  });
+  if (!playableQueue.length && selectedUrl) {
+    playableQueue.push({ ...item, videoUrl: selectedUrl });
   }
   const idx = playableQueue.findIndex((x) => String(x.id) === String(item.id));
   feedScope.value = "profile";
@@ -2404,14 +3411,27 @@ function closeProfileFeed() {
 function onProfileFeedKeydown(ev) {
   if (ev.key === "Escape") {
     closeProfileFeed();
+    return;
+  }
+  const tag = ev.target?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) {
+    return;
+  }
+  const k = ev.key;
+  if (k === "ArrowUp" || k === "w" || k === "W") {
+    ev.preventDefault();
+    shortsFeedPrev();
+  } else if (k === "ArrowDown" || k === "s" || k === "S") {
+    ev.preventDefault();
+    shortsFeedNext();
+  } else if (k === " ") {
+    ev.preventDefault();
+    shortsTogglePlay();
   }
 }
 
 function onWorkCardClick(item) {
-  if (!resolveVideoUrl(item)) {
-    return;
-  }
-  openProfileWorkFeed(item);
+  void openProfileWorkFeed(item);
 }
 
 function onShortPlayerKeydown(ev) {
@@ -2447,6 +3467,7 @@ watch(profileFeedOpen, (open) => {
 });
 
 watch(activeMenuKey, (key) => {
+  stopCardHoverPreview();
   if (key !== "shorts") {
     pauseShortsFeedVideos();
   }
@@ -2470,6 +3491,7 @@ watch(shortsFeedIndex, () => {
   nextTick(() => {
     shortsFeedFgRef.value?.load();
     shortsFeedBgRef.value?.load();
+    maybePrefetchHomeShortsForFeed();
   });
 });
 
@@ -2626,6 +3648,7 @@ async function submitLogin() {
     setToken(responseToken);
     token.value = responseToken;
     authMessage.value = "登录成功。";
+    pushToast("登录成功", "success");
     const homeMenu = primaryMenus[0];
     activeMenuLabel.value = "首页";
     await loadProfileUser();
@@ -2641,6 +3664,7 @@ async function submitLogin() {
     }
   } catch (error) {
     authMessage.value = `登录失败：${error.message}`;
+    pushToast(`登录失败：${error.message || "请检查账号信息"}`, "error");
   } finally {
     authLoading.value = false;
   }
@@ -2659,10 +3683,12 @@ async function submitRegister() {
       captcha: registerForm.value.captcha.trim(),
     });
     authMessage.value = message || "注册成功，请登录。";
+    pushToast(message || "注册成功，请登录", "success");
     activeAuthTab.value = "login";
     loginForm.value.username = registerForm.value.username.trim();
   } catch (error) {
     authMessage.value = `注册失败：${error.message}`;
+    pushToast(`注册失败：${error.message || "请稍后重试"}`, "error");
   } finally {
     authLoading.value = false;
   }
@@ -2671,6 +3697,7 @@ async function submitRegister() {
 function logout() {
   clearToken();
   token.value = "";
+  homeFeedSnapshot.value = null;
   cards.value = [];
   showProfileCenter.value = false;
   showStudio.value = false;
@@ -2684,14 +3711,74 @@ function logout() {
   profileTargetUserId.value = null;
   mediaPreviewOpen.value = false;
   authMessage.value = "你已退出登录。";
+  pushToast("已退出登录", "info");
+  try {
+    sessionStorage.removeItem(UI_STATE_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function saveUiStateToSession() {
+  if (!isAuthed.value) return;
+  const state = {
+    activeMenuKey: activeMenuKey.value,
+    activeMenuLabel: activeMenuLabel.value,
+    showProfileCenter: showProfileCenter.value,
+    profileTargetUserId: profileTargetUserId.value,
+    showStudio: showStudio.value,
+    homeCategoryKey: homeCategoryKey.value,
+    homeSortKey: homeSortKey.value,
+    studioSideNav: studioSideNav.value,
+    studioContentTab: studioContentTab.value,
+  };
+  try {
+    sessionStorage.setItem(UI_STATE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadUiStateFromSession() {
+  try {
+    const raw = sessionStorage.getItem(UI_STATE_STORAGE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || typeof s !== "object") return null;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function onAuthExpired(event) {
+  const msg = event?.detail?.reason || "登录状态已过期，请重新登录。";
+  clearToken();
+  token.value = "";
+  showVideoDetail.value = false;
+  showProfileCenter.value = false;
+  showStudio.value = false;
+  uploadModalOpen.value = false;
+  profileFeedOpen.value = false;
+  clearVideoDetailFromAddressBar();
+  authMessage.value = msg;
 }
 
 function onWindowPopState() {
+  if (profileFeedOpen.value) {
+    closeProfileFeed();
+    return;
+  }
   if (showStudio.value) {
     showStudio.value = false;
     uploadModalOpen.value = false;
     studioHistoryPushed.value = false;
     void reloadFeedAfterLeavingDetail();
+    return;
+  }
+  if (showProfileCenter.value || activeMenuKey.value !== "home") {
+    showProfileCenter.value = false;
+    setActiveMenu(primaryMenus[0]);
     return;
   }
   const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
@@ -2726,7 +3813,31 @@ watch(
   { flush: "post" },
 );
 
+watch(
+  () => [
+    activeMenuKey.value,
+    showProfileCenter.value,
+    profileTargetUserId.value,
+    showStudio.value,
+    homeCategoryKey.value,
+    homeSortKey.value,
+    studioSideNav.value,
+    studioContentTab.value,
+  ],
+  () => {
+    saveUiStateToSession();
+  }
+);
+
 onMounted(async () => {
+  applyAppFavicon();
+  window.addEventListener("resize", onWindowResize);
+  window.addEventListener("scroll", onWindowScroll, { passive: true });
+  window.addEventListener("keydown", onGlobalKeydown);
+  window.addEventListener("popstate", onWindowPopState);
+  window.addEventListener("pageshow", onWindowPageShow);
+  window.addEventListener(getAuthExpiredEventName(), onAuthExpired);
+
   if (!isAuthed.value) {
     return;
   }
@@ -2747,15 +3858,47 @@ onMounted(async () => {
       });
     }
   } else {
-    await loadModuleCards(homeMenu);
+    const state = loadUiStateFromSession();
+    if (state?.showProfileCenter) {
+      profileTargetUserId.value = state.profileTargetUserId ?? null;
+      showProfileCenter.value = true;
+      activeMenuLabel.value = "个人中心";
+      await loadProfileUser();
+      return;
+    }
+    if (state?.showStudio) {
+      showStudio.value = true;
+      showProfileCenter.value = false;
+      studioSideNav.value = state.studioSideNav || "info";
+      studioContentTab.value = state.studioContentTab || "video";
+      await loadStudioVideos();
+      return;
+    }
+    const menuKey = state?.activeMenuKey || homeMenu.key;
+    const allMenus = [...primaryMenus, ...exploreMenus];
+    const menu = allMenus.find((m) => m.key === menuKey) || homeMenu;
+    homeCategoryKey.value = state?.homeCategoryKey || "all";
+    homeSortKey.value = state?.homeSortKey || "RECOMMENDED";
+    activeMenuKey.value = menu.key;
+    activeMenuLabel.value = menu.label;
+    await loadModuleCards(menu);
+    if (menu.key === "shorts") {
+      nextTick(() => {
+        shortsFeedFgRef.value?.load();
+        shortsFeedBgRef.value?.load();
+      });
+    }
   }
-  window.addEventListener("popstate", onWindowPopState);
-  window.addEventListener("pageshow", onWindowPageShow);
 });
 
 onBeforeUnmount(() => {
+  stopCardHoverPreview();
+  window.removeEventListener("resize", onWindowResize);
+  window.removeEventListener("scroll", onWindowScroll);
+  window.removeEventListener("keydown", onGlobalKeydown);
   window.removeEventListener("popstate", onWindowPopState);
   window.removeEventListener("pageshow", onWindowPageShow);
+  window.removeEventListener(getAuthExpiredEventName(), onAuthExpired);
   if (loginCaptchaTimer) clearInterval(loginCaptchaTimer);
   if (registerCaptchaTimer) clearInterval(registerCaptchaTimer);
   if (forgotCaptchaTimer) clearInterval(forgotCaptchaTimer);
@@ -3060,6 +4203,7 @@ onBeforeUnmount(() => {
       <header class="topbar">
         <div class="search-box">
           <input
+            ref="searchInputRef"
             v-model="searchKeyword"
             type="text"
             placeholder="搜索视频、频道或关键词"
@@ -3087,9 +4231,24 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
+      <div v-if="toasts.length" class="toast-stack" aria-live="polite" aria-atomic="true">
+        <div
+          v-for="t in toasts"
+          :key="t.id"
+          class="toast-item"
+          :class="`toast-item--${t.type}`"
+        >
+          <span class="toast-item__text">{{ t.message }}</span>
+          <button type="button" class="toast-item__close" aria-label="关闭提示" @click="removeToast(t.id)">
+            <i class="ri-close-line"></i>
+          </button>
+        </div>
+      </div>
+
       <main
         v-show="!showVideoDetail"
         class="content"
+        @scroll.passive="onContentScroll"
         :class="{
           'content--shorts':
             !showProfileCenter && activeMenuKey === 'shorts' && !showStudio && !showVideoDetail,
@@ -3181,8 +4340,8 @@ onBeforeUnmount(() => {
                           <span>{{ row.title }}</span>
                         </div>
                       </td>
-                      <td>公开</td>
-                      <td>—</td>
+                      <td>{{ formatStudioVisibility(row) }}</td>
+                      <td>{{ formatStudioDate(row) }}</td>
                       <td>{{ row.viewsText }}</td>
                     </tr>
                   </tbody>
@@ -3226,6 +4385,17 @@ onBeforeUnmount(() => {
             >
               {{ chip.label }}
             </button>
+            <div class="home-sort-inline">
+              <label class="home-sort-label" for="home-sort-select">排序</label>
+              <select
+                id="home-sort-select"
+                class="home-sort-select"
+                :value="homeSortKey"
+                @change="selectHomeSort($event.target.value)"
+              >
+                <option v-for="opt in homeSortOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </div>
           </nav>
         </div>
 
@@ -3341,9 +4511,46 @@ onBeforeUnmount(() => {
           <section class="profile-works-section">
               <div class="profile-works-title">
                 <h4>作品列表</h4>
-                <span>共 {{ profileWorksDisplay.length }} 条</span>
+                <div class="profile-works-toolbar">
+                  <div class="profile-works-filters">
+                    <button
+                      type="button"
+                      class="profile-works-filter-btn"
+                      :class="{ 'profile-works-filter-btn--active': profileWorksFilter === 'ALL' }"
+                      @click="profileWorksFilter = 'ALL'"
+                    >
+                      全部
+                    </button>
+                    <button
+                      type="button"
+                      class="profile-works-filter-btn"
+                      :class="{ 'profile-works-filter-btn--active': profileWorksFilter === 'PUBLIC' }"
+                      @click="profileWorksFilter = 'PUBLIC'"
+                    >
+                      公开
+                    </button>
+                    <button
+                      type="button"
+                      class="profile-works-filter-btn"
+                      :class="{ 'profile-works-filter-btn--active': profileWorksFilter === 'PRIVATE' }"
+                      :disabled="!isViewingSelf"
+                      @click="profileWorksFilter = 'PRIVATE'"
+                    >
+                      私密
+                    </button>
+                  </div>
+                  <span>共 {{ profileWorksDisplay.length }} 条</span>
+                </div>
               </div>
-              <p v-if="profileWorksLoading" class="profile-api-hint">正在加载作品列表…</p>
+              <p v-if="profileWorksLoading" class="profile-api-hint profile-api-hint--loading">正在加载作品列表…</p>
+              <div v-if="profileWorksLoading" class="works-grid works-grid-profile works-grid-profile--skeleton">
+                <article v-for="n in 6" :key="`work-skeleton-${n}`" class="work-card work-card--skeleton">
+                  <div class="work-thumb"></div>
+                  <div class="work-meta">
+                    <p class="work-title"></p>
+                  </div>
+                </article>
+              </div>
               <div class="works-grid works-grid-profile">
                 <article
                   v-for="item in profileWorksDisplay"
@@ -3351,15 +4558,40 @@ onBeforeUnmount(() => {
                   class="work-card"
                   :class="{ 'work-card--playable': resolveVideoUrl(item) }"
                   @click="onWorkCardClick(item)"
+                  @mouseenter="onCardHoverEnter(item, 'profile-work')"
+                  @mouseleave="onCardHoverLeave(item, 'profile-work')"
                 >
                   <div class="work-thumb">
-                    <img :src="item.image" :alt="item.title" />
+                    <video
+                      v-if="isCardPreviewPlaying(item, 'profile-work')"
+                      class="work-preview-video"
+                      :src="activePreviewVideoUrl"
+                      muted
+                      autoplay
+                      loop
+                      playsinline
+                      preload="metadata"
+                    ></video>
+                    <img v-else :src="item.image" :alt="item.title" />
                     <span class="work-like work-like--bottom-left"><i class="ri-heart-line"></i> {{ item.likes }}</span>
                   </div>
                   <div class="work-meta">
-                    <p class="work-title">{{ item.title }}</p>
+                    <img class="work-author-avatar" :src="item.authorAvatarUrl || profileAvatar" alt="" />
+                    <div class="work-meta-main">
+                      <div class="work-title-row">
+                        <p class="work-title">{{ item.title }}</p>
+                        <span class="work-play-stat" title="播放量">
+                          <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(item.playCount) }}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </article>
+              </div>
+              <div v-if="!profileWorksLoading && !profileWorksDisplay.length" class="profile-works-empty">
+                <div class="profile-works-empty-icon"><i class="ri-movie-2-line"></i></div>
+                <h5>暂无内容</h5>
+                <p>该账号还未发布过作品哦～</p>
               </div>
           </section>
         </section>
@@ -3369,9 +4601,6 @@ onBeforeUnmount(() => {
             <h3 class="media-preview-title media-preview-title--light">
               {{ mediaPreviewType === "avatar" ? "头像" : "背景图" }}
             </h3>
-            <p v-if="isViewingSelf" class="media-preview-hint">
-              拖动方框选择要展示的区域；可拖右下角调整大小。关闭窗口后生效并保存在本机。
-            </p>
             <div class="media-preview-body media-preview-body--stack">
               <div class="media-preview-crop-stage">
                 <div class="media-preview-crop-stage-inner">
@@ -3384,7 +4613,7 @@ onBeforeUnmount(() => {
                     @error="onMediaPreviewImgError"
                   />
                   <div
-                    v-if="isViewingSelf"
+                    v-if="isViewingSelf && pendingCropUploadFile"
                     class="crop-box"
                     :style="cropBoxStyle"
                     @pointerdown="onCropBoxDragStart"
@@ -3399,9 +4628,15 @@ onBeforeUnmount(() => {
                   type="button"
                   class="profile-action-btn primary"
                   :disabled="profileUploadBusy"
-                  @click="pickMediaFromPreview"
+                  @click="pendingCropUploadFile ? submitCropUploadFromPreview() : pickMediaFromPreview()"
                 >
-                  {{ profileUploadBusy ? "处理中…" : "更换图片" }}
+                  {{
+                    profileUploadBusy
+                      ? "处理中…"
+                      : pendingCropUploadFile
+                        ? "裁剪并上传"
+                        : "更换图片"
+                  }}
                 </button>
                 <button v-else type="button" class="profile-action-btn primary" @click="downloadMediaPreview">
                   下载图片
@@ -3639,14 +4874,28 @@ onBeforeUnmount(() => {
                   </div>
                   <div class="shorts-feed-ui">
                     <div class="shorts-feed-caption">
-                      <p class="shorts-feed-user">@{{ shortsFeedCurrent?.author || "创作者" }}</p>
-                      <p class="shorts-feed-title">{{ shortsFeedCurrent?.title }}</p>
-                      <p class="shorts-feed-meta">{{ shortsFeedCurrent?.viewsText || "观看" }}</p>
+                      <p class="shorts-feed-user">
+                        @{{ shortsFeedAuthorName }}
+                        <span v-if="shortsFeedMetaTimeText" class="shorts-feed-time-dot"> · {{ shortsFeedMetaTimeText }}</span>
+                      </p>
+                      <p class="shorts-feed-topic">{{ shortsFeedTitleText }}</p>
+                      <p class="shorts-feed-desc">
+                        {{ shortsFeedDescText || "暂无描述" }}
+                        <span v-if="shortsFeedTagText" class="shorts-feed-tags">{{ shortsFeedTagText }}</span>
+                      </p>
                     </div>
                     <div class="shorts-feed-action-col">
                       <div class="shorts-feed-author-block">
                         <div class="shorts-feed-author-avatar-wrap">
-                          <img class="shorts-feed-author-avatar" :src="shortsFeedAuthorAvatar" alt="" />
+                          <img
+                            class="shorts-feed-author-avatar"
+                            :src="shortsFeedAuthorAvatar"
+                            alt=""
+                            role="button"
+                            title="查看作者主页"
+                            @click.stop="onAuthorAvatarClick($event, shortsFeedCurrent?.authorId)"
+                            @error="(e) => { e.target.src = profileAvatar; }"
+                          />
                           <button
                             v-if="!shortsIsFollowedCurrent"
                             type="button"
@@ -3669,18 +4918,52 @@ onBeforeUnmount(() => {
                           </button>
                         </div>
                       </div>
-                      <button type="button" class="shorts-feed-action-btn" title="点赞" aria-label="点赞">
-                        <i class="ri-heart-fill"></i>
-                      </button>
-                      <button type="button" class="shorts-feed-action-btn" title="评论" aria-label="评论">
-                        <i class="ri-chat-3-line"></i>
-                      </button>
-                      <button type="button" class="shorts-feed-action-btn" title="收藏" aria-label="收藏">
-                        <i class="ri-star-line"></i>
-                      </button>
-                      <button type="button" class="shorts-feed-action-btn" title="分享" aria-label="分享">
-                        <i class="ri-share-forward-line"></i>
-                      </button>
+                      <div class="shorts-feed-action-item">
+                        <button
+                          type="button"
+                          class="shorts-feed-action-btn"
+                          title="点赞"
+                          aria-label="点赞"
+                          @click="onShortsLikeClick"
+                        >
+                          <i class="ri-heart-fill"></i>
+                        </button>
+                        <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.likeCount ?? 0 }}</span>
+                      </div>
+                      <div class="shorts-feed-action-item">
+                        <button type="button" class="shorts-feed-action-btn" title="评论" aria-label="评论">
+                          <i class="ri-chat-3-line"></i>
+                        </button>
+                        <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.commentCount ?? 0 }}</span>
+                      </div>
+                      <div class="shorts-feed-action-item">
+                        <button
+                          type="button"
+                          class="shorts-feed-action-btn"
+                          title="收藏"
+                          aria-label="收藏"
+                        >
+                          <i class="ri-star-line"></i>
+                        </button>
+                        <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.favoriteCount ?? 0 }}</span>
+                      </div>
+                      <div class="shorts-feed-action-item">
+                        <button
+                          type="button"
+                          class="shorts-feed-action-btn"
+                          title="不感兴趣"
+                          aria-label="不感兴趣"
+                          @click="onShortsDislikeClick"
+                        >
+                          <i class="ri-thumb-down-line"></i>
+                        </button>
+                      </div>
+                      <div class="shorts-feed-action-item">
+                        <button type="button" class="shorts-feed-action-btn" title="分享" aria-label="分享">
+                          <i class="ri-share-forward-line"></i>
+                        </button>
+                        <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.shareCount ?? 0 }}</span>
+                      </div>
                     </div>
                   </div>
                   <div class="shorts-feed-bottom-bar">
@@ -3736,37 +5019,200 @@ onBeforeUnmount(() => {
           <div v-else class="shorts-feed-empty">暂无短视频可播放（缺少视频地址）</div>
         </section>
 
-        <section v-if="!showProfileCenter && activeMenuKey !== 'shorts'" class="card-grid">
-          <article v-if="loading" class="video-card">
-            <div class="video-cover video-cover-loading">加载中...</div>
-            <div class="video-info">
-              <strong>正在请求后端数据</strong>
-              <span>请稍候</span>
-            </div>
-          </article>
+        <template v-if="!showProfileCenter && activeMenuKey !== 'shorts'">
+          <section v-if="activeMenuKey === 'home'" class="home-mixed-feed">
+            <section class="card-grid">
+              <article v-if="loading" v-for="n in 8" :key="`skeleton-home-a-${n}`" class="video-card video-card--skeleton">
+                <div class="video-cover video-cover-loading"></div>
+                <div class="video-info">
+                  <div class="video-card-author-avatar"></div>
+                  <div class="video-info-text">
+                    <strong></strong>
+                    <span></span>
+                  </div>
+                </div>
+              </article>
+              <article
+                v-if="!loading"
+                v-for="(card, index) in homeLongHeadCards"
+                :key="`home-long-head-${card.id}`"
+                class="video-card"
+                :class="{ 'video-card--playable': videoCardPlayable(card) }"
+                @click="onVideoCardClick(card)"
+                @mouseenter="onCardHoverEnter(card, 'home-head')"
+                @mouseleave="onCardHoverLeave(card, 'home-head')"
+              >
+                <video
+                  v-if="isCardPreviewPlaying(card, 'home-head')"
+                  class="video-cover video-cover--preview"
+                  :src="activePreviewVideoUrl"
+                  muted
+                  autoplay
+                  loop
+                  playsinline
+                  preload="metadata"
+                ></video>
+                <img v-else class="video-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
+                <div class="video-info">
+                  <img
+                    class="video-card-author-avatar"
+                    :src="cardAuthorAvatar(card, index)"
+                    alt=""
+                    role="button"
+                    title="查看作者主页"
+                    @click.stop="onAuthorAvatarClick($event, card.authorId)"
+                    @error="(e) => (e.target.src = profileAvatar)"
+                  />
+                  <div class="video-info-text">
+                    <strong>{{ card.title }}</strong>
+                    <span>{{ cardAuthorLabel(card) }} · {{ card.viewsText || "1.2万次观看" }}</span>
+                  </div>
+                </div>
+              </article>
+            </section>
 
-          <article
-            v-for="(card, index) in cards"
-            :key="card.id"
-            class="video-card"
-            :class="{ 'video-card--playable': videoCardPlayable(card) }"
-            @click="onVideoCardClick(card)"
-          >
-            <img class="video-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
-            <div class="video-info">
-              <img
-                class="video-card-author-avatar"
-                :src="cardAuthorAvatar(card, index)"
-                alt=""
-                @error="(e) => (e.target.src = profileAvatar)"
-              />
-              <div class="video-info-text">
-                <strong>{{ card.title }}</strong>
-                <span>{{ cardAuthorLabel(card) }} · {{ card.viewsText || "1.2万次观看" }}</span>
+            <section v-if="!loading && homeShortsRows.length" class="home-shorts-block">
+              <div class="home-shorts-head">
+                <h3><i class="ri-video-line"></i> Shorts</h3>
               </div>
-            </div>
-          </article>
-        </section>
+              <div
+                ref="homeShortsStripRef"
+                class="home-shorts-strip"
+                @wheel.prevent="onHomeShortsStripWheel"
+                @scroll="onHomeShortsStripScroll"
+              >
+                <article
+                  v-for="(card, index) in homeShortsRows"
+                  :key="`home-short-${card.id}-${index}`"
+                  class="home-short-card"
+                  @click="onHomeShortCardClick(card, index)"
+                  @mouseenter="onCardHoverEnter(card, 'home-shorts')"
+                  @mouseleave="onCardHoverLeave(card, 'home-shorts')"
+                >
+                  <div class="home-short-media">
+                    <video
+                      v-if="isCardPreviewPlaying(card, 'home-shorts')"
+                      class="home-short-cover home-short-cover--video video-cover--preview"
+                      :src="activePreviewVideoUrl"
+                      muted
+                      autoplay
+                      loop
+                      playsinline
+                      preload="metadata"
+                    ></video>
+                    <img v-else class="home-short-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
+                  </div>
+                  <div class="home-short-card-footer">
+                    <div class="home-short-card-main">
+                      <p class="home-short-title">{{ card.title }}</p>
+                      <span class="home-short-author">{{ cardAuthorLabel(card) }}</span>
+                    </div>
+                    <div class="home-short-stats" aria-label="播放与点赞">
+                      <span class="home-short-stat" title="播放量">
+                        <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.playCount) }}
+                      </span>
+                      <span class="home-short-stat" title="点赞">
+                        <i class="ri-heart-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.likeCount) }}
+                      </span>
+                    </div>
+                  </div>
+                </article>
+                <div v-if="homeShortsLoadingMore" class="home-shorts-loading-more">加载中…</div>
+              </div>
+            </section>
+
+            <section class="card-grid">
+              <article
+                v-if="!loading"
+                v-for="(card, index) in homeLongTailCards"
+                :key="`home-long-tail-${card.id}`"
+                class="video-card"
+                :class="{ 'video-card--playable': videoCardPlayable(card) }"
+                @click="onVideoCardClick(card)"
+                @mouseenter="onCardHoverEnter(card, 'home-tail')"
+                @mouseleave="onCardHoverLeave(card, 'home-tail')"
+              >
+                <video
+                  v-if="isCardPreviewPlaying(card, 'home-tail')"
+                  class="video-cover video-cover--preview"
+                  :src="activePreviewVideoUrl"
+                  muted
+                  autoplay
+                  loop
+                  playsinline
+                  preload="metadata"
+                ></video>
+                <img v-else class="video-cover" :src="cardCoverSrc(card, index + homeLongHeadCards.length)" :alt="card.title" />
+                <div class="video-info">
+                  <img
+                    class="video-card-author-avatar"
+                    :src="cardAuthorAvatar(card, index + homeLongHeadCards.length)"
+                    alt=""
+                    role="button"
+                    title="查看作者主页"
+                    @click.stop="onAuthorAvatarClick($event, card.authorId)"
+                    @error="(e) => (e.target.src = profileAvatar)"
+                  />
+                  <div class="video-info-text">
+                    <strong>{{ card.title }}</strong>
+                    <span>{{ cardAuthorLabel(card) }} · {{ card.viewsText || "1.2万次观看" }}</span>
+                  </div>
+                </div>
+              </article>
+            </section>
+            <section v-if="homeLongLoadingMore" class="card-grid card-grid--loading-more">
+              <article v-for="n in 5" :key="`skeleton-home-more-${n}`" class="video-card video-card--skeleton">
+                <div class="video-cover video-cover-loading"></div>
+                <div class="video-info">
+                  <div class="video-card-author-avatar"></div>
+                  <div class="video-info-text">
+                    <strong></strong>
+                    <span></span>
+                  </div>
+                </div>
+              </article>
+            </section>
+          </section>
+
+          <section v-else class="card-grid">
+            <article v-if="loading" v-for="n in 8" :key="`skeleton-${n}`" class="video-card video-card--skeleton">
+              <div class="video-cover video-cover-loading"></div>
+              <div class="video-info">
+                <div class="video-card-author-avatar"></div>
+                <div class="video-info-text">
+                  <strong></strong>
+                  <span></span>
+                </div>
+              </div>
+            </article>
+
+            <article
+              v-if="!loading"
+              v-for="(card, index) in cards"
+              :key="card.id"
+              class="video-card"
+              :class="{ 'video-card--playable': videoCardPlayable(card) }"
+              @click="onVideoCardClick(card)"
+            >
+              <img class="video-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
+              <div class="video-info">
+                <img
+                  class="video-card-author-avatar"
+                  :src="cardAuthorAvatar(card, index)"
+                  alt=""
+                  role="button"
+                  title="查看作者主页"
+                  @click.stop="onAuthorAvatarClick($event, card.authorId)"
+                  @error="(e) => (e.target.src = profileAvatar)"
+                />
+                <div class="video-info-text">
+                  <strong>{{ card.title }}</strong>
+                  <span>{{ cardAuthorLabel(card) }} · {{ card.viewsText || "1.2万次观看" }}</span>
+                </div>
+              </div>
+            </article>
+          </section>
+        </template>
         </template>
       </main>
 
@@ -3791,6 +5237,9 @@ onBeforeUnmount(() => {
                   @loadeddata="() => void tryDetailVideoAutoplay()"
                   @loadedmetadata="() => void tryDetailVideoAutoplay()"
                   @canplaythrough="() => void tryDetailVideoAutoplay()"
+                  @timeupdate="onDetailVideoTimeUpdate"
+                  @seeked="onDetailVideoSeeked"
+                  @ended="onDetailVideoEnded"
                   @volumechange="onDetailVideoVolumeChange"
                 />
                 <div v-else class="video-detail-player-empty">暂无播放地址</div>
@@ -3806,6 +5255,9 @@ onBeforeUnmount(() => {
                       :src="detailAuthorAvatar"
                       alt=""
                       class="video-detail-channel-avatar"
+                      role="button"
+                      title="查看作者主页"
+                      @click="onAuthorAvatarClick($event, videoDetail.authorId)"
                       @error="(e) => (e.target.src = profileAvatar)"
                     />
                   </div>
@@ -3816,8 +5268,11 @@ onBeforeUnmount(() => {
                   <button type="button" class="video-detail-subscribe" disabled>关注</button>
                 </div>
                 <div class="video-detail-actions">
-                  <button type="button" class="video-detail-action-pill" disabled>
+                  <button type="button" class="video-detail-action-pill" @click="onDetailLikeClick">
                     <i class="ri-thumb-up-line"></i> {{ videoDetail.likeCount ?? 0 }}
+                  </button>
+                  <button type="button" class="video-detail-action-pill" @click="onDetailDislikeClick">
+                    <i class="ri-thumb-down-line"></i> 不感兴趣
                   </button>
                   <button type="button" class="video-detail-action-pill" disabled>
                     <i class="ri-share-forward-line"></i> 分享
@@ -3945,7 +5400,6 @@ onBeforeUnmount(() => {
               <i class="ri-upload-cloud-2-line"></i>
             </div>
             <p class="upload-modal-main-text">将要上传的视频文件拖放到此处</p>
-            <p class="upload-modal-sub">选择文件后将使用 STS 直传 OSS，再调用发布接口。</p>
             <button type="button" class="upload-modal-select" :disabled="uploadSubmitting" @click="triggerUploadPick">
               选择文件
             </button>
@@ -3977,7 +5431,40 @@ onBeforeUnmount(() => {
             </label>
             <label class="upload-field">
               <span>标签</span>
-              <input v-model="uploadForm.tags" type="text" maxlength="200" placeholder="多个标签用逗号分隔" />
+              <div class="upload-tags-box">
+                <div v-if="uploadTagList.length" class="upload-tags-list">
+                  <button
+                    v-for="tag in uploadTagList"
+                    :key="tag"
+                    type="button"
+                    class="upload-tag-chip"
+                    :disabled="uploadSubmitting"
+                    @click="removeUploadTag(tag)"
+                  >
+                    {{ tag }} <i class="ri-close-line"></i>
+                  </button>
+                </div>
+                <div v-if="uploadTagEditorOpen" class="upload-tag-editor">
+                  <input
+                    v-model="uploadTagDraft"
+                    type="text"
+                    maxlength="20"
+                    placeholder="输入一个标签后确认"
+                    :disabled="uploadSubmitting"
+                    @keyup.enter.prevent="appendUploadTag"
+                  />
+                  <button type="button" class="upload-tag-btn" :disabled="uploadSubmitting" @click="appendUploadTag">确认</button>
+                </div>
+                <button
+                  v-else
+                  type="button"
+                  class="upload-tag-btn"
+                  :disabled="uploadSubmitting"
+                  @click="openUploadTagEditor"
+                >
+                  + 添加标签
+                </button>
+              </div>
             </label>
             <label class="upload-field upload-field--full upload-switch">
               <input v-model="uploadForm.allowComment" type="checkbox" :true-value="1" :false-value="0" />

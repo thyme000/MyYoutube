@@ -7,7 +7,7 @@ import lombok.Getter;
 public enum EventEnum {
 
     /**
-     * 曝光 1分
+     * 曝光 1分 //TODO 目前未实现
      */
     EXPOSE("expose", 1, "视频被用户看到"),
 

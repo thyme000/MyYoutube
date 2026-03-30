@@ -20,6 +20,8 @@ public class ShortsVO {
     private Integer duration;
     // 视频点赞量
     private Long likeCount;
+    // 视频播放量
+    private Long playCount;
     // 分享数
     private Long shareCount;
     // 评论数

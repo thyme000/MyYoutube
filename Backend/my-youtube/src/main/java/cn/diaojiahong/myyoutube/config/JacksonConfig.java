@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.config;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.deser.std.NumberDeserializers;
 import com.fasterxml.jackson.databind.module.SimpleModule;
@@ -15,6 +16,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -23,30 +25,33 @@ import java.time.format.DateTimeFormatter;
  */
 @Configuration
 public class JacksonConfig {
-    /** 与前端约定的时间格式，可按需改为 ISO：yyyy-MM-dd'T'HH:mm:ss */
-    public static final String LOCAL_DATE_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss";
-    public static final DateTimeFormatter LOCAL_DATE_TIME_FORMATTER =
-            DateTimeFormatter.ofPattern(LOCAL_DATE_TIME_PATTERN);
     @Bean
     public Jackson2ObjectMapperBuilderCustomizer jackson2ObjectMapperBuilderCustomizer() {
         return builder -> {
-            // 关闭时间戳，使用字符串格式
-            builder.featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-            JavaTimeModule javaTimeModule = new JavaTimeModule();
-            javaTimeModule.addSerializer(
-                    LocalDateTime.class,
-                    new LocalDateTimeSerializer(LOCAL_DATE_TIME_FORMATTER));
-            javaTimeModule.addDeserializer(
-                    LocalDateTime.class,
-                    new LocalDateTimeDeserializer(LOCAL_DATE_TIME_FORMATTER));
-            builder.modules(javaTimeModule);
             // Long / long 序列化为字符串；反序列化兼容数字和字符串
             SimpleModule longModule = new SimpleModule("LongAsString");
             longModule.addSerializer(Long.class, ToStringSerializer.instance);
             longModule.addSerializer(Long.TYPE, ToStringSerializer.instance);
             longModule.addDeserializer(Long.class, new LongFlexibleDeserializer());
             longModule.addDeserializer(Long.TYPE, new LongPrimitiveFlexibleDeserializer());
-            builder.modules(longModule);
+
+            // LocalDateTime → yyyy-MM-dd HH:mm:ss
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            JavaTimeModule javaTimeModule = new JavaTimeModule();
+            javaTimeModule.addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(fmt));
+            javaTimeModule.addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer(fmt));
+            builder.modules(longModule, javaTimeModule);
+            // Date 类型也统一格式
+            builder.dateFormat(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+            // 不要把日期写成时间戳数组
+            builder.featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+            builder.modules(longModule, javaTimeModule);
+
+            // Date 类型也统一格式
+            builder.dateFormat(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+            // 不要把日期写成时间戳数组
+            builder.featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         };
     }
     /** 可空 Long：支持 JSON 数字或字符串 */

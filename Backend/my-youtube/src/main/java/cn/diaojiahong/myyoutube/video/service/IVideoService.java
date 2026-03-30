@@ -31,7 +31,7 @@ public interface IVideoService extends IService<Video> {
 
     Result<PageResult<VideoListVO>> getVideoListByAuthorId(Long authorId, VideoPageQuery pageQuery);
 
-    Result<PageResult<MyVideoListVO>> getMyVideoList(VideoPageQuery pageQuery);
+    Result<PageResult<VideoListVO>> getMyVideoList(VideoPageQuery pageQuery);
 
     Result<String> generateVideoCover(VideoCoverMessage videoCoverMessage);
 

@@ -95,7 +95,7 @@ public class RecommendServiceImpl implements IRecommendService {
             List<FunctionScore> functions = preferences.stream()
                     .map(p -> FunctionScore.of(f -> f
                             .filter(fq -> fq.term(t -> t.field("tagIds").value(p.getTagId())))
-                            .weight((double) p.getScore())
+                            .weight(p.getScore() > 0 ? (double)p.getScore() : 0) // es里不允许权重为负数
                     ))
                     .toList();
 

@@ -13,6 +13,8 @@ import org.springframework.amqp.rabbit.annotation.QueueBinding;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.List;
 
 import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
@@ -40,10 +42,11 @@ public class VideoDocListener {
         doc.setCategory(video.getCategory().getCode());
         doc.setVideoType(video.getVideoType());
         doc.setStatus(video.getStatus().getCode());
+        doc.setDescription(video.getDescription());
         doc.setTagIds(tagIds);
         doc.setAuthorId(video.getAuthorId());
-        doc.setPlayCount(video.getPlayCount());
-        doc.setLikeCount(video.getLikeCount());
+        doc.setPlayCount(video.getPlayCount() != null ? video.getPlayCount() : 0L);
+        doc.setLikeCount(video.getLikeCount() != null ? video.getLikeCount() : 0L);
         doc.setCreateTime(video.getCreateTime());
         videoDocRepository.save(doc);
     }

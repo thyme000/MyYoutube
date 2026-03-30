@@ -35,8 +35,18 @@ public class VideoListVO {
     private Long playCount;
     // 点赞数
     private Long likeCount;
+    // 评论数
+    private Long commentCount;
+    // 分享数
+    private Long shareCount;
     // 创建时间
     private LocalDateTime createTime;
+    // 视频url
+    private String videoUrl;
+    // 视频描述
+    private String description;
+    // 视频标签
+    private String tags;
 
     // 作者用户 id
     private Long authorId;

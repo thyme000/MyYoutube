@@ -112,4 +112,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         return listByIds(ids).stream().collect(Collectors.toMap(User::getId, User::getNickname));
     }
 
+    @Override
+    public Map<Long, String> getAuthorAvatarUrls(List<Long> authorIds) {
+        if (authorIds == null || authorIds.isEmpty()) {
+            return Map.of();
+        }
+        return listByIds(authorIds).stream().collect(Collectors.toMap(User::getId, User::getAvatarUrl));
+    }
+
 }

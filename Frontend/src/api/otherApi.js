@@ -25,12 +25,7 @@ function normalizeWrappedPayload(raw) {
 }
 
 export async function getOssSts() {
-  const candidates = [
-    "/oss/sts",
-    "/api/oss/sts",
-    "http://localhost:8080/oss/sts",
-    `${window.location.protocol}//${window.location.hostname}:8080/oss/sts`,
-  ];
+  const candidates = ["/oss/sts"];
   let lastRaw = null;
   for (const path of candidates) {
     try {

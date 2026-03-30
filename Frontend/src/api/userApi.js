@@ -1,4 +1,5 @@
 import { httpRequest, uploadMultipart } from "./http";
+import { safeSnowflakeId } from "../utils/snowflakeId.js";
 
 /**
  * 获取当前登录用户信息（需 Authorization）
@@ -13,7 +14,11 @@ export function getUserInfo() {
  * GET /user/profile/{userId}
  */
 export function getUserProfileById(userId) {
-  return httpRequest(`/user/profile/${userId}`, { method: "GET" });
+  const id = encodeURIComponent(safeSnowflakeId(userId));
+  if (!id) {
+    throw new Error("userId 不能为空");
+  }
+  return httpRequest(`/user/profile/${id}`, { method: "GET" });
 }
 
 /**
@@ -41,7 +46,10 @@ export function updateUserBgImage(file) {
  * PUT /user/{id}，body 字段：nickname、introduction
  */
 export function updateUserProfile(userId, { nickname, introduction }) {
-  const id = encodeURIComponent(String(userId));
+  const id = encodeURIComponent(safeSnowflakeId(userId));
+  if (!id) {
+    throw new Error("userId 不能为空");
+  }
   return httpRequest(`/user/${id}`, {
     method: "PUT",
     body: { nickname, introduction },

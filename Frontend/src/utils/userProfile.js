@@ -1,6 +1,15 @@
 /**
- * 用户资料展示：兼容后端字段命名差异，并在无有效 URL 时交给前端使用默认图。
+ * 用户资料展示：兼容后端字段命名差异，并在无有效 URL 时使用 static 默认图（仅前端，不改后端）。
  */
+import defaultAvatarUrl from "../../static/cat.jpg";
+import defaultBgUrl from "../../static/cartoon.jpg";
+import { safeSnowflakeId } from "./snowflakeId.js";
+
+/** 默认头像 / 背景（与 App 顶栏、个人页一致） */
+export const DEFAULT_PROFILE_AVATAR_URL = defaultAvatarUrl;
+export const DEFAULT_PROFILE_BG_URL = defaultBgUrl;
+/** 短视频作者头像缺省：与上面同源，均用 static/cat.jpg */
+export const DEFAULT_SHORTS_AUTHOR_AVATAR_URL = defaultAvatarUrl;
 
 export function sanitizeImageUrl(url) {
   if (url == null) {
@@ -30,13 +39,16 @@ export function normalizeUserProfile(raw) {
     raw.introduction != null && raw.introduction !== undefined
       ? String(raw.introduction).trim()
       : "";
+  const id =
+    raw.id != null && raw.id !== "" ? safeSnowflakeId(raw.id) : raw.id;
 
   return {
     ...raw,
+    id,
     nickName,
     username,
-    avatarUrl: avatarUrl || undefined,
-    bgImage: bgImage || undefined,
+    avatarUrl: avatarUrl || defaultAvatarUrl,
+    bgImage: bgImage || defaultBgUrl,
     introduction,
   };
 }

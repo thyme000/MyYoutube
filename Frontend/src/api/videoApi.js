@@ -1,8 +1,9 @@
 import { httpRequest } from "./http";
+import { safeSnowflakeId } from "../utils/snowflakeId.js";
 
 const moduleApiMap = {
   home: "/api/videos/home",
-  shorts: "/api/videos/shorts",
+  shorts: "/videos/shorts/feed",
   subscribed: "/api/videos/subscribed",
   history: "/api/videos/history",
   liked: "/api/videos/liked",
@@ -14,15 +15,9 @@ const moduleApiMap = {
   fashion: "/api/videos/fashion",
 };
 
-/** 雪花 ID 等必须保持字符串，避免 JS Number 精度丢失 */
+/** 与 safeSnowflakeId 一致，供列表/详情规范化 */
 function safeVideoId(id, fallback) {
-  if (id == null || id === "") {
-    return fallback;
-  }
-  if (typeof id === "bigint") {
-    return id.toString();
-  }
-  return String(id);
+  return safeSnowflakeId(id, fallback);
 }
 
 function pickAuthorNickname(item) {
@@ -35,9 +30,35 @@ function pickAuthorNickname(item) {
   return typeof n === "string" && n.trim() ? n.trim() : "";
 }
 
+function pickDateTime(item) {
+  return (
+    item.createTime ??
+    item.createAt ??
+    item.createdAt ??
+    item.publishTime ??
+    item.updateTime ??
+    ""
+  );
+}
+
+function pickVisibility(item) {
+  return item.visibility ?? item.visible ?? item.scope ?? "PUBLIC";
+}
+
 /** 探索/模块等接口与首页列表共用：优先展示作者昵称，与详情页一致 */
 function normalizeVideo(item, index) {
-  const cover = item.coverUrl ?? item.avatarUrl ?? "";
+  const cover =
+    item.coverUrl ??
+    item.thumbnail ??
+    item.poster ??
+    item.image ??
+    "";
+  const authorAvatar =
+    item.authorAvatarUrl ??
+    item.authorAvatar ??
+    item.avatarUrl ??
+    item.avatar ??
+    "";
   const nick = pickAuthorNickname(item);
   const authorLabel =
     nick ||
@@ -47,12 +68,14 @@ function normalizeVideo(item, index) {
   return {
     id: safeVideoId(item.id, `video-${index}`),
     title: item.title ?? "未命名视频",
+    description: item.description ?? item.desc ?? item.introduction ?? "",
+    tags: item.tags ?? item.tagNames ?? item.tagList ?? "",
     author: authorLabel,
     viewsText: item.viewsText ?? item.viewCountText ?? "0次观看",
     videoUrl: item.videoUrl ?? item.playUrl ?? item.url ?? "",
     coverUrl: cover,
     avatarUrl: cover,
-    authorAvatarUrl: item.authorAvatarUrl ?? item.authorAvatar ?? "",
+    authorAvatarUrl: authorAvatar,
     authorId:
       item.authorId != null && item.authorId !== "" ? safeVideoId(item.authorId, "") : item.authorId,
     videoType: item.videoType,
@@ -67,31 +90,75 @@ export function normalizeVideoListVo(item, index) {
     play != null && play !== ""
       ? `${play} 次播放`
       : item.viewsText ?? "—";
-  const cover = item.coverUrl ?? "";
+  const cover = item.coverUrl ?? item.thumbnail ?? item.poster ?? "";
+  const authorAvatar =
+    item.authorAvatarUrl ??
+    item.authorAvatar ??
+    item.avatarUrl ??
+    item.avatar ??
+    "";
   const nick = pickAuthorNickname(item);
   const likeRaw = item.likeCount ?? item.likes ?? item.likeNum;
+  const commentRaw = item.commentCount ?? item.comments ?? item.commentNum;
+  const favoriteRaw =
+    item.favoriteCount ?? item.collectCount ?? item.starCount ?? item.favorites ?? item.collects;
+  const shareRaw = item.shareCount ?? item.shares ?? item.shareNum;
   let likeCount;
+  let commentCount;
+  let favoriteCount;
+  let shareCount;
   if (likeRaw != null && likeRaw !== "") {
     const n = Number(likeRaw);
     likeCount = Number.isFinite(n) ? n : undefined;
   } else {
     likeCount = undefined;
   }
+  if (commentRaw != null && commentRaw !== "") {
+    const n = Number(commentRaw);
+    commentCount = Number.isFinite(n) ? n : undefined;
+  } else {
+    commentCount = undefined;
+  }
+  if (favoriteRaw != null && favoriteRaw !== "") {
+    const n = Number(favoriteRaw);
+    favoriteCount = Number.isFinite(n) ? n : undefined;
+  } else {
+    favoriteCount = undefined;
+  }
+  if (shareRaw != null && shareRaw !== "") {
+    const n = Number(shareRaw);
+    shareCount = Number.isFinite(n) ? n : undefined;
+  } else {
+    shareCount = undefined;
+  }
+  let playCount = 0;
+  if (play != null && play !== "") {
+    const n = Number(play);
+    playCount = Number.isFinite(n) ? n : 0;
+  }
   return {
     id: safeVideoId(item.id, `v-${index}`),
     title: item.title ?? "未命名视频",
+    description: item.description ?? item.desc ?? item.introduction ?? "",
+    tags: item.tags ?? item.tagNames ?? item.tagList ?? "",
     author: nick || (item.authorId != null ? `用户 ${item.authorId}` : "频道"),
     viewsText,
+    playCount,
     likeCount,
+    commentCount,
+    favoriteCount,
+    shareCount,
     videoUrl: item.videoUrl ?? "",
     coverUrl: cover,
     /** 封面图（与 coverUrl 一致，兼容旧模板） */
     avatarUrl: cover,
-    authorAvatarUrl: item.authorAvatarUrl ?? item.authorAvatar ?? "",
+    authorAvatarUrl: authorAvatar,
     authorId:
       item.authorId != null && item.authorId !== "" ? safeVideoId(item.authorId, "") : item.authorId,
     videoType: item.videoType,
     category: item.category,
+    visibility: pickVisibility(item),
+    createTime: pickDateTime(item),
     authorNickname: nick || undefined,
   };
 }
@@ -174,7 +241,11 @@ export function normalizePageResult(data) {
  * @param query { pageNo, pageSize, category?, sort?, userId?, tags?, begin?, end? }
  */
 export async function fetchVideoListPage(query = {}) {
-  const data = await httpRequest("/videos/list", { method: "GET", query });
+  const q = { ...query };
+  if (q.userId != null && q.userId !== "") {
+    q.userId = safeSnowflakeId(q.userId);
+  }
+  const data = await httpRequest("/videos/list", { method: "GET", query: q });
   return normalizePageResult(data);
 }
 
@@ -182,7 +253,11 @@ export async function fetchVideoListPage(query = {}) {
  * GET /videos/detail/{videoId}
  */
 export async function fetchVideoDetail(videoId) {
-  return httpRequest(`/videos/detail/${videoId}`, { method: "GET" });
+  const id = safeSnowflakeId(videoId);
+  if (!id) {
+    throw new Error("videoId 不能为空");
+  }
+  return httpRequest(`/videos/detail/${encodeURIComponent(id)}`, { method: "GET" });
 }
 
 /**
@@ -190,7 +265,11 @@ export async function fetchVideoDetail(videoId) {
  * videoType: LONG_VIDEO | SHORT_VIDEO（与后端 VideoTypeEnum 枚举名一致；「全部」用 LONG_VIDEO 触发后端当前逻辑）
  */
 export async function fetchAuthorVideos(authorId, query = {}) {
-  const data = await httpRequest(`/videos/${authorId}`, { method: "GET", query });
+  const id = safeSnowflakeId(authorId);
+  if (!id) {
+    throw new Error("authorId 不能为空");
+  }
+  const data = await httpRequest(`/videos/${encodeURIComponent(id)}`, { method: "GET", query });
   return normalizePageResult(data);
 }
 
@@ -210,6 +289,10 @@ export async function publishVideo(body) {
 }
 
 export async function fetchVideosByModule(moduleKey) {
+  if (moduleKey === "shorts") {
+    const data = await fetchShortsFeedPage({ pageNo: 1, pageSize: 24 });
+    return data.list;
+  }
   const apiPath = moduleApiMap[moduleKey] || moduleApiMap.home;
   const data = await httpRequest(apiPath);
   return normalizeVideoList(data);
@@ -220,4 +303,12 @@ export async function searchVideos(keyword) {
     query: { keyword },
   });
   return normalizeVideoList(data);
+}
+
+/**
+ * GET /videos/shorts/feed 短视频推荐流分页
+ */
+export async function fetchShortsFeedPage(query = {}) {
+  const data = await httpRequest("/videos/shorts/feed", { method: "GET", query });
+  return normalizePageResult(data);
 }

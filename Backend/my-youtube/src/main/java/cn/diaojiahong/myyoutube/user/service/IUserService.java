@@ -29,4 +29,6 @@ public interface IUserService extends IService<User> {
     Result<String> updateUser(Long id, UserDTO userDTO);
 
     Map<Long, String> getAuthorNicknames(List<Long> ids);
+
+    Map<Long, String> getAuthorAvatarUrls(List<Long> authorIds);
 }
