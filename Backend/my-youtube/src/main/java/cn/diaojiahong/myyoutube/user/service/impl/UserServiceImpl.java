@@ -1,23 +1,33 @@
 package cn.diaojiahong.myyoutube.user.service.impl;
 
+import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
+import cn.diaojiahong.myyoutube.user.domain.dto.UserHistoryPageQuery;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
+import cn.diaojiahong.myyoutube.user.domain.vo.UserLongHistoryVideoVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.mapper.UserMapper;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.domain.vo.ShortsVO;
+import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -35,6 +45,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     private final AliOssUtil aliOssUtil;
     private static final Long OSS_EXPIRE = 60 * 2L;// 2小时过期时间
+    private final StringRedisTemplate redisTemplate;
+    private final VideoMapper videoMapper;
 
     @Override
     public Result<UserVO> getUserInfo() {
@@ -118,6 +130,155 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return Map.of();
         }
         return listByIds(authorIds).stream().collect(Collectors.toMap(User::getId, User::getAvatarUrl));
+    }
+
+    @Override
+    public Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(UserHistoryPageQuery userHistoryPageQuery) {
+        int pageSize = userHistoryPageQuery.getPageSize();
+        int pageNo = userHistoryPageQuery.getPageNo();
+        // 起始索引
+        int start = (pageNo - 1) * pageSize;
+        // 结束索引
+        int end = start + pageSize - 1;
+        Long userId = userHistoryPageQuery.getUserId();
+        if (userId == null) {
+            return Result.fail("用户ID不能为空");
+        }
+
+        // 长视频id
+        Set<String> longVideoIds = redisTemplate.opsForZSet().reverseRange(
+                RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId,
+                start, end);
+        if (longVideoIds == null || longVideoIds.isEmpty()) {
+            // 没有长视频
+            return Result.success(PageResult.of(0, 0, List.of()));
+        }
+
+        List<Video> longVideos = videoMapper.selectOrderedList(longVideoIds);
+
+        // 过滤掉已经删除的长视频id
+        Set<String> dbIds = longVideos.stream().map(v -> String.valueOf(v.getId())).collect(Collectors.toSet());
+        Set<String> missingIds = new HashSet<>(longVideoIds);
+        missingIds.removeAll(dbIds);
+        if (!missingIds.isEmpty()) {
+            String tsKey = RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId;
+            String ptKey = RedisConstants.USER_PLAYBACK_RESUME + userId;
+            redisTemplate.opsForZSet().remove(tsKey, missingIds.toArray());
+            redisTemplate.opsForHash().delete(ptKey, missingIds.toArray());
+        }
+
+        // 转换成VO
+        List<UserLongHistoryVideoVO> longHistoryVideoVOs = longVideos.stream()
+                .map(video -> BeanUtil.toBean(video, UserLongHistoryVideoVO.class))
+                .toList();
+
+        // 获取作者昵称
+        Map<Long, String> authorNicknames = getAuthorNicknames(
+                longHistoryVideoVOs
+                        .stream()
+                        .map(UserLongHistoryVideoVO::getAuthorId)
+                        .collect(Collectors.toList()));
+        // 获取作者头像url
+        Map<Long, String> authorAvatarUrls = getAuthorAvatarUrls(
+                longHistoryVideoVOs
+                        .stream()
+                        .map(UserLongHistoryVideoVO::getAuthorId)
+                        .collect(Collectors.toList()));
+
+        // 填充作者昵称和头像url
+        longHistoryVideoVOs.forEach(vo -> {
+            vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
+            vo.setAuthorAvatarUrl(authorAvatarUrls.get(vo.getAuthorId()));
+        });
+
+        // 获取用户长视频观看时长记录
+        Map<Object, Object> playbackResumes = redisTemplate
+                .opsForHash()
+                .entries(RedisConstants.USER_PLAYBACK_RESUME + userId);
+
+        // 填充观看时长记录
+        longHistoryVideoVOs.forEach(vo -> {
+            vo.setPlaybackTime(Long.parseLong(playbackResumes.get(vo.getId() == null ? 0L : vo.getId()).toString()));
+        });
+
+        long total = redisTemplate.opsForZSet().zCard(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId);
+
+        long pages = total / pageSize;
+        if (total % pageSize != 0) {
+            pages++;
+        }
+
+        // 返回结果
+        return Result.success(PageResult.of(total, pages, longHistoryVideoVOs));
+    }
+
+    @Override
+    public Result<PageResult<ShortsVO>> getShortsHistory(UserHistoryPageQuery userHistoryPageQuery) {
+        int pageSize = userHistoryPageQuery.getPageSize();
+        int pageNo = userHistoryPageQuery.getPageNo();
+        // 起始索引
+        int start = (pageNo - 1) * pageSize;
+        // 结束索引
+        int end = start + pageSize - 1;
+        Long userId = userHistoryPageQuery.getUserId();
+        if (userId == null) {
+            return Result.fail("用户ID不能为空");
+        }
+
+        // 查询短视频id
+        Set<String> shortsIds = redisTemplate.opsForZSet().reverseRange(
+                RedisConstants.USER_SHORTS_PLAY + userId,
+                start, end);
+        if (shortsIds == null || shortsIds.isEmpty()) {
+            // 说明没有观看过的短视频
+            return Result.success(PageResult.of(0, 0, List.of()));
+        }
+
+        List<Video> shortVideos = videoMapper.selectOrderedList(shortsIds);
+
+        // 过滤掉已经删除的短视频id
+        Set<String> dbIds = shortVideos.stream().map(v -> String.valueOf(v.getId())).collect(Collectors.toSet());
+        Set<String> missingIds = new HashSet<>(shortsIds);
+        missingIds.removeAll(dbIds);
+        if (!missingIds.isEmpty()) {
+            String tsKey = RedisConstants.USER_SHORTS_PLAY + userId;
+            redisTemplate.opsForZSet().remove(tsKey, missingIds.toArray());
+        }
+
+        // 转换成VO
+        List<ShortsVO> shortsVOs = shortVideos.stream()
+                .map(video -> BeanUtil.toBean(video, ShortsVO.class))
+                .toList();
+
+        // 获取作者昵称
+        Map<Long, String> authorNicknames = getAuthorNicknames(
+                shortsVOs
+                        .stream()
+                        .map(ShortsVO::getAuthorId)
+                        .collect(Collectors.toList()));
+        // 获取作者头像url
+        Map<Long, String> authorAvatarUrls = getAuthorAvatarUrls(
+                shortsVOs
+                        .stream()
+                        .map(ShortsVO::getAuthorId)
+                        .collect(Collectors.toList()));
+
+        // 填充作者昵称和头像url
+        shortsVOs.forEach(vo -> {
+            vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
+            vo.setAuthorAvatarUrl(authorAvatarUrls.get(vo.getAuthorId()));
+        });
+
+
+        long total = redisTemplate.opsForZSet().zCard(RedisConstants.USER_SHORTS_PLAY + userId);
+
+        long pages = total / pageSize;
+        if (total % pageSize != 0) {
+            pages++;
+        }
+
+        // 返回结果
+        return Result.success(PageResult.of(total, pages, shortsVOs));
     }
 
 }

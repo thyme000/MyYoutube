@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.RecordUserWatchTimeDTO;
+import cn.diaojiahong.myyoutube.video.domain.dto.UserShortsWatchRecords;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.vo.MyVideoListVO;
@@ -120,5 +121,16 @@ public class VideoController {
     @PutMapping("/playback/resume")
     public Result<Void> updatePlaybackResume(@RequestBody RecordUserWatchTimeDTO userWatchTimeDTO) {
         return videoService.updatePlaybackResume(userWatchTimeDTO);
+    }
+
+    /**
+     * 在redis中记录用户观看短视频的记录
+     * @param userShortsWatchRecords
+     * @return
+     */
+    @Operation(summary = "用户观看短视频记录")
+    @PutMapping("/shorts/play")
+    public Result<Void> recordShortsPlay(@RequestBody UserShortsWatchRecords userShortsWatchRecords) {
+        return videoService.recordShortsPlay(userShortsWatchRecords);
     }
 }

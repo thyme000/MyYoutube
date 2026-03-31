@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.RecordUserWatchTimeDTO;
+import cn.diaojiahong.myyoutube.video.domain.dto.UserShortsWatchRecords;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -39,4 +40,6 @@ public interface IVideoService extends IService<Video> {
     Result<PageResult<ShortsVO>> getShortsFeed(PageQuery pageQuery);
 
     Result<Void> updatePlaybackResume(RecordUserWatchTimeDTO userWatchTimeDTO);
+
+    Result<Void> recordShortsPlay(UserShortsWatchRecords userShortsWatchRecords);
 }

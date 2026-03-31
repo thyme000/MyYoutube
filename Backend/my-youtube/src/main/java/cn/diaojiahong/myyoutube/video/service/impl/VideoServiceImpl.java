@@ -16,6 +16,7 @@ import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.RecordUserWatchTimeDTO;
+import cn.diaojiahong.myyoutube.video.domain.dto.UserShortsWatchRecords;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
@@ -30,7 +31,9 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.redis.core.DefaultTypedTuple;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -359,13 +362,43 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
     @Override
     public Result<Void> updatePlaybackResume(RecordUserWatchTimeDTO userWatchTimeDTO) {
+        Long userId = userWatchTimeDTO.getUserId();
         // 记录当前的时间戳
-        redisTemplate.opsForZSet().add(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userWatchTimeDTO.getUserId(),
+        redisTemplate.opsForZSet().add(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId,
                 userWatchTimeDTO.getVideoId().toString(),
                 System.currentTimeMillis());
         // 记录用户观看的时长记录
-        redisTemplate.opsForHash().put(RedisConstants.USER_PLAYBACK_RESUME + userWatchTimeDTO.getUserId(),
+        redisTemplate.opsForHash().put(RedisConstants.USER_PLAYBACK_RESUME + userId,
                 userWatchTimeDTO.getVideoId().toString(), userWatchTimeDTO.getPlayTime().toString());
+
+        // 设置过期时间
+        redisTemplate.expire(RedisConstants.USER_PLAYBACK_RESUME + userId, RedisConstants.USER_PLAYBACK_RESUME_EXPIRE, TimeUnit.DAYS);
+        redisTemplate.expire(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId, RedisConstants.USER_PLAYBACK_RESUME_EXPIRE, TimeUnit.DAYS);
+
+        return Result.success();
+    }
+
+    @Override
+    public Result<Void> recordShortsPlay(UserShortsWatchRecords userShortsWatchRecords) {
+        Long userId = userShortsWatchRecords.getUserId();
+        if (userId == null) {
+            throw new BizException(BizException.USER_ERROR, "用户id不能为空");
+        }
+        Set<Long> shortIds = userShortsWatchRecords.getShortIds();
+        if (shortIds == null || shortIds.isEmpty()) {
+            // 短视频id集合为空，直接返回成功
+            return Result.success();
+        }
+
+        // 批量插入 ZSet(当前时间戳)
+        Set<ZSetOperations.TypedTuple<String>> tuples = new HashSet<>();
+        for (Long id : shortIds) {
+            tuples.add(new DefaultTypedTuple<>(id.toString(), (double) System.currentTimeMillis()));
+        }
+        redisTemplate.opsForZSet().add(RedisConstants.USER_SHORTS_PLAY + userId, tuples);
+        // 过期时间30天
+        redisTemplate.expire(RedisConstants.USER_SHORTS_PLAY + userId, RedisConstants.USER_SHORTS_PLAY_EXPIRE, TimeUnit.DAYS);
+
         return Result.success();
     }
 

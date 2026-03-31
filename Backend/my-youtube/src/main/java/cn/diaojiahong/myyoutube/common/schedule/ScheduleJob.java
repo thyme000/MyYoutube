@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.common.schedule;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
-import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import lombok.RequiredArgsConstructor;
@@ -12,9 +11,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 @Slf4j
@@ -81,6 +78,29 @@ public class ScheduleJob {
                 }
                 // 清理过期的视频记录
                 redisTemplate.opsForHash().delete(hashKey, videoIds);
+            }
+        }
+    }
+
+    /**
+     * 每周日执行一次
+     * 清理用户已过期的短视频观看记录
+     */
+    @Scheduled(cron = "0 0 4 * * 0")
+    public void cleanUserExpiredShortsRecord() {
+        // 计算过期时间
+        long ts = System.currentTimeMillis();
+        long end = ts - 30L * 24 * 3600 * 1000;
+        // 清理过期记录
+        // 使用SCAN遍历清除所有用户的过期的播放记录
+        ScanOptions options = ScanOptions.scanOptions().match(RedisConstants.USER_SHORTS_PLAY + "*").build();
+        try (Cursor<String> cursor = redisTemplate.scan(options)) {
+            while (cursor.hasNext()) {
+                String zsetKey = cursor.next();
+                // 获取过期的短视频记录(id)
+                Set<String> shortsIds = redisTemplate.opsForZSet().rangeByScore(zsetKey, 0, end);
+                // 清理过期记录
+                redisTemplate.opsForZSet().removeRangeByScore(zsetKey, 0, end);
             }
         }
     }

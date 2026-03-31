@@ -1,10 +1,14 @@
 package cn.diaojiahong.myyoutube.user.controller;
 
 
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
+import cn.diaojiahong.myyoutube.user.domain.dto.UserHistoryPageQuery;
+import cn.diaojiahong.myyoutube.user.domain.vo.UserLongHistoryVideoVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.video.domain.vo.ShortsVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +16,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 /**
  * <p>
@@ -75,4 +81,21 @@ public class UserController {
         return userService.updateUser(id, userDTO);
     }
 
+
+    /**
+     * 用户查看历史记录
+     * @param userHistoryPageQuery
+     * @return
+     */
+    @Operation(summary = "用户查看历史记录")
+    @GetMapping("/history/long")
+    public Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(@ModelAttribute UserHistoryPageQuery userHistoryPageQuery) {
+        return userService.getLongHistory(userHistoryPageQuery);
+    }
+
+    @Operation(summary = "用户查看短视频观看记录")
+    @GetMapping("/history/short")
+    public Result<PageResult<ShortsVO>> getShortsHistory(@ModelAttribute UserHistoryPageQuery userHistoryPageQuery) {
+        return userService.getShortsHistory(userHistoryPageQuery);
+    }
 }
