@@ -207,9 +207,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         detailVo.setCoverUrl(aliOssUtil.signGetUrl(detailVo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
 
         // 查看历史播放记录,看是否有播放记录,如果有完成续播功能
-        Long playTime = (Long) redisTemplate
-                .opsForHash()
-                .get(RedisConstants.USER_PLAYBACK_RESUME + UserContext.getUser().getId(), videoId.toString());
+        String playTimeStr = (String) redisTemplate.opsForHash().get(RedisConstants.USER_PLAYBACK_RESUME + UserContext.getUser().getId(), videoId.toString());
+        Long playTime = (playTimeStr != null && !playTimeStr.isBlank()) ? Long.parseLong(playTimeStr) : null;
         if (playTime != null) {
             // 说明存在播放记录,则设置播放时间
             detailVo.setPlaybackTime(playTime);
@@ -366,7 +365,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 System.currentTimeMillis());
         // 记录用户观看的时长记录
         redisTemplate.opsForHash().put(RedisConstants.USER_PLAYBACK_RESUME + userWatchTimeDTO.getUserId(),
-                userWatchTimeDTO.getVideoId().toString(), userWatchTimeDTO.getPlayTime());
+                userWatchTimeDTO.getVideoId().toString(), userWatchTimeDTO.getPlayTime().toString());
         return Result.success();
     }
 

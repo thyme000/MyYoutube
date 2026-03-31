@@ -187,6 +187,12 @@ export function normalizeVideoDetail(raw) {
   const detailNick =
     pickAuthorNickname(raw) ||
     (raw.authorId != null ? `用户 ${raw.authorId}` : "频道");
+  const playbackMsRaw = raw.playbackTime;
+  const playbackMsNum = Number(playbackMsRaw);
+  const playbackTime =
+    Number.isFinite(playbackMsNum) && playbackMsNum > 0
+      ? Math.floor(playbackMsNum)
+      : 0;
   return {
     id: safeVideoId(raw.id, ""),
     title: raw.title ?? "未命名视频",
@@ -204,6 +210,7 @@ export function normalizeVideoDetail(raw) {
     authorNickname: detailNick,
     authorAvatarUrl: raw.authorAvatarUrl ?? "",
     authorFanCount: raw.authorFanCount ?? 0,
+    playbackTime,
     visibility: raw.visibility,
     createTime: raw.createTime,
   };

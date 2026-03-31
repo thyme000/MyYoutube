@@ -298,6 +298,12 @@ const reportedPlayReportedSet = ref(new Set());
 /** 详情页：顺播累计秒数 */
 const detailPlaybackAccSec = ref(0);
 const detailLastTimeSec = ref(null);
+/** 详情页长视频：用户手动暂停后，禁止自动播放重试，直到用户再次点击播放 */
+const detailUserPausedManually = ref(false);
+let detailPlaybackResumeInFlight = false;
+let detailPlaybackResumeLastSentAtMs = 0;
+let detailPlaybackResumeTickCount = 0;
+let detailPlaybackResumeAppliedVideoId = "";
 /** 短视频流：顺播累计秒数 + 当前条 id */
 const shortsPlaybackAccSec = ref(0);
 const shortsLastTimeSec = ref(null);
@@ -1235,6 +1241,10 @@ async function tryDetailVideoAutoplay() {
   if (!el || !videoDetail.value?.videoUrl) {
     return;
   }
+  // 用户手动暂停后，阻止自动重试 play
+  if (detailUserPausedManually.value) {
+    return;
+  }
   if (!el.paused) {
     return;
   }
@@ -1259,6 +1269,7 @@ async function tryDetailVideoAutoplay() {
 }
 
 function onDetailVideoCanPlay() {
+  applyDetailPlaybackResumeIfNeeded();
   void tryDetailVideoAutoplay();
 }
 
@@ -1294,6 +1305,15 @@ function onDetailVideoTimeUpdate(e) {
     markPlayReported(d.id);
     void reportBehaviorSilently(d.id, "PLAY", current * 1000);
   }
+
+  // 长视频：按 timeupdate 次数上报。每 30 次触发一次兜底续播上报。
+  if (isLongDetailVideo() && el && !el.paused) {
+    detailPlaybackResumeTickCount += 1;
+    if (detailPlaybackResumeTickCount >= 30) {
+      detailPlaybackResumeTickCount = 0;
+      void flushDetailPlaybackResume("tick");
+    }
+  }
 }
 
 function onDetailVideoEnded(e) {
@@ -1302,6 +1322,9 @@ function onDetailVideoEnded(e) {
   if (!d?.id) return;
   const current = Number(el?.currentTime || 0);
   void reportBehaviorSilently(d.id, "FINISH", current * 1000);
+
+  // ended 时也算播放完成点：写一次续播（可选，但能减少断点缺失）
+  void flushDetailPlaybackResume("ended");
 }
 
 function onDetailLikeClick() {
@@ -1327,6 +1350,154 @@ function scheduleDetailVideoAutoplayRetries() {
   setTimeout(() => void tryDetailVideoAutoplay(), 2000);
   setTimeout(() => void tryDetailVideoAutoplay(), 3000);
   setTimeout(() => void tryDetailVideoAutoplay(), 4500);
+}
+
+function isLongDetailVideo() {
+  const vt = videoDetail.value?.videoType;
+  if (!vt) return false;
+  const s = String(vt).toLowerCase().trim();
+  // 后端可能是 "long"，列表可能是 "LONG_VIDEO"，或其它命名包含 "long"
+  // 这里做兼容，避免刚进入详情尚未完成数据填充时错过上报。
+  return s === "long" || s === "long_video" || s === "longvideo" || s.includes("long");
+}
+
+function getDetailCurrentPlayTimeMs() {
+  const el = detailPlayerRef.value;
+  if (!el) return 0;
+  // currentTime 是秒，后端需要毫秒
+  const ms = Math.floor((Number(el.currentTime || 0) || 0) * 1000);
+  return ms > 0 ? ms : 0;
+}
+
+function getDetailPlaybackResumePayload(playTimeMs) {
+  const userId = currentUserId.value;
+  const videoId = videoDetail.value?.id;
+  if (!userId || userId === "" || !videoId) return null;
+  if (!Number.isFinite(Number(playTimeMs))) return null;
+  return {
+    videoId,
+    playTime: playTimeMs,
+    userId,
+  };
+}
+
+function applyDetailPlaybackResumeIfNeeded() {
+  if (!isLongDetailVideo()) return;
+  const detail = videoDetail.value;
+  const player = detailPlayerRef.value;
+  if (!detail || !player) return;
+  const vid = String(detail.id ?? "");
+  if (!vid) return;
+  if (detailPlaybackResumeAppliedVideoId === vid) return;
+  const playbackMs = Number(detail.playbackTime ?? 0);
+  if (!Number.isFinite(playbackMs) || playbackMs <= 0) {
+    detailPlaybackResumeAppliedVideoId = vid;
+    return;
+  }
+  const targetSec = playbackMs / 1000;
+  if (!Number.isFinite(targetSec) || targetSec <= 0) {
+    detailPlaybackResumeAppliedVideoId = vid;
+    return;
+  }
+  const duration = Number(player.duration);
+  if (Number.isFinite(duration) && duration > 0) {
+    player.currentTime = Math.max(0, Math.min(targetSec, Math.max(0, duration - 1)));
+    detailPlaybackResumeAppliedVideoId = vid;
+    return;
+  }
+  // duration 尚未可用时，loadedmetadata/canplay 到来后会再次调用。
+}
+
+async function sendDetailPlaybackResume(payload, { keepalive = false } = {}) {
+  if (!payload) return;
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+    };
+    if (token.value) {
+      headers["Authorization"] = token.value;
+    }
+    // 用 fetch + keepalive：页面切走/关闭也尽量能发出去
+    await fetch("/videos/playback/resume", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(payload),
+      keepalive,
+    });
+  } catch {
+    // 静默失败：续播记录不影响播放体验
+  }
+}
+
+function stopDetailPlaybackResumeTimer() {
+  detailPlaybackResumeTickCount = 0;
+}
+
+function resetDetailPlaybackResumeState() {
+  stopDetailPlaybackResumeTimer();
+  detailPlaybackResumeInFlight = false;
+  detailPlaybackResumeTickCount = 0;
+  detailPlaybackResumeAppliedVideoId = "";
+  detailUserPausedManually.value = false;
+}
+
+function flushDetailPlaybackResume(reason) {
+  if (!isLongDetailVideo()) return Promise.resolve();
+  const player = detailPlayerRef.value;
+  if (!player) return Promise.resolve();
+
+  // “切走/关页/离开详情”只在播放态上报；用户手动 pause 的情况由 reason="pause" 单独处理
+  if (reason !== "pause" && player.paused) {
+    return Promise.resolve();
+  }
+
+  const playTimeMs = getDetailCurrentPlayTimeMs();
+  if (reason !== "pause" && reason !== "switch" && reason !== "leave" && reason !== "unload" && playTimeMs <= 0) {
+    return Promise.resolve();
+  }
+
+  const payload = getDetailPlaybackResumePayload(playTimeMs);
+  if (!payload) return Promise.resolve();
+
+  const now = Date.now();
+  // tick 兜底避免过于频繁；pause/switch/leave/unload 走立即
+  if (reason === "tick" && now - detailPlaybackResumeLastSentAtMs < 8_000) {
+    return Promise.resolve();
+  }
+  if (detailPlaybackResumeInFlight) {
+    return Promise.resolve();
+  }
+  detailPlaybackResumeInFlight = true;
+  detailPlaybackResumeLastSentAtMs = now;
+
+  const keepalive = reason === "unload" || reason === "leave";
+  return sendDetailPlaybackResume(payload, { keepalive }).finally(() => {
+    detailPlaybackResumeInFlight = false;
+  });
+}
+
+function onDetailVideoPause(e) {
+  // 用户手动暂停：置标记 + 立即上报续播（长视频）
+  if (isLongDetailVideo()) {
+    stopDetailPlaybackResumeTimer();
+    const isUser = e?.isTrusted !== false; // 有些环境下 isTrusted 可能不可用
+    if (isUser) {
+      detailUserPausedManually.value = true;
+      void flushDetailPlaybackResume("pause");
+    }
+  }
+}
+
+function onDetailVideoPlay(e) {
+  // 用户再次点击播放：解除暂停屏蔽 + 开启兜底定时器
+  if (isLongDetailVideo()) {
+    const isUser = e?.isTrusted !== false;
+    if (isUser) {
+      detailUserPausedManually.value = false;
+    }
+    // 播放恢复后将按 timeupdate 次数上报，这里重置计数避免刚播放就上报。
+    detailPlaybackResumeTickCount = 0;
+  }
 }
 
 /** 刷新 / 往返缓存后 DOM 就绪较晚，多补几轮 */
@@ -1372,6 +1543,14 @@ async function openVideoDetail(card) {
   if (!card) {
     return;
   }
+  // 切换详情视频前：如果上一条是长视频且正在播放，先 flush 一次续播
+  if (showVideoDetail.value && isLongDetailVideo()) {
+    const player = detailPlayerRef.value;
+    if (player && !player.paused) {
+      void flushDetailPlaybackResume("switch");
+    }
+  }
+
   detailPlaybackAccSec.value = 0;
   detailLastTimeSec.value = null;
   if (profileFeedOpen.value) {
@@ -1385,6 +1564,8 @@ async function openVideoDetail(card) {
   uploadModalOpen.value = false;
   videoDetail.value = null;
   detailErrorMsg.value = "";
+  // 新开详情：重置“用户手动暂停”屏蔽，避免误影响自动播放重试
+  resetDetailPlaybackResumeState();
   detailLoading.value = true;
   const vid = parseVideoIdForApi(card.id);
   const instantDetail = buildDetailFromCard(card);
@@ -1422,6 +1603,9 @@ async function openVideoDetail(card) {
         }
       }
       videoDetail.value = d;
+      nextTick(() => {
+        applyDetailPlaybackResumeIfNeeded();
+      });
     } else {
       videoDetail.value = instantDetail;
     }
@@ -1450,6 +1634,9 @@ async function openVideoDetail(card) {
 
 function closeVideoDetail() {
   detailAutoplayMutedFallback.value = false;
+  // 离开详情：如果当前是长视频且正在播放，立即上报（兜底/切走场景）
+  void flushDetailPlaybackResume("leave");
+  resetDetailPlaybackResumeState();
   try {
     detailPlayerRef.value?.pause?.();
   } catch {
@@ -3785,6 +3972,9 @@ function onWindowPopState() {
   if (!v && showVideoDetail.value) {
     detailAutoplayMutedFallback.value = false;
     try {
+      // 切走详情（浏览器返回/关闭 v 参数）：立即上报长视频续播
+      void flushDetailPlaybackResume("leave");
+      resetDetailPlaybackResumeState();
       detailPlayerRef.value?.pause?.();
     } catch {
       /* ignore */
@@ -3837,6 +4027,17 @@ onMounted(async () => {
   window.addEventListener("popstate", onWindowPopState);
   window.addEventListener("pageshow", onWindowPageShow);
   window.addEventListener(getAuthExpiredEventName(), onAuthExpired);
+  // 关闭/切走页面兜底：用 keepalive 尽量发送
+  window.addEventListener("pagehide", () => {
+    if (!showVideoDetail.value) return;
+    void flushDetailPlaybackResume("unload");
+  });
+  window.addEventListener("visibilitychange", () => {
+    // 切后台时也尽量保存（只有长视频且播放中才会真正 flush）
+    if (document.visibilityState !== "hidden") return;
+    if (!showVideoDetail.value) return;
+    void flushDetailPlaybackResume("unload");
+  });
 
   if (!isAuthed.value) {
     return;
@@ -3899,6 +4100,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("popstate", onWindowPopState);
   window.removeEventListener("pageshow", onWindowPageShow);
   window.removeEventListener(getAuthExpiredEventName(), onAuthExpired);
+  stopDetailPlaybackResumeTimer();
   if (loginCaptchaTimer) clearInterval(loginCaptchaTimer);
   if (registerCaptchaTimer) clearInterval(registerCaptchaTimer);
   if (forgotCaptchaTimer) clearInterval(forgotCaptchaTimer);
@@ -5235,8 +5437,10 @@ onBeforeUnmount(() => {
                   :src="videoDetail.videoUrl"
                   @canplay="onDetailVideoCanPlay"
                   @loadeddata="() => void tryDetailVideoAutoplay()"
-                  @loadedmetadata="() => void tryDetailVideoAutoplay()"
+                  @loadedmetadata="() => { applyDetailPlaybackResumeIfNeeded(); void tryDetailVideoAutoplay(); }"
                   @canplaythrough="() => void tryDetailVideoAutoplay()"
+                  @pause="onDetailVideoPause"
+                  @play="onDetailVideoPlay"
                   @timeupdate="onDetailVideoTimeUpdate"
                   @seeked="onDetailVideoSeeked"
                   @ended="onDetailVideoEnded"
