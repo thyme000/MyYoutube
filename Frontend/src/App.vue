@@ -35,6 +35,12 @@ import {
   updateUserProfile,
 } from "./api/userApi";
 import {
+  likeVideo as likeVideoApi,
+  cancelLikeVideo as cancelLikeVideoApi,
+  dislikeVideo as dislikeVideoApi,
+  fetchLikedVideosPage,
+} from "./api/likeApi";
+import {
   loadCropFromStorage,
   makeDefaultCropRect,
   normalizeRect,
@@ -147,6 +153,8 @@ const showProfileCenter = ref(false);
 const profileTargetUserId = ref(null);
 /** 当前登录用户 id，来自 /user/info，用于判断是否「看自己」 */
 const currentUserId = ref(null);
+/** 当前登录用户资料快照（顶栏头像等），不因进入他人主页而被替换 */
+const selfUserProfile = ref(null);
 const profileUser = ref(null);
 const profileLoading = ref(false);
 const profileMsg = ref("");
@@ -363,7 +371,29 @@ const profileWorkVideoUrlLoading = ref({});
 const profileWorkDetailCache = ref({});
 const feedScope = ref("shorts");
 const profileFeedQueue = ref([]);
+const likedFeedQueue = ref([]);
 const profileFeedOpen = ref(false);
+/** 赞过的视频列表（GET /like/{userId}/list） */
+const likedRows = ref([]);
+const likedPageNo = ref(1);
+const likedPages = ref(0);
+const likedTotal = ref(0);
+const likedLoading = ref(false);
+const likedLoadingMore = ref(false);
+const LIKED_PAGE_SIZE = 12;
+/** 详情页点赞：无 isLiked 时用本地切换（与后端幂等配合） */
+const detailSessionLiked = ref(false);
+const detailLikeBusy = ref(false);
+/** 短视频流点赞：切换条时重置 */
+const shortsSessionLiked = ref(false);
+const shortsLikeBusy = ref(false);
+let lastShortsLikeAt = 0;
+let lastDetailLikeAt = 0;
+/** 仅当「当前短视频 id」变化时同步爱心 UI，避免 patch 列表导致 watch 反复把已取消赞设回 true */
+let prevShortsLikeWatchId = "";
+/** 自己的视频在全屏短视频里显示更多操作（三点） */
+const selfVideoActionOpen = ref(false);
+const selfVideoDeleteConfirmOpen = ref(false);
 const toasts = ref([]);
 let toastSeed = 0;
 
@@ -422,6 +452,25 @@ const profileWorksDisplay = computed(() => {
   }
   return base;
 });
+
+const likedDisplay = computed(() => {
+  return likedRows.value.map((item) => ({
+    id: item.id,
+    title: item.title || "未命名视频",
+    image: item.coverUrl || item.avatarUrl || profileBanner,
+    likes: formatWorkLikeText(item),
+    playCount: item.playCount,
+    videoUrl: resolveVideoUrl(item),
+    authorNickname: item.authorNickname || item.author || "",
+    description: item.description || "",
+    tags: item.tags || "",
+    authorAvatarUrl: sanitizeImageUrl(item.authorAvatarUrl || item.authorAvatar || "") || profileAvatar,
+    videoType: item.videoType,
+    ...item,
+  }));
+});
+
+const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0));
 
 const uploadTagList = computed(() =>
   String(uploadForm.value.tags || "")
@@ -544,6 +593,21 @@ function onMediaPreviewImgError() {
   }
 }
 
+/** 创作中心侧栏等：始终展示当前登录用户昵称 */
+const selfDisplayNickname = computed(() => {
+  const u = selfUserProfile.value;
+  if (!u) {
+    return "加载中…";
+  }
+  if (u.nickName?.trim()) {
+    return u.nickName.trim();
+  }
+  if (u.username?.trim()) {
+    return u.username.trim();
+  }
+  return "未命名用户";
+});
+
 const displayNickname = computed(() => {
   const u = profileUser.value;
   if (!u) {
@@ -577,9 +641,9 @@ const introDisplayText = computed(() => {
   return isViewingSelf.value ? "暂无简介，点击此处编辑" : "暂无简介";
 });
 
-/** 顶栏「我」头像：登录后优先用户头像，否则默认图 */
+/** 顶栏「我」头像：始终为当前登录用户，不随他人主页 profileUser 变化 */
 const topbarAvatarSrc = computed(() => {
-  const u = profileUser.value;
+  const u = selfUserProfile.value;
   const url = u?.avatarUrl ? sanitizeImageUrl(u.avatarUrl) : "";
   return url || profileAvatar;
 });
@@ -1349,18 +1413,59 @@ function onDetailVideoEnded(e) {
   void flushDetailPlaybackResume("ended");
 }
 
-function onDetailLikeClick() {
+async function onDetailLikeClick() {
   const d = videoDetail.value;
   if (!d?.id) return;
+  if (!isAuthed.value) {
+    pushToast("请先登录后再点赞", "info");
+    return;
+  }
+  const now = Date.now();
+  if (now - lastDetailLikeAt < 300) return;
+  lastDetailLikeAt = now;
+  if (detailLikeBusy.value) return;
+  const vid = parseVideoIdForApi(d.id);
+  if (vid == null) return;
   const current = Number(detailPlayerRef.value?.currentTime || 0);
-  void reportBehaviorSilently(d.id, "LIKE", current * 1000);
+  detailLikeBusy.value = true;
+  try {
+    if (detailSessionLiked.value) {
+      await cancelLikeVideoApi(vid);
+      detailSessionLiked.value = false;
+    } else {
+      await likeVideoApi(vid);
+      detailSessionLiked.value = true;
+    }
+    const raw = await fetchVideoDetail(vid);
+    const merged = normalizeVideoDetail(raw);
+    if (merged) {
+      videoDetail.value = { ...d, ...merged };
+    }
+    void reportBehaviorSilently(d.id, "LIKE", current * 1000);
+  } catch (error) {
+    pushToast(error.message || "点赞失败", "error");
+  } finally {
+    detailLikeBusy.value = false;
+  }
 }
 
-function onDetailDislikeClick() {
+async function onDetailDislikeClick() {
   const d = videoDetail.value;
   if (!d?.id) return;
+  if (!isAuthed.value) {
+    pushToast("请先登录", "info");
+    return;
+  }
+  const vid = parseVideoIdForApi(d.id);
+  if (vid == null) return;
   const current = Number(detailPlayerRef.value?.currentTime || 0);
-  void reportBehaviorSilently(d.id, "DISLIKE", current * 1000);
+  try {
+    await dislikeVideoApi(vid);
+    void reportBehaviorSilently(d.id, "DISLIKE", current * 1000);
+    pushToast("已标记为不感兴趣", "success");
+  } catch (error) {
+    pushToast(error.message || "操作失败", "error");
+  }
 }
 
 function scheduleDetailVideoAutoplayRetries() {
@@ -2143,6 +2248,42 @@ function onContentScroll(e) {
   }
 }
 
+async function loadLikedPage({ reset = false } = {}) {
+  const uid = currentUserId.value;
+  if (!uid) {
+    return;
+  }
+  const isFirst = reset || likedRows.value.length === 0;
+  if (isFirst) {
+    if (likedLoadingMore.value) return;
+    likedLoading.value = true;
+  } else {
+    if (likedLoading.value || likedLoadingMore.value) return;
+    if (likedPageNo.value >= (likedPages.value || 0)) return;
+    likedLoadingMore.value = true;
+  }
+  try {
+    const pageNo = isFirst ? 1 : likedPageNo.value + 1;
+    const res = await fetchLikedVideosPage(uid, { pageNo, pageSize: LIKED_PAGE_SIZE });
+    if (isFirst) {
+      likedRows.value = res.list || [];
+    } else {
+      likedRows.value = [...likedRows.value, ...(res.list || [])];
+    }
+    likedPageNo.value = pageNo;
+    likedPages.value = res.pages ?? 0;
+    likedTotal.value = res.total ?? 0;
+  } catch (error) {
+    if (isFirst) {
+      likedRows.value = [];
+    }
+    pushToast(error.message || "加载赞过的视频失败", "error");
+  } finally {
+    likedLoading.value = false;
+    likedLoadingMore.value = false;
+  }
+}
+
 async function loadModuleCards(menu, { fallback = true } = {}) {
   loading.value = true;
   try {
@@ -2184,6 +2325,25 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       pageHint.value = "历史播放记录 · 长视频与短视频（分页）";
       return;
     }
+    if (menu.key === "liked") {
+      homeShortsRows.value = [];
+      homeShortsPageNo.value = 1;
+      homeShortsPages.value = 0;
+      homeLongPageNo.value = 1;
+      homeLongPages.value = 0;
+      cards.value = [];
+      if (!currentUserId.value) {
+        likedRows.value = [];
+        likedPageNo.value = 1;
+        likedPages.value = 0;
+        likedTotal.value = 0;
+        pageHint.value = "请先登录后查看「赞过的视频」。";
+        return;
+      }
+      await loadLikedPage({ reset: true });
+      pageHint.value = `赞过的视频 · 共 ${likedTotal.value} 条（GET /like/{userId}/list）`;
+      return;
+    }
     homeShortsRows.value = [];
     homeShortsPageNo.value = 1;
     homeShortsPages.value = 0;
@@ -2219,6 +2379,12 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
         historyShortRows.value = [];
         historyShortPageNo.value = 1;
         historyShortPages.value = 0;
+        cards.value = [];
+      } else if (menu.key === "liked") {
+        likedRows.value = [];
+        likedPageNo.value = 1;
+        likedPages.value = 0;
+        likedTotal.value = 0;
         cards.value = [];
       } else {
         cards.value = menu.key === "shorts" ? getShortsLocalFallbackCards() : getMockCards(menu.label, menu.key);
@@ -2578,12 +2744,13 @@ async function loadProfileUser() {
   profileLoading.value = true;
   profileMsg.value = "";
   try {
+    const me = normalizeUserProfile(await getUserInfo());
+    selfUserProfile.value = me;
+    if (me?.id != null) {
+      currentUserId.value = me.id;
+    }
     if (profileTargetUserId.value == null) {
-      const data = normalizeUserProfile(await getUserInfo());
-      profileUser.value = data;
-      if (data?.id != null) {
-        currentUserId.value = data.id;
-      }
+      profileUser.value = me;
     } else {
       try {
         profileUser.value = normalizeUserProfile(await getUserProfileById(profileTargetUserId.value));
@@ -2982,6 +3149,25 @@ function resolveVideoUrlWithFallback(item, seed = "") {
   return resolveVideoUrl(item) || pickFallbackVideoUrl(seed || item?.id || item?.title || "");
 }
 
+/** 点赞接口返回后同步更新各列表中的 likeCount */
+function patchFeedVideoById(videoId, patch) {
+  const id = String(videoId ?? "");
+  if (!id || !patch || typeof patch !== "object") return;
+  const apply = (arrRef) => {
+    const arr = arrRef.value;
+    const i = arr.findIndex((x) => x && String(x.id) === id);
+    if (i < 0) return;
+    const next = [...arr];
+    next[i] = { ...next[i], ...patch };
+    arrRef.value = next;
+  };
+  apply(homeShortsRows);
+  apply(cards);
+  apply(profileFeedQueue);
+  apply(likedFeedQueue);
+  apply(likedRows);
+}
+
 function videoCardPlayable(card) {
   return Boolean(resolveVideoUrl(card));
 }
@@ -3190,6 +3376,9 @@ const unifiedFeedList = computed(() => {
   if (feedScope.value === "profile") {
     return profileFeedQueue.value;
   }
+  if (feedScope.value === "liked") {
+    return likedFeedQueue.value;
+  }
   if (feedScope.value === "home") {
     return homeShortsRows.value;
   }
@@ -3214,6 +3403,9 @@ const shortsFeedAuthorName = computed(() => {
   if (feedScope.value === "profile") {
     const p = stripUserIdLikeName(profileUser.value?.nickName || profileUser.value?.nickname);
     if (p) return p;
+  }
+  if (feedScope.value === "liked") {
+    return nick || "创作者";
   }
   return "创作者";
 });
@@ -3250,6 +3442,15 @@ const shortsIsFollowedCurrent = computed(() => {
   return Boolean(shortsFollowedMap.value[String(id)]);
 });
 
+const shortsIsSelfCurrent = computed(() => {
+  const authorId = shortsFeedCurrent.value?.authorId;
+  const selfId = currentUserId.value;
+  if (authorId == null || selfId == null) {
+    return false;
+  }
+  return String(authorId) === String(selfId);
+});
+
 function toggleShortsFollow() {
   const id = shortsFeedCurrent.value?.id;
   if (id == null) {
@@ -3259,6 +3460,92 @@ function toggleShortsFollow() {
   const next = { ...shortsFollowedMap.value };
   next[key] = !next[key];
   shortsFollowedMap.value = next;
+}
+
+function toggleSelfVideoActionMenu() {
+  selfVideoActionOpen.value = !selfVideoActionOpen.value;
+}
+
+function closeSelfVideoActionMenu() {
+  selfVideoActionOpen.value = false;
+}
+
+function patchCurrentSelfVideo(partial) {
+  const id = shortsFeedCurrent.value?.id;
+  if (!id) return;
+  patchFeedVideoById(id, partial);
+  if (videoDetail.value?.id && String(videoDetail.value.id) === String(id)) {
+    videoDetail.value = { ...videoDetail.value, ...partial };
+  }
+}
+
+function toggleCurrentSelfVideoVisibility() {
+  const cur = shortsFeedCurrent.value;
+  if (!cur) return;
+  const v = String(cur.visibility || "").toUpperCase();
+  const nextVisibility = v === "PRIVATE" ? "PUBLIC" : "PRIVATE";
+  patchCurrentSelfVideo({ visibility: nextVisibility });
+  closeSelfVideoActionMenu();
+  pushToast(nextVisibility === "PRIVATE" ? "已设为私密" : "已设为公开", "success");
+}
+
+function toggleCurrentSelfVideoAllowComment() {
+  const cur = shortsFeedCurrent.value;
+  if (!cur) return;
+  const current = Number(cur.allowComment ?? 1);
+  const nextAllow = current === 1 ? 0 : 1;
+  patchCurrentSelfVideo({ allowComment: nextAllow });
+  closeSelfVideoActionMenu();
+  pushToast(nextAllow === 1 ? "已开启评论" : "已关闭评论", "success");
+}
+
+function requestDeleteCurrentSelfVideo() {
+  if (!(shortsIsSelfCurrent.value && feedScope.value === "profile" && isViewingSelf.value)) {
+    pushToast("只能删除自己主页作品中的视频", "info");
+    return;
+  }
+  closeSelfVideoActionMenu();
+  selfVideoDeleteConfirmOpen.value = true;
+}
+
+function cancelDeleteCurrentSelfVideo() {
+  selfVideoDeleteConfirmOpen.value = false;
+}
+
+function confirmDeleteCurrentSelfVideo() {
+  const cur = shortsFeedCurrent.value;
+  if (!cur?.id) {
+    selfVideoDeleteConfirmOpen.value = false;
+    return;
+  }
+  const targetId = String(cur.id);
+  profileWorksRows.value = profileWorksRows.value.filter((x) => String(x.id) !== targetId);
+  profileFeedQueue.value = profileFeedQueue.value.filter((x) => String(x.id) !== targetId);
+  cards.value = cards.value.filter((x) => String(x.id) !== targetId);
+  homeShortsRows.value = homeShortsRows.value.filter((x) => String(x.id) !== targetId);
+  likedRows.value = likedRows.value.filter((x) => String(x.id) !== targetId);
+  likedFeedQueue.value = likedFeedQueue.value.filter((x) => String(x.id) !== targetId);
+  selfVideoDeleteConfirmOpen.value = false;
+
+  if (feedScope.value === "profile" && !profileFeedQueue.value.length) {
+    closeProfileFeed();
+    pushToast("已删除该视频（前端展示）", "success");
+    return;
+  }
+  if (feedScope.value === "liked" && !likedFeedQueue.value.length) {
+    closeProfileFeed();
+    pushToast("已删除该视频（前端展示）", "success");
+    return;
+  }
+  const list = unifiedFeedList.value;
+  if (shortsFeedIndex.value >= list.length) {
+    shortsFeedIndex.value = Math.max(0, list.length - 1);
+  }
+  nextTick(() => {
+    shortsFeedFgRef.value?.load();
+    shortsFeedBgRef.value?.load();
+  });
+  pushToast("已删除该视频（前端展示）", "success");
 }
 
 function closeShortPlayer() {
@@ -3793,16 +4080,57 @@ function onDetailVideoSeeked() {
   detailLastTimeSec.value = null;
 }
 
-function onShortsLikeClick() {
+async function onShortsLikeClick() {
   const cur = shortsFeedCurrent.value;
   if (!cur?.id) return;
-  void reportBehaviorSilently(cur.id, "LIKE", Number(shortsFeedCurrentTime.value || 0) * 1000);
+  if (!isAuthed.value) {
+    pushToast("请先登录后再点赞", "info");
+    return;
+  }
+  const t = Date.now();
+  if (t - lastShortsLikeAt < 300) return;
+  lastShortsLikeAt = t;
+  if (shortsLikeBusy.value) return;
+  const vid = parseVideoIdForApi(cur.id);
+  if (vid == null) return;
+  shortsLikeBusy.value = true;
+  try {
+    if (shortsSessionLiked.value) {
+      await cancelLikeVideoApi(vid);
+      shortsSessionLiked.value = false;
+    } else {
+      await likeVideoApi(vid);
+      shortsSessionLiked.value = true;
+    }
+    const raw = await fetchVideoDetail(vid);
+    const merged = normalizeVideoDetail(raw);
+    if (merged && merged.likeCount != null) {
+      patchFeedVideoById(cur.id, { likeCount: merged.likeCount });
+    }
+    void reportBehaviorSilently(cur.id, "LIKE", Number(shortsFeedCurrentTime.value || 0) * 1000);
+  } catch (error) {
+    pushToast(error.message || "点赞失败", "error");
+  } finally {
+    shortsLikeBusy.value = false;
+  }
 }
 
-function onShortsDislikeClick() {
+async function onShortsDislikeClick() {
   const cur = shortsFeedCurrent.value;
   if (!cur?.id) return;
-  void reportBehaviorSilently(cur.id, "DISLIKE", Number(shortsFeedCurrentTime.value || 0) * 1000);
+  if (!isAuthed.value) {
+    pushToast("请先登录", "info");
+    return;
+  }
+  const vid = parseVideoIdForApi(cur.id);
+  if (vid == null) return;
+  try {
+    await dislikeVideoApi(vid);
+    void reportBehaviorSilently(cur.id, "DISLIKE", Number(shortsFeedCurrentTime.value || 0) * 1000);
+    pushToast("已标记为不感兴趣", "success");
+  } catch (error) {
+    pushToast(error.message || "操作失败", "error");
+  }
 }
 
 function pauseShortsFeedVideos() {
@@ -3936,13 +4264,65 @@ async function openProfileWorkFeed(item) {
   });
 }
 
+async function openLikedWorkFeed(item) {
+  const source = likedRows.value;
+  if (!source.length) {
+    pageHint.value = "暂无赞过的视频";
+    return;
+  }
+  let selectedUrl = resolveVideoUrl(item);
+  if (!selectedUrl && item?.id != null) {
+    selectedUrl = await ensureProfileWorkVideoUrlById(item.id);
+  }
+  if (!selectedUrl) {
+    pageHint.value = "该内容暂无视频地址";
+    return;
+  }
+  const playableQueue = source
+    .map((x) => {
+      const url = resolveVideoUrl(x);
+      return { ...x, videoUrl: url };
+    })
+    .filter((x) => x.videoUrl);
+  if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
+    playableQueue.unshift({ ...item, videoUrl: selectedUrl });
+  }
+  source.forEach((x) => {
+    const xid = x?.id != null ? String(x.id) : "";
+    if (xid && !profileWorkVideoUrlCache.value[xid] && !profileWorkVideoUrlLoading.value[xid]) {
+      void ensureProfileWorkVideoUrlById(xid);
+    }
+  });
+  if (!playableQueue.length && selectedUrl) {
+    playableQueue.push({ ...item, videoUrl: selectedUrl });
+  }
+  const idx = playableQueue.findIndex((x) => String(x.id) === String(item.id));
+  feedScope.value = "liked";
+  likedFeedQueue.value = playableQueue;
+  shortsFeedIndex.value = idx >= 0 ? idx : 0;
+  shortsFeedAutoplayPending.value = true;
+  profileFeedOpen.value = true;
+  nextTick(() => {
+    shortsFeedFgRef.value?.load();
+    shortsFeedBgRef.value?.load();
+  });
+}
+
+function onLikedWorkClick(item) {
+  void openLikedWorkFeed(item);
+}
+
 function closeProfileFeed() {
   void flushShortsLongPlaybackResume("leave");
   shortsFeedFgRef.value?.pause();
   shortsFeedBgRef.value?.pause();
+  selfVideoActionOpen.value = false;
+  selfVideoDeleteConfirmOpen.value = false;
   profileFeedOpen.value = false;
   feedScope.value = "shorts";
   profileFeedQueue.value = [];
+  likedFeedQueue.value = [];
+  prevShortsLikeWatchId = "";
   shortsLongResumeTickCount = 0;
   shortsLongResumeAppliedVideoId = "";
 }
@@ -4004,6 +4384,36 @@ watch(profileFeedOpen, (open) => {
     window.removeEventListener("keydown", onProfileFeedKeydown);
   }
 });
+
+/**
+ * 短视频全屏：仅在「videoId + scope」真正变化时同步爱心初始状态。
+ * 注意：不能用数组作为 watch 源，否则列表对象 patch 后也会触发，导致把刚点的红心重置掉。
+ */
+watch(
+  () => `${feedScope.value}:${String(shortsFeedCurrent.value?.id ?? "")}`,
+  (key) => {
+    selfVideoActionOpen.value = false;
+    const [scope, sid] = String(key || "").split(":");
+    if (scope === "liked") {
+      if (sid && sid !== prevShortsLikeWatchId) {
+        prevShortsLikeWatchId = sid;
+        shortsSessionLiked.value = true;
+      }
+      return;
+    }
+    if (sid !== prevShortsLikeWatchId) {
+      prevShortsLikeWatchId = sid;
+    }
+    shortsSessionLiked.value = false;
+  }
+);
+
+watch(
+  () => videoDetail.value?.id,
+  () => {
+    detailSessionLiked.value = false;
+  }
+);
 
 watch(activeMenuKey, (key) => {
   stopCardHoverPreview();
@@ -5377,7 +5787,7 @@ onBeforeUnmount(() => {
             v-if="profileFeedOpen"
             type="button"
             class="profile-feed-close"
-            aria-label="关闭作品连播"
+            :aria-label="feedScope === 'liked' ? '关闭赞过视频连播' : '关闭作品连播'"
             @click="closeProfileFeed"
           >
             <i class="ri-close-line"></i>
@@ -5466,7 +5876,7 @@ onBeforeUnmount(() => {
                             @error="(e) => { e.target.src = profileAvatar; }"
                           />
                           <button
-                            v-if="!shortsIsFollowedCurrent"
+                            v-if="!shortsIsSelfCurrent && !shortsIsFollowedCurrent"
                             type="button"
                             class="shorts-feed-follow-btn"
                             title="关注"
@@ -5476,7 +5886,7 @@ onBeforeUnmount(() => {
                             <i class="ri-add-line"></i>
                           </button>
                           <button
-                            v-else
+                            v-else-if="!shortsIsSelfCurrent"
                             type="button"
                             class="shorts-feed-follow-btn shorts-feed-follow-btn--followed"
                             title="已关注"
@@ -5491,11 +5901,12 @@ onBeforeUnmount(() => {
                         <button
                           type="button"
                           class="shorts-feed-action-btn"
-                          title="点赞"
+                          :class="{ 'shorts-feed-action-btn--active': shortsSessionLiked }"
+                          title="点赞 / 取消赞"
                           aria-label="点赞"
                           @click="onShortsLikeClick"
                         >
-                          <i class="ri-heart-fill"></i>
+                          <i :class="shortsSessionLiked ? 'ri-heart-fill' : 'ri-heart-line'"></i>
                         </button>
                         <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.likeCount ?? 0 }}</span>
                       </div>
@@ -5516,7 +5927,7 @@ onBeforeUnmount(() => {
                         </button>
                         <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.favoriteCount ?? 0 }}</span>
                       </div>
-                      <div class="shorts-feed-action-item">
+                      <div v-if="!shortsIsSelfCurrent" class="shorts-feed-action-item">
                         <button
                           type="button"
                           class="shorts-feed-action-btn"
@@ -5526,6 +5937,33 @@ onBeforeUnmount(() => {
                         >
                           <i class="ri-thumb-down-line"></i>
                         </button>
+                      </div>
+                      <div v-else-if="shortsIsSelfCurrent" class="shorts-feed-action-item shorts-feed-action-item--menu">
+                        <button
+                          type="button"
+                          class="shorts-feed-action-btn"
+                          title="更多操作"
+                          aria-label="更多操作"
+                          @click.stop="toggleSelfVideoActionMenu"
+                        >
+                          <i class="ri-more-fill"></i>
+                        </button>
+                        <div v-if="selfVideoActionOpen" class="shorts-self-action-menu" @click.stop>
+                          <button type="button" class="shorts-self-action-btn" @click="toggleCurrentSelfVideoVisibility">
+                            {{ String(shortsFeedCurrent?.visibility || '').toUpperCase() === 'PRIVATE' ? '设为公开' : '设为私密' }}
+                          </button>
+                          <button type="button" class="shorts-self-action-btn" @click="toggleCurrentSelfVideoAllowComment">
+                            {{ Number(shortsFeedCurrent?.allowComment ?? 1) === 1 ? '关闭评论' : '开启评论' }}
+                          </button>
+                          <button
+                            v-if="feedScope === 'profile' && isViewingSelf"
+                            type="button"
+                            class="shorts-self-action-btn shorts-self-action-btn--danger"
+                            @click="requestDeleteCurrentSelfVideo"
+                          >
+                            删除
+                          </button>
+                        </div>
                       </div>
                       <div class="shorts-feed-action-item">
                         <button type="button" class="shorts-feed-action-btn" title="分享" aria-label="分享">
@@ -5717,6 +6155,82 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </section>
+          </section>
+
+          <section v-else-if="activeMenuKey === 'liked'" class="liked-videos-page profile-works-section">
+            <div class="profile-works-title">
+              <h4><i class="ri-thumb-up-line"></i> 赞过的视频</h4>
+              <div class="profile-works-toolbar">
+                <span v-if="isAuthed">共 {{ likedTotal }} 条</span>
+                <span v-else class="liked-login-hint">登录后可查看</span>
+              </div>
+            </div>
+            <p v-if="!isAuthed" class="profile-api-hint">请先登录后查看「赞过的视频」。</p>
+            <div v-else-if="likedLoading" class="liked-loading-block">
+              <p class="profile-api-hint profile-api-hint--loading">正在加载…</p>
+              <div class="works-grid works-grid-profile works-grid-profile--skeleton">
+                <article v-for="n in 6" :key="`liked-skeleton-${n}`" class="work-card work-card--skeleton">
+                  <div class="work-thumb"></div>
+                  <div class="work-meta">
+                    <p class="work-title"></p>
+                  </div>
+                </article>
+              </div>
+            </div>
+            <div v-else class="works-grid works-grid-profile">
+              <article
+                v-for="item in likedDisplay"
+                :key="`liked-${item.id}`"
+                class="work-card"
+                :class="{ 'work-card--playable': resolveVideoUrl(item) }"
+                @click="onLikedWorkClick(item)"
+                @mouseenter="onCardHoverEnter(item, 'liked-work')"
+                @mouseleave="onCardHoverLeave(item, 'liked-work')"
+              >
+                <div class="work-thumb">
+                  <video
+                    v-if="isCardPreviewPlaying(item, 'liked-work')"
+                    class="work-preview-video"
+                    :src="activePreviewVideoUrl"
+                    muted
+                    autoplay
+                    loop
+                    playsinline
+                    preload="metadata"
+                  ></video>
+                  <img v-else :src="item.image" :alt="item.title" />
+                  <span class="work-like work-like--bottom-left work-like--liked-list">
+                    <i class="ri-heart-fill" aria-hidden="true"></i> {{ item.likes }}
+                  </span>
+                </div>
+                <div class="work-meta">
+                  <img class="work-author-avatar" :src="item.authorAvatarUrl || profileAvatar" alt="" />
+                  <div class="work-meta-main">
+                    <div class="work-title-row">
+                      <p class="work-title">{{ item.title }}</p>
+                      <span class="work-play-stat" title="播放量">
+                        <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(item.playCount) }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <div v-if="isAuthed && !likedLoading && likedDisplay.length && likedHasMore" class="liked-load-more-wrap">
+              <button
+                type="button"
+                class="history-layout-btn"
+                :disabled="likedLoadingMore"
+                @click="loadLikedPage({ reset: false })"
+              >
+                {{ likedLoadingMore ? "加载中…" : "加载更多" }}
+              </button>
+            </div>
+            <div v-if="isAuthed && !likedLoading && !likedDisplay.length" class="profile-works-empty">
+              <div class="profile-works-empty-icon"><i class="ri-thumb-up-line"></i></div>
+              <h5>暂无赞过的视频</h5>
+              <p>去短视频或首页给喜欢的内容点个赞吧～</p>
+            </div>
           </section>
 
           <section v-else-if="activeMenuKey === 'home'" class="home-mixed-feed">
@@ -5969,8 +6483,15 @@ onBeforeUnmount(() => {
                   <button type="button" class="video-detail-subscribe" disabled>关注</button>
                 </div>
                 <div class="video-detail-actions">
-                  <button type="button" class="video-detail-action-pill" @click="onDetailLikeClick">
-                    <i class="ri-thumb-up-line"></i> {{ videoDetail.likeCount ?? 0 }}
+                  <button
+                    type="button"
+                    class="video-detail-action-pill"
+                    :class="{ 'video-detail-action-pill--active': detailSessionLiked }"
+                    :disabled="detailLikeBusy"
+                    @click="onDetailLikeClick"
+                  >
+                    <i :class="detailSessionLiked ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'"></i>
+                    {{ videoDetail.likeCount ?? 0 }}
                   </button>
                   <button type="button" class="video-detail-action-pill" @click="onDetailDislikeClick">
                     <i class="ri-thumb-down-line"></i> 不感兴趣
@@ -6070,6 +6591,24 @@ onBeforeUnmount(() => {
         aria-hidden="true"
         @change="onUploadInputOrDrop"
       />
+
+      <div
+        v-if="selfVideoDeleteConfirmOpen"
+        class="modal-overlay shorts-delete-modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label="确认删除视频"
+        @click.self="cancelDeleteCurrentSelfVideo"
+      >
+        <div class="modal-card shorts-delete-modal" @click.stop>
+          <h3>删除视频</h3>
+          <p class="shorts-delete-modal-text">确定删除该视频吗？删除后将无法恢复。</p>
+          <div class="shorts-delete-modal-actions">
+            <button type="button" class="action-btn" @click="cancelDeleteCurrentSelfVideo">取消</button>
+            <button type="button" class="action-btn shorts-delete-btn" @click="confirmDeleteCurrentSelfVideo">确认删除</button>
+          </div>
+        </div>
+      </div>
 
       <div
         v-if="uploadModalOpen"
