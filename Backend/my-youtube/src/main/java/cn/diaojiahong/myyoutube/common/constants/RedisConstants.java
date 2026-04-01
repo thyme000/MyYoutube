@@ -35,6 +35,8 @@ public class RedisConstants {
     public static final Long USER_VIEWED_EXPIRE = 30L;
     // 用户踩过的视频id
     public static final String USER_DISLIKE = "user:dislike:";
+    // 60天后过期
+    public static final Long USER_DISLIKE_EXPIRE = 60L;
 
 
     // 用户看过的长视频时长记录 ->  {userid} : videoId , 当前时间戳
