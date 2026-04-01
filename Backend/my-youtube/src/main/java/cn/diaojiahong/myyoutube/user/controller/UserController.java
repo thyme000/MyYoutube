@@ -40,9 +40,9 @@ public class UserController {
      * 获取用户信息
      */
     @Operation(summary = "获取用户信息")
-    @GetMapping("/info")
-    public Result<UserVO> getUserInfo() {
-        return userService.getUserInfo();
+    @GetMapping("/info/{userId}")
+    public Result<UserVO> getUserInfo(@PathVariable Long userId) {
+        return userService.getUserInfo(userId);
     }
 
     /**
@@ -93,9 +93,15 @@ public class UserController {
         return userService.getLongHistory(userHistoryPageQuery);
     }
 
+    /**
+     * 用户查看短视频观看记录
+     * @param userHistoryPageQuery
+     * @return
+     */
     @Operation(summary = "用户查看短视频观看记录")
     @GetMapping("/history/short")
     public Result<PageResult<ShortsVO>> getShortsHistory(@ModelAttribute UserHistoryPageQuery userHistoryPageQuery) {
         return userService.getShortsHistory(userHistoryPageQuery);
     }
+
 }

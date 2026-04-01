@@ -47,6 +47,8 @@ public class VideoListVO {
     private String description;
     // 视频标签
     private String tags;
+    // 是否允许评论
+    private Boolean allowComment;
 
     // 作者用户 id
     private Long authorId;

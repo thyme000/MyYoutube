@@ -133,4 +133,17 @@ public class VideoController {
     public Result<Void> recordShortsPlay(@RequestBody UserShortsWatchRecords userShortsWatchRecords) {
         return videoService.recordShortsPlay(userShortsWatchRecords);
     }
+
+    /**
+     * 用户查看他人公开的视频列表
+     * @param userId 用户id
+     * @param pageQuery 分页参数
+     * @return
+     */
+    @Operation(summary = "用户查看他人公开的视频列表")
+    @GetMapping("/{userId}/list")
+    public Result<PageResult<VideoListVO>> getOtherUserVideoList(@PathVariable Long userId, @ModelAttribute PageQuery pageQuery) {
+        return videoService.getOtherUserVideoList(userId, pageQuery);
+    }
+
 }

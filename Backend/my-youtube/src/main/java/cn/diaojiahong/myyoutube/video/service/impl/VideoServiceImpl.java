@@ -20,6 +20,8 @@ import cn.diaojiahong.myyoutube.video.domain.dto.UserShortsWatchRecords;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.domain.vo.*;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
@@ -234,13 +236,14 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         q.eq(Video::getIsDelete, 0);
         q.eq(Video::getAuthorId, authorId);
         q.eq(Video::getStatus, PUBLISHED);
+        q.eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC);
         q.orderByDesc(Video::getCreateTime);
         // 判断是查询视频的类型
         List<VideoListVO> list;
         Page<Video> result;
         if (pageQuery.getVideoType().getCode().equals(LONG_VIDEO.getCode())) {
-            // 查询所有
-            result = page(page, q);
+            // 查询长视频
+            result = page(page, q.eq(Video::getVideoType, LONG_VIDEO.getCode()));
             list = result.getRecords().stream()
                     .map(VideoVoConverter::toListVo)
                     .toList();
@@ -257,8 +260,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             signListCoverUrlsForVideoListVO(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         } else {
-            // 查询长视频
-            result = page(page, q.eq(Video::getVideoType, LONG_VIDEO.getCode()));
+            // 查询所有
+            result = page(page, q);
             list = result.getRecords().stream()
                     .map(VideoVoConverter::toListVo)
                     .toList();
@@ -400,6 +403,37 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         redisTemplate.expire(RedisConstants.USER_SHORTS_PLAY + userId, RedisConstants.USER_SHORTS_PLAY_EXPIRE, TimeUnit.DAYS);
 
         return Result.success();
+    }
+
+    @Override
+    public Result<PageResult<VideoListVO>> getOtherUserVideoList(Long userId, PageQuery pageQuery) {
+        // 查询他人公开的视频
+        Page<Video> page = lambdaQuery().eq(Video::getAuthorId, userId)
+                .eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC)
+                .eq(Video::getIsDelete, false)
+                .eq(Video::getStatus, VideoStatusEnum.PUBLISHED)
+                .orderByDesc(Video::getCreateTime)
+                .page(pageQuery.toPage());
+        List<Video> videoList = page.getRecords();
+        if (videoList == null || videoList.isEmpty()) {
+            return Result.success(PageResult.of(0,0, Collections.emptyList()));
+        }
+        // 转换为VO
+        List<VideoListVO> voList = videoList.stream().map(v -> BeanUtil.toBean(v, VideoListVO.class)).toList();
+
+        // 获取作者昵称
+        User author = userService.getById(userId);
+        if (author == null) {
+            return Result.success(PageResult.of(0,0, Collections.emptyList()));
+        }
+        // 填充作者昵称
+        voList.forEach(vo -> vo.setAuthorNickname(author.getNickname()));
+        // 签名视频封面url
+        signListCoverUrlsForVideoListVO(voList);
+        // 签名视频url
+        signListVideoUrlsForVideoListVO(voList);
+
+        return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
     }
 
     /**

@@ -49,10 +49,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private final VideoMapper videoMapper;
 
     @Override
-    public Result<UserVO> getUserInfo() {
-        UserDTO userDTO = UserContext.getUser();
-
-        User user = getById(userDTO.getId());
+    public Result<UserVO> getUserInfo(Long userId) {
+        User user = getById(userId);
+        if (user == null) {
+            return Result.fail("用户不存在");
+        }
 
         user.setAvatarUrl(aliOssUtil.signGetUrl(user.getAvatarUrl(), OSS_EXPIRE));
         user.setBgImage(aliOssUtil.signGetUrl(user.getBgImage(), OSS_EXPIRE));

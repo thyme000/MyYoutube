@@ -24,7 +24,7 @@ import java.util.Map;
  */
 public interface IUserService extends IService<User> {
 
-    Result<UserVO> getUserInfo();
+    Result<UserVO> getUserInfo(Long userId);
 
     Result<String> updateAvatar(MultipartFile avatar);
 
