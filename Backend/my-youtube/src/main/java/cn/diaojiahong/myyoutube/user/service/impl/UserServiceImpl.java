@@ -44,7 +44,7 @@ import java.util.stream.Collectors;
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
 
     private final AliOssUtil aliOssUtil;
-    private static final Long OSS_EXPIRE = 60 * 2L;// 2小时过期时间
+    private static final Long OSS_EXPIRE = 3600 * 24L;// 24小时过期时间
     private final StringRedisTemplate redisTemplate;
     private final VideoMapper videoMapper;
 
@@ -172,6 +172,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 .map(video -> BeanUtil.toBean(video, UserLongHistoryVideoVO.class))
                 .toList();
 
+        // 转换视频封面url和视频url
+        longHistoryVideoVOs.forEach(vo -> {
+            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_EXPIRE));
+            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
+        });
+
         // 获取作者昵称
         Map<Long, String> authorNicknames = getAuthorNicknames(
                 longHistoryVideoVOs
@@ -188,7 +194,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 填充作者昵称和头像url
         longHistoryVideoVOs.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
-            vo.setAuthorAvatarUrl(authorAvatarUrls.get(vo.getAuthorId()));
+            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE));
         });
 
         // 获取用户长视频观看时长记录
@@ -250,6 +256,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 .map(video -> BeanUtil.toBean(video, ShortsVO.class))
                 .toList();
 
+        // 转换视频封面url和视频url
+        shortsVOs.forEach(vo -> {
+            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_EXPIRE));
+            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
+        });
+
         // 获取作者昵称
         Map<Long, String> authorNicknames = getAuthorNicknames(
                 shortsVOs
@@ -266,7 +278,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 填充作者昵称和头像url
         shortsVOs.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
-            vo.setAuthorAvatarUrl(authorAvatarUrls.get(vo.getAuthorId()));
+            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE));
         });
 
 

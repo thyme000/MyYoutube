@@ -159,6 +159,7 @@ export function normalizeVideoListVo(item, index) {
     category: item.category,
     visibility: pickVisibility(item),
     createTime: pickDateTime(item),
+    playbackTime: item.playbackTime ?? 0,
     authorNickname: nick || undefined,
   };
 }
@@ -318,4 +319,47 @@ export async function searchVideos(keyword) {
 export async function fetchShortsFeedPage(query = {}) {
   const data = await httpRequest("/videos/shorts/feed", { method: "GET", query });
   return normalizePageResult(data);
+}
+
+/**
+ * GET /videos/history/short 短视频历史分页
+ */
+export async function fetchShortHistoryPage(query = {}) {
+  const q = { ...query };
+  if (q.userId != null && q.userId !== "") {
+    q.userId = safeSnowflakeId(q.userId);
+  }
+  const data = await httpRequest("/user/history/short", { method: "GET", query: q });
+  return normalizePageResult(data);
+}
+
+/**
+ * GET /videos/history/long 长视频历史分页
+ */
+export async function fetchLongHistoryPage(query = {}) {
+  const q = { ...query };
+  if (q.userId != null && q.userId !== "") {
+    q.userId = safeSnowflakeId(q.userId);
+  }
+  const data = await httpRequest("/user/history/long", { method: "GET", query: q });
+  return normalizePageResult(data);
+}
+
+/**
+ * PUT /videos/shorts/play 批量上报短视频观看记录
+ * 后端 DTO: UserShortsWatchRecords { userId, Set<Long> shortIds }
+ */
+export async function reportShortHistoryBatch(body) {
+  const rawIds = Array.isArray(body?.shortIds) ? body.shortIds : body?.videoIds || [];
+  const shortIds = rawIds
+    .map((id) => safeSnowflakeId(id))
+    .filter((id) => id !== "" && id != null);
+  const payload = {
+    userId: body?.userId ?? undefined,
+    shortIds,
+  };
+  if (payload.userId != null && payload.userId !== "") {
+    payload.userId = safeSnowflakeId(payload.userId);
+  }
+  return httpRequest("/videos/shorts/play", { method: "PUT", body: payload });
 }

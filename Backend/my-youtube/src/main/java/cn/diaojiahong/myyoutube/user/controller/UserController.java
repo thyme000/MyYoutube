@@ -83,11 +83,11 @@ public class UserController {
 
 
     /**
-     * 用户查看历史记录
+     * 用户查看长视频历史记录
      * @param userHistoryPageQuery
      * @return
      */
-    @Operation(summary = "用户查看历史记录")
+    @Operation(summary = "用户查看长视频历史记录")
     @GetMapping("/history/long")
     public Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(@ModelAttribute UserHistoryPageQuery userHistoryPageQuery) {
         return userService.getLongHistory(userHistoryPageQuery);

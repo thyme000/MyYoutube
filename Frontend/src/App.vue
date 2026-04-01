@@ -17,9 +17,12 @@ import {
   fetchAuthorVideos,
   fetchMyVideos,
   fetchShortsFeedPage,
+  fetchShortHistoryPage,
+  fetchLongHistoryPage,
   fetchVideoDetail,
   normalizeVideoDetail,
   publishVideo,
+  reportShortHistoryBatch,
 } from "./api/videoApi";
 import { reportVideoBehavior } from "./api/behaviorApi";
 import { getOssSts } from "./api/otherApi";
@@ -289,6 +292,21 @@ const shortsFeedMuted = ref(false);
 const shortsFeedPaused = ref(true);
 /** 切换视频后自动播放（含进入短视频页） */
 const shortsFeedAutoplayPending = ref(false);
+const historyLongRows = ref([]);
+const historyLongLoading = ref(false);
+const historyLongPageNo = ref(1);
+const historyLongPages = ref(0);
+const historyLongExpanded = ref(false);
+const historyShortRows = ref([]);
+const historyShortLoading = ref(false);
+const historyShortPageNo = ref(1);
+const historyShortPages = ref(0);
+const historyShortExpanded = ref(false);
+const SHORTS_HISTORY_BATCH_SIZE = 10;
+let shortsHistoryQueue = [];
+const shortsHistoryQueueSet = new Set();
+const shortsHistorySeenSet = new Set();
+let shortsHistoryFlushInFlight = false;
 /** 当前作者是否已关注（按视频 id） */
 const shortsFollowedMap = ref({});
 /** PLAY 上报：累计顺播时长达到总时长比例，且排除拖动（单次 timeupdate 跳跃过大不计入） */
@@ -308,6 +326,10 @@ let detailPlaybackResumeAppliedVideoId = "";
 const shortsPlaybackAccSec = ref(0);
 const shortsLastTimeSec = ref(null);
 const shortsAccVideoId = ref("");
+let shortsLongResumeInFlight = false;
+let shortsLongResumeLastSentAtMs = 0;
+let shortsLongResumeTickCount = 0;
+let shortsLongResumeAppliedVideoId = "";
 const feedCoverPool = [
   "https://images.unsplash.com/photo-1516117172878-fd2c41f4a759?auto=format&fit=crop&w=1200&q=80",
   "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=80",
@@ -1765,6 +1787,9 @@ function onShortsFeedFgEnded() {
   if (cur?.id) {
     void reportBehaviorSilently(cur.id, "FINISH", now * 1000);
   }
+  if (isLongShortsFeedVideo(cur)) {
+    void flushShortsLongPlaybackResume("ended");
+  }
   const n = unifiedFeedList.value.length;
   if (n <= 1) {
     const v = shortsFeedFgRef.value;
@@ -1932,6 +1957,129 @@ function onHomeShortCardClick(card, index) {
   openHomeShortVideoInFeed(card, index);
 }
 
+async function loadHistoryShortsPage({ reset = false } = {}) {
+  if (!isAuthed.value) return;
+  if (historyShortLoading.value) return;
+  historyShortLoading.value = true;
+  try {
+    const targetPage = reset ? 1 : historyShortPageNo.value;
+    const pageSize = historyShortExpanded.value ? 25 : 5;
+    const res = await fetchShortHistoryPage({
+      pageNo: targetPage,
+      pageSize,
+      userId: currentUserId.value || undefined,
+    });
+    const nextList = Array.isArray(res.list) ? res.list : [];
+    historyShortRows.value = nextList;
+    historyShortPages.value = Number(res.pages || 0);
+    if (reset) {
+      historyShortPageNo.value = 1;
+    }
+  } catch {
+    historyShortRows.value = [];
+    historyShortPageNo.value = 1;
+    historyShortPages.value = 0;
+  } finally {
+    historyShortLoading.value = false;
+  }
+}
+
+async function loadHistoryLongPage({ reset = false } = {}) {
+  if (!isAuthed.value) return;
+  if (historyLongLoading.value) return;
+  historyLongLoading.value = true;
+  try {
+    const targetPage = reset ? 1 : historyLongPageNo.value;
+    const pageSize = historyLongExpanded.value ? 9 : 3;
+    const res = await fetchLongHistoryPage({
+      pageNo: targetPage,
+      pageSize,
+      userId: currentUserId.value || undefined,
+    });
+    const nextList = Array.isArray(res.list) ? res.list : [];
+    historyLongRows.value = nextList;
+    historyLongPages.value = Number(res.pages || 0);
+    if (reset) {
+      historyLongPageNo.value = 1;
+    }
+  } catch {
+    historyLongRows.value = [];
+    historyLongPageNo.value = 1;
+    historyLongPages.value = 0;
+  }
+  historyLongLoading.value = false;
+}
+
+async function toggleHistoryLongExpanded() {
+  historyLongExpanded.value = !historyLongExpanded.value;
+  historyLongPageNo.value = 1;
+  await loadHistoryLongPage({ reset: true });
+}
+
+async function toggleHistoryShortExpanded() {
+  historyShortExpanded.value = !historyShortExpanded.value;
+  historyShortPageNo.value = 1;
+  await loadHistoryShortsPage({ reset: true });
+}
+
+async function onHistoryLongPrevPage() {
+  if (historyLongPageNo.value <= 1 || historyLongLoading.value) return;
+  historyLongPageNo.value -= 1;
+  await loadHistoryLongPage();
+}
+
+async function onHistoryLongNextPage() {
+  if (historyLongPageNo.value >= (historyLongPages.value || 1) || historyLongLoading.value) return;
+  historyLongPageNo.value += 1;
+  await loadHistoryLongPage();
+}
+
+async function onHistoryShortPrevPage() {
+  if (historyShortPageNo.value <= 1 || historyShortLoading.value) return;
+  historyShortPageNo.value -= 1;
+  await loadHistoryShortsPage();
+}
+
+async function onHistoryShortNextPage() {
+  if (historyShortPageNo.value >= (historyShortPages.value || 1) || historyShortLoading.value) return;
+  historyShortPageNo.value += 1;
+  await loadHistoryShortsPage();
+}
+
+function onHistoryShortCardClick(card, index) {
+  if (!card) return;
+  openHistoryFeedFullscreen(historyShortRows.value, index, { forceVideoType: "SHORT_VIDEO" });
+}
+
+function onHistoryLongCardClick(card, index) {
+  if (!card) return;
+  openHistoryFeedFullscreen(historyLongRows.value, index, { forceVideoType: "LONG_VIDEO" });
+}
+
+function openHistoryFeedFullscreen(sourceList, index, { forceVideoType = "" } = {}) {
+  const source = Array.isArray(sourceList) ? sourceList : [];
+  const playableQueue = source
+    .map((x) => {
+      const url = resolveVideoUrl(x) || pickFallbackVideoUrl(x?.id || x?.title || "");
+      return {
+        ...x,
+        videoType: forceVideoType || x?.videoType || "",
+        videoUrl: url,
+      };
+    })
+    .filter((x) => x.videoUrl);
+  if (!playableQueue.length) return;
+  feedScope.value = "profile";
+  profileFeedQueue.value = playableQueue;
+  shortsFeedIndex.value = Math.min(Math.max(0, Number(index) || 0), playableQueue.length - 1);
+  shortsFeedAutoplayPending.value = true;
+  profileFeedOpen.value = true;
+  nextTick(() => {
+    shortsFeedFgRef.value?.load();
+    shortsFeedBgRef.value?.load();
+  });
+}
+
 async function loadHomeLongMore() {
   if (homeLongLoadLock.value || homeLongLoadingMore.value) return;
   if (!homeLongHasMore.value) return;
@@ -2028,6 +2176,14 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       saveHomeFeedSnapshot();
       return;
     }
+    if (menu.key === "history") {
+      historyLongPageNo.value = 1;
+      historyShortPageNo.value = 1;
+      await Promise.all([loadHistoryLongPage({ reset: true }), loadHistoryShortsPage({ reset: true })]);
+      cards.value = [];
+      pageHint.value = "历史播放记录 · 长视频与短视频（分页）";
+      return;
+    }
     homeShortsRows.value = [];
     homeShortsPageNo.value = 1;
     homeShortsPages.value = 0;
@@ -2056,7 +2212,17 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       homeShortsPages.value = 1;
       saveHomeFeedSnapshot();
     } else {
-      cards.value = menu.key === "shorts" ? getShortsLocalFallbackCards() : getMockCards(menu.label, menu.key);
+      if (menu.key === "history") {
+        historyLongRows.value = [];
+        historyLongPageNo.value = 1;
+        historyLongPages.value = 0;
+        historyShortRows.value = [];
+        historyShortPageNo.value = 1;
+        historyShortPages.value = 0;
+        cards.value = [];
+      } else {
+        cards.value = menu.key === "shorts" ? getShortsLocalFallbackCards() : getMockCards(menu.label, menu.key);
+      }
       homeShortsRows.value = [];
       homeShortsPageNo.value = 1;
       homeShortsPages.value = 0;
@@ -2070,6 +2236,9 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
 async function setActiveMenu(menu) {
   const prevMenuKey = activeMenuKey.value;
   const prevShowProfile = showProfileCenter.value;
+  if (prevMenuKey === "shorts" && menu.key !== "shorts") {
+    void flushShortsHistoryQueue();
+  }
   if (profileFeedOpen.value) {
     closeProfileFeed();
   }
@@ -2172,6 +2341,9 @@ function onCreate() {
   }
   if (profileFeedOpen.value) {
     closeProfileFeed();
+  }
+  if (activeMenuKey.value === "shorts") {
+    void flushShortsHistoryQueue();
   }
   showStudio.value = true;
   if (showVideoDetail.value) {
@@ -2657,6 +2829,9 @@ function onProfile() {
   if (activeMenuKey.value === "home") {
     saveHomeFeedSnapshot();
   }
+  if (activeMenuKey.value === "shorts") {
+    void flushShortsHistoryQueue();
+  }
   showStudio.value = false;
   uploadModalOpen.value = false;
   if (showVideoDetail.value) {
@@ -2680,6 +2855,9 @@ function onProfile() {
 function openOtherUserProfile(userId) {
   if (activeMenuKey.value === "home") {
     saveHomeFeedSnapshot();
+  }
+  if (activeMenuKey.value === "shorts") {
+    void flushShortsHistoryQueue();
   }
   profileTargetUserId.value = userId;
   showProfileCenter.value = true;
@@ -3130,10 +3308,78 @@ function onVideoCardClick(card) {
   openVideoDetail(card);
 }
 
+function enqueueShortsHistoryByVideoId(videoIdLike) {
+  if (!isAuthed.value) return;
+  const videoId = safeSnowflakeId(videoIdLike, "");
+  if (!videoId) return;
+  if (shortsHistorySeenSet.has(videoId) || shortsHistoryQueueSet.has(videoId)) return;
+  shortsHistoryQueueSet.add(videoId);
+  shortsHistoryQueue.push(videoId);
+  if (shortsHistoryQueue.length >= SHORTS_HISTORY_BATCH_SIZE) {
+    void flushShortsHistoryQueue();
+  }
+}
+
+async function sendShortsHistoryBatch(videoIds, { keepalive = false } = {}) {
+  if (!Array.isArray(videoIds) || !videoIds.length) return;
+  const shortIds = videoIds
+    .map((id) => safeSnowflakeId(id))
+    .filter((id) => id !== "" && id != null);
+  if (!shortIds.length) return;
+  const payload = {
+    userId: currentUserId.value || undefined,
+    shortIds,
+  };
+  if (payload.userId != null && payload.userId !== "") {
+    payload.userId = safeSnowflakeId(payload.userId);
+  }
+  if (keepalive) {
+    const headers = { "Content-Type": "application/json" };
+    if (token.value) {
+      headers.Authorization = token.value;
+    }
+    await fetch("/videos/shorts/play", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(payload),
+      keepalive: true,
+    });
+    return;
+  }
+  await reportShortHistoryBatch(payload);
+}
+
+async function flushShortsHistoryQueue({ keepalive = false } = {}) {
+  if (!shortsHistoryQueue.length || shortsHistoryFlushInFlight) return;
+  shortsHistoryFlushInFlight = true;
+  const batch = [...shortsHistoryQueue];
+  shortsHistoryQueue = [];
+  shortsHistoryQueueSet.clear();
+  try {
+    await sendShortsHistoryBatch(batch, { keepalive });
+    batch.forEach((id) => shortsHistorySeenSet.add(id));
+  } catch {
+    batch.forEach((id) => {
+      if (!shortsHistoryQueueSet.has(id)) {
+        shortsHistoryQueueSet.add(id);
+        shortsHistoryQueue.push(id);
+      }
+    });
+  } finally {
+    shortsHistoryFlushInFlight = false;
+  }
+}
+
 function shortsFeedPrev() {
   const cur = shortsFeedCurrent.value;
   const dur = Number(shortsFeedDuration.value || 0);
   const now = Number(shortsFeedCurrentTime.value || 0);
+  if (isLongShortsFeedVideo(cur)) {
+    void flushShortsLongPlaybackResume("switch");
+  }
+  if (cur?.id) {
+    enqueueShortsHistoryByVideoId(cur.id);
+  }
   if (cur?.id && dur > 0 && now / dur < 0.95) {
     void reportBehaviorSilently(cur.id, "SKIP", now * 1000);
   }
@@ -3148,6 +3394,12 @@ function shortsFeedNext() {
   const cur = shortsFeedCurrent.value;
   const dur = Number(shortsFeedDuration.value || 0);
   const now = Number(shortsFeedCurrentTime.value || 0);
+  if (isLongShortsFeedVideo(cur)) {
+    void flushShortsLongPlaybackResume("switch");
+  }
+  if (cur?.id) {
+    enqueueShortsHistoryByVideoId(cur.id);
+  }
   if (cur?.id && dur > 0 && now / dur < 0.95) {
     void reportBehaviorSilently(cur.id, "SKIP", now * 1000);
   }
@@ -3169,6 +3421,7 @@ function formatShortsTime(sec) {
 
 async function onShortsFeedFgLoadedMetadata(e) {
   const v = e.target;
+  applyShortsLongPlaybackResumeIfNeeded(v);
   shortsFeedIsPortrait.value =
     v.videoWidth > 0 && v.videoHeight > 0 && v.videoHeight > v.videoWidth;
   shortsFeedDuration.value = Number.isFinite(v.duration) ? v.duration : 0;
@@ -3216,6 +3469,13 @@ function onShortsFeedFgTimeUpdate(e) {
     ) {
       markPlayReported(cur.id);
       void reportBehaviorSilently(cur.id, "PLAY", current * 1000);
+    }
+    if (isLongShortsFeedVideo(cur) && !fg.paused) {
+      shortsLongResumeTickCount += 1;
+      if (shortsLongResumeTickCount >= 30) {
+        shortsLongResumeTickCount = 0;
+        void flushShortsLongPlaybackResume("tick");
+      }
     }
   }
   const bg = shortsFeedBgRef.value;
@@ -3423,11 +3683,18 @@ function onGlobalKeydown(ev) {
 
 function onShortsFeedFgPlay() {
   shortsFeedPaused.value = false;
+  enqueueShortsHistoryByVideoId(shortsFeedCurrent.value?.id);
+  if (isLongShortsFeedVideo()) {
+    shortsLongResumeTickCount = 0;
+  }
   shortsFeedBgRef.value?.play().catch(() => {});
 }
 
 function onShortsFeedFgPause() {
   shortsFeedPaused.value = true;
+  if (isLongShortsFeedVideo()) {
+    void flushShortsLongPlaybackResume("pause");
+  }
   shortsFeedBgRef.value?.pause();
 }
 
@@ -3438,6 +3705,88 @@ function onShortsFeedFgSeeked(e) {
   if (bg) {
     bg.currentTime = fg.currentTime;
   }
+}
+
+function isLongShortsFeedVideo(item = shortsFeedCurrent.value) {
+  const vt = item?.videoType;
+  if (!vt) return false;
+  const s = String(vt).toLowerCase().trim();
+  return s === "long" || s === "long_video" || s === "longvideo" || s.includes("long");
+}
+
+function getShortsLongCurrentPlayTimeMs() {
+  const player = shortsFeedFgRef.value;
+  if (!player) return 0;
+  const ms = Math.floor((Number(player.currentTime || 0) || 0) * 1000);
+  return ms > 0 ? ms : 0;
+}
+
+function getShortsLongPlaybackResumePayload(playTimeMs) {
+  const userId = currentUserId.value ?? profileUser.value?.id;
+  const videoId = shortsFeedCurrent.value?.id;
+  if (!userId || userId === "" || !videoId) return null;
+  if (!Number.isFinite(Number(playTimeMs))) return null;
+  return { userId, videoId, playTime: playTimeMs };
+}
+
+function applyShortsLongPlaybackResumeIfNeeded(player) {
+  const cur = shortsFeedCurrent.value;
+  if (!isLongShortsFeedVideo(cur)) return;
+  if (!cur || !player) return;
+  const vid = String(cur.id ?? "");
+  if (!vid || shortsLongResumeAppliedVideoId === vid) return;
+  const playbackMs = Number(cur.playbackTime ?? 0);
+  if (!Number.isFinite(playbackMs) || playbackMs <= 0) {
+    shortsLongResumeAppliedVideoId = vid;
+    return;
+  }
+  const targetSec = playbackMs / 1000;
+  const duration = Number(player.duration);
+  if (!Number.isFinite(targetSec) || targetSec <= 0 || !Number.isFinite(duration) || duration <= 0) {
+    return;
+  }
+  player.currentTime = Math.max(0, Math.min(targetSec, Math.max(0, duration - 1)));
+  shortsLongResumeAppliedVideoId = vid;
+}
+
+async function sendShortsLongPlaybackResume(payload, { keepalive = false } = {}) {
+  if (!payload) return;
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (token.value) headers.Authorization = token.value;
+    await fetch("/videos/playback/resume", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(payload),
+      keepalive,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+function flushShortsLongPlaybackResume(reason) {
+  const cur = shortsFeedCurrent.value;
+  const player = shortsFeedFgRef.value;
+  if (!isLongShortsFeedVideo(cur) || !player) return Promise.resolve();
+  if (reason !== "pause" && player.paused) return Promise.resolve();
+  const playTimeMs = getShortsLongCurrentPlayTimeMs();
+  if (reason !== "pause" && reason !== "switch" && reason !== "leave" && reason !== "unload" && playTimeMs <= 0) {
+    return Promise.resolve();
+  }
+  const payload = getShortsLongPlaybackResumePayload(playTimeMs);
+  if (!payload) return Promise.resolve();
+  const now = Date.now();
+  if (reason === "tick" && now - shortsLongResumeLastSentAtMs < 8_000) {
+    return Promise.resolve();
+  }
+  if (shortsLongResumeInFlight) return Promise.resolve();
+  shortsLongResumeInFlight = true;
+  shortsLongResumeLastSentAtMs = now;
+  const keepalive = reason === "unload" || reason === "leave";
+  return sendShortsLongPlaybackResume(payload, { keepalive }).finally(() => {
+    shortsLongResumeInFlight = false;
+  });
 }
 
 function onDetailVideoSeeked() {
@@ -3588,11 +3937,14 @@ async function openProfileWorkFeed(item) {
 }
 
 function closeProfileFeed() {
+  void flushShortsLongPlaybackResume("leave");
   shortsFeedFgRef.value?.pause();
   shortsFeedBgRef.value?.pause();
   profileFeedOpen.value = false;
   feedScope.value = "shorts";
   profileFeedQueue.value = [];
+  shortsLongResumeTickCount = 0;
+  shortsLongResumeAppliedVideoId = "";
 }
 
 function onProfileFeedKeydown(ev) {
@@ -3882,8 +4234,12 @@ async function submitRegister() {
 }
 
 function logout() {
+  void flushShortsHistoryQueue();
   clearToken();
   token.value = "";
+  shortsHistoryQueue = [];
+  shortsHistoryQueueSet.clear();
+  shortsHistorySeenSet.clear();
   homeFeedSnapshot.value = null;
   cards.value = [];
   showProfileCenter.value = false;
@@ -4029,10 +4385,20 @@ onMounted(async () => {
   window.addEventListener(getAuthExpiredEventName(), onAuthExpired);
   // 关闭/切走页面兜底：用 keepalive 尽量发送
   window.addEventListener("pagehide", () => {
+    void flushShortsHistoryQueue({ keepalive: true });
+    if (profileFeedOpen.value) {
+      void flushShortsLongPlaybackResume("unload");
+    }
     if (!showVideoDetail.value) return;
     void flushDetailPlaybackResume("unload");
   });
   window.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      void flushShortsHistoryQueue({ keepalive: true });
+      if (profileFeedOpen.value) {
+        void flushShortsLongPlaybackResume("unload");
+      }
+    }
     // 切后台时也尽量保存（只有长视频且播放中才会真正 flush）
     if (document.visibilityState !== "hidden") return;
     if (!showVideoDetail.value) return;
@@ -4101,6 +4467,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("pageshow", onWindowPageShow);
   window.removeEventListener(getAuthExpiredEventName(), onAuthExpired);
   stopDetailPlaybackResumeTimer();
+  void flushShortsHistoryQueue({ keepalive: true });
   if (loginCaptchaTimer) clearInterval(loginCaptchaTimer);
   if (registerCaptchaTimer) clearInterval(registerCaptchaTimer);
   if (forgotCaptchaTimer) clearInterval(forgotCaptchaTimer);
@@ -5222,7 +5589,137 @@ onBeforeUnmount(() => {
         </section>
 
         <template v-if="!showProfileCenter && activeMenuKey !== 'shorts'">
-          <section v-if="activeMenuKey === 'home'" class="home-mixed-feed">
+          <section v-if="activeMenuKey === 'history'" class="history-shorts-page">
+            <div class="history-shorts-head">
+              <h3><i class="ri-history-line"></i> 历史播放记录</h3>
+            </div>
+
+            <section class="history-section">
+              <div class="history-section-head">
+                <h4>长视频历史记录</h4>
+                <div class="history-pager">
+                  <button type="button" class="history-layout-btn" :disabled="historyLongPageNo <= 1" @click="onHistoryLongPrevPage">
+                    上一页
+                  </button>
+                  <span>{{ historyLongPageNo }} / {{ Math.max(1, historyLongPages || 1) }}</span>
+                  <button
+                    type="button"
+                    class="history-layout-btn"
+                    :disabled="historyLongPageNo >= (historyLongPages || 1)"
+                    @click="onHistoryLongNextPage"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+              <div v-if="historyLongLoading" class="shorts-feed-loading">正在加载长视频历史记录…</div>
+              <div v-else-if="!historyLongRows.length" class="shorts-feed-empty">暂无长视频历史记录</div>
+              <div v-else class="home-shorts-strip history-shorts-strip">
+                <article
+                  v-for="(card, index) in historyLongRows"
+                  :key="`history-long-${card.id}-${index}`"
+                  class="video-card history-long-card"
+                  :class="{ 'video-card--playable': videoCardPlayable(card) }"
+                  @click="onHistoryLongCardClick(card, index)"
+                  @mouseenter="onCardHoverEnter(card, 'history-long')"
+                  @mouseleave="onCardHoverLeave(card, 'history-long')"
+                >
+                  <video
+                    v-if="isCardPreviewPlaying(card, 'history-long')"
+                    class="video-cover video-cover--preview"
+                    :src="activePreviewVideoUrl"
+                    muted
+                    autoplay
+                    loop
+                    playsinline
+                    preload="metadata"
+                  ></video>
+                  <img v-else class="video-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
+                  <div class="video-info">
+                    <img
+                      class="video-card-author-avatar"
+                      :src="cardAuthorAvatar(card, index)"
+                      alt=""
+                      @error="(e) => (e.target.src = profileAvatar)"
+                    />
+                    <div class="video-info-text">
+                      <strong>{{ card.title }}</strong>
+                      <span>{{ cardAuthorLabel(card) }} · {{ card.viewsText || "—" }}</span>
+                    </div>
+                  </div>
+                </article>
+              </div>
+              <div class="history-section-foot">
+                <button type="button" class="history-expand-btn" @click="toggleHistoryLongExpanded">
+                  <i class="ri-arrow-down-s-line"></i>{{ historyLongExpanded ? "收起" : "展开" }}
+                </button>
+              </div>
+            </section>
+
+            <section class="history-section">
+              <div class="history-section-head">
+                <h4>短视频历史记录</h4>
+                <div class="history-pager">
+                  <button type="button" class="history-layout-btn" :disabled="historyShortPageNo <= 1" @click="onHistoryShortPrevPage">
+                    上一页
+                  </button>
+                  <span>{{ historyShortPageNo }} / {{ Math.max(1, historyShortPages || 1) }}</span>
+                  <button
+                    type="button"
+                    class="history-layout-btn"
+                    :disabled="historyShortPageNo >= (historyShortPages || 1)"
+                    @click="onHistoryShortNextPage"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+              <div v-if="historyShortLoading" class="shorts-feed-loading">正在加载短视频历史记录…</div>
+              <div v-else-if="!historyShortRows.length" class="shorts-feed-empty">暂无短视频历史记录</div>
+              <div v-else class="home-shorts-strip history-shorts-strip">
+                <article
+                  v-for="(card, index) in historyShortRows"
+                  :key="`history-short-${card.id}-${index}`"
+                  class="home-short-card"
+                  @click="onHistoryShortCardClick(card, index)"
+                  @mouseenter="onCardHoverEnter(card, 'history-short')"
+                  @mouseleave="onCardHoverLeave(card, 'history-short')"
+                >
+                  <div class="home-short-media">
+                    <video
+                      v-if="isCardPreviewPlaying(card, 'history-short')"
+                      class="home-short-cover home-short-cover--video video-cover--preview"
+                      :src="activePreviewVideoUrl"
+                      muted
+                      autoplay
+                      loop
+                      playsinline
+                      preload="metadata"
+                    ></video>
+                    <img v-else class="home-short-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
+                  </div>
+                  <div class="home-short-card-footer">
+                    <div class="home-short-card-main">
+                      <p class="home-short-title">{{ card.title }}</p>
+                      <span class="home-short-author">{{ cardAuthorLabel(card) }}</span>
+                    </div>
+                    <div class="home-short-stats">
+                      <span class="home-short-stat" title="播放量">
+                        <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.playCount) }}
+                      </span>
+                    </div>
+                  </div>
+                </article>
+              </div>
+              <div class="history-section-foot">
+                <button type="button" class="history-expand-btn" @click="toggleHistoryShortExpanded">
+                  <i class="ri-arrow-down-s-line"></i>{{ historyShortExpanded ? "收起" : "展开" }}
+                </button>
+              </div>
+            </section>
+          </section>
+
+          <section v-else-if="activeMenuKey === 'home'" class="home-mixed-feed">
             <section class="card-grid">
               <article v-if="loading" v-for="n in 8" :key="`skeleton-home-a-${n}`" class="video-card video-card--skeleton">
                 <div class="video-cover video-cover-loading"></div>
