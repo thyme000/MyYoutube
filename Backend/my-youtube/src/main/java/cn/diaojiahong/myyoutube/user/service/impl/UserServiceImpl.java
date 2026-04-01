@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.user.service.impl;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
@@ -292,6 +293,20 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
         // 返回结果
         return Result.success(PageResult.of(total, pages, shortsVOs));
+    }
+
+    @Override
+    public Result<UserVO> getCurrentUserInfo() {
+        UserDTO user = UserContext.getUser();
+        if (user == null) {
+            throw new BizException(BizException.USER_ERROR, "用户未登录");
+        }
+        User userInfo = getById(user.getId());
+
+        userInfo.setAvatarUrl(aliOssUtil.signGetUrl(userInfo.getAvatarUrl(), OSS_EXPIRE));
+        userInfo.setBgImage(aliOssUtil.signGetUrl(userInfo.getBgImage(), OSS_EXPIRE));
+
+        return Result.success(BeanUtil.toBean(userInfo, UserVO.class));
     }
 
 }

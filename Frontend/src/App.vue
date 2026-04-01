@@ -15,6 +15,7 @@ import {
   searchVideos,
   fetchVideoListPage,
   fetchAuthorVideos,
+  fetchOtherUserVideos,
   fetchMyVideos,
   fetchShortsFeedPage,
   fetchShortHistoryPage,
@@ -29,7 +30,7 @@ import { getOssSts } from "./api/otherApi";
 import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
 import {
   getUserInfo,
-  getUserProfileById,
+  getUserInfoById,
   updateUserAvatar,
   updateUserBgImage,
   updateUserProfile,
@@ -471,6 +472,27 @@ const likedDisplay = computed(() => {
 });
 
 const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0));
+const moduleEmptyState = computed(() => {
+  if (activeMenuKey.value === "shorts") {
+    return {
+      icon: "ri-video-line",
+      title: "暂无短视频",
+      desc: "当前模块暂无可展示内容",
+    };
+  }
+  if (activeMenuKey.value === "home") {
+    return {
+      icon: "ri-film-line",
+      title: "暂无推荐内容",
+      desc: "稍后刷新或切换分类再试",
+    };
+  }
+  return {
+    icon: "ri-inbox-line",
+    title: "暂无数据",
+    desc: "当前模块暂无可展示内容",
+  };
+});
 
 const uploadTagList = computed(() =>
   String(uploadForm.value.tags || "")
@@ -1822,12 +1844,16 @@ async function loadDetailSidebar(reset) {
   }
   try {
     const tab = detailSidebarTab.value;
-    const vt = tab === "short" ? "SHORT_VIDEO" : "LONG_VIDEO";
-    const res = await fetchAuthorVideos(authorId, {
+    const query = {
       pageNo: detailSidebarPageNo.value,
       pageSize: DETAIL_SIDEBAR_PAGE_SIZE,
-      videoType: vt,
-    });
+    };
+    if (tab === "short") {
+      query.videoType = "SHORT_VIDEO";
+    } else if (tab === "long") {
+      query.videoType = "LONG_VIDEO";
+    }
+    const res = await fetchAuthorVideos(authorId, query);
     let batch = res.list || [];
     if (tab === "long") {
       batch = batch.filter(isLongVideoItem);
@@ -2303,10 +2329,10 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
           category: chip?.code || undefined,
         }),
       ]);
-      cards.value = longRes.list.length ? longRes.list : getMockCards(menu.label, menu.key);
+      cards.value = longRes.list.length ? longRes.list : [];
       homeLongPageNo.value = 1;
       homeLongPages.value = longRes.pages ?? 0;
-      homeShortsRows.value = shortRes.list.length ? shortRes.list : getShortsLocalFallbackCards();
+      homeShortsRows.value = shortRes.list.length ? shortRes.list : [];
       homeShortsPageNo.value = 1;
       homeShortsPages.value = shortRes.pages ?? 0;
       const sortLabel = homeSortOptions.find((x) => x.value === homeSortKey.value)?.label || "排序";
@@ -2354,9 +2380,9 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
         ? (await fetchShortsFeedPage({ pageNo: 1, pageSize: 24 })).list
         : await fetchVideosByModule(menu.key);
     if (menu.key === "shorts") {
-      cards.value = list.length ? list : getShortsLocalFallbackCards();
+      cards.value = list.length ? list : [];
     } else {
-      cards.value = list.length ? list : getMockCards(menu.label, menu.key);
+      cards.value = list.length ? list : [];
     }
     pageHint.value = `你正在查看「${menu.label}」模块。当前数据来源：Spring Boot 接口。`;
   } catch (error) {
@@ -2364,12 +2390,12 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       throw error;
     }
     if (menu.key === "home") {
-      cards.value = getMockCards(menu.label, menu.key);
+      cards.value = [];
       homeLongPageNo.value = 1;
-      homeLongPages.value = 1;
-      homeShortsRows.value = getShortsLocalFallbackCards();
+      homeLongPages.value = 0;
+      homeShortsRows.value = [];
       homeShortsPageNo.value = 1;
-      homeShortsPages.value = 1;
+      homeShortsPages.value = 0;
       saveHomeFeedSnapshot();
     } else {
       if (menu.key === "history") {
@@ -2387,13 +2413,13 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
         likedTotal.value = 0;
         cards.value = [];
       } else {
-        cards.value = menu.key === "shorts" ? getShortsLocalFallbackCards() : getMockCards(menu.label, menu.key);
+        cards.value = [];
       }
       homeShortsRows.value = [];
       homeShortsPageNo.value = 1;
       homeShortsPages.value = 0;
     }
-    pageHint.value = `接口暂不可用，已回退到本地示例数据。错误信息：${error.message}`;
+    pageHint.value = `接口暂不可用，当前显示为空数据。错误信息：${error.message}`;
   } finally {
     loading.value = false;
   }
@@ -2482,13 +2508,13 @@ async function onSearch() {
   loading.value = true;
   try {
     const list = await searchVideos(keyword);
-    cards.value = list.length ? list : getMockCards(`搜索：${keyword}`, "search");
+    cards.value = list.length ? list : [];
     activeMenuLabel.value = `搜索结果：${keyword}`;
     pageHint.value = `搜索接口请求成功，关键词：「${keyword}」。`;
     pushToast(`搜索完成：${keyword}`, "success");
   } catch (error) {
-    cards.value = getMockCards(`搜索：${keyword}`, "search");
-    pageHint.value = `搜索接口失败，已展示示例数据。错误信息：${error.message}`;
+    cards.value = [];
+    pageHint.value = `搜索接口失败，当前显示为空数据。错误信息：${error.message}`;
     pushToast(`搜索失败：${error.message || "请稍后重试"}`, "error");
   } finally {
     loading.value = false;
@@ -2752,11 +2778,7 @@ async function loadProfileUser() {
     if (profileTargetUserId.value == null) {
       profileUser.value = me;
     } else {
-      try {
-        profileUser.value = normalizeUserProfile(await getUserProfileById(profileTargetUserId.value));
-      } catch {
-        profileUser.value = buildMockOtherProfile(profileTargetUserId.value);
-      }
+      profileUser.value = normalizeUserProfile(await getUserInfoById(profileTargetUserId.value));
     }
   } catch (error) {
     profileMsg.value = `加载用户信息失败：${error.message}`;
@@ -2785,7 +2807,7 @@ async function loadProfileWorks() {
     const isSelf = profileTargetUserId.value == null;
     const worksRes = isSelf
       ? await fetchMyVideos({ pageNo: 1, pageSize: 24 })
-      : await fetchAuthorVideos(uid, { pageNo: 1, pageSize: 24 });
+      : await fetchOtherUserVideos(uid, { pageNo: 1, pageSize: 24 });
     const map = new Map();
     const fallbackNick = stripUserIdLikeName(profileUser.value?.nickName || profileUser.value?.nickname);
     for (const item of worksRes?.list || []) {
@@ -2999,6 +3021,12 @@ function onProfile() {
   if (activeMenuKey.value === "shorts") {
     void flushShortsHistoryQueue();
   }
+  if (profileFeedOpen.value) {
+    closeProfileFeed();
+  }
+  if (shortPlayerOpen.value) {
+    closeShortPlayer();
+  }
   showStudio.value = false;
   uploadModalOpen.value = false;
   if (showVideoDetail.value) {
@@ -3026,6 +3054,19 @@ function openOtherUserProfile(userId) {
   if (activeMenuKey.value === "shorts") {
     void flushShortsHistoryQueue();
   }
+  if (profileFeedOpen.value) {
+    closeProfileFeed();
+  }
+  if (shortPlayerOpen.value) {
+    closeShortPlayer();
+  }
+  showStudio.value = false;
+  uploadModalOpen.value = false;
+  if (showVideoDetail.value) {
+    clearVideoDetailFromAddressBar();
+  }
+  showVideoDetail.value = false;
+  videoDetail.value = null;
   profileTargetUserId.value = userId;
   showProfileCenter.value = true;
   try {
@@ -3500,8 +3541,8 @@ function toggleCurrentSelfVideoAllowComment() {
 }
 
 function requestDeleteCurrentSelfVideo() {
-  if (!(shortsIsSelfCurrent.value && feedScope.value === "profile" && isViewingSelf.value)) {
-    pushToast("只能删除自己主页作品中的视频", "info");
+  if (!shortsIsSelfCurrent.value) {
+    pushToast("只能删除自己的视频", "info");
     return;
   }
   closeSelfVideoActionMenu();
@@ -5956,7 +5997,7 @@ onBeforeUnmount(() => {
                             {{ Number(shortsFeedCurrent?.allowComment ?? 1) === 1 ? '关闭评论' : '开启评论' }}
                           </button>
                           <button
-                            v-if="feedScope === 'profile' && isViewingSelf"
+                            v-if="shortsIsSelfCurrent"
                             type="button"
                             class="shorts-self-action-btn shorts-self-action-btn--danger"
                             @click="requestDeleteCurrentSelfVideo"
@@ -6023,7 +6064,11 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </template>
-          <div v-else class="shorts-feed-empty">暂无短视频可播放（缺少视频地址）</div>
+          <div v-else class="shorts-feed-empty">
+            <div class="module-empty-icon"><i class="ri-video-line"></i></div>
+            <h5>暂无短视频</h5>
+            <p>当前模块暂无可播放内容</p>
+          </div>
         </section>
 
         <template v-if="!showProfileCenter && activeMenuKey !== 'shorts'">
@@ -6078,6 +6123,9 @@ onBeforeUnmount(() => {
                       class="video-card-author-avatar"
                       :src="cardAuthorAvatar(card, index)"
                       alt=""
+                      role="button"
+                      title="查看作者主页"
+                      @click.stop="onAuthorAvatarClick($event, card.authorId)"
                       @error="(e) => (e.target.src = profileAvatar)"
                     />
                     <div class="video-info-text">
@@ -6204,7 +6252,14 @@ onBeforeUnmount(() => {
                   </span>
                 </div>
                 <div class="work-meta">
-                  <img class="work-author-avatar" :src="item.authorAvatarUrl || profileAvatar" alt="" />
+                  <img
+                    class="work-author-avatar"
+                    :src="item.authorAvatarUrl || profileAvatar"
+                    alt=""
+                    role="button"
+                    title="查看作者主页"
+                    @click.stop="onAuthorAvatarClick($event, item.authorId)"
+                  />
                   <div class="work-meta-main">
                     <div class="work-title-row">
                       <p class="work-title">{{ item.title }}</p>
@@ -6385,6 +6440,14 @@ onBeforeUnmount(() => {
                 </div>
               </article>
             </section>
+            <section
+              v-if="!loading && !homeLongHeadCards.length && !homeLongTailCards.length && !homeShortsRows.length"
+              class="module-empty"
+            >
+              <div class="module-empty-icon"><i :class="moduleEmptyState.icon"></i></div>
+              <h5>{{ moduleEmptyState.title }}</h5>
+              <p>{{ moduleEmptyState.desc }}</p>
+            </section>
           </section>
 
           <section v-else class="card-grid">
@@ -6424,6 +6487,11 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </article>
+            <div v-if="!loading && !cards.length" class="module-empty module-empty--grid">
+              <div class="module-empty-icon"><i :class="moduleEmptyState.icon"></i></div>
+              <h5>{{ moduleEmptyState.title }}</h5>
+              <p>{{ moduleEmptyState.desc }}</p>
+            </div>
           </section>
         </template>
         </template>
@@ -6472,7 +6540,7 @@ onBeforeUnmount(() => {
                       class="video-detail-channel-avatar"
                       role="button"
                       title="查看作者主页"
-                      @click="onAuthorAvatarClick($event, videoDetail.authorId)"
+                      @click.stop="onAuthorAvatarClick($event, videoDetail.authorId)"
                       @error="(e) => (e.target.src = profileAvatar)"
                     />
                   </div>

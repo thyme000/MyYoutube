@@ -10,15 +10,15 @@ export function getUserInfo() {
 }
 
 /**
- * 查看指定用户公开资料（后端需在另一分支实现；未实现时可由前端降级为本地示例数据）
- * GET /user/profile/{userId}
+ * 获取指定用户信息（需 Authorization）
+ * GET /user/info/{userId} → UserVO
  */
-export function getUserProfileById(userId) {
+export function getUserInfoById(userId) {
   const id = encodeURIComponent(safeSnowflakeId(userId));
   if (!id) {
     throw new Error("userId 不能为空");
   }
-  return httpRequest(`/user/profile/${id}`, { method: "GET" });
+  return httpRequest(`/user/info/${id}`, { method: "GET" });
 }
 
 /**

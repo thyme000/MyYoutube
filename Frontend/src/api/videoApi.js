@@ -290,6 +290,18 @@ export async function fetchMyVideos(query = {}) {
 }
 
 /**
+ * GET /videos/{userId}/list 他人主页作品分页（公开、已发布、未删除）
+ */
+export async function fetchOtherUserVideos(userId, query = {}) {
+  const id = safeSnowflakeId(userId);
+  if (!id) {
+    throw new Error("userId 不能为空");
+  }
+  const data = await httpRequest(`/videos/${encodeURIComponent(id)}/list`, { method: "GET", query });
+  return normalizePageResult(data);
+}
+
+/**
  * PUT /videos/publish
  */
 export async function publishVideo(body) {

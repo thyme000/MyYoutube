@@ -21,6 +21,7 @@ import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.domain.vo.*;
@@ -241,29 +242,20 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 判断是查询视频的类型
         List<VideoListVO> list;
         Page<Video> result;
-        if (pageQuery.getVideoType().getCode().equals(LONG_VIDEO.getCode())) {
-            // 查询长视频
-            result = page(page, q.eq(Video::getVideoType, LONG_VIDEO.getCode()));
+        if (pageQuery.getVideoType() == null) {
+            // 查询所有
+            result = page(page, q);
             list = result.getRecords().stream()
                     .map(VideoVoConverter::toListVo)
-                    .toList();
-            fillAuthorNicknames(list);
-            signListCoverUrlsForVideoListVO(list);
-            return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
-        } else if (pageQuery.getVideoType().getCode().equals(SHORT_VIDEO.getCode())) {
-            // 查询短视频
-            result = page(page, q.eq(Video::getVideoType, SHORT_VIDEO.getCode()));
-            list = result.getRecords().stream()
-                .map(VideoVoConverter::toListVo)
                     .toList();
             fillAuthorNicknames(list);
             signListCoverUrlsForVideoListVO(list);
             return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
         } else {
-            // 查询所有
-            result = page(page, q);
+            // 查询短视频或长视频
+            result = page(page, q.eq(Video::getVideoType, pageQuery.getVideoType().getCode()));
             list = result.getRecords().stream()
-                    .map(VideoVoConverter::toListVo)
+                .map(VideoVoConverter::toListVo)
                     .toList();
             fillAuthorNicknames(list);
             signListCoverUrlsForVideoListVO(list);

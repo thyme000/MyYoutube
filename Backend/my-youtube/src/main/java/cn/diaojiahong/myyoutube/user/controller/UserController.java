@@ -46,6 +46,18 @@ public class UserController {
     }
 
     /**
+     * 获取当前用户信息
+     * @return
+     */
+    @Operation(summary = "获取当前用户的信息")
+    @GetMapping("/info")
+    public Result<UserVO> getCurrentUserInfo() {
+        return userService.getCurrentUserInfo();
+    }
+
+
+
+    /**
      * 更新用户头像
      *
      * @param avatar 头像文件

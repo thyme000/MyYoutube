@@ -40,4 +40,6 @@ public interface IUserService extends IService<User> {
 
     Result<PageResult<ShortsVO>> getShortsHistory(UserHistoryPageQuery userHistoryPageQuery);
 
+    Result<UserVO> getCurrentUserInfo();
+
 }
