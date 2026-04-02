@@ -38,4 +38,6 @@ public class ShortsVO {
     private LocalDateTime createTime;
     // 视频标签
     private String tags;
+    // 是否关注了该作者
+    private Boolean isFollow;
 }

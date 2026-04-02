@@ -2,10 +2,13 @@ package cn.diaojiahong.myyoutube.admin.service.impl;
 
 import cn.diaojiahong.myyoutube.admin.service.IAdminService;
 import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.user.domain.po.User;
+import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.BANNED;
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.PUBLISHED;
@@ -15,7 +18,9 @@ import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.PUBLIS
 public class AdminServiceImpl implements IAdminService {
 
     private final IVideoService videoService;
+    private final IUserService userService;
 
+    @Transactional
     @Override
     public Result<String> pass(Long videoId) {
         boolean success = videoService.lambdaUpdate()
@@ -25,6 +30,13 @@ public class AdminServiceImpl implements IAdminService {
         if (!success) {
             return Result.fail("发布失败");
         }
+        // 发布成功, 作者作品数量加一
+        Video video = videoService.lambdaQuery().eq(Video::getId, videoId).one();
+        userService.lambdaUpdate()
+                .eq(User::getId, video.getAuthorId())
+                .setIncrBy(User::getVideoCount, 1)
+                .update();
+
         return Result.success("发布成功");
     }
 

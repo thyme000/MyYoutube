@@ -9,10 +9,7 @@ import cn.diaojiahong.myyoutube.video.domain.dto.UserShortsWatchRecords;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.domain.vo.MyVideoListVO;
-import cn.diaojiahong.myyoutube.video.domain.vo.ShortsVO;
-import cn.diaojiahong.myyoutube.video.domain.vo.VideoDetailVO;
-import cn.diaojiahong.myyoutube.video.domain.vo.VideoListVO;
+import cn.diaojiahong.myyoutube.video.domain.vo.*;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 /**
@@ -44,4 +41,6 @@ public interface IVideoService extends IService<Video> {
     Result<Void> recordShortsPlay(UserShortsWatchRecords userShortsWatchRecords);
 
     Result<PageResult<VideoListVO>> getOtherUserVideoList(Long userId, PageQuery pageQuery);
+
+    Result<PageResult<FollowVideoVO>> getFollowVideoList(PageQuery pageQuery);
 }

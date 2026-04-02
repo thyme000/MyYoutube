@@ -52,4 +52,6 @@ public class RedisConstants {
     // 30天后过期
     public static final Long USER_SHORTS_PLAY_EXPIRE = 30L;
 
+    // 用户获赞量 {userid} hash结构 videoId : likeCount
+    public static final String USER_LIKE_COUNT = "user:like:count:";
 }

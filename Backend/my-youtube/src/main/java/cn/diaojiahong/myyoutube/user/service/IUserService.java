@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.user.service;
 
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
@@ -36,9 +37,9 @@ public interface IUserService extends IService<User> {
 
     Map<Long, String> getAuthorAvatarUrls(List<Long> authorIds);
 
-    Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(UserHistoryPageQuery userHistoryPageQuery);
+    Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(PageQuery pageQuery);
 
-    Result<PageResult<ShortsVO>> getShortsHistory(UserHistoryPageQuery userHistoryPageQuery);
+    Result<PageResult<ShortsVO>> getShortsHistory(PageQuery pageQuery);
 
     Result<UserVO> getCurrentUserInfo();
 

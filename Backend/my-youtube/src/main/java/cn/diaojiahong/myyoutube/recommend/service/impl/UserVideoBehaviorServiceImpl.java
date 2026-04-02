@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.recommend.service.impl;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.recommend.domain.dto.BehaviorDTO;
 import cn.diaojiahong.myyoutube.recommend.domain.enums.EventEnum;
 import cn.diaojiahong.myyoutube.recommend.domain.po.UserVideoBehavior;
@@ -11,6 +12,8 @@ import cn.diaojiahong.myyoutube.recommend.mapper.UserVideoBehaviorMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserVideoBehaviorService;
 import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
+import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +42,8 @@ public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorM
     private final IUserTagPreferenceService userTagPreferenceService;
     private final IVideoTagService videoTagService;
     private final StringRedisTemplate redisTemplate;
+    private final IUserFollowService userFollowService;
+    private final IVideoService videoService;
 
     @Transactional
     @Override

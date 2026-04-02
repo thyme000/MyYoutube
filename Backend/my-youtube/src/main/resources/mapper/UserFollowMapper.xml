@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper">
+
+    <insert id="followOrRestore">
+        INSERT INTO user_follow (id, follower_id, followee_id, is_deleted, create_time, update_time)
+        VALUES (#{id}, #{followerId}, #{followeeId}, 0, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                                 is_deleted = IF(is_deleted = 1, 0, is_deleted),
+                                 update_time = IF(is_deleted = 1, NOW(), update_time)
+    </insert>
+
+    <delete id="cancelFollow">
+        UPDATE user_follow
+        SET is_deleted = 1, update_time = NOW()
+        WHERE follower_id = #{followerId}
+          AND followee_id = #{followeeId}
+          AND is_deleted = 0
+    </delete>
+</mapper>

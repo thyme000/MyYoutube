@@ -9,10 +9,7 @@ import cn.diaojiahong.myyoutube.video.domain.dto.RecordUserWatchTimeDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.UserShortsWatchRecords;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
-import cn.diaojiahong.myyoutube.video.domain.vo.MyVideoListVO;
-import cn.diaojiahong.myyoutube.video.domain.vo.ShortsVO;
-import cn.diaojiahong.myyoutube.video.domain.vo.VideoDetailVO;
-import cn.diaojiahong.myyoutube.video.domain.vo.VideoListVO;
+import cn.diaojiahong.myyoutube.video.domain.vo.*;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -146,4 +143,14 @@ public class VideoController {
         return videoService.getOtherUserVideoList(userId, pageQuery);
     }
 
+    /**
+     * 获取关注(所有被关注人)视频列表
+     * @param pageQuery
+     * @return
+     */
+    @Operation(summary = "用户查看关注视频列表")
+    @GetMapping("/follow/list")
+    public Result<PageResult<FollowVideoVO>> getFollowVideoList(@ModelAttribute PageQuery pageQuery) {
+        return videoService.getFollowVideoList(pageQuery);
+    }
 }

@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.common.schedule;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.user.domain.po.User;
+import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +23,7 @@ public class ScheduleJob {
 
     private final StringRedisTemplate redisTemplate;
     private final IVideoService videoService;
+    private final IUserService userService;
 
     /**
      * 每小时更新一次播放量：分片刷,避免单 Hash (热点key)过大,影响性能
@@ -99,8 +102,39 @@ public class ScheduleJob {
                 String zsetKey = cursor.next();
                 // 获取过期的短视频记录(id)
                 Set<String> shortsIds = redisTemplate.opsForZSet().rangeByScore(zsetKey, 0, end);
+                if (shortsIds == null || shortsIds.isEmpty()) {
+                    return;
+                }
                 // 清理过期记录
                 redisTemplate.opsForZSet().removeRangeByScore(zsetKey, 0, end);
+            }
+        }
+    }
+
+    /**
+     * 每10分钟执行一次
+     * 更新用户获赞量
+     */
+    @Scheduled(cron = "0 */10 * * * *")
+    public void updateUserLikeCount() {
+        ScanOptions options = ScanOptions.scanOptions().match(RedisConstants.USER_LIKE_COUNT + "*").build();
+        try (Cursor<String> cursor = redisTemplate.scan(options)) {
+            while (cursor.hasNext()) {
+                String hashKey = cursor.next();
+                String userId = hashKey.split(RedisConstants.USER_LIKE_COUNT)[1];
+                Map<Object, Object> entries = redisTemplate.opsForHash().entries(hashKey);
+                if (entries.isEmpty()) {
+                    continue;
+                }
+                entries.forEach((videoId, likeCount) -> {
+                    Long likeCountLong = Long.parseLong(likeCount.toString());
+                    userService.lambdaUpdate()
+                            .setIncrBy(User::getLikeCount, likeCountLong)
+                            .eq(User::getId, userId)
+                            .update();
+                });
+                // 删除redisKey
+                redisTemplate.opsForHash().delete(hashKey);
             }
         }
     }

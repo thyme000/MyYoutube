@@ -83,6 +83,10 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
             // 没有记录，新增
             save(new VideoLike().setUserId(userId).setVideoId(videoId).setIsLiked(VideoLikeConstants.LIKE));
         }
+
+        // 更新用户获赞量
+        redisTemplate.opsForHash().increment(RedisConstants.USER_LIKE_COUNT + userId, videoId, 1);
+
         return Result.success();
     }
 
@@ -114,6 +118,9 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         // 修改点赞记录
         like.setIsLiked(VideoLikeConstants.CANCEL_LIKE);
         updateById(like);
+
+        // 更新用户获赞量
+        redisTemplate.opsForHash().increment(RedisConstants.USER_LIKE_COUNT + userId, videoId, -1);
 
         return Result.success();
     }

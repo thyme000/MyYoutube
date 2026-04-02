@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.user.controller;
 
 
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
@@ -96,24 +97,24 @@ public class UserController {
 
     /**
      * 用户查看长视频历史记录
-     * @param userHistoryPageQuery
+     * @param pageQuery
      * @return
      */
     @Operation(summary = "用户查看长视频历史记录")
     @GetMapping("/history/long")
-    public Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(@ModelAttribute UserHistoryPageQuery userHistoryPageQuery) {
-        return userService.getLongHistory(userHistoryPageQuery);
+    public Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(@ModelAttribute PageQuery pageQuery) {
+        return userService.getLongHistory(pageQuery);
     }
 
     /**
      * 用户查看短视频观看记录
-     * @param userHistoryPageQuery
+     * @param pageQuery
      * @return
      */
     @Operation(summary = "用户查看短视频观看记录")
     @GetMapping("/history/short")
-    public Result<PageResult<ShortsVO>> getShortsHistory(@ModelAttribute UserHistoryPageQuery userHistoryPageQuery) {
-        return userService.getShortsHistory(userHistoryPageQuery);
+    public Result<PageResult<ShortsVO>> getShortsHistory(@ModelAttribute PageQuery pageQuery) {
+        return userService.getShortsHistory(pageQuery);
     }
 
 }

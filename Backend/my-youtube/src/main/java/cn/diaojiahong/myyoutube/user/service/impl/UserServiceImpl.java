@@ -2,12 +2,13 @@ package cn.diaojiahong.myyoutube.user.service.impl;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
-import cn.diaojiahong.myyoutube.user.domain.dto.UserHistoryPageQuery;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserLongHistoryVideoVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
@@ -48,6 +49,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private static final Long OSS_EXPIRE = 3600 * 24L;// 24小时过期时间
     private final StringRedisTemplate redisTemplate;
     private final VideoMapper videoMapper;
+    private final IUserFollowService userFollowService;
 
     @Override
     public Result<UserVO> getUserInfo(Long userId) {
@@ -135,16 +137,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
 
     @Override
-    public Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(UserHistoryPageQuery userHistoryPageQuery) {
-        int pageSize = userHistoryPageQuery.getPageSize();
-        int pageNo = userHistoryPageQuery.getPageNo();
+    public Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(PageQuery pageQuery) {
+        int pageSize = pageQuery.getPageSize();
+        int pageNo = pageQuery.getPageNo();
         // 起始索引
         int start = (pageNo - 1) * pageSize;
         // 结束索引
         int end = start + pageSize - 1;
-        Long userId = userHistoryPageQuery.getUserId();
+        Long userId = UserContext.getUser() == null ? null : UserContext.getUser().getId();
         if (userId == null) {
-            return Result.fail("用户ID不能为空");
+            throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
 
         // 长视频id
@@ -180,18 +182,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
         });
 
+        List<Long> authorIds = longHistoryVideoVOs
+                .stream()
+                .map(UserLongHistoryVideoVO::getAuthorId)
+                .collect(Collectors.toList());
         // 获取作者昵称
-        Map<Long, String> authorNicknames = getAuthorNicknames(
-                longHistoryVideoVOs
-                        .stream()
-                        .map(UserLongHistoryVideoVO::getAuthorId)
-                        .collect(Collectors.toList()));
+        Map<Long, String> authorNicknames = getAuthorNicknames(authorIds);
         // 获取作者头像url
-        Map<Long, String> authorAvatarUrls = getAuthorAvatarUrls(
-                longHistoryVideoVOs
-                        .stream()
-                        .map(UserLongHistoryVideoVO::getAuthorId)
-                        .collect(Collectors.toList()));
+        Map<Long, String> authorAvatarUrls = getAuthorAvatarUrls(authorIds);
 
         // 填充作者昵称和头像url
         longHistoryVideoVOs.forEach(vo -> {
@@ -209,6 +207,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             vo.setPlaybackTime(Long.parseLong(playbackResumes.get(vo.getId() == null ? 0L : vo.getId()).toString()));
         });
 
+        // 获取用户关注状态
+        Map<Long, Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);
+        // 填充关注状态
+        longHistoryVideoVOs.forEach(vo -> {
+            vo.setIsFollow(isFollows.get(vo.getAuthorId()));
+        });
+
         long total = redisTemplate.opsForZSet().zCard(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId);
 
         long pages = total / pageSize;
@@ -221,16 +226,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
 
     @Override
-    public Result<PageResult<ShortsVO>> getShortsHistory(UserHistoryPageQuery userHistoryPageQuery) {
-        int pageSize = userHistoryPageQuery.getPageSize();
-        int pageNo = userHistoryPageQuery.getPageNo();
+    public Result<PageResult<ShortsVO>> getShortsHistory(PageQuery pageQuery) {
+        int pageSize = pageQuery.getPageSize();
+        int pageNo = pageQuery.getPageNo();
         // 起始索引
         int start = (pageNo - 1) * pageSize;
         // 结束索引
         int end = start + pageSize - 1;
-        Long userId = userHistoryPageQuery.getUserId();
+        Long userId = UserContext.getUser() == null ? null : UserContext.getUser().getId();
         if (userId == null) {
-            return Result.fail("用户ID不能为空");
+            throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
 
         // 查询短视频id
@@ -264,18 +269,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
         });
 
+        List<Long> authorIds = shortsVOs
+                .stream()
+                .map(ShortsVO::getAuthorId)
+                .collect(Collectors.toList());
         // 获取作者昵称
-        Map<Long, String> authorNicknames = getAuthorNicknames(
-                shortsVOs
-                        .stream()
-                        .map(ShortsVO::getAuthorId)
-                        .collect(Collectors.toList()));
+        Map<Long, String> authorNicknames = getAuthorNicknames(authorIds);
         // 获取作者头像url
-        Map<Long, String> authorAvatarUrls = getAuthorAvatarUrls(
-                shortsVOs
-                        .stream()
-                        .map(ShortsVO::getAuthorId)
-                        .collect(Collectors.toList()));
+        Map<Long, String> authorAvatarUrls = getAuthorAvatarUrls(authorIds);
 
         // 填充作者昵称和头像url
         shortsVOs.forEach(vo -> {
@@ -283,6 +284,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE));
         });
 
+        // 获取用户关注状态
+        Map<Long, Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);
+        // 填充关注状态
+        shortsVOs.forEach(vo -> {
+            vo.setIsFollow(isFollows.get(vo.getAuthorId()));
+        });
 
         long total = redisTemplate.opsForZSet().zCard(RedisConstants.USER_SHORTS_PLAY + userId);
 

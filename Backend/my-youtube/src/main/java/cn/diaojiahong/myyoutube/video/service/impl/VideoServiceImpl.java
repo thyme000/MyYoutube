@@ -9,6 +9,7 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
 import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
@@ -21,7 +22,6 @@ import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.domain.vo.*;
@@ -64,6 +64,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     private final IVideoTagService videoTagService;
     private final IRecommendService recommendService;
     private final StringRedisTemplate redisTemplate;
+    private final IUserFollowService userFollowService;
 
     private static final int SHORT_VIDEO_DURATION = 300;
     private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
@@ -148,7 +149,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 fillAuthorNicknames(list);
                 signListCoverUrlsForVideoListVO(list);
                 signListVideoUrlsForVideoListVO(list);
-                // TODO暂时用 list.size() < pageSize 来判断是否还有下一页
+                // 近似值
                 long total = list.size() < pageQuery.getPageSize() ?
                         (long)(pageQuery.getPageNo() - 1) * pageQuery.getPageSize() + list.size() :
                         (long)pageQuery.getPageNo() * pageQuery.getPageSize() + 1;
@@ -312,8 +313,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (user == null) {
             throw new BizException(BizException.USER_ERROR, "用户信息获取失败");
         }
+        Long userId = user.getId();
         // 获得推荐短视频id
-        List<Long> videoIds = recommendService.recommend(user.getId(),
+        List<Long> videoIds = recommendService.recommend(userId,
                 null, SHORT_VIDEO.getCode(),
                 pageQuery.getPageNo(), pageQuery.getPageSize());
         if (videoIds.isEmpty()) {
@@ -332,21 +334,27 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
         // 获取所有作者id
         List<Long> authorIds = voList.stream().map(ShortsVO::getAuthorId).toList();
-        // 查询作者昵称
-        Map<Long, String> authorNicknames = userService.getAuthorNicknames(authorIds);
-        // 作者头像url
-        Map<Long, String> authorAvatarUrls = userService.getAuthorAvatarUrls(authorIds);
-        // 填充
-        voList.forEach(vo -> vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId())));
-        voList.forEach(vo -> {
-            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_READ_SIGN_EXPIRE_SECONDS));
-        });
-        // 签名封面url
-        signListCoverUrlsForShortsVO(voList);
-        // 签名视频url
-        signListVideoUrlForShortsVO(voList);
+        if (!authorIds.isEmpty()) {
+            // 查询作者昵称
+            Map<Long, String> authorNicknames = userService.getAuthorNicknames(authorIds);
+            // 作者头像url
+            Map<Long, String> authorAvatarUrls = userService.getAuthorAvatarUrls(authorIds);
+            // 填充
+            voList.forEach(vo -> vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId())));
+            voList.forEach(vo -> {
+                vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_READ_SIGN_EXPIRE_SECONDS));
+            });
+            // 签名封面url
+            signListCoverUrlsForShortsVO(voList);
+            // 签名视频url
+            signListVideoUrlForShortsVO(voList);
 
-        // TODO暂时用 list.size() < pageSize 来判断是否还有下一页
+            // 填充是否关注了该作者
+            Map<Long, Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);
+            voList.forEach(vo -> vo.setIsFollow(isFollows.get(vo.getAuthorId())));
+        }
+
+        // 近似值
         long total = voList.size() < pageQuery.getPageSize() ?
                 (long)(pageQuery.getPageNo() - 1) * pageQuery.getPageSize() + voList.size() :
                 (long)pageQuery.getPageNo() * pageQuery.getPageSize() + 1;
@@ -428,6 +436,58 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
     }
 
+    @Override
+    public Result<PageResult<FollowVideoVO>> getFollowVideoList(PageQuery pageQuery) {
+        // 获取用户信息
+        UserDTO user = UserContext.getUser();
+        if (user == null) {
+            throw new BizException(BizException.USER_ERROR, "用户未登录");
+        }
+        Long userId = user.getId();
+        // 获取关注用户列表
+        List<Long> followIds = userFollowService.getFollowIds(userId);
+        if (followIds == null || followIds.isEmpty()) {
+            return Result.success(PageResult.of(0,0, Collections.emptyList()));
+        }
+        List<Long> videoIds = recommendService.recommendForFollow(followIds, userId , pageQuery.getPageNo(), pageQuery.getPageSize());
+        if (videoIds == null || videoIds.isEmpty()) {
+            return Result.success(PageResult.of(0,0, Collections.emptyList()));
+        }
+
+        // 查询视频
+        Set<String> collect = videoIds.stream().map(String::valueOf).collect(Collectors.toSet());
+        List<Video> videos = baseMapper.selectOrderedList(collect);
+
+        // 转换为VO
+        List<FollowVideoVO> voList = videos.stream().map(v -> BeanUtil.toBean(v, FollowVideoVO.class)).toList();
+        // 填充作者昵称
+        Map<Long, String> idToNick = userService.getAuthorNicknames(videoIds);
+        for (FollowVideoVO vo : voList) {
+            vo.setAuthorNickname(idToNick.get(vo.getAuthorId()));
+        }
+        // 填充作者头像url
+        Map<Long, String> idToAvatar = userService.getAuthorAvatarUrls(videoIds);
+        for (FollowVideoVO vo : voList) {
+            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(idToAvatar.get(vo.getAuthorId()), OSS_READ_SIGN_EXPIRE_SECONDS));
+        }
+        // 签名视频封面url
+        for (FollowVideoVO vo : voList) {
+            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+        }
+        // 签名视频url
+        for (FollowVideoVO vo : voList) {
+            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+        }
+
+        // 近似值
+        long total = voList.size() < pageQuery.getPageSize() ?
+                (long)(pageQuery.getPageNo() - 1) * pageQuery.getPageSize() + voList.size() :
+                (long)pageQuery.getPageNo() * pageQuery.getPageSize() + 1;
+        long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
+
+        return Result.success(PageResult.of(total, pages, voList));
+    }
+
     /**
      * 批量查询作者昵称，避免前端仅展示「用户 作者id」。
      */
@@ -481,15 +541,6 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
         for (ShortsVO vo : list) {
             vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
-        }
-    }
-
-    private void signMyListCoverUrls(List<MyVideoListVO> list) {
-        if (list == null || list.isEmpty()) {
-            return;
-        }
-        for (MyVideoListVO vo : list) {
-            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 
