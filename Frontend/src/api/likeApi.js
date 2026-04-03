@@ -46,3 +46,51 @@ export async function fetchLikedVideosPage(userId, query = {}) {
   const data = await httpRequest(`/like/${encodeURIComponent(id)}/list`, { method: "GET", query });
   return normalizePageResult(data);
 }
+
+/**
+ * 当前用户是否已点赞该视频（优先 GET /like/{videoId}/status，无则分页扫点赞列表兜底）
+ * @returns {Promise<boolean>}
+ */
+export async function fetchVideoLikedStatus(videoId, currentUserId) {
+  const vid = safeSnowflakeId(videoId);
+  if (!vid) {
+    return false;
+  }
+  try {
+    const data = await httpRequest(`/like/${encodeURIComponent(vid)}/status`, { method: "GET" });
+    if (typeof data === "boolean") {
+      return data;
+    }
+    if (data != null && typeof data === "object") {
+      if ("liked" in data) {
+        return Boolean(data.liked);
+      }
+      if ("isLike" in data) {
+        return Boolean(data.isLike);
+      }
+    }
+    return Boolean(data);
+  } catch {
+    /* 后端未实现 /status 时走兜底 */
+  }
+  const uid = safeSnowflakeId(currentUserId);
+  if (!uid) {
+    return false;
+  }
+  let pageNo = 1;
+  const pageSize = 40;
+  const maxPages = 15;
+  while (pageNo <= maxPages) {
+    const res = await fetchLikedVideosPage(uid, { pageNo, pageSize });
+    const list = Array.isArray(res.list) ? res.list : [];
+    if (list.some((row) => row && String(row.id) === String(vid))) {
+      return true;
+    }
+    const pages = Number(res.pages || 0);
+    if (pages <= 0 || pageNo >= pages || list.length < pageSize) {
+      break;
+    }
+    pageNo += 1;
+  }
+  return false;
+}

@@ -182,17 +182,19 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     }
 
     @Override
-    public Map<Long, Boolean> isFollowOnList(List<Long> authorIds, Long userId) {
+    public List<Boolean> isFollowOnList(List<Long> authorIds, Long userId) {
         if (userId == null) {
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
         if (authorIds == null || authorIds.isEmpty()) {
-            return Map.of();
+            return List.of();
         }
-        return lambdaQuery()
+        Map<Long, Boolean> collect = lambdaQuery()
                 .eq(UserFollow::getFollowerId, userId)
                 .in(UserFollow::getFolloweeId, authorIds)
-                .list().stream().distinct().collect(Collectors.toMap(UserFollow::getFolloweeId, u -> !u.getIsDeleted()));
+                .eq(UserFollow::getIsDeleted, false)
+                .list().stream().collect(Collectors.toMap(UserFollow::getFolloweeId, f -> true));
+        return authorIds.stream().map(id -> collect.getOrDefault(id, false)).toList();
     }
 
 }

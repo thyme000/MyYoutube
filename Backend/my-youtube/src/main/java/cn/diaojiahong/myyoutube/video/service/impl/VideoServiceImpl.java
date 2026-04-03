@@ -10,6 +10,8 @@ import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
+import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
+import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
 import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
@@ -29,6 +31,7 @@ import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
@@ -65,6 +68,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     private final IRecommendService recommendService;
     private final StringRedisTemplate redisTemplate;
     private final IUserFollowService userFollowService;
+    private final VideoLikeMapper videoLikeMapper;
 
     private static final int SHORT_VIDEO_DURATION = 300;
     private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
@@ -295,7 +299,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (list.isEmpty()) {
             return;
         }
-        list.forEach(vo -> vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS)));
+        for (VideoListVO vo : list) {
+            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+        }
     }
 
     @Override
@@ -322,6 +328,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             // 直接返回空列表
             return Result.success(PageResult.of(0,0, Collections.emptyList()));
         }
+
         // 查询视频信息
         List<Video> videos = listByIds(videoIds);
         Map<Long, Video> map = videos.stream()
@@ -350,9 +357,19 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             signListVideoUrlForShortsVO(voList);
 
             // 填充是否关注了该作者
-            Map<Long, Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);
-            voList.forEach(vo -> vo.setIsFollow(isFollows.get(vo.getAuthorId())));
+            List<Boolean> followOnList = userFollowService.isFollowOnList(authorIds, userId);
+            for (int i = 0; i < voList.size(); i++) {
+                Boolean isFollow = followOnList.get(i);
+                voList.get(i).setIsFollow(isFollow != null && isFollow);
+            }
         }
+
+        // 查看用户是否点赞了这些作品
+        List<Long> collect = isLike(userId, videoIds);
+        // 转map
+        Map<Long, Boolean> likeMap = collect.stream().collect(Collectors.toMap(id -> id, id -> true));
+        // 填充
+        voList.forEach(vo -> vo.setIsLike(likeMap.getOrDefault(Long.valueOf(vo.getId()), false)));
 
         // 近似值
         long total = voList.size() < pageQuery.getPageSize() ?
@@ -361,6 +378,13 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
 
         return Result.success(PageResult.of(total, pages, voList));
+    }
+
+    private List<Long> isLike(Long userId, List<Long> videoIds) {
+        return new LambdaQueryChainWrapper<>(videoLikeMapper)
+                .eq(VideoLike::getIsLiked, 1)
+                .eq(VideoLike::getUserId, userId)
+                .in(VideoLike::getVideoId, videoIds).list().stream().map(VideoLike::getVideoId).toList();
     }
 
     @Override
@@ -432,6 +456,13 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         signListCoverUrlsForVideoListVO(voList);
         // 签名视频url
         signListVideoUrlsForVideoListVO(voList);
+
+        // 填充是否点过赞
+        List<Long> likedIds = isLike(UserContext.getUser().getId(), videoList.stream().map(Video::getId).toList());
+        Map<Long, Boolean> collect = likedIds.stream().collect(Collectors.toMap(v -> v, v -> true));
+        for (int i = 0; i < voList.size(); i++) {
+            voList.get(i).setIsLike(collect.getOrDefault(videoList.get(i).getId(), false));
+        }
 
         return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
     }

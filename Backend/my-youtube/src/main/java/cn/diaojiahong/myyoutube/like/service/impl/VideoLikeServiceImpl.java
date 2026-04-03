@@ -85,7 +85,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         }
 
         // 更新用户获赞量
-        redisTemplate.opsForHash().increment(RedisConstants.USER_LIKE_COUNT + userId, videoId, 1);
+        redisTemplate.opsForHash().increment(RedisConstants.USER_LIKE_COUNT + userId, videoId.toString(), 1);
 
         return Result.success();
     }
@@ -120,7 +120,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         updateById(like);
 
         // 更新用户获赞量
-        redisTemplate.opsForHash().increment(RedisConstants.USER_LIKE_COUNT + userId, videoId, -1);
+        redisTemplate.opsForHash().increment(RedisConstants.USER_LIKE_COUNT + userId, videoId.toString(), -1);
 
         return Result.success();
     }
@@ -182,5 +182,15 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
 
         return Result.success(PageResult.of(total, totalPages, voList));
+    }
+
+    @Override
+    public Result<Boolean> getLikeStatus(Long videoId) {
+        // 查询用户是否点过赞
+        VideoLike like = lambdaQuery()
+                .eq(VideoLike::getUserId, UserContext.getUser().getId())
+                .eq(VideoLike::getVideoId, videoId)
+                .one();
+        return Result.success(like != null && like.getIsLiked() == VideoLikeConstants.LIKE);
     }
 }

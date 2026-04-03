@@ -40,4 +40,6 @@ public class ShortsVO {
     private String tags;
     // 是否关注了该作者
     private Boolean isFollow;
+    // 是否点赞了该视频
+    private Boolean isLike;
 }

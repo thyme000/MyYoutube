@@ -33,5 +33,5 @@ public interface IUserFollowService extends IService<UserFollow> {
 
     List<Long> getFollowIds(Long userId);
 
-    Map<Long, Boolean> isFollowOnList(List<Long> authorIds, Long userId);
+    List<Boolean> isFollowOnList(List<Long> authorIds, Long userId);
 }

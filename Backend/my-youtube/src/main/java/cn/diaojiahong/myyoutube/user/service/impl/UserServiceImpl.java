@@ -7,7 +7,11 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
+import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
+import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
+import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
+import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
+import cn.diaojiahong.myyoutube.like.service.IVideoLikeService;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserLongHistoryVideoVO;
@@ -18,6 +22,8 @@ import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.domain.vo.ShortsVO;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
 import cn.hutool.core.bean.BeanUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,7 +55,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private static final Long OSS_EXPIRE = 3600 * 24L;// 24小时过期时间
     private final StringRedisTemplate redisTemplate;
     private final VideoMapper videoMapper;
-    private final IUserFollowService userFollowService;
+    private final UserFollowMapper userFollowMapper;
+    private final VideoLikeMapper videoLikeMapper;
 
     @Override
     public Result<UserVO> getUserInfo(Long userId) {
@@ -208,10 +215,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         });
 
         // 获取用户关注状态
-        Map<Long, Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);
+        List<Boolean> isFollows = getIsFollows(userId, authorIds);
         // 填充关注状态
+        for (int i = 0; i < longHistoryVideoVOs.size(); i++) {
+            Boolean isFollow = isFollows.get(i);
+            longHistoryVideoVOs.get(i).setIsFollow(isFollow != null && isFollow);
+        }
+
+        // 获取点赞状态
+        Map<Long, Boolean> collect = isLike(userId, dbIds);
+        // 填充点赞状态
         longHistoryVideoVOs.forEach(vo -> {
-            vo.setIsFollow(isFollows.get(vo.getAuthorId()));
+            vo.setIsLike(collect.getOrDefault(Long.valueOf(vo.getId()), false));
         });
 
         long total = redisTemplate.opsForZSet().zCard(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId);
@@ -223,6 +238,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
         // 返回结果
         return Result.success(PageResult.of(total, pages, longHistoryVideoVOs));
+    }
+
+    private List<Boolean> getIsFollows(Long userId, List<Long> authorIds) {
+        LambdaQueryWrapper<UserFollow> w = new LambdaQueryWrapper<>();
+        w.eq(UserFollow::getFollowerId, userId).eq(UserFollow::getIsDeleted, false).in(UserFollow::getFolloweeId, authorIds);
+        List<UserFollow> list = userFollowMapper.selectList(w);
+        Map<Long, Boolean> collect = list.stream().collect(Collectors.toMap(UserFollow::getFolloweeId, u -> true));
+        // 转换为map
+        return authorIds.stream().map(id -> collect.getOrDefault(id, false)).toList();
     }
 
     @Override
@@ -285,10 +309,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         });
 
         // 获取用户关注状态
-        Map<Long, Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);
+        List<Boolean> isFollows = getIsFollows(userId, authorIds);
         // 填充关注状态
+        for (int i = 0; i < shortsVOs.size(); i++) {
+            Boolean isFollow = isFollows.get(i);
+            shortsVOs.get(i).setIsFollow(isFollow != null && isFollow);
+        }
+
+        // 获取点赞状态
+        Map<Long, Boolean> collect = isLike(userId, shortsIds);
+        // 填充点赞状态
         shortsVOs.forEach(vo -> {
-            vo.setIsFollow(isFollows.get(vo.getAuthorId()));
+            vo.setIsLike(collect.getOrDefault(Long.valueOf(vo.getId()), false));
         });
 
         long total = redisTemplate.opsForZSet().zCard(RedisConstants.USER_SHORTS_PLAY + userId);
@@ -300,6 +332,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
         // 返回结果
         return Result.success(PageResult.of(total, pages, shortsVOs));
+    }
+
+    private Map<Long, Boolean> isLike(Long userId, Set<String> shortsIds) {
+        return new LambdaQueryChainWrapper<>(videoLikeMapper)
+                .eq(VideoLike::getUserId, userId)
+                .eq(VideoLike::getIsLiked, true)
+                .in(VideoLike::getVideoId, shortsIds)
+                .list().stream().collect(Collectors.toMap(VideoLike::getVideoId, v -> true));
     }
 
     @Override

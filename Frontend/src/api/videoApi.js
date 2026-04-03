@@ -161,6 +161,8 @@ export function normalizeVideoListVo(item, index) {
     createTime: pickDateTime(item),
     playbackTime: item.playbackTime ?? 0,
     authorNickname: nick || undefined,
+    /** 当前用户是否已点赞（短视频流等接口返回） */
+    isLike: Boolean(item.isLike ?? item.liked),
   };
 }
 
@@ -214,6 +216,8 @@ export function normalizeVideoDetail(raw) {
     playbackTime,
     visibility: raw.visibility,
     createTime: raw.createTime,
+    isFollow: raw.isFollow,
+    isLike: Boolean(raw.isLike ?? raw.liked),
   };
 }
 
@@ -232,15 +236,23 @@ export function normalizeVideoList(payload) {
 
 /**
  * 分页列表（Spring PageResult：total, pages, list）
+ * 兼容部分接口使用 records（MyBatis Page）或其它字段名。
  */
 export function normalizePageResult(data) {
-  if (!data || !Array.isArray(data.list)) {
+  if (!data || typeof data !== "object") {
     return { total: 0, pages: 0, list: [] };
   }
+  const rawList = Array.isArray(data.list)
+    ? data.list
+    : Array.isArray(data.records)
+      ? data.records
+      : Array.isArray(data.content)
+        ? data.content
+        : [];
   return {
     total: data.total ?? 0,
-    pages: data.pages ?? 0,
-    list: data.list.map((item, i) => normalizeVideoListVo(item, i)),
+    pages: data.pages ?? data.pageCount ?? 0,
+    list: rawList.map((item, i) => normalizeVideoListVo(item, i)),
   };
 }
 
@@ -334,26 +346,26 @@ export async function fetchShortsFeedPage(query = {}) {
 }
 
 /**
- * GET /videos/history/short 短视频历史分页
+ * GET /user/history/short 短视频历史分页（仅当前登录用户）
  */
 export async function fetchShortHistoryPage(query = {}) {
-  const q = { ...query };
-  if (q.userId != null && q.userId !== "") {
-    q.userId = safeSnowflakeId(q.userId);
-  }
-  const data = await httpRequest("/user/history/short", { method: "GET", query: q });
+  const data = await httpRequest("/user/history/short", { method: "GET", query });
   return normalizePageResult(data);
 }
 
 /**
- * GET /videos/history/long 长视频历史分页
+ * GET /user/history/long 长视频历史分页（仅当前登录用户）
  */
 export async function fetchLongHistoryPage(query = {}) {
-  const q = { ...query };
-  if (q.userId != null && q.userId !== "") {
-    q.userId = safeSnowflakeId(q.userId);
-  }
-  const data = await httpRequest("/user/history/long", { method: "GET", query: q });
+  const data = await httpRequest("/user/history/long", { method: "GET", query });
+  return normalizePageResult(data);
+}
+
+/**
+ * GET /videos/follow/list 关注视频流（分页，滚动加载）
+ */
+export async function fetchFollowVideoFeedPage(query = {}) {
+  const data = await httpRequest("/videos/follow/list", { method: "GET", query });
   return normalizePageResult(data);
 }
 

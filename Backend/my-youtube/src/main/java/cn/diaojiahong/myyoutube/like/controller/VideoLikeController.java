@@ -72,4 +72,15 @@ public class VideoLikeController {
     public Result<PageResult<LikeVideoVO>> getLikeVideoList(@PathVariable Long userId, @ModelAttribute PageQuery pageQuery) {
         return videoLikeService.getLikeVideoList(userId, pageQuery);
     }
+
+    /**
+     * 用户是否给这个视频点过赞
+     * @param videoId 视频id
+     * @return
+     */
+    @Operation(summary = "用户是否给这个视频点过赞")
+    @GetMapping("/{videoId}/status")
+    public Result<Boolean> getLikeStatus(@PathVariable Long videoId) {
+        return videoLikeService.getLikeStatus(videoId);
+    }
 }

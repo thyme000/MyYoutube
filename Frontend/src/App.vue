@@ -18,6 +18,7 @@ import {
   fetchOtherUserVideos,
   fetchMyVideos,
   fetchShortsFeedPage,
+  fetchFollowVideoFeedPage,
   fetchShortHistoryPage,
   fetchLongHistoryPage,
   fetchVideoDetail,
@@ -40,7 +41,15 @@ import {
   cancelLikeVideo as cancelLikeVideoApi,
   dislikeVideo as dislikeVideoApi,
   fetchLikedVideosPage,
+  fetchVideoLikedStatus,
 } from "./api/likeApi";
+import {
+  fetchMyFansPage,
+  fetchMyFollowingPage,
+  followAuthor,
+  unfollowAuthor,
+  isFollowed,
+} from "./api/followApi";
 import {
   loadCropFromStorage,
   makeDefaultCropRect,
@@ -158,6 +167,9 @@ const currentUserId = ref(null);
 const selfUserProfile = ref(null);
 const profileUser = ref(null);
 const profileLoading = ref(false);
+/** 他人主页：是否已关注该用户（GET /follow/isFollow/{authorId}） */
+const profileTargetFollowed = ref(false);
+const profileFollowBusy = ref(false);
 const profileMsg = ref("");
 const profileUploadBusy = ref(false);
 const pendingCropUploadFile = ref(null);
@@ -317,7 +329,8 @@ const shortsHistoryQueueSet = new Set();
 const shortsHistorySeenSet = new Set();
 let shortsHistoryFlushInFlight = false;
 /** 当前作者是否已关注（按视频 id） */
-const shortsFollowedMap = ref({});
+/** 按作者 ID 覆盖关注状态（乐观更新后优先于接口返回的 isFollow） */
+const followStateOverrideByAuthorId = ref({});
 /** PLAY 上报：累计顺播时长达到总时长比例，且排除拖动（单次 timeupdate 跳跃过大不计入） */
 const BEHAVIOR_PLAY_THRESHOLD = 0.7;
 const BEHAVIOR_MAX_PLAY_DELTA_SEC = 3;
@@ -367,12 +380,19 @@ function pickFallbackVideoUrl(seed = "") {
 const profileWorksRows = ref([]);
 const profileWorksLoading = ref(false);
 const profileWorksFilter = ref("ALL");
-const profileWorkVideoUrlCache = ref({});
-const profileWorkVideoUrlLoading = ref({});
-const profileWorkDetailCache = ref({});
 const feedScope = ref("shorts");
 const profileFeedQueue = ref([]);
 const likedFeedQueue = ref([]);
+const followFeedQueue = ref([]);
+/** 关注页：选中某位作者时，右侧仅播该作者短视频（GET /videos/{userId}/list） */
+const followSubscribedFilterAuthorId = ref(null);
+const followAuthorFeedQueue = ref([]);
+const followAuthorVideoPageNo = ref(1);
+const followAuthorVideoHasMore = ref(false);
+const followAuthorLoadingMore = ref(false);
+const followVideoPageNo = ref(1);
+const followVideoHasMore = ref(true);
+const followVideoLoadingMore = ref(false);
 const profileFeedOpen = ref(false);
 /** 赞过的视频列表（GET /like/{userId}/list） */
 const likedRows = ref([]);
@@ -385,13 +405,12 @@ const LIKED_PAGE_SIZE = 12;
 /** 详情页点赞：无 isLiked 时用本地切换（与后端幂等配合） */
 const detailSessionLiked = ref(false);
 const detailLikeBusy = ref(false);
+const detailFollowBusy = ref(false);
 /** 短视频流点赞：切换条时重置 */
-const shortsSessionLiked = ref(false);
 const shortsLikeBusy = ref(false);
 let lastShortsLikeAt = 0;
 let lastDetailLikeAt = 0;
 /** 仅当「当前短视频 id」变化时同步爱心 UI，避免 patch 列表导致 watch 反复把已取消赞设回 true */
-let prevShortsLikeWatchId = "";
 /** 自己的视频在全屏短视频里显示更多操作（三点） */
 const selfVideoActionOpen = ref(false);
 const selfVideoDeleteConfirmOpen = ref(false);
@@ -433,7 +452,7 @@ function formatWorkLikeText(item) {
 
 const profileWorksDisplay = computed(() => {
   const base = profileWorksRows.value.map((item) => ({
-    ...(profileWorkDetailCache.value[String(item.id)] || {}),
+    ...item,
     id: item.id,
     title: item.title || "未命名视频",
     image: item.coverUrl || item.avatarUrl || profileBanner,
@@ -688,6 +707,18 @@ const detailFanText = computed(() => {
     return "粉丝 —";
   }
   return `${n} 位粉丝`;
+});
+
+const detailSubscribeFollowed = computed(() => {
+  const aid = videoDetail.value?.authorId;
+  if (aid == null || aid === "") {
+    return false;
+  }
+  const k = String(aid);
+  if (Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, k)) {
+    return followStateOverrideByAuthorId.value[k];
+  }
+  return Boolean(videoDetail.value?.isFollow);
 });
 
 /** 裁剪区域（归一化相对原图）：仅自己主页使用，本地按「用户 + 图片 URL」记忆 */
@@ -1034,18 +1065,245 @@ function buildMockOtherProfile(userId) {
   });
 }
 
-const followingUsers = [
-  { id: 1, nickName: "Alice", avatarUrl: feedCoverPool[0] },
-  { id: 2, nickName: "Tom", avatarUrl: feedCoverPool[1] },
-  { id: 3, nickName: "Luna", avatarUrl: feedCoverPool[2] },
-];
+const followingRows = ref([]);
+const followingPageNo = ref(1);
+const followingLoading = ref(false);
+const followingHasMore = ref(true);
 
-const followerUsers = [
-  { id: 11, nickName: "Ivy", avatarUrl: feedCoverPool[0] },
-  { id: 12, nickName: "Ken", avatarUrl: feedCoverPool[1] },
-  { id: 13, nickName: "Mia", avatarUrl: feedCoverPool[2] },
-  { id: 14, nickName: "Ryan", avatarUrl: feedCoverPool[3] },
-];
+const followerRows = ref([]);
+const followerPageNo = ref(1);
+const followerLoading = ref(false);
+const followerHasMore = ref(true);
+
+function normalizeRelationUser(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const id = raw.followeeId ?? raw.fanId ?? raw.id ?? "";
+  return {
+    id,
+    nickName: raw.nickname ?? raw.nickName ?? raw.name ?? "",
+    avatarUrl: raw.avatarUrl ?? raw.avatar ?? profileAvatar,
+    introduction: raw.introduction ?? "",
+  };
+}
+
+async function loadFollowingMore({ reset = false } = {}) {
+  if (!isAuthed.value) return;
+  if (followingLoading.value) return;
+  if (!followingHasMore.value && !reset) return;
+  followingLoading.value = true;
+  try {
+    const pageNo = reset ? 1 : followingPageNo.value;
+    const pageSize = 20;
+    const data = await fetchMyFollowingPage({ pageNo, pageSize });
+    const list = Array.isArray(data?.list) ? data.list : [];
+    const normalized = list.map(normalizeRelationUser).filter(Boolean);
+    followingRows.value = reset ? normalized : [...followingRows.value, ...normalized];
+    if (relationTableOpen.value && relationTableKind.value === "following") {
+      relationTableUsers.value = followingRows.value;
+    }
+    followingPageNo.value = pageNo;
+    followingHasMore.value = normalized.length === pageSize;
+  } catch (e) {
+    if (reset) {
+      followingRows.value = [];
+      followingPageNo.value = 1;
+    }
+    followingHasMore.value = false;
+  } finally {
+    followingLoading.value = false;
+  }
+}
+
+function loadFollowingNextPage() {
+  if (followingLoading.value || !followingHasMore.value) return;
+  followingPageNo.value += 1;
+  void loadFollowingMore({ reset: false });
+}
+
+async function loadFollowersMore({ reset = false } = {}) {
+  if (!isAuthed.value) return;
+  if (followerLoading.value) return;
+  if (!followerHasMore.value && !reset) return;
+  followerLoading.value = true;
+  try {
+    const pageNo = reset ? 1 : followerPageNo.value;
+    const pageSize = 20;
+    const data = await fetchMyFansPage({ pageNo, pageSize });
+    const list = Array.isArray(data?.list) ? data.list : [];
+    const normalized = list.map(normalizeRelationUser).filter(Boolean);
+    followerRows.value = reset ? normalized : [...followerRows.value, ...normalized];
+    if (relationTableOpen.value && relationTableKind.value === "followers") {
+      relationTableUsers.value = followerRows.value;
+    }
+    followerPageNo.value = pageNo;
+    followerHasMore.value = normalized.length === pageSize;
+  } catch (e) {
+    if (reset) {
+      followerRows.value = [];
+      followerPageNo.value = 1;
+    }
+    followerHasMore.value = false;
+  } finally {
+    followerLoading.value = false;
+  }
+}
+
+function loadFollowersNextPage() {
+  if (followerLoading.value || !followerHasMore.value) return;
+  followerPageNo.value += 1;
+  void loadFollowersMore({ reset: false });
+}
+
+function mapToFollowPlayableRows(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((x) => {
+      const url =
+        resolveVideoUrl(x) || resolveVideoUrlForListItem(x.id, x) || String(x?.videoUrl || "").trim();
+      return { ...x, videoUrl: url || x.videoUrl, videoType: x.videoType || "SHORT_VIDEO" };
+    })
+    .filter((x) => Boolean(String(resolveVideoUrl(x) || x.videoUrl || "").trim()));
+}
+
+async function loadSubscribedFollowVideos({ reset = false } = {}) {
+  if (!isAuthed.value) return;
+  if (followVideoLoadingMore.value) return;
+  if (!reset && !followVideoHasMore.value) return;
+  followVideoLoadingMore.value = true;
+  try {
+    const pageNo = reset ? 1 : followVideoPageNo.value;
+    const pageSize = 12;
+    const res = await fetchFollowVideoFeedPage({ pageNo, pageSize });
+    const list = Array.isArray(res.list) ? res.list : [];
+    const playable = mapToFollowPlayableRows(list);
+    const pages = Number(res.pages || 0);
+    if (reset) {
+      followFeedQueue.value = playable;
+      cards.value = list;
+      followVideoPageNo.value = pageNo + 1;
+    } else {
+      const existing = new Set(followFeedQueue.value.map((x) => String(x.id)));
+      let merged = followFeedQueue.value;
+      for (const p of playable) {
+        if (!existing.has(String(p.id))) {
+          merged = [...merged, p];
+          existing.add(String(p.id));
+        }
+      }
+      followFeedQueue.value = merged;
+      followVideoPageNo.value = pageNo + 1;
+    }
+    followVideoHasMore.value = list.length >= pageSize && (pages <= 0 || pageNo < pages);
+    if (list.length && !playable.length) {
+      pushToast("接口返回了视频但未解析到播放地址，请检查 OSS 签名或 videoUrl 字段", "info");
+    }
+  } catch (e) {
+    if (reset) {
+      followFeedQueue.value = [];
+      cards.value = [];
+    }
+    followVideoHasMore.value = false;
+    pushToast(e?.message || "加载关注视频失败", "error");
+  } finally {
+    followVideoLoadingMore.value = false;
+  }
+}
+
+async function loadSubscribedAuthorVideos(authorId, { reset = false } = {}) {
+  const aid = authorId != null && authorId !== "" ? String(authorId) : "";
+  if (!aid || !isAuthed.value) return;
+  if (followAuthorLoadingMore.value) return;
+  if (!reset && !followAuthorVideoHasMore.value) return;
+  followAuthorLoadingMore.value = true;
+  try {
+    const pageNo = reset ? 1 : followAuthorVideoPageNo.value;
+    const pageSize = 12;
+    const res = await fetchOtherUserVideos(aid, { pageNo, pageSize });
+    const list = Array.isArray(res.list) ? res.list : [];
+    const playable = mapToFollowPlayableRows(list);
+    const pages = Number(res.pages || 0);
+    if (reset) {
+      followAuthorFeedQueue.value = playable;
+      followAuthorVideoPageNo.value = pageNo + 1;
+    } else {
+      const existing = new Set(followAuthorFeedQueue.value.map((x) => String(x.id)));
+      let merged = followAuthorFeedQueue.value;
+      for (const p of playable) {
+        if (!existing.has(String(p.id))) {
+          merged = [...merged, p];
+          existing.add(String(p.id));
+        }
+      }
+      followAuthorFeedQueue.value = merged;
+      followAuthorVideoPageNo.value = pageNo + 1;
+    }
+    followAuthorVideoHasMore.value = list.length >= pageSize && (pages <= 0 || pageNo < pages);
+    if (list.length && !playable.length) {
+      pushToast("该作者的作品暂无可用播放地址", "info");
+    }
+  } catch (e) {
+    if (reset) {
+      followAuthorFeedQueue.value = [];
+    }
+    followAuthorVideoHasMore.value = false;
+    pushToast(e?.message || "加载作者视频失败", "error");
+  } finally {
+    followAuthorLoadingMore.value = false;
+  }
+}
+
+async function selectFollowSidebarAll() {
+  const hadFilter = followSubscribedFilterAuthorId.value != null && followSubscribedFilterAuthorId.value !== "";
+  resetShortsFeedProgressUiForSwitch();
+  followSubscribedFilterAuthorId.value = null;
+  followAuthorFeedQueue.value = [];
+  followAuthorVideoPageNo.value = 1;
+  followAuthorVideoHasMore.value = false;
+  shortsFeedIndex.value = 0;
+  if (hadFilter || followFeedQueue.value.length === 0) {
+    await loadSubscribedFollowVideos({ reset: true });
+  }
+  nextTick(() => {
+    shortsFeedFgRef.value?.load();
+    shortsFeedBgRef.value?.load();
+  });
+}
+
+async function selectFollowSidebarAuthor(user) {
+  const id = user?.id ?? user?.followeeId;
+  if (id == null || id === "") return;
+  if (String(followSubscribedFilterAuthorId.value) === String(id)) {
+    return;
+  }
+  resetShortsFeedProgressUiForSwitch();
+  followSubscribedFilterAuthorId.value = id;
+  shortsFeedIndex.value = 0;
+  await loadSubscribedAuthorVideos(id, { reset: true });
+  nextTick(() => {
+    shortsFeedFgRef.value?.load();
+    shortsFeedBgRef.value?.load();
+  });
+}
+
+function maybePrefetchFollowFeed() {
+  if (feedScope.value !== "follow" || activeMenuKey.value !== "subscribed") {
+    return;
+  }
+  const aid = followSubscribedFilterAuthorId.value;
+  const list = aid != null && aid !== "" ? followAuthorFeedQueue.value : followFeedQueue.value;
+  const i = shortsFeedIndex.value;
+  if (!list.length) {
+    return;
+  }
+  const remainToEnd = list.length - 1 - i;
+  if (remainToEnd >= HOME_SHORTS_FEED_PREFETCH_THRESHOLD) {
+    return;
+  }
+  if (aid != null && aid !== "") {
+    void loadSubscribedAuthorVideos(aid, { reset: false });
+  } else {
+    void loadSubscribedFollowVideos({ reset: false });
+  }
+}
 
 function getShortsLocalFallbackCards() {
   const urls = [localShortV1, localShortV2, localShortV3, localShortV4];
@@ -1180,17 +1438,19 @@ function buildDetailFromCard(card) {
   return normalizeVideoDetail({
     id: vid ?? (card?.id != null ? String(card.id) : ""),
     title: card?.title ?? "未命名视频",
-    description: "（示例数据）视频简介占位，连接后端后将显示真实描述。",
+    description: card?.description ?? "",
     coverUrl: card?.coverUrl || card?.avatarUrl || fallbackCover,
     videoUrl: resolveVideoUrl(card) || fallbackVideoUrl,
     videoType: card?.videoType ?? "LONG_VIDEO",
-    playCount: 0,
-    likeCount: 0,
-    commentCount: 0,
+    playCount: card?.playCount ?? 0,
+    likeCount: card?.likeCount ?? 0,
+    commentCount: card?.commentCount ?? 0,
     authorId: card?.authorId ?? null,
     authorNickname: card?.authorNickname ?? card?.author ?? "频道",
     authorAvatarUrl: card?.authorAvatarUrl || "",
-    authorFanCount: 0,
+    authorFanCount: card?.authorFanCount ?? 0,
+    isFollow: card?.isFollow,
+    isLike: card?.isLike,
   });
 }
 
@@ -1204,6 +1464,11 @@ function isLongVideoItem(item) {
     return false;
   }
   return true;
+}
+
+/** 仅短视频写入 /videos/shorts/play；长视频在竖屏流里走续播，不得混入 shortIds */
+function shouldRecordShortsWatchHistory(item) {
+  return item != null && !isLongVideoItem(item);
 }
 
 function genMockSidebarList(tab) {
@@ -1461,7 +1726,13 @@ async function onDetailLikeClick() {
     const raw = await fetchVideoDetail(vid);
     const merged = normalizeVideoDetail(raw);
     if (merged) {
-      videoDetail.value = { ...d, ...merged };
+      videoDetail.value = {
+        ...d,
+        ...merged,
+        isLike: detailSessionLiked.value,
+      };
+    } else {
+      videoDetail.value = { ...d, isLike: detailSessionLiked.value };
     }
     void reportBehaviorSilently(d.id, "LIKE", current * 1000);
   } catch (error) {
@@ -1487,6 +1758,49 @@ async function onDetailDislikeClick() {
     pushToast("已标记为不感兴趣", "success");
   } catch (error) {
     pushToast(error.message || "操作失败", "error");
+  }
+}
+
+async function onDetailFollowClick() {
+  const d = videoDetail.value;
+  if (!d?.authorId) {
+    return;
+  }
+  if (!isAuthed.value) {
+    pushToast("请先登录后再关注", "info");
+    return;
+  }
+  const aid = String(d.authorId);
+  if (currentUserId.value != null && aid === String(currentUserId.value)) {
+    return;
+  }
+  const key = aid;
+  const currently = detailSubscribeFollowed.value;
+  detailFollowBusy.value = true;
+  try {
+    if (currently) {
+      await unfollowAuthor(aid);
+      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: false };
+      patchIsFollowForAuthor(aid, false);
+      videoDetail.value = { ...d, isFollow: false };
+      if (profileTargetUserId.value != null && String(profileTargetUserId.value) === aid) {
+        profileTargetFollowed.value = false;
+      }
+      pushToast("已取消关注", "success");
+    } else {
+      await followAuthor(aid);
+      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: true };
+      patchIsFollowForAuthor(aid, true);
+      videoDetail.value = { ...d, isFollow: true };
+      if (profileTargetUserId.value != null && String(profileTargetUserId.value) === aid) {
+        profileTargetFollowed.value = true;
+      }
+      pushToast("关注成功", "success");
+    }
+  } catch (e) {
+    pushToast(e?.message || "操作失败", "error");
+  } finally {
+    detailFollowBusy.value = false;
   }
 }
 
@@ -1626,27 +1940,30 @@ function flushDetailPlaybackResume(reason) {
 }
 
 function onDetailVideoPause(e) {
-  // 用户手动暂停：置标记 + 立即上报续播（长视频）
-  if (isLongDetailVideo()) {
-    stopDetailPlaybackResumeTimer();
-    const isUser = e?.isTrusted !== false; // 有些环境下 isTrusted 可能不可用
-    if (isUser) {
-      detailUserPausedManually.value = true;
-      void flushDetailPlaybackResume("pause");
-    }
+  // 任意类型：用户手势暂停后禁止自动 play 重试（否则 canplay/定时重试会把暂停顶掉）
+  const isUser = e?.isTrusted !== false;
+  if (isUser) {
+    detailUserPausedManually.value = true;
+  }
+  if (!isLongDetailVideo()) {
+    return;
+  }
+  stopDetailPlaybackResumeTimer();
+  if (isUser) {
+    void flushDetailPlaybackResume("pause");
   }
 }
 
 function onDetailVideoPlay(e) {
-  // 用户再次点击播放：解除暂停屏蔽 + 开启兜底定时器
-  if (isLongDetailVideo()) {
-    const isUser = e?.isTrusted !== false;
-    if (isUser) {
-      detailUserPausedManually.value = false;
-    }
-    // 播放恢复后将按 timeupdate 次数上报，这里重置计数避免刚播放就上报。
-    detailPlaybackResumeTickCount = 0;
+  const isUser = e?.isTrusted !== false;
+  if (isUser) {
+    detailUserPausedManually.value = false;
   }
+  if (!isLongDetailVideo()) {
+    return;
+  }
+  // 播放恢复后将按 timeupdate 次数上报，这里重置计数避免刚播放就上报。
+  detailPlaybackResumeTickCount = 0;
 }
 
 /** 刷新 / 往返缓存后 DOM 就绪较晚，多补几轮 */
@@ -1680,7 +1997,7 @@ async function reloadFeedAfterLeavingDetail() {
   }
   const menu = getMenuByActiveKey();
   await loadModuleCards(menu);
-  if (menu.key === "shorts") {
+  if (menu.key === "shorts" || menu.key === "subscribed") {
     nextTick(() => {
       shortsFeedFgRef.value?.load();
       shortsFeedBgRef.value?.load();
@@ -1688,10 +2005,13 @@ async function reloadFeedAfterLeavingDetail() {
   }
 }
 
-async function openVideoDetail(card) {
+async function openVideoDetail(card, { skipRemoteDetail = false } = {}) {
   if (!card) {
     return;
   }
+  // main 被 v-show 隐藏时部分浏览器仍会继续播放短视频音频，必须先停掉
+  pauseShortsFeedVideos({ muteForeground: true });
+  const skipRemote = skipRemoteDetail || card?.skipDetailFetch === true;
   // 切换详情视频前：如果上一条是长视频且正在播放，先 flush 一次续播
   if (showVideoDetail.value && isLongDetailVideo()) {
     const player = detailPlayerRef.value;
@@ -1719,12 +2039,13 @@ async function openVideoDetail(card) {
   const vid = parseVideoIdForApi(card.id);
   const instantDetail = buildDetailFromCard(card);
   videoDetail.value = instantDetail;
+  detailSessionLiked.value = Boolean(instantDetail?.isLike);
   detailLoading.value = false;
   nextTick(() => {
     scheduleDetailVideoAutoplayRetries();
   });
   try {
-    if (vid != null) {
+    if (vid != null && !skipRemote) {
       const raw = await fetchVideoDetail(vid);
       const d = normalizeVideoDetail(raw);
       if (d && card) {
@@ -1752,15 +2073,28 @@ async function openVideoDetail(card) {
         }
       }
       videoDetail.value = d;
+      if (isAuthed.value && currentUserId.value && vid != null) {
+        try {
+          const liked = await fetchVideoLikedStatus(vid, currentUserId.value);
+          videoDetail.value = { ...videoDetail.value, isLike: liked };
+          detailSessionLiked.value = liked;
+        } catch {
+          detailSessionLiked.value = Boolean(d?.isLike);
+        }
+      } else {
+        detailSessionLiked.value = Boolean(d?.isLike);
+      }
       nextTick(() => {
         applyDetailPlaybackResumeIfNeeded();
       });
     } else {
       videoDetail.value = instantDetail;
+      detailSessionLiked.value = Boolean(instantDetail?.isLike);
     }
   } catch (e) {
     videoDetail.value = instantDetail;
     detailErrorMsg.value = `详情接口不可用，已展示本地数据：${e.message}`;
+    detailSessionLiked.value = Boolean(instantDetail?.isLike);
   }
   detailLoading.value = false;
   detailSidebarTab.value = "all";
@@ -2094,11 +2428,10 @@ async function loadHistoryShortsPage({ reset = false } = {}) {
   historyShortLoading.value = true;
   try {
     const targetPage = reset ? 1 : historyShortPageNo.value;
-    const pageSize = historyShortExpanded.value ? 25 : 5;
+    const pageSize = historyShortExpanded.value ? 15 : 5;
     const res = await fetchShortHistoryPage({
       pageNo: targetPage,
       pageSize,
-      userId: currentUserId.value || undefined,
     });
     const nextList = Array.isArray(res.list) ? res.list : [];
     historyShortRows.value = nextList;
@@ -2125,7 +2458,6 @@ async function loadHistoryLongPage({ reset = false } = {}) {
     const res = await fetchLongHistoryPage({
       pageNo: targetPage,
       pageSize,
-      userId: currentUserId.value || undefined,
     });
     const nextList = Array.isArray(res.list) ? res.list : [];
     historyLongRows.value = nextList;
@@ -2370,6 +2702,32 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       pageHint.value = `赞过的视频 · 共 ${likedTotal.value} 条（GET /like/{userId}/list）`;
       return;
     }
+    if (menu.key === "subscribed") {
+      homeShortsRows.value = [];
+      homeShortsPageNo.value = 1;
+      homeShortsPages.value = 0;
+      homeLongPageNo.value = 1;
+      homeLongPages.value = 0;
+      followSubscribedFilterAuthorId.value = null;
+      followAuthorFeedQueue.value = [];
+      followAuthorVideoPageNo.value = 1;
+      followAuthorVideoHasMore.value = false;
+      followVideoPageNo.value = 1;
+      followVideoHasMore.value = true;
+      cards.value = [];
+      if (!isAuthed.value) {
+        followFeedQueue.value = [];
+        pageHint.value = "请先登录后查看「关注」视频流。";
+        return;
+      }
+      feedScope.value = "follow";
+      shortsFeedIndex.value = 0;
+      shortsFeedAutoplayPending.value = true;
+      await loadFollowingMore({ reset: true });
+      await loadSubscribedFollowVideos({ reset: true });
+      pageHint.value = "关注 · 左侧为关注列表，右侧为关注作者的短视频推荐（GET /videos/follow/list）";
+      return;
+    }
     homeShortsRows.value = [];
     homeShortsPageNo.value = 1;
     homeShortsPages.value = 0;
@@ -2411,6 +2769,10 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
         likedPageNo.value = 1;
         likedPages.value = 0;
         likedTotal.value = 0;
+        cards.value = [];
+      } else if (menu.key === "subscribed") {
+        followFeedQueue.value = [];
+        followAuthorFeedQueue.value = [];
         cards.value = [];
       } else {
         cards.value = [];
@@ -2457,6 +2819,17 @@ async function setActiveMenu(menu) {
     shortsFeedIndex.value = 0;
     shortsFeedAutoplayPending.value = true;
   }
+  if (menu.key === "subscribed") {
+    feedScope.value = "follow";
+    followSubscribedFilterAuthorId.value = null;
+    followAuthorFeedQueue.value = [];
+    followAuthorVideoPageNo.value = 1;
+    followAuthorVideoHasMore.value = false;
+    followVideoPageNo.value = 1;
+    followVideoHasMore.value = true;
+    shortsFeedIndex.value = 0;
+    shortsFeedAutoplayPending.value = true;
+  }
 
   if (menu.key === "home") {
     if (prevMenuKey === "home" && prevShowProfile) {
@@ -2489,7 +2862,7 @@ async function setActiveMenu(menu) {
     saveHomeFeedSnapshot();
   }
   await loadModuleCards(menu);
-  if (menu.key === "shorts") {
+  if (menu.key === "shorts" || menu.key === "subscribed") {
     nextTick(() => {
       shortsFeedFgRef.value?.load();
       shortsFeedBgRef.value?.load();
@@ -2536,6 +2909,9 @@ function onCreate() {
   }
   if (activeMenuKey.value === "shorts") {
     void flushShortsHistoryQueue();
+  }
+  if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
+    pauseShortsFeedVideos({ muteForeground: true });
   }
   showStudio.value = true;
   if (showVideoDetail.value) {
@@ -2763,7 +3139,7 @@ function onNotify() {
   pushToast("通知功能开发中", "info");
 }
 
-async function loadProfileUser() {
+async function loadProfileUser({ withWorks = false } = {}) {
   if (!getToken()) {
     return;
   }
@@ -2777,6 +3153,7 @@ async function loadProfileUser() {
     }
     if (profileTargetUserId.value == null) {
       profileUser.value = me;
+      profileTargetFollowed.value = false;
     } else {
       profileUser.value = normalizeUserProfile(await getUserInfoById(profileTargetUserId.value));
     }
@@ -2786,7 +3163,59 @@ async function loadProfileUser() {
     profileLoading.value = false;
     applyCropsFromStorage();
   }
-  void loadProfileWorks();
+  void refreshProfileTargetFollowState();
+  if (withWorks) {
+    void loadProfileWorks();
+  }
+}
+
+async function refreshProfileTargetFollowState() {
+  if (!getToken() || profileTargetUserId.value == null) {
+    profileTargetFollowed.value = false;
+    return;
+  }
+  if (currentUserId.value != null && String(profileTargetUserId.value) === String(currentUserId.value)) {
+    profileTargetFollowed.value = false;
+    return;
+  }
+  try {
+    profileTargetFollowed.value = await isFollowed(profileTargetUserId.value);
+  } catch {
+    profileTargetFollowed.value = false;
+  }
+}
+
+async function toggleProfileTargetFollow() {
+  if (!isAuthed.value || profileTargetUserId.value == null) {
+    pushToast("请先登录", "info");
+    return;
+  }
+  if (isViewingSelf.value) {
+    return;
+  }
+  const aid = profileTargetUserId.value;
+  profileFollowBusy.value = true;
+  try {
+    if (profileTargetFollowed.value) {
+      await unfollowAuthor(aid);
+      profileTargetFollowed.value = false;
+      const key = String(aid);
+      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: false };
+      patchIsFollowForAuthor(aid, false);
+      pushToast("已取消关注", "success");
+    } else {
+      await followAuthor(aid);
+      profileTargetFollowed.value = true;
+      const key = String(aid);
+      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: true };
+      patchIsFollowForAuthor(aid, true);
+      pushToast("关注成功", "success");
+    }
+  } catch (e) {
+    pushToast(e?.message || "操作失败", "error");
+  } finally {
+    profileFollowBusy.value = false;
+  }
 }
 
 async function loadProfileWorks() {
@@ -2794,15 +3223,9 @@ async function loadProfileWorks() {
   const uid = profileTargetUserId.value ?? currentUserId.value;
   if (!uid) {
     profileWorksRows.value = [];
-    profileWorkVideoUrlCache.value = {};
-    profileWorkVideoUrlLoading.value = {};
-    profileWorkDetailCache.value = {};
     return;
   }
   profileWorksLoading.value = true;
-  profileWorkVideoUrlCache.value = {};
-  profileWorkVideoUrlLoading.value = {};
-  profileWorkDetailCache.value = {};
   try {
     const isSelf = profileTargetUserId.value == null;
     const worksRes = isSelf
@@ -3021,6 +3444,9 @@ function onProfile() {
   if (activeMenuKey.value === "shorts") {
     void flushShortsHistoryQueue();
   }
+  if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
+    pauseShortsFeedVideos({ muteForeground: true });
+  }
   if (profileFeedOpen.value) {
     closeProfileFeed();
   }
@@ -3043,7 +3469,7 @@ function onProfile() {
   }
   activeMenuLabel.value = "个人中心";
   pageHint.value = "这里展示用户主页、作品和数据概览。";
-  loadProfileUser();
+  loadProfileUser({ withWorks: true });
 }
 
 /** 进入他人主页（可从视频作者、关注列表等调用 userId；此处提供顶部「Ta」演示入口） */
@@ -3053,6 +3479,9 @@ function openOtherUserProfile(userId) {
   }
   if (activeMenuKey.value === "shorts") {
     void flushShortsHistoryQueue();
+  }
+  if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
+    pauseShortsFeedVideos({ muteForeground: true });
   }
   if (profileFeedOpen.value) {
     closeProfileFeed();
@@ -3076,7 +3505,7 @@ function openOtherUserProfile(userId) {
   }
   activeMenuLabel.value = "个人中心";
   pageHint.value = "正在查看他人主页。";
-  loadProfileUser();
+  loadProfileUser({ withWorks: true });
 }
 
 function onAuthorAvatarClick(event, authorId) {
@@ -3097,11 +3526,17 @@ function openRelationTable(type) {
   if (type === "following") {
     relationTableKind.value = "following";
     relationTableTitle.value = "关注列表";
-    relationTableUsers.value = followingUsers;
+    relationTableUsers.value = followingRows.value;
+    followingPageNo.value = 1;
+    followingHasMore.value = true;
+    void loadFollowingMore({ reset: true });
   } else {
     relationTableKind.value = "followers";
     relationTableTitle.value = "粉丝列表";
-    relationTableUsers.value = followerUsers;
+    relationTableUsers.value = followerRows.value;
+    followerPageNo.value = 1;
+    followerHasMore.value = true;
+    void loadFollowersMore({ reset: true });
   }
   relationTableOpen.value = true;
 }
@@ -3122,11 +3557,29 @@ function onFollowerRemove(user) {
 
 function onFollowerFollowBack(user) {
   relationFollowerMenuId.value = null;
-  pageHint.value = `已回关「${user.nickName}」（演示，需对接后端）`;
+  void (async () => {
+    try {
+      await followAuthor(user.id);
+      pushToast(`已回关「${user.nickName || "该用户"}」`, "success");
+    } catch (e) {
+      pushToast(`回关失败：${e.message || e}`, "error");
+    }
+  })();
 }
 
 function onFollowingUnfollow(user) {
-  pageHint.value = `已取关「${user.nickName}」（演示，需对接后端）`;
+  void (async () => {
+    try {
+      await unfollowAuthor(user.id);
+      followingRows.value = followingRows.value.filter((x) => String(x.id) !== String(user.id));
+      if (relationTableKind.value === "following") {
+        relationTableUsers.value = followingRows.value;
+      }
+      pushToast(`已取关「${user.nickName || "该用户"}」`, "success");
+    } catch (e) {
+      pushToast(`取关失败：${e.message || e}`, "error");
+    }
+  })();
 }
 
 function openProfileEdit() {
@@ -3178,12 +3631,32 @@ async function saveProfileEdit() {
   }
 }
 
+/** 仅从列表项取播放地址，不再请求 /videos/detail */
 function resolveVideoUrl(item) {
-  const id = item?.id != null ? String(item.id) : "";
-  if (id && profileWorkVideoUrlCache.value[id]) {
-    return profileWorkVideoUrlCache.value[id];
-  }
-  return item?.videoUrl || item?.playUrl || item?.url || "";
+  if (!item || typeof item !== "object") return "";
+  return (
+    item.videoUrl ||
+    item.playUrl ||
+    item.url ||
+    item.videoURL ||
+    item.video_url ||
+    ""
+  );
+}
+
+/** 在作品列表 / 关注流 / 赞列表间按 id 查找已有行，避免重复请求详情 */
+function resolveVideoUrlForListItem(videoId, hintItem) {
+  const id = videoId != null ? String(videoId) : "";
+  if (!id) return "";
+  const direct = resolveVideoUrl(hintItem);
+  if (direct) return direct;
+  const fromProfile = profileWorksRows.value.find((x) => String(x.id) === id);
+  if (fromProfile && resolveVideoUrl(fromProfile)) return resolveVideoUrl(fromProfile);
+  const fromCards = cards.value.find((x) => String(x.id) === id);
+  if (fromCards && resolveVideoUrl(fromCards)) return resolveVideoUrl(fromCards);
+  const fromLiked = likedRows.value.find((x) => String(x.id) === id);
+  if (fromLiked && resolveVideoUrl(fromLiked)) return resolveVideoUrl(fromLiked);
+  return "";
 }
 
 function resolveVideoUrlWithFallback(item, seed = "") {
@@ -3207,6 +3680,30 @@ function patchFeedVideoById(videoId, patch) {
   apply(profileFeedQueue);
   apply(likedFeedQueue);
   apply(likedRows);
+  apply(profileWorksRows);
+  apply(followFeedQueue);
+  apply(followAuthorFeedQueue);
+}
+
+/** 同一作者下所有视频条目的 isFollow（与列表数据一致，不请求详情） */
+function patchIsFollowForAuthor(authorId, isFollow) {
+  const aid = String(authorId ?? "");
+  if (!aid) return;
+  const patchRow = (row) =>
+    row && String(row.authorId) === aid ? { ...row, isFollow } : row;
+  const patchArr = (arrRef) => {
+    const arr = arrRef.value;
+    if (!Array.isArray(arr) || !arr.length) return;
+    arrRef.value = arr.map(patchRow);
+  };
+  patchArr(homeShortsRows);
+  patchArr(cards);
+  patchArr(profileWorksRows);
+  patchArr(profileFeedQueue);
+  patchArr(likedFeedQueue);
+  patchArr(likedRows);
+  patchArr(followFeedQueue);
+  patchArr(followAuthorFeedQueue);
 }
 
 function videoCardPlayable(card) {
@@ -3420,6 +3917,13 @@ const unifiedFeedList = computed(() => {
   if (feedScope.value === "liked") {
     return likedFeedQueue.value;
   }
+  if (feedScope.value === "follow") {
+    const aid = followSubscribedFilterAuthorId.value;
+    if (aid != null && aid !== "") {
+      return followAuthorFeedQueue.value;
+    }
+    return followFeedQueue.value;
+  }
   if (feedScope.value === "home") {
     return homeShortsRows.value;
   }
@@ -3436,6 +3940,69 @@ const shortsFeedCurrent = computed(() => {
 });
 
 const shortsFeedVideoSrc = computed(() => resolveVideoUrl(shortsFeedCurrent.value));
+
+/** 短视频流红心：接口 isLike；赞过列表流内一律视为已赞 */
+const shortsFeedLikedDisplay = computed(() => {
+  const cur = shortsFeedCurrent.value;
+  if (!cur?.id) {
+    return false;
+  }
+  if (feedScope.value === "liked") {
+    return true;
+  }
+  return Boolean(cur.isLike);
+});
+
+/** 从 video 元素读取有效时长，避免 NaN / Infinity / 未缓冲导致进度条错乱 */
+function readVideoDurationFromVideoEl(v) {
+  if (!v) {
+    return 0;
+  }
+  let d = Number(v.duration);
+  if (Number.isFinite(d) && d > 0 && d !== Number.POSITIVE_INFINITY) {
+    return d;
+  }
+  try {
+    if (v.seekable && v.seekable.length > 0) {
+      const end = Number(v.seekable.end(v.seekable.length - 1));
+      if (Number.isFinite(end) && end > 0 && end !== Number.POSITIVE_INFINITY) {
+        return end;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return 0;
+}
+
+/**
+ * 进度条：duration 未就绪时若 max 过小（曾用 0.01），而 currentTime 仍为上一段或中间值，
+ * 原生 range 会把滑块钳到最右，看起来像「暂停就跳到结尾」或闪烁。
+ */
+const shortsScrubMax = computed(() => {
+  const d = Number(shortsFeedDuration.value);
+  if (Number.isFinite(d) && d > 0) {
+    return d;
+  }
+  return 1;
+});
+
+const shortsScrubDisplayValue = computed(() => {
+  const t = Number(shortsFeedCurrentTime.value);
+  const d = Number(shortsFeedDuration.value);
+  if (!Number.isFinite(t) || t < 0) {
+    return 0;
+  }
+  if (Number.isFinite(d) && d > 0) {
+    return Math.min(t, d);
+  }
+  return 0;
+});
+
+const shortsDurationReady = computed(() => {
+  const d = Number(shortsFeedDuration.value);
+  return Number.isFinite(d) && d > 0;
+});
 
 const shortsFeedAuthorName = computed(() => {
   const c = shortsFeedCurrent.value;
@@ -3476,11 +4043,15 @@ const shortsFeedAuthorAvatar = computed(() => {
 });
 
 const shortsIsFollowedCurrent = computed(() => {
-  const id = shortsFeedCurrent.value?.id;
-  if (id == null) {
+  const c = shortsFeedCurrent.value;
+  if (!c?.authorId) {
     return false;
   }
-  return Boolean(shortsFollowedMap.value[String(id)]);
+  const key = String(c.authorId);
+  if (Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)) {
+    return followStateOverrideByAuthorId.value[key];
+  }
+  return Boolean(c.isFollow);
 });
 
 const shortsIsSelfCurrent = computed(() => {
@@ -3492,15 +4063,38 @@ const shortsIsSelfCurrent = computed(() => {
   return String(authorId) === String(selfId);
 });
 
-function toggleShortsFollow() {
-  const id = shortsFeedCurrent.value?.id;
-  if (id == null) {
+async function toggleShortsFollow() {
+  const c = shortsFeedCurrent.value;
+  if (!c?.authorId) {
     return;
   }
-  const key = String(id);
-  const next = { ...shortsFollowedMap.value };
-  next[key] = !next[key];
-  shortsFollowedMap.value = next;
+  if (!isAuthed.value) {
+    pushToast("请先登录后再关注", "info");
+    return;
+  }
+  const aid = String(c.authorId);
+  if (currentUserId.value != null && aid === String(currentUserId.value)) {
+    return;
+  }
+  const key = aid;
+  const currently = Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)
+    ? followStateOverrideByAuthorId.value[key]
+    : Boolean(c.isFollow);
+  try {
+    if (currently) {
+      await unfollowAuthor(aid);
+      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: false };
+      patchIsFollowForAuthor(aid, false);
+      pushToast("已取消关注", "success");
+    } else {
+      await followAuthor(aid);
+      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: true };
+      patchIsFollowForAuthor(aid, true);
+      pushToast("关注成功", "success");
+    }
+  } catch (e) {
+    pushToast(e?.message || "操作失败", "error");
+  }
 }
 
 function toggleSelfVideoActionMenu() {
@@ -3633,11 +4227,51 @@ function onVideoCardClick(card) {
   if (activeMenuKey.value === "shorts") {
     return;
   }
+  if (activeMenuKey.value === "subscribed") {
+    void openFollowFeedFromCard(card);
+    return;
+  }
   openVideoDetail(card);
 }
 
-function enqueueShortsHistoryByVideoId(videoIdLike) {
+function openFollowFeedFromCard(item) {
+  const source = Array.isArray(cards.value) ? cards.value : [];
+  if (!source.length) {
+    pageHint.value = "暂无关注视频";
+    return;
+  }
+  const selectedUrl = resolveVideoUrl(item) || resolveVideoUrlForListItem(item.id, item);
+  if (!selectedUrl) {
+    pageHint.value = "该内容暂无视频地址";
+    return;
+  }
+  const playableQueue = source
+    .map((x) => {
+      const url = resolveVideoUrl(x) || resolveVideoUrlForListItem(x.id, x);
+      return { ...x, videoUrl: url, videoType: "SHORT_VIDEO" };
+    })
+    .filter((x) => x.videoUrl);
+  if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
+    playableQueue.unshift({ ...item, videoUrl: selectedUrl, videoType: "SHORT_VIDEO" });
+  }
+  if (!playableQueue.length && selectedUrl) {
+    playableQueue.push({ ...item, videoUrl: selectedUrl, videoType: "SHORT_VIDEO" });
+  }
+  const idx = playableQueue.findIndex((x) => String(x.id) === String(item.id));
+  feedScope.value = "follow";
+  followFeedQueue.value = playableQueue;
+  shortsFeedIndex.value = idx >= 0 ? idx : 0;
+  shortsFeedAutoplayPending.value = true;
+  profileFeedOpen.value = activeMenuKey.value !== "subscribed";
+  nextTick(() => {
+    shortsFeedFgRef.value?.load();
+    shortsFeedBgRef.value?.load();
+  });
+}
+
+function enqueueShortsHistoryByVideoId(videoIdLike, feedItem) {
   if (!isAuthed.value) return;
+  if (!shouldRecordShortsWatchHistory(feedItem)) return;
   const videoId = safeSnowflakeId(videoIdLike, "");
   if (!videoId) return;
   if (shortsHistorySeenSet.has(videoId) || shortsHistoryQueueSet.has(videoId)) return;
@@ -3706,7 +4340,7 @@ function shortsFeedPrev() {
     void flushShortsLongPlaybackResume("switch");
   }
   if (cur?.id) {
-    enqueueShortsHistoryByVideoId(cur.id);
+    enqueueShortsHistoryByVideoId(cur.id, cur);
   }
   if (cur?.id && dur > 0 && now / dur < 0.95) {
     void reportBehaviorSilently(cur.id, "SKIP", now * 1000);
@@ -3726,7 +4360,7 @@ function shortsFeedNext() {
     void flushShortsLongPlaybackResume("switch");
   }
   if (cur?.id) {
-    enqueueShortsHistoryByVideoId(cur.id);
+    enqueueShortsHistoryByVideoId(cur.id, cur);
   }
   if (cur?.id && dur > 0 && now / dur < 0.95) {
     void reportBehaviorSilently(cur.id, "SKIP", now * 1000);
@@ -3752,8 +4386,13 @@ async function onShortsFeedFgLoadedMetadata(e) {
   applyShortsLongPlaybackResumeIfNeeded(v);
   shortsFeedIsPortrait.value =
     v.videoWidth > 0 && v.videoHeight > 0 && v.videoHeight > v.videoWidth;
-  shortsFeedDuration.value = Number.isFinite(v.duration) ? v.duration : 0;
-  shortsFeedCurrentTime.value = v.currentTime || 0;
+  const dur = readVideoDurationFromVideoEl(v);
+  shortsFeedDuration.value = dur;
+  let ct = Number(v.currentTime) || 0;
+  if (dur > 0) {
+    ct = Math.min(ct, dur);
+  }
+  shortsFeedCurrentTime.value = ct;
   v.volume = shortsFeedVolume.value;
   v.muted = shortsFeedMuted.value;
   shortsFeedVolume.value = v.volume;
@@ -3772,10 +4411,21 @@ async function onShortsFeedFgLoadedMetadata(e) {
 
 function onShortsFeedFgTimeUpdate(e) {
   const fg = e.target;
-  shortsFeedCurrentTime.value = fg.currentTime;
+  const dur = readVideoDurationFromVideoEl(fg);
+  if (dur > 0) {
+    const prev = shortsFeedDuration.value;
+    if (!Number.isFinite(prev) || prev <= 0 || Math.abs(prev - dur) > 0.2) {
+      shortsFeedDuration.value = dur;
+    }
+  }
+  let ct = Number(fg.currentTime) || 0;
+  if (dur > 0) {
+    ct = Math.min(ct, dur);
+  }
+  shortsFeedCurrentTime.value = ct;
   const cur = shortsFeedCurrent.value;
-  const duration = Number(fg.duration);
-  const current = Number(fg.currentTime || 0);
+  const duration = dur > 0 ? dur : Number(fg.duration);
+  const current = ct;
   if (cur?.id && Number.isFinite(duration) && duration > 0) {
     const idKey = String(cur.id);
     if (shortsAccVideoId.value !== idKey) {
@@ -3820,7 +4470,11 @@ function onShortsScrubInput(e) {
   if (!v) {
     return;
   }
-  const t = Number(e.target.value);
+  const dur = readVideoDurationFromVideoEl(v);
+  if (!(dur > 0)) {
+    return;
+  }
+  const t = Math.min(Math.max(0, Number(e.target.value)), dur);
   v.currentTime = t;
   shortsFeedCurrentTime.value = t;
 }
@@ -3891,7 +4545,7 @@ async function shortsRequestFullscreen() {
 }
 
 function onShortsFeedKeydown(ev) {
-  if (showProfileCenter.value || activeMenuKey.value !== "shorts") {
+  if (showProfileCenter.value || (activeMenuKey.value !== "shorts" && activeMenuKey.value !== "subscribed")) {
     return;
   }
   const tag = ev.target?.tagName;
@@ -3919,8 +4573,13 @@ function onDetailPageKeydown(ev) {
   const key = ev.key;
   if (key === " ") {
     ev.preventDefault();
-    if (player.paused) player.play().catch(() => {});
-    else player.pause();
+    if (player.paused) {
+      detailUserPausedManually.value = false;
+      player.play().catch(() => {});
+    } else {
+      detailUserPausedManually.value = true;
+      player.pause();
+    }
     return;
   }
   if (key === "f" || key === "F") {
@@ -4011,7 +4670,8 @@ function onGlobalKeydown(ev) {
 
 function onShortsFeedFgPlay() {
   shortsFeedPaused.value = false;
-  enqueueShortsHistoryByVideoId(shortsFeedCurrent.value?.id);
+  const curPlay = shortsFeedCurrent.value;
+  enqueueShortsHistoryByVideoId(curPlay?.id, curPlay);
   if (isLongShortsFeedVideo()) {
     shortsLongResumeTickCount = 0;
   }
@@ -4020,10 +4680,32 @@ function onShortsFeedFgPlay() {
 
 function onShortsFeedFgPause() {
   shortsFeedPaused.value = true;
+  const fg = shortsFeedFgRef.value;
+  if (fg) {
+    const dur = readVideoDurationFromVideoEl(fg);
+    if (dur > 0) {
+      shortsFeedDuration.value = dur;
+    }
+    let ct = Number(fg.currentTime) || 0;
+    if (dur > 0) {
+      ct = Math.min(ct, dur);
+    }
+    shortsFeedCurrentTime.value = ct;
+  }
   if (isLongShortsFeedVideo()) {
     void flushShortsLongPlaybackResume("pause");
   }
   shortsFeedBgRef.value?.pause();
+}
+
+function onShortsFeedFgDurationChange(e) {
+  const v = e.target;
+  const dur = readVideoDurationFromVideoEl(v);
+  if (dur > 0) {
+    shortsFeedDuration.value = dur;
+    let ct = Number(v.currentTime) || 0;
+    shortsFeedCurrentTime.value = dur > 0 ? Math.min(ct, dur) : ct;
+  }
 }
 
 function onShortsFeedFgSeeked(e) {
@@ -4136,12 +4818,16 @@ async function onShortsLikeClick() {
   if (vid == null) return;
   shortsLikeBusy.value = true;
   try {
-    if (shortsSessionLiked.value) {
+    const wasLiked = shortsFeedLikedDisplay.value;
+    if (wasLiked) {
       await cancelLikeVideoApi(vid);
-      shortsSessionLiked.value = false;
+      patchFeedVideoById(cur.id, { isLike: false, likeCount: Math.max(0, Number(cur.likeCount ?? 0) - 1) });
     } else {
       await likeVideoApi(vid);
-      shortsSessionLiked.value = true;
+      patchFeedVideoById(cur.id, {
+        isLike: true,
+        likeCount: Number(cur.likeCount ?? 0) + 1,
+      });
     }
     const raw = await fetchVideoDetail(vid);
     const merged = normalizeVideoDetail(raw);
@@ -4174,9 +4860,38 @@ async function onShortsDislikeClick() {
   }
 }
 
-function pauseShortsFeedVideos() {
-  shortsFeedFgRef.value?.pause();
-  shortsFeedBgRef.value?.pause();
+function pauseShortsFeedVideos({ muteForeground = false } = {}) {
+  const fg = shortsFeedFgRef.value;
+  const bg = shortsFeedBgRef.value;
+  fg?.pause();
+  bg?.pause();
+  if (muteForeground && fg) {
+    try {
+      fg.muted = true;
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** 从详情页等遮罩返回时，把前景音量状态与 UI 同步，避免误静音 */
+function restoreShortsFeedForegroundMuteFromState() {
+  const fg = shortsFeedFgRef.value;
+  if (!fg) return;
+  try {
+    fg.muted = shortsFeedMuted.value;
+    fg.volume = shortsFeedVolume.value;
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 切换作者/数据源时重置底部进度条状态（index 仍为 0 时 watch 不会触发） */
+function resetShortsFeedProgressUiForSwitch() {
+  shortsFeedIsPortrait.value = false;
+  shortsFeedAutoplayPending.value = true;
+  shortsFeedDuration.value = 0;
+  shortsFeedCurrentTime.value = 0;
 }
 
 /** 短视频：滚轮 / 触摸上下切换（与常见 App 一致：上滑下一条、下滑上一条） */
@@ -4223,73 +4938,26 @@ function onShortsFeedTouchEnd(ev) {
   }
 }
 
-async function ensureProfileWorkVideoUrlById(videoId) {
-  const id = videoId != null ? String(videoId) : "";
-  if (!id) return "";
-  if (profileWorkVideoUrlCache.value[id]) return profileWorkVideoUrlCache.value[id];
-  if (profileWorkVideoUrlLoading.value[id]) return "";
-  const nextLoading = { ...profileWorkVideoUrlLoading.value, [id]: true };
-  profileWorkVideoUrlLoading.value = nextLoading;
-  try {
-    const raw = await fetchVideoDetail(id);
-    const d = normalizeVideoDetail(raw);
-    const url = d?.videoUrl ? String(d.videoUrl) : "";
-    if (d && typeof d === "object") {
-      profileWorkDetailCache.value = {
-        ...profileWorkDetailCache.value,
-        [id]: {
-          title: d.title || "",
-          description: d.description || "",
-          tags: d.tags || "",
-          authorNickname: d.authorNickname || "",
-          authorAvatarUrl: d.authorAvatarUrl || "",
-          videoUrl: url || "",
-        },
-      };
-    }
-    if (url) {
-      profileWorkVideoUrlCache.value = { ...profileWorkVideoUrlCache.value, [id]: url };
-      return url;
-    }
-    return "";
-  } catch {
-    return "";
-  } finally {
-    const m = { ...profileWorkVideoUrlLoading.value };
-    delete m[id];
-    profileWorkVideoUrlLoading.value = m;
-  }
-}
-
 async function openProfileWorkFeed(item) {
   const source = profileWorksRows.value;
   if (!source.length) {
     pageHint.value = "该作者暂无可播放作品";
     return;
   }
-  let selectedUrl = resolveVideoUrl(item);
-  if (!selectedUrl && item?.id != null) {
-    selectedUrl = await ensureProfileWorkVideoUrlById(item.id);
-  }
+  const selectedUrl = resolveVideoUrl(item) || resolveVideoUrlForListItem(item.id, item);
   if (!selectedUrl) {
     pageHint.value = "该内容暂无视频地址";
     return;
   }
   const playableQueue = source
     .map((x) => {
-      const url = resolveVideoUrl(x);
+      const url = resolveVideoUrl(x) || resolveVideoUrlForListItem(x.id, x);
       return { ...x, videoUrl: url };
     })
     .filter((x) => x.videoUrl);
   if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
     playableQueue.unshift({ ...item, videoUrl: selectedUrl });
   }
-  source.forEach((x) => {
-    const xid = x?.id != null ? String(x.id) : "";
-    if (xid && !profileWorkVideoUrlCache.value[xid] && !profileWorkVideoUrlLoading.value[xid]) {
-      void ensureProfileWorkVideoUrlById(xid);
-    }
-  });
   if (!playableQueue.length && selectedUrl) {
     playableQueue.push({ ...item, videoUrl: selectedUrl });
   }
@@ -4311,29 +4979,20 @@ async function openLikedWorkFeed(item) {
     pageHint.value = "暂无赞过的视频";
     return;
   }
-  let selectedUrl = resolveVideoUrl(item);
-  if (!selectedUrl && item?.id != null) {
-    selectedUrl = await ensureProfileWorkVideoUrlById(item.id);
-  }
+  const selectedUrl = resolveVideoUrl(item) || resolveVideoUrlForListItem(item.id, item);
   if (!selectedUrl) {
     pageHint.value = "该内容暂无视频地址";
     return;
   }
   const playableQueue = source
     .map((x) => {
-      const url = resolveVideoUrl(x);
+      const url = resolveVideoUrl(x) || resolveVideoUrlForListItem(x.id, x);
       return { ...x, videoUrl: url };
     })
     .filter((x) => x.videoUrl);
   if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
     playableQueue.unshift({ ...item, videoUrl: selectedUrl });
   }
-  source.forEach((x) => {
-    const xid = x?.id != null ? String(x.id) : "";
-    if (xid && !profileWorkVideoUrlCache.value[xid] && !profileWorkVideoUrlLoading.value[xid]) {
-      void ensureProfileWorkVideoUrlById(xid);
-    }
-  });
   if (!playableQueue.length && selectedUrl) {
     playableQueue.push({ ...item, videoUrl: selectedUrl });
   }
@@ -4355,15 +5014,14 @@ function onLikedWorkClick(item) {
 
 function closeProfileFeed() {
   void flushShortsLongPlaybackResume("leave");
-  shortsFeedFgRef.value?.pause();
-  shortsFeedBgRef.value?.pause();
+  pauseShortsFeedVideos({ muteForeground: true });
   selfVideoActionOpen.value = false;
   selfVideoDeleteConfirmOpen.value = false;
   profileFeedOpen.value = false;
   feedScope.value = "shorts";
   profileFeedQueue.value = [];
   likedFeedQueue.value = [];
-  prevShortsLikeWatchId = "";
+  followFeedQueue.value = [];
   shortsLongResumeTickCount = 0;
   shortsLongResumeAppliedVideoId = "";
 }
@@ -4432,39 +5090,20 @@ watch(profileFeedOpen, (open) => {
  */
 watch(
   () => `${feedScope.value}:${String(shortsFeedCurrent.value?.id ?? "")}`,
-  (key) => {
-    selfVideoActionOpen.value = false;
-    const [scope, sid] = String(key || "").split(":");
-    if (scope === "liked") {
-      if (sid && sid !== prevShortsLikeWatchId) {
-        prevShortsLikeWatchId = sid;
-        shortsSessionLiked.value = true;
-      }
-      return;
-    }
-    if (sid !== prevShortsLikeWatchId) {
-      prevShortsLikeWatchId = sid;
-    }
-    shortsSessionLiked.value = false;
-  }
-);
-
-watch(
-  () => videoDetail.value?.id,
   () => {
-    detailSessionLiked.value = false;
+    selfVideoActionOpen.value = false;
   }
 );
 
 watch(activeMenuKey, (key) => {
   stopCardHoverPreview();
-  if (key !== "shorts") {
-    pauseShortsFeedVideos();
+  if (key !== "shorts" && key !== "subscribed") {
+    pauseShortsFeedVideos({ muteForeground: true });
   }
 });
 
 watch(
-  () => !showProfileCenter.value && activeMenuKey.value === "shorts",
+  () => !showProfileCenter.value && (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed"),
   (on) => {
     if (on) {
       window.addEventListener("keydown", onShortsFeedKeydown);
@@ -4476,13 +5115,23 @@ watch(
 );
 
 watch(shortsFeedIndex, () => {
-  shortsFeedIsPortrait.value = false;
-  shortsFeedAutoplayPending.value = true;
+  resetShortsFeedProgressUiForSwitch();
   nextTick(() => {
     shortsFeedFgRef.value?.load();
     shortsFeedBgRef.value?.load();
     maybePrefetchHomeShortsForFeed();
+    maybePrefetchFollowFeed();
   });
+});
+
+watch(showVideoDetail, (open) => {
+  if (open) {
+    pauseShortsFeedVideos({ muteForeground: true });
+  } else {
+    nextTick(() => {
+      restoreShortsFeedForegroundMuteFromState();
+    });
+  }
 });
 
 async function fetchLoginCaptcha() {
@@ -4881,7 +5530,7 @@ onMounted(async () => {
       profileTargetUserId.value = state.profileTargetUserId ?? null;
       showProfileCenter.value = true;
       activeMenuLabel.value = "个人中心";
-      await loadProfileUser();
+      await loadProfileUser({ withWorks: true });
       return;
     }
     if (state?.showStudio) {
@@ -4900,7 +5549,7 @@ onMounted(async () => {
     activeMenuKey.value = menu.key;
     activeMenuLabel.value = menu.label;
     await loadModuleCards(menu);
-    if (menu.key === "shorts") {
+    if (menu.key === "shorts" || menu.key === "subscribed") {
       nextTick(() => {
         shortsFeedFgRef.value?.load();
         shortsFeedBgRef.value?.load();
@@ -5271,7 +5920,10 @@ onBeforeUnmount(() => {
         @scroll.passive="onContentScroll"
         :class="{
           'content--shorts':
-            !showProfileCenter && activeMenuKey === 'shorts' && !showStudio && !showVideoDetail,
+            !showProfileCenter &&
+            (activeMenuKey === 'shorts' || activeMenuKey === 'subscribed') &&
+            !showStudio &&
+            !showVideoDetail,
           'content--studio': showStudio,
         }"
       >
@@ -5532,7 +6184,16 @@ onBeforeUnmount(() => {
               <div class="profile-works-title">
                 <h4>作品列表</h4>
                 <div class="profile-works-toolbar">
-                  <div class="profile-works-filters">
+                  <button
+                    v-if="!isViewingSelf && isAuthed"
+                    type="button"
+                    class="profile-page-follow-btn"
+                    :disabled="profileFollowBusy"
+                    @click="toggleProfileTargetFollow"
+                  >
+                    {{ profileTargetFollowed ? "已关注" : "+ 关注" }}
+                  </button>
+                  <div v-if="isViewingSelf" class="profile-works-filters">
                     <button
                       type="button"
                       class="profile-works-filter-btn"
@@ -5553,7 +6214,6 @@ onBeforeUnmount(() => {
                       type="button"
                       class="profile-works-filter-btn"
                       :class="{ 'profile-works-filter-btn--active': profileWorksFilter === 'PRIVATE' }"
-                      :disabled="!isViewingSelf"
                       @click="profileWorksFilter = 'PRIVATE'"
                     >
                       私密
@@ -5688,9 +6348,21 @@ onBeforeUnmount(() => {
                   <tr v-for="user in relationTableUsers" :key="user.id">
                     <td>{{ user.id }}</td>
                     <td>
-                      <img class="relation-avatar" :src="user.avatarUrl" alt="" />
+                      <img
+                        class="relation-avatar"
+                        :src="user.avatarUrl"
+                        alt=""
+                        role="button"
+                        title="查看用户主页"
+                        @click.stop="onAuthorAvatarClick($event, user.id)"
+                      />
                     </td>
-                    <td>{{ user.nickName }}</td>
+                    <td>
+                      <div class="relation-name" role="button" title="查看用户主页" @click.stop="onAuthorAvatarClick($event, user.id)">
+                        {{ user.nickName }}
+                      </div>
+                      <div v-if="user.introduction" class="relation-intro">{{ user.introduction }}</div>
+                    </td>
                     <td class="relation-action-cell">
                       <template v-if="relationTableKind === 'followers'">
                         <button
@@ -5723,6 +6395,26 @@ onBeforeUnmount(() => {
                   </tr>
                 </tbody>
               </table>
+            </div>
+            <div class="relation-table-more">
+              <button
+                v-if="relationTableKind === 'following' && followingHasMore"
+                type="button"
+                class="history-layout-btn"
+                :disabled="followingLoading"
+                @click="loadFollowingNextPage"
+              >
+                {{ followingLoading ? "加载中…" : "加载更多" }}
+              </button>
+              <button
+                v-if="relationTableKind === 'followers' && followerHasMore"
+                type="button"
+                class="history-layout-btn"
+                :disabled="followerLoading"
+                @click="loadFollowersNextPage"
+              >
+                {{ followerLoading ? "加载中…" : "加载更多" }}
+              </button>
             </div>
             <button type="button" class="relation-modal-close" @click="closeRelationTable">关闭</button>
           </div>
@@ -5820,10 +6512,67 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <section
-          v-if="profileFeedOpen || (!showProfileCenter && activeMenuKey === 'shorts')"
-          :class="profileFeedOpen ? 'profile-feed-overlay' : 'shorts-feed'"
+        <div
+          v-if="profileFeedOpen || (!showProfileCenter && (activeMenuKey === 'shorts' || activeMenuKey === 'subscribed'))"
+          class="shorts-feed-shell"
+          :class="{ 'shorts-feed-shell--with-sidebar': activeMenuKey === 'subscribed' && !profileFeedOpen }"
         >
+          <aside
+            v-if="activeMenuKey === 'subscribed' && !profileFeedOpen"
+            class="follow-sidebar"
+            aria-label="我的关注"
+          >
+            <div class="follow-sidebar-head">关注的人</div>
+            <button
+              type="button"
+              class="follow-sidebar-row follow-sidebar-row--all"
+              :class="{
+                'follow-sidebar-row--active': followSubscribedFilterAuthorId == null || followSubscribedFilterAuthorId === '',
+              }"
+              @click="selectFollowSidebarAll"
+            >
+              <span class="follow-sidebar-all-icon" aria-hidden="true"><i class="ri-play-list-2-line"></i></span>
+              <span class="follow-sidebar-name">全部动态</span>
+            </button>
+            <div class="follow-sidebar-list">
+              <p v-if="!isAuthed" class="follow-sidebar-hint">请先登录</p>
+              <template v-else>
+                <p v-if="followingLoading && !followingRows.length" class="follow-sidebar-hint">加载中…</p>
+                <p v-else-if="!followingRows.length" class="follow-sidebar-hint">暂无关注，去发现页关注作者吧</p>
+                <button
+                  v-for="u in followingRows"
+                  :key="String(u.id)"
+                  type="button"
+                  class="follow-sidebar-row"
+                  :class="{ 'follow-sidebar-row--active': String(followSubscribedFilterAuthorId) === String(u.id) }"
+                  @click="selectFollowSidebarAuthor(u)"
+                >
+                  <img
+                    class="follow-sidebar-avatar"
+                    :src="u.avatarUrl || profileAvatar"
+                    alt=""
+                    @error="(e) => (e.target.src = profileAvatar)"
+                  />
+                  <span class="follow-sidebar-name">{{ u.nickName || "用户" }}</span>
+                </button>
+                <button
+                  v-if="followingHasMore"
+                  type="button"
+                  class="follow-sidebar-more"
+                  :disabled="followingLoading"
+                  @click="loadFollowingNextPage"
+                >
+                  {{ followingLoading ? "加载中…" : "加载更多" }}
+                </button>
+              </template>
+            </div>
+          </aside>
+          <section
+            :class="[
+              profileFeedOpen ? 'profile-feed-overlay' : 'shorts-feed',
+              { 'shorts-feed--follow-main': activeMenuKey === 'subscribed' && !profileFeedOpen },
+            ]"
+          >
           <button
             v-if="profileFeedOpen"
             type="button"
@@ -5833,7 +6582,9 @@ onBeforeUnmount(() => {
           >
             <i class="ri-close-line"></i>
           </button>
-          <div v-if="loading && !profileFeedOpen" class="shorts-feed-loading">正在加载短视频…</div>
+          <div v-if="loading && !profileFeedOpen" class="shorts-feed-loading">
+            {{ activeMenuKey === "subscribed" ? "正在加载关注动态…" : "正在加载短视频…" }}
+          </div>
           <template v-else-if="shortsFeedVideoSrc">
             <div class="shorts-feed-body">
               <div
@@ -5868,6 +6619,7 @@ onBeforeUnmount(() => {
                       :src="shortsFeedVideoSrc"
                       @click="shortsTogglePlay"
                       @loadedmetadata="onShortsFeedFgLoadedMetadata"
+                      @durationchange="onShortsFeedFgDurationChange"
                       @timeupdate="onShortsFeedFgTimeUpdate"
                       @play="onShortsFeedFgPlay"
                       @pause="onShortsFeedFgPause"
@@ -5942,12 +6694,12 @@ onBeforeUnmount(() => {
                         <button
                           type="button"
                           class="shorts-feed-action-btn"
-                          :class="{ 'shorts-feed-action-btn--active': shortsSessionLiked }"
+                          :class="{ 'shorts-feed-action-btn--active': shortsFeedLikedDisplay }"
                           title="点赞 / 取消赞"
                           aria-label="点赞"
                           @click="onShortsLikeClick"
                         >
-                          <i :class="shortsSessionLiked ? 'ri-heart-fill' : 'ri-heart-line'"></i>
+                          <i :class="shortsFeedLikedDisplay ? 'ri-heart-fill' : 'ri-heart-line'"></i>
                         </button>
                         <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.likeCount ?? 0 }}</span>
                       </div>
@@ -6019,9 +6771,10 @@ onBeforeUnmount(() => {
                       type="range"
                       class="shorts-feed-scrub"
                       min="0"
-                      :max="Math.max(shortsFeedDuration, 0.01)"
+                      :max="shortsScrubMax"
                       step="0.1"
-                      :value="shortsFeedCurrentTime"
+                      :disabled="!shortsDurationReady"
+                      :value="shortsScrubDisplayValue"
                       @input="onShortsScrubInput"
                     />
                     <div class="shorts-feed-bottom-bar__row">
@@ -6066,12 +6819,19 @@ onBeforeUnmount(() => {
           </template>
           <div v-else class="shorts-feed-empty">
             <div class="module-empty-icon"><i class="ri-video-line"></i></div>
-            <h5>暂无短视频</h5>
-            <p>当前模块暂无可播放内容</p>
+            <h5>{{ activeMenuKey === "subscribed" ? "暂无关注动态" : "暂无短视频" }}</h5>
+            <p>
+              {{
+                activeMenuKey === "subscribed"
+                  ? "关注作者后将在此展示推荐短视频；也可在左侧点选某位作者"
+                  : "当前模块暂无可播放内容"
+              }}
+            </p>
           </div>
         </section>
+        </div>
 
-        <template v-if="!showProfileCenter && activeMenuKey !== 'shorts'">
+        <template v-if="!showProfileCenter && activeMenuKey !== 'shorts' && activeMenuKey !== 'subscribed'">
           <section v-if="activeMenuKey === 'history'" class="history-shorts-page">
             <div class="history-shorts-head">
               <h3><i class="ri-history-line"></i> 历史播放记录</h3>
@@ -6097,7 +6857,13 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="historyLongLoading" class="shorts-feed-loading">正在加载长视频历史记录…</div>
               <div v-else-if="!historyLongRows.length" class="shorts-feed-empty">暂无长视频历史记录</div>
-              <div v-else class="home-shorts-strip history-shorts-strip">
+              <div
+                v-else
+                class="home-shorts-strip history-shorts-strip"
+                :class="{
+                  'history-shorts-strip--expanded history-shorts-strip--long-grid': historyLongExpanded,
+                }"
+              >
                 <article
                   v-for="(card, index) in historyLongRows"
                   :key="`history-long-${card.id}-${index}`"
@@ -6162,7 +6928,13 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="historyShortLoading" class="shorts-feed-loading">正在加载短视频历史记录…</div>
               <div v-else-if="!historyShortRows.length" class="shorts-feed-empty">暂无短视频历史记录</div>
-              <div v-else class="home-shorts-strip history-shorts-strip">
+              <div
+                v-else
+                class="home-shorts-strip history-shorts-strip"
+                :class="{
+                  'history-shorts-strip--expanded history-shorts-strip--short-grid': historyShortExpanded,
+                }"
+              >
                 <article
                   v-for="(card, index) in historyShortRows"
                   :key="`history-short-${card.id}-${index}`"
@@ -6450,7 +7222,7 @@ onBeforeUnmount(() => {
             </section>
           </section>
 
-          <section v-else class="card-grid">
+          <section v-else-if="activeMenuKey !== 'subscribed'" class="card-grid">
             <article v-if="loading" v-for="n in 8" :key="`skeleton-${n}`" class="video-card video-card--skeleton">
               <div class="video-cover video-cover-loading"></div>
               <div class="video-info">
@@ -6548,7 +7320,15 @@ onBeforeUnmount(() => {
                     <strong>{{ videoDetail.authorNickname }}</strong>
                     <span>{{ detailFanText }}</span>
                   </div>
-                  <button type="button" class="video-detail-subscribe" disabled>关注</button>
+                  <button
+                    v-if="videoDetail.authorId && String(videoDetail.authorId) !== String(currentUserId)"
+                    type="button"
+                    class="video-detail-subscribe"
+                    :disabled="detailFollowBusy"
+                    @click="onDetailFollowClick"
+                  >
+                    {{ detailSubscribeFollowed ? "已关注" : "+ 关注" }}
+                  </button>
                 </div>
                 <div class="video-detail-actions">
                   <button
