@@ -1139,6 +1139,80 @@ body {
   background: var(--line);
 }
 
+.studio-th-actions {
+  width: 52px;
+  padding-right: 12px !important;
+  text-align: right;
+}
+
+.studio-td-actions {
+  position: relative;
+  width: 52px;
+  text-align: right;
+  vertical-align: middle;
+}
+
+.studio-row-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.studio-row-more-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.studio-row-action-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 132px;
+  padding: 6px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 40;
+}
+
+.studio-row-action-btn {
+  border: 1px solid var(--line);
+  background: #f8fafc;
+  color: var(--text);
+  border-radius: 9px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  text-align: left;
+}
+
+.studio-row-action-btn:hover {
+  background: var(--hover);
+}
+
+.studio-row-action-btn--danger {
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.35);
+  background: #fef2f2;
+}
+
+.studio-row-action-btn--danger:hover {
+  background: #fee2e2;
+}
+
 .studio-pager {
   display: flex;
   align-items: center;
@@ -1207,7 +1281,8 @@ body {
 .upload-modal {
   width: min(520px, 94vw);
   background: #282828;
-  border-radius: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.88);
   color: #fff;
   overflow: hidden;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
@@ -3502,6 +3577,11 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   background: rgba(59, 130, 246, 0.08);
 }
 
+.follow-sidebar-row:focus-visible {
+  outline: 2px solid var(--accent, #3b82f6);
+  outline-offset: 2px;
+}
+
 .follow-sidebar-row--active {
   background: rgba(59, 130, 246, 0.14);
   border-color: rgba(59, 130, 246, 0.35);
@@ -3892,17 +3972,18 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   overflow: visible;
 }
 
+/* 观看自己的短视频：三点菜单（浅色浮层，与创作中心行内菜单一致） */
 .shorts-self-action-menu {
   position: absolute;
   right: 44px;
   top: 50%;
   transform: translateY(-50%);
-  width: 132px;
+  min-width: 132px;
   padding: 6px;
   border-radius: 12px;
-  background: rgba(22, 26, 32, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -3910,28 +3991,32 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 }
 
 .shorts-self-action-btn {
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  border-radius: 9px;
-  padding: 6px 8px;
-  font-size: 12px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
   line-height: 1.2;
   cursor: pointer;
+  text-align: left;
+  font-weight: 500;
 }
 
 .shorts-self-action-btn:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: #f1f5f9;
+  border-color: #94a3b8;
 }
 
 .shorts-self-action-btn--danger {
-  color: #ffb3bc;
-  border-color: rgba(255, 129, 145, 0.55);
-  background: rgba(255, 46, 79, 0.2);
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.4);
+  background: #fef2f2;
 }
 
 .shorts-self-action-btn--danger:hover {
-  background: rgba(255, 46, 79, 0.32);
+  background: #fee2e2;
+  border-color: rgba(185, 28, 28, 0.55);
 }
 
 .shorts-feed-action-count {
@@ -3944,36 +4029,70 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 
 .shorts-delete-modal-overlay {
   z-index: 1206;
+  background: rgba(0, 0, 0, 0.55);
 }
 
-.shorts-delete-modal {
-  width: min(360px, 92vw);
-  border-radius: 14px;
+/* 删除确认：深色卡片 + 白描边 + 圆角药丸按钮（与上传弹窗同属深色体系） */
+.shorts-delete-modal.modal-card {
+  width: min(380px, 92vw);
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 18px;
+  padding: 22px 22px 20px;
+  color: #f8fafc;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+.shorts-delete-modal.modal-card h3 {
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #e2e8f0;
+  letter-spacing: 0.02em;
 }
 
 .shorts-delete-modal-text {
-  margin: 8px 0 0;
-  color: var(--muted);
+  margin: 0;
+  color: #f1f5f9;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .shorts-delete-modal-actions {
-  margin-top: 16px;
+  margin-top: 22px;
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.shorts-delete-modal-actions .action-btn {
+  height: 40px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 14px;
+  border: none;
+}
+
+.shorts-delete-modal-actions .action-btn:not(.shorts-delete-btn) {
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+}
+
+.shorts-delete-modal-actions .action-btn:not(.shorts-delete-btn):hover {
+  background: #f3f4f6;
 }
 
 .shorts-delete-btn {
-  background: #f43f5e;
-  border-color: #f43f5e;
+  background: #ec4899;
+  border: none;
   color: #fff;
 }
 
 .shorts-delete-btn:hover {
-  background: #e11d48;
-  border-color: #e11d48;
+  background: #db2777;
+  filter: none;
 }
 
 .liked-videos-page {
@@ -4372,6 +4491,46 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   border: 1px solid #e8eaef;
   background: #f1f5f9;
   display: block;
+}
+
+.relation-th-nick {
+  min-width: 100px;
+}
+
+.relation-th-intro {
+  min-width: 140px;
+}
+
+.relation-nick-cell {
+  vertical-align: middle;
+}
+
+.relation-intro-cell {
+  max-width: min(320px, 40vw);
+  vertical-align: middle;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.relation-name {
+  display: inline-block;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.relation-name:hover {
+  color: #1d4ed8;
+}
+
+.relation-intro-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
 }
 
 .relation-action-cell {

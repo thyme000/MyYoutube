@@ -25,6 +25,11 @@ import {
   normalizeVideoDetail,
   publishVideo,
   reportShortHistoryBatch,
+  deleteMyVideo,
+  setMyVideoPrivate,
+  setMyVideoPublic,
+  openMyVideoComment,
+  closeMyVideoComment,
 } from "./api/videoApi";
 import { reportVideoBehavior } from "./api/behaviorApi";
 import { getOssSts } from "./api/otherApi";
@@ -49,6 +54,7 @@ import {
   followAuthor,
   unfollowAuthor,
   isFollowed,
+  removeFan,
 } from "./api/followApi";
 import {
   loadCropFromStorage,
@@ -414,6 +420,10 @@ let lastDetailLikeAt = 0;
 /** 自己的视频在全屏短视频里显示更多操作（三点） */
 const selfVideoActionOpen = ref(false);
 const selfVideoDeleteConfirmOpen = ref(false);
+/** 删除确认弹窗对应的视频 id（创作中心 / 短视频流共用） */
+const pendingDeleteVideoId = ref(null);
+/** 创作中心表格行「更多」菜单 */
+const studioRowMenuOpenId = ref(null);
 const toasts = ref([]);
 let toastSeed = 0;
 
@@ -1075,15 +1085,73 @@ const followerPageNo = ref(1);
 const followerLoading = ref(false);
 const followerHasMore = ref(true);
 
+/** 与 videoApi.normalizeVideoListVo 作者头像字段链一致；最终展示 URL 在 normalizeRelationUser 里算好，避免列表每次渲染重复 sanitize */
+function relationRowRawAuthorAvatar(raw) {
+  if (!raw || typeof raw !== "object") {
+    return "";
+  }
+  const direct =
+    raw.authorAvatarUrl ??
+    raw.avatar_url ??
+    raw.authorAvatar ??
+    raw.avatarUrl ??
+    raw.avatar ??
+    "";
+  if (typeof direct === "string" && direct.trim()) {
+    return direct.trim();
+  }
+  if (direct != null && direct !== "") {
+    return String(direct).trim();
+  }
+  const nested = raw.user ?? raw.followee ?? raw.followUser ?? raw.fanUser;
+  if (nested && typeof nested === "object") {
+    return relationRowRawAuthorAvatar(nested);
+  }
+  return "";
+}
+
 function normalizeRelationUser(raw) {
   if (!raw || typeof raw !== "object") return null;
-  const id = raw.followeeId ?? raw.fanId ?? raw.id ?? "";
+  const id = raw.followeeId ?? raw.fanId ?? raw.id ?? raw.userId ?? raw.user_id ?? "";
+  const authorAvatarUrl = relationRowRawAuthorAvatar(raw);
+  const trimmed = String(authorAvatarUrl).trim();
+  const avatarDisplaySrc = trimmed ? sanitizeImageUrl(trimmed) || profileAvatar : profileAvatar;
   return {
     id,
-    nickName: raw.nickname ?? raw.nickName ?? raw.name ?? "",
-    avatarUrl: raw.avatarUrl ?? raw.avatar ?? profileAvatar,
+    nickName: raw.nickname ?? raw.nickName ?? raw.name ?? raw.nick_name ?? "",
+    authorAvatarUrl,
+    avatarUrl: authorAvatarUrl,
+    avatarDisplaySrc,
     introduction: raw.introduction ?? "",
   };
+}
+
+function extractPageList(data) {
+  if (Array.isArray(data)) {
+    return data;
+  }
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+  if (Array.isArray(data.list)) {
+    return data.list;
+  }
+  if (Array.isArray(data.records)) {
+    return data.records;
+  }
+  if (Array.isArray(data.content)) {
+    return data.content;
+  }
+  const inner = data.data;
+  if (inner && typeof inner === "object") {
+    if (Array.isArray(inner.list)) {
+      return inner.list;
+    }
+    if (Array.isArray(inner.records)) {
+      return inner.records;
+    }
+  }
+  return [];
 }
 
 async function loadFollowingMore({ reset = false } = {}) {
@@ -1095,7 +1163,7 @@ async function loadFollowingMore({ reset = false } = {}) {
     const pageNo = reset ? 1 : followingPageNo.value;
     const pageSize = 20;
     const data = await fetchMyFollowingPage({ pageNo, pageSize });
-    const list = Array.isArray(data?.list) ? data.list : [];
+    const list = extractPageList(data);
     const normalized = list.map(normalizeRelationUser).filter(Boolean);
     followingRows.value = reset ? normalized : [...followingRows.value, ...normalized];
     if (relationTableOpen.value && relationTableKind.value === "following") {
@@ -1129,7 +1197,7 @@ async function loadFollowersMore({ reset = false } = {}) {
     const pageNo = reset ? 1 : followerPageNo.value;
     const pageSize = 20;
     const data = await fetchMyFansPage({ pageNo, pageSize });
-    const list = Array.isArray(data?.list) ? data.list : [];
+    const list = extractPageList(data);
     const normalized = list.map(normalizeRelationUser).filter(Boolean);
     followerRows.value = reset ? normalized : [...followerRows.value, ...normalized];
     if (relationTableOpen.value && relationTableKind.value === "followers") {
@@ -1489,7 +1557,12 @@ function genMockSidebarList(tab) {
 }
 
 function cardAuthorAvatar(card, index) {
-  const u = card?.authorAvatarUrl ? sanitizeImageUrl(card.authorAvatarUrl) : "";
+  const raw = card?.authorAvatarUrl ?? card?.avatarUrl ?? "";
+  const trimmed = String(raw).trim();
+  if (!trimmed) {
+    return profileAvatar;
+  }
+  const u = sanitizeImageUrl(trimmed);
   return u || profileAvatar;
 }
 
@@ -2790,6 +2863,29 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
 async function setActiveMenu(menu) {
   const prevMenuKey = activeMenuKey.value;
   const prevShowProfile = showProfileCenter.value;
+  const switchingShortsTabs =
+    prevMenuKey !== menu.key &&
+    (prevMenuKey === "shorts" || prevMenuKey === "subscribed") &&
+    (menu.key === "shorts" || menu.key === "subscribed");
+  if (switchingShortsTabs) {
+    pauseShortsFeedVideos({ muteForeground: true });
+    shortsFeedPaused.value = true;
+    resetShortsFeedProgressUiForSwitch();
+    try {
+      const fg = shortsFeedFgRef.value;
+      const bg = shortsFeedBgRef.value;
+      if (fg) {
+        fg.pause();
+        fg.currentTime = 0;
+      }
+      if (bg) {
+        bg.pause();
+        bg.currentTime = 0;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   if (prevMenuKey === "shorts" && menu.key !== "shorts") {
     void flushShortsHistoryQueue();
   }
@@ -3552,7 +3648,24 @@ function toggleFollowerMenu(userId) {
 
 function onFollowerRemove(user) {
   relationFollowerMenuId.value = null;
-  pageHint.value = `已移除粉丝「${user.nickName}」（演示，需对接后端）`;
+  void (async () => {
+    try {
+      await removeFan(user.id);
+      followerRows.value = followerRows.value.filter((x) => String(x.id) !== String(user.id));
+      if (relationTableKind.value === "followers") {
+        relationTableUsers.value = followerRows.value;
+      }
+      if (profileUser.value && isViewingSelf.value) {
+        const n = Number(profileUser.value.fans);
+        if (!Number.isNaN(n) && n > 0) {
+          profileUser.value = normalizeUserProfile({ ...profileUser.value, fans: n - 1 });
+        }
+      }
+      pushToast(`已移除粉丝「${user.nickName || "该用户"}」`, "success");
+    } catch (e) {
+      pushToast(`移除失败：${e.message || e}`, "error");
+    }
+  })();
 }
 
 function onFollowerFollowBack(user) {
@@ -3683,6 +3796,7 @@ function patchFeedVideoById(videoId, patch) {
   apply(profileWorksRows);
   apply(followFeedQueue);
   apply(followAuthorFeedQueue);
+  apply(studioRows);
 }
 
 /** 同一作者下所有视频条目的 isFollow（与列表数据一致，不请求详情） */
@@ -4028,11 +4142,18 @@ const shortsFeedTagText = computed(() => {
   return tags.map((t) => `#${t}`).join(" ");
 });
 
-/** 仅认作者相关字段；列表里的 avatarUrl 多为封面，不能当作作者头像回退 */
+/** 关注 Tab：与左侧关注列表同一套 avatarDisplaySrc，避免视频 VO 里作者头像与侧栏不一致/糊片 */
 const shortsFeedAuthorAvatar = computed(() => {
   const c = shortsFeedCurrent.value;
   if (!c) {
     return profileAvatar;
+  }
+  if (activeMenuKey.value === "subscribed" && feedScope.value === "follow" && c.authorId != null && c.authorId !== "") {
+    const key = String(c.authorId);
+    const row = followingRows.value.find((u) => u && String(u.id) === key);
+    if (row?.avatarDisplaySrc) {
+      return row.avatarDisplaySrc;
+    }
   }
   const fromAuthor =
     sanitizeImageUrl(c.authorAvatarUrl ?? "") || sanitizeImageUrl(c.authorAvatar ?? "");
@@ -4050,6 +4171,16 @@ const shortsIsFollowedCurrent = computed(() => {
   const key = String(c.authorId);
   if (Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)) {
     return followStateOverrideByAuthorId.value[key];
+  }
+  // 关注 Tab：侧栏点「某作者」时该作者必已关注；全部动态里作者应在关注列表中
+  if (activeMenuKey.value === "subscribed" && feedScope.value === "follow") {
+    const filtered = followSubscribedFilterAuthorId.value;
+    if (filtered != null && filtered !== "" && String(filtered) === key) {
+      return true;
+    }
+    if ((filtered == null || filtered === "") && followingRows.value.some((u) => u && String(u.id) === key)) {
+      return true;
+    }
   }
   return Boolean(c.isFollow);
 });
@@ -4114,24 +4245,46 @@ function patchCurrentSelfVideo(partial) {
   }
 }
 
-function toggleCurrentSelfVideoVisibility() {
+async function toggleCurrentSelfVideoVisibility() {
   const cur = shortsFeedCurrent.value;
-  if (!cur) return;
+  if (!cur?.id) return;
   const v = String(cur.visibility || "").toUpperCase();
-  const nextVisibility = v === "PRIVATE" ? "PUBLIC" : "PRIVATE";
-  patchCurrentSelfVideo({ visibility: nextVisibility });
+  const goingPrivate = v !== "PRIVATE";
   closeSelfVideoActionMenu();
-  pushToast(nextVisibility === "PRIVATE" ? "已设为私密" : "已设为公开", "success");
+  try {
+    if (goingPrivate) {
+      await setMyVideoPrivate(cur.id);
+      patchCurrentSelfVideo({ visibility: "PRIVATE" });
+      pushToast("已设为私密", "success");
+    } else {
+      await setMyVideoPublic(cur.id);
+      patchCurrentSelfVideo({ visibility: "PUBLIC" });
+      pushToast("已设为公开", "success");
+    }
+  } catch (e) {
+    pushToast(e?.message || "操作失败", "error");
+  }
 }
 
-function toggleCurrentSelfVideoAllowComment() {
+async function toggleCurrentSelfVideoAllowComment() {
   const cur = shortsFeedCurrent.value;
-  if (!cur) return;
+  if (!cur?.id) return;
   const current = Number(cur.allowComment ?? 1);
-  const nextAllow = current === 1 ? 0 : 1;
-  patchCurrentSelfVideo({ allowComment: nextAllow });
+  const enable = current !== 1;
   closeSelfVideoActionMenu();
-  pushToast(nextAllow === 1 ? "已开启评论" : "已关闭评论", "success");
+  try {
+    if (enable) {
+      await openMyVideoComment(cur.id);
+      patchCurrentSelfVideo({ allowComment: 1 });
+      pushToast("已开启评论", "success");
+    } else {
+      await closeMyVideoComment(cur.id);
+      patchCurrentSelfVideo({ allowComment: 0 });
+      pushToast("已关闭评论", "success");
+    }
+  } catch (e) {
+    pushToast(e?.message || "操作失败", "error");
+  }
 }
 
 function requestDeleteCurrentSelfVideo() {
@@ -4139,37 +4292,56 @@ function requestDeleteCurrentSelfVideo() {
     pushToast("只能删除自己的视频", "info");
     return;
   }
+  const cur = shortsFeedCurrent.value;
+  if (!cur?.id) return;
   closeSelfVideoActionMenu();
+  pendingDeleteVideoId.value = String(cur.id);
   selfVideoDeleteConfirmOpen.value = true;
 }
 
 function cancelDeleteCurrentSelfVideo() {
   selfVideoDeleteConfirmOpen.value = false;
+  pendingDeleteVideoId.value = null;
 }
 
-function confirmDeleteCurrentSelfVideo() {
-  const cur = shortsFeedCurrent.value;
-  if (!cur?.id) {
+function removeVideoFromAllClientLists(targetId) {
+  const id = String(targetId);
+  profileWorksRows.value = profileWorksRows.value.filter((x) => String(x.id) !== id);
+  profileFeedQueue.value = profileFeedQueue.value.filter((x) => String(x.id) !== id);
+  cards.value = cards.value.filter((x) => String(x.id) !== id);
+  homeShortsRows.value = homeShortsRows.value.filter((x) => String(x.id) !== id);
+  likedRows.value = likedRows.value.filter((x) => String(x.id) !== id);
+  likedFeedQueue.value = likedFeedQueue.value.filter((x) => String(x.id) !== id);
+  studioRows.value = studioRows.value.filter((x) => String(x.id) !== id);
+  followFeedQueue.value = followFeedQueue.value.filter((x) => String(x.id) !== id);
+  followAuthorFeedQueue.value = followAuthorFeedQueue.value.filter((x) => String(x.id) !== id);
+}
+
+async function confirmDeleteCurrentSelfVideo() {
+  const rawId = pendingDeleteVideoId.value;
+  if (!rawId) {
     selfVideoDeleteConfirmOpen.value = false;
     return;
   }
-  const targetId = String(cur.id);
-  profileWorksRows.value = profileWorksRows.value.filter((x) => String(x.id) !== targetId);
-  profileFeedQueue.value = profileFeedQueue.value.filter((x) => String(x.id) !== targetId);
-  cards.value = cards.value.filter((x) => String(x.id) !== targetId);
-  homeShortsRows.value = homeShortsRows.value.filter((x) => String(x.id) !== targetId);
-  likedRows.value = likedRows.value.filter((x) => String(x.id) !== targetId);
-  likedFeedQueue.value = likedFeedQueue.value.filter((x) => String(x.id) !== targetId);
+  try {
+    await deleteMyVideo(rawId);
+  } catch (e) {
+    pushToast(e?.message || "删除失败", "error");
+    return;
+  }
   selfVideoDeleteConfirmOpen.value = false;
+  pendingDeleteVideoId.value = null;
+  const targetId = String(rawId);
+  removeVideoFromAllClientLists(targetId);
 
   if (feedScope.value === "profile" && !profileFeedQueue.value.length) {
     closeProfileFeed();
-    pushToast("已删除该视频（前端展示）", "success");
+    pushToast("已删除该视频", "success");
     return;
   }
   if (feedScope.value === "liked" && !likedFeedQueue.value.length) {
     closeProfileFeed();
-    pushToast("已删除该视频（前端展示）", "success");
+    pushToast("已删除该视频", "success");
     return;
   }
   const list = unifiedFeedList.value;
@@ -4180,7 +4352,69 @@ function confirmDeleteCurrentSelfVideo() {
     shortsFeedFgRef.value?.load();
     shortsFeedBgRef.value?.load();
   });
-  pushToast("已删除该视频（前端展示）", "success");
+  pushToast("已删除该视频", "success");
+}
+
+function closeStudioRowMenu() {
+  studioRowMenuOpenId.value = null;
+}
+
+function toggleStudioRowMenu(row, ev) {
+  ev?.stopPropagation?.();
+  const id = row?.id != null ? String(row.id) : "";
+  if (!id) return;
+  studioRowMenuOpenId.value = studioRowMenuOpenId.value === id ? null : id;
+}
+
+function studioRowVisibilityIsPrivate(row) {
+  const v = row?.visibility?.code ?? row?.visibility?.name ?? row?.visibility ?? "";
+  return String(v).toUpperCase().includes("PRIVATE");
+}
+
+async function onStudioRowToggleVisibility(row) {
+  if (!row?.id) return;
+  closeStudioRowMenu();
+  const isPrivate = studioRowVisibilityIsPrivate(row);
+  try {
+    if (isPrivate) {
+      await setMyVideoPublic(row.id);
+      patchFeedVideoById(row.id, { visibility: "PUBLIC" });
+      pushToast("已设为公开", "success");
+    } else {
+      await setMyVideoPrivate(row.id);
+      patchFeedVideoById(row.id, { visibility: "PRIVATE" });
+      pushToast("已设为私密", "success");
+    }
+  } catch (e) {
+    pushToast(e?.message || "操作失败", "error");
+  }
+}
+
+async function onStudioRowToggleComment(row) {
+  if (!row?.id) return;
+  closeStudioRowMenu();
+  const current = Number(row.allowComment ?? 1);
+  const enable = current !== 1;
+  try {
+    if (enable) {
+      await openMyVideoComment(row.id);
+      patchFeedVideoById(row.id, { allowComment: 1 });
+      pushToast("已开启评论", "success");
+    } else {
+      await closeMyVideoComment(row.id);
+      patchFeedVideoById(row.id, { allowComment: 0 });
+      pushToast("已关闭评论", "success");
+    }
+  } catch (e) {
+    pushToast(e?.message || "操作失败", "error");
+  }
+}
+
+function onStudioRowRequestDelete(row) {
+  if (!row?.id) return;
+  pendingDeleteVideoId.value = String(row.id);
+  selfVideoDeleteConfirmOpen.value = true;
+  closeStudioRowMenu();
 }
 
 function closeShortPlayer() {
@@ -4410,6 +4644,9 @@ async function onShortsFeedFgLoadedMetadata(e) {
 }
 
 function onShortsFeedFgTimeUpdate(e) {
+  if (activeMenuKey.value !== "shorts" && activeMenuKey.value !== "subscribed") {
+    return;
+  }
   const fg = e.target;
   const dur = readVideoDurationFromVideoEl(fg);
   if (dur > 0) {
@@ -5017,6 +5254,7 @@ function closeProfileFeed() {
   pauseShortsFeedVideos({ muteForeground: true });
   selfVideoActionOpen.value = false;
   selfVideoDeleteConfirmOpen.value = false;
+  pendingDeleteVideoId.value = null;
   profileFeedOpen.value = false;
   feedScope.value = "shorts";
   profileFeedQueue.value = [];
@@ -5094,6 +5332,12 @@ watch(
     selfVideoActionOpen.value = false;
   }
 );
+
+watch(showStudio, (open) => {
+  if (!open) {
+    closeStudioRowMenu();
+  }
+});
 
 watch(activeMenuKey, (key) => {
   stopCardHoverPreview();
@@ -5991,19 +6235,20 @@ onBeforeUnmount(() => {
                 <p>{{ studioMsg || "直播内容尚未接入。" }}</p>
               </div>
               <div v-else-if="studioLoading" class="studio-placeholder-card">加载中…</div>
-              <div v-else class="studio-table-panel">
-                <table class="studio-table">
+              <div v-else class="studio-table-panel" @click="closeStudioRowMenu">
+                <table class="studio-table" @click.stop>
                   <thead>
                     <tr>
                       <th>视频</th>
                       <th>公开范围</th>
                       <th>日期</th>
                       <th>观看次数</th>
+                      <th class="studio-th-actions" aria-label="操作"></th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-if="!studioRows.length">
-                      <td colspan="4" class="studio-table-empty">没有可显示的内容</td>
+                      <td colspan="5" class="studio-table-empty">没有可显示的内容</td>
                     </tr>
                     <tr v-for="row in studioRows" :key="row.id">
                       <td>
@@ -6015,6 +6260,35 @@ onBeforeUnmount(() => {
                       <td>{{ formatStudioVisibility(row) }}</td>
                       <td>{{ formatStudioDate(row) }}</td>
                       <td>{{ row.viewsText }}</td>
+                      <td class="studio-td-actions">
+                        <button
+                          type="button"
+                          class="studio-row-more-btn"
+                          aria-label="更多操作"
+                          @click.stop="toggleStudioRowMenu(row, $event)"
+                        >
+                          <i class="ri-more-2-fill"></i>
+                        </button>
+                        <div
+                          v-if="studioRowMenuOpenId === String(row.id)"
+                          class="studio-row-action-menu"
+                          @click.stop
+                        >
+                          <button type="button" class="studio-row-action-btn" @click="onStudioRowToggleVisibility(row)">
+                            {{ studioRowVisibilityIsPrivate(row) ? "设为公开" : "设为私密" }}
+                          </button>
+                          <button type="button" class="studio-row-action-btn" @click="onStudioRowToggleComment(row)">
+                            {{ Number(row.allowComment ?? 1) === 1 ? "关闭评论" : "开启评论" }}
+                          </button>
+                          <button
+                            type="button"
+                            class="studio-row-action-btn studio-row-action-btn--danger"
+                            @click="onStudioRowRequestDelete(row)"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -6256,7 +6530,11 @@ onBeforeUnmount(() => {
                     <span class="work-like work-like--bottom-left"><i class="ri-heart-line"></i> {{ item.likes }}</span>
                   </div>
                   <div class="work-meta">
-                    <img class="work-author-avatar" :src="item.authorAvatarUrl || profileAvatar" alt="" />
+                    <img
+                      class="work-author-avatar"
+                      :src="item.authorAvatarUrl || profileAvatar"
+                      alt=""
+                    />
                     <div class="work-meta-main">
                       <div class="work-title-row">
                         <p class="work-title">{{ item.title }}</p>
@@ -6340,28 +6618,39 @@ onBeforeUnmount(() => {
                   <tr>
                     <th>ID</th>
                     <th>头像</th>
-                    <th>昵称</th>
+                    <th class="relation-th-nick">昵称</th>
+                    <th class="relation-th-intro">简介</th>
                     <th class="relation-th-action">操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="user in relationTableUsers" :key="user.id">
+                  <tr v-for="(user, relIdx) in relationTableUsers" :key="`rel-${relIdx}-${String(user.id)}`">
                     <td>{{ user.id }}</td>
                     <td>
                       <img
                         class="relation-avatar"
-                        :src="user.avatarUrl"
+                        :src="user.avatarDisplaySrc || profileAvatar"
                         alt=""
                         role="button"
                         title="查看用户主页"
                         @click.stop="onAuthorAvatarClick($event, user.id)"
+                        @error="(e) => { const t = e.target; if (!t || t.dataset.fallbackApplied === '1') return; t.dataset.fallbackApplied = '1'; t.src = profileAvatar; }"
                       />
                     </td>
-                    <td>
-                      <div class="relation-name" role="button" title="查看用户主页" @click.stop="onAuthorAvatarClick($event, user.id)">
+                    <td class="relation-nick-cell">
+                      <div
+                        class="relation-name"
+                        role="button"
+                        tabindex="0"
+                        title="查看用户主页"
+                        @click.stop="onAuthorAvatarClick($event, user.id)"
+                        @keyup.enter.stop="onAuthorAvatarClick($event, user.id)"
+                      >
                         {{ user.nickName }}
                       </div>
-                      <div v-if="user.introduction" class="relation-intro">{{ user.introduction }}</div>
+                    </td>
+                    <td class="relation-intro-cell">
+                      <span class="relation-intro-text">{{ user.introduction?.trim() || "—" }}</span>
                     </td>
                     <td class="relation-action-cell">
                       <template v-if="relationTableKind === 'followers'">
@@ -6539,22 +6828,27 @@ onBeforeUnmount(() => {
               <template v-else>
                 <p v-if="followingLoading && !followingRows.length" class="follow-sidebar-hint">加载中…</p>
                 <p v-else-if="!followingRows.length" class="follow-sidebar-hint">暂无关注，去发现页关注作者吧</p>
-                <button
-                  v-for="u in followingRows"
-                  :key="String(u.id)"
-                  type="button"
+                <div
+                  v-for="(u, uIdx) in followingRows"
+                  :key="`follow-side-${uIdx}-${String(u.id)}`"
+                  role="button"
+                  tabindex="0"
                   class="follow-sidebar-row"
                   :class="{ 'follow-sidebar-row--active': String(followSubscribedFilterAuthorId) === String(u.id) }"
                   @click="selectFollowSidebarAuthor(u)"
+                  @keydown.enter.prevent="selectFollowSidebarAuthor(u)"
+                  @keydown.space.prevent="selectFollowSidebarAuthor(u)"
                 >
                   <img
                     class="follow-sidebar-avatar"
-                    :src="u.avatarUrl || profileAvatar"
+                    :src="u.avatarDisplaySrc"
                     alt=""
-                    @error="(e) => (e.target.src = profileAvatar)"
+                    loading="lazy"
+                    decoding="async"
+                    @error="(e) => { const t = e.target; if (!t || t.dataset.fallbackApplied === '1') return; t.dataset.fallbackApplied = '1'; t.src = profileAvatar; }"
                   />
                   <span class="follow-sidebar-name">{{ u.nickName || "用户" }}</span>
-                </button>
+                </div>
                 <button
                   v-if="followingHasMore"
                   type="button"
@@ -7464,7 +7758,6 @@ onBeforeUnmount(() => {
         role="dialog"
         aria-modal="true"
         aria-label="上传视频"
-        @click.self="closeUploadModal"
       >
         <form class="upload-modal" @submit.prevent="submitUploadVideo" @click.stop>
           <div class="upload-modal-head">

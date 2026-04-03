@@ -83,4 +83,16 @@ public class UserFollowController {
     public Result<PageResult<UserFanVO>> getFansList(@ModelAttribute PageQuery pageQuery) {
         return userFollowService.getFansList(pageQuery);
     }
+
+    /**
+     * 用户移除某位粉丝
+     * @param followerId 粉丝id
+     * @return
+     */
+    @Operation(summary = "用户移除粉丝")
+    @PostMapping("/remove/{followerId}")
+    public Result<Void> removeFan(@PathVariable Long followerId) {
+        return userFollowService.removeFan(followerId);
+    }
+
 }

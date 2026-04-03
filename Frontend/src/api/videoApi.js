@@ -163,6 +163,17 @@ export function normalizeVideoListVo(item, index) {
     authorNickname: nick || undefined,
     /** 当前用户是否已点赞（短视频流等接口返回） */
     isLike: Boolean(item.isLike ?? item.liked),
+    /** 是否允许评论：0/1 或 boolean（我的作品列表等） */
+    allowComment:
+      item.allowComment == null
+        ? undefined
+        : typeof item.allowComment === "boolean"
+          ? item.allowComment
+            ? 1
+            : 0
+          : Number(item.allowComment) === 1
+            ? 1
+            : 0,
   };
 }
 
@@ -318,6 +329,51 @@ export async function fetchOtherUserVideos(userId, query = {}) {
  */
 export async function publishVideo(body) {
   return httpRequest("/videos/publish", { method: "PUT", body });
+}
+
+/** DELETE /videos/{videoId} 删除自己的视频 */
+export async function deleteMyVideo(videoId) {
+  const id = safeSnowflakeId(videoId);
+  if (!id) {
+    throw new Error("videoId 不能为空");
+  }
+  return httpRequest(`/videos/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** POST /videos/private/{videoId} 设为私密 */
+export async function setMyVideoPrivate(videoId) {
+  const id = safeSnowflakeId(videoId);
+  if (!id) {
+    throw new Error("videoId 不能为空");
+  }
+  return httpRequest(`/videos/private/${encodeURIComponent(id)}`, { method: "POST" });
+}
+
+/** POST /videos/public/{videoId} 设为公开 */
+export async function setMyVideoPublic(videoId) {
+  const id = safeSnowflakeId(videoId);
+  if (!id) {
+    throw new Error("videoId 不能为空");
+  }
+  return httpRequest(`/videos/public/${encodeURIComponent(id)}`, { method: "POST" });
+}
+
+/** POST /videos/open/comment/{videoId} 开启评论 */
+export async function openMyVideoComment(videoId) {
+  const id = safeSnowflakeId(videoId);
+  if (!id) {
+    throw new Error("videoId 不能为空");
+  }
+  return httpRequest(`/videos/open/comment/${encodeURIComponent(id)}`, { method: "POST" });
+}
+
+/** POST /videos/close/comment/{videoId} 关闭评论 */
+export async function closeMyVideoComment(videoId) {
+  const id = safeSnowflakeId(videoId);
+  if (!id) {
+    throw new Error("videoId 不能为空");
+  }
+  return httpRequest(`/videos/close/comment/${encodeURIComponent(id)}`, { method: "POST" });
 }
 
 export async function fetchVideosByModule(moduleKey) {

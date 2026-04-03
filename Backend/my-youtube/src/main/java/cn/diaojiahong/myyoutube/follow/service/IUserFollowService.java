@@ -34,4 +34,6 @@ public interface IUserFollowService extends IService<UserFollow> {
     List<Long> getFollowIds(Long userId);
 
     List<Boolean> isFollowOnList(List<Long> authorIds, Long userId);
+
+    Result<Void> removeFan(Long followerId);
 }

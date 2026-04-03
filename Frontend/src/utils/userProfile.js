@@ -23,6 +23,39 @@ export function sanitizeImageUrl(url) {
 }
 
 /**
+ * 关注/粉丝等列表接口里用户对象字段名不统一时，尽量取出头像 URL（支持一层嵌套 user / followee）。
+ */
+export function pickRelationAvatarUrl(raw) {
+  if (!raw || typeof raw !== "object") {
+    return "";
+  }
+  const candidates = [
+    raw.avatarUrl,
+    raw.avatar_url,
+    raw.avatar,
+    raw.headImg,
+    raw.headimg,
+    raw.headUrl,
+    raw.profileAvatar,
+    raw.profile_avatar,
+  ];
+  for (const v of candidates) {
+    if (v == null || v === "") {
+      continue;
+    }
+    const s = sanitizeImageUrl(typeof v === "string" ? v : String(v));
+    if (s) {
+      return s;
+    }
+  }
+  const nested = raw.user ?? raw.followee ?? raw.followUser ?? raw.fanUser;
+  if (nested && typeof nested === "object") {
+    return pickRelationAvatarUrl(nested);
+  }
+  return "";
+}
+
+/**
  * 将接口返回的用户对象规范为统一字段（nickName / avatarUrl / bgImage 等）
  */
 export function normalizeUserProfile(raw) {

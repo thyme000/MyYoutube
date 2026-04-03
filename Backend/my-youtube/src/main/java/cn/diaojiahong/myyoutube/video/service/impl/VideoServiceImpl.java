@@ -146,8 +146,10 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                         .map(VideoVoConverter::toListVo)
                         .toList();
                 fillAuthorNicknames(list);
+                fillAuthorAvatarUrls(list);
                 signListCoverUrlsForVideoListVO(list);
                 signListVideoUrlsForVideoListVO(list);
+
                 // 近似值
                 long total = list.size() < pageQuery.getPageSize() ?
                         (long)(pageQuery.getPageNo() - 1) * pageQuery.getPageSize() + list.size() :
@@ -189,9 +191,23 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .map(VideoVoConverter::toListVo)
                 .collect(Collectors.toList());
         fillAuthorNicknames(list);
+        fillAuthorAvatarUrls(list);
         signListCoverUrlsForVideoListVO(list);
         signListVideoUrlsForVideoListVO(list);
         return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
+    }
+
+    private void fillAuthorAvatarUrls(List<VideoListVO> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        Map<Long, String> map = userService
+                .getAuthorAvatarUrls(list.stream()
+                        .map(VideoListVO::getAuthorId)
+                        .collect(Collectors.toList()));
+        list.forEach(vo ->
+                vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(map.getOrDefault(vo.getAuthorId(), null),
+                        OSS_READ_SIGN_EXPIRE_SECONDS)));
     }
 
     @Override

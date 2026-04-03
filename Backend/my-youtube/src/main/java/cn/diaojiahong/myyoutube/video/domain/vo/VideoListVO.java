@@ -56,6 +56,8 @@ public class VideoListVO {
     private Long authorId;
     // 作者昵称
     private String authorNickname;
+    // 作者头像 url
+    private String authorAvatarUrl;
     // 可见范围 public / private / unlisted
     private VideoVisibilityEnum visibility;
 }

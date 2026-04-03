@@ -1,5 +1,5 @@
 package cn.diaojiahong.myyoutube.config;
-;
+
 import org.springframework.amqp.core.MessageBuilder;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;

@@ -50,3 +50,14 @@ export async function fetchMyFansPage(query = {}) {
   return httpRequest("/follow/fans", { method: "GET", query });
 }
 
+/**
+ * POST /follow/remove/{followerId} 移除粉丝（当前用户为被关注方）
+ */
+export async function removeFan(followerId) {
+  const id = safeSnowflakeId(followerId);
+  if (!id) {
+    throw new Error("followerId 不能为空");
+  }
+  return httpRequest(`/follow/remove/${encodeURIComponent(id)}`, { method: "POST" });
+}
+

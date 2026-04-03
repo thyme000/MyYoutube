@@ -14,7 +14,6 @@ import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
-import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -42,8 +41,8 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     private final IUserService userService;
     private final AliOssUtil aliOssUtil;
-    // 过期时间两个小时
-    private static final int OSS_EXPIRE = 2;
+
+    private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
     @Override
     @Transactional
@@ -99,7 +98,9 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 .orderByDesc(UserFollow::getCreateTime)
                 .page(pageQuery.toPage());
         List<UserFollow> follows = page.getRecords();
-
+        if (follows == null || follows.isEmpty()) {
+            return Result.success(PageResult.of(page.getTotal(), page.getPages(), List.of()));
+        }
         List<Long> list = follows.stream().map(UserFollow::getFolloweeId).toList();
 
         List<User> users = userService.listByIds(list);
@@ -115,7 +116,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         List<UserFollowVO> voList = orderedList.stream().map(u -> {
             UserFollowVO vo = new UserFollowVO();
             vo.setNickname(u.getNickname());
-            vo.setAvatarUrl(aliOssUtil.signGetUrl(u.getAvatarUrl(), OSS_EXPIRE));
+            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(u.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
             vo.setIntroduction(u.getIntroduction());
             vo.setFolloweeId(u.getId());
             return vo;
@@ -149,6 +150,9 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 .orderByDesc(UserFollow::getCreateTime)
                 .page(pageQuery.toPage());
         List<UserFollow> follows = page.getRecords();
+        if (follows == null || follows.isEmpty()) {
+            return Result.success(PageResult.of(page.getTotal(), page.getPages(), List.of()));
+        }
         List<Long> list = follows.stream().map(UserFollow::getFollowerId).toList();
         List<User> users = userService.listByIds(list);
         // 转换为 Map
@@ -162,7 +166,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         List<UserFanVO> voList = orderedList.stream().map(u -> {
             UserFanVO vo = new UserFanVO();
             vo.setNickname(u.getNickname());
-            vo.setAvatarUrl(aliOssUtil.signGetUrl(u.getAvatarUrl(), OSS_EXPIRE));
+            vo.setAvatarUrl(aliOssUtil.signGetUrl(u.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
             vo.setIntroduction(u.getIntroduction());
             vo.setFanId(u.getId());
             return vo;
@@ -195,6 +199,23 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 .eq(UserFollow::getIsDeleted, false)
                 .list().stream().collect(Collectors.toMap(UserFollow::getFolloweeId, f -> true));
         return authorIds.stream().map(id -> collect.getOrDefault(id, false)).toList();
+    }
+
+    @Override
+    public Result<Void> removeFan(Long followerId) {
+        UserDTO user = UserContext.getUser();
+        if (user == null) {
+            throw new BizException(BizException.USER_ERROR, "用户未登录");
+        }
+        Long userId = user.getId();
+        // 取消关注
+        int row = baseMapper.cancelFollow(followerId, userId);
+        // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一
+        if (row > 0) {
+            userService.lambdaUpdate().eq(User::getId, userId).setDecrBy(User::getFans, 1).gt(User::getFans, 0).update();
+            userService.lambdaUpdate().eq(User::getId, followerId).setDecrBy(User::getAttentionCount, 1).gt(User::getAttentionCount, 0).update();
+        }
+        return Result.success();
     }
 
 }
