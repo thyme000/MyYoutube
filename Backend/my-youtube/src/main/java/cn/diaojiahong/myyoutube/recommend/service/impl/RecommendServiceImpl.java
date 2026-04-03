@@ -107,6 +107,7 @@ public class RecommendServiceImpl implements IRecommendService {
                                     b.mustNot(m -> m.ids(ids -> ids.values(excludeVideoIds.stream().toList())));
                                     }
                                     b.mustNot(m -> m.term(t -> t.field("authorId").value(userId)));
+                                    b.must(m -> m.term(t -> t.field("visibility").value("public")));
                                     return b;
                                 }
                             )) // 按播放量和被关注用户的视频综合排列
@@ -141,6 +142,7 @@ public class RecommendServiceImpl implements IRecommendService {
                                             b.mustNot(m -> m.ids(ids -> ids.values(excludeVideoIds.stream().toList())));
                                         }
                                         b.mustNot(m -> m.term(t -> t.field("authorId").value(userId)));
+                                        b.must(m -> m.term(t -> t.field("visibility").value("public")));
                                         return b;
                                     }
                             ))
@@ -212,6 +214,7 @@ public class RecommendServiceImpl implements IRecommendService {
                         if (!excludeVideoIds.isEmpty()) {
                             b.mustNot(m -> m.ids(ids -> ids.values(excludeVideoIds.stream().toList())));
                         }
+                        b.must(m -> m.term(t -> t.field("visibility").value("public")));
                         return b;
                     }))
                     .withSort(Sort.by(Sort.Order.desc("createTime")))
@@ -238,6 +241,7 @@ public class RecommendServiceImpl implements IRecommendService {
                                 if (!excludeVideoIds.isEmpty()) {
                                     b.mustNot(m -> m.ids(ids -> ids.values(excludeVideoIds.stream().toList())));
                                 }
+                                b.must(m -> m.term(t -> t.field("visibility").value("public")));
                                 return b;
                             }))
                             .functions(functions)

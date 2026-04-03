@@ -48,6 +48,7 @@ public class VideoDocListener {
         doc.setPlayCount(video.getPlayCount() != null ? video.getPlayCount() : 0L);
         doc.setLikeCount(video.getLikeCount() != null ? video.getLikeCount() : 0L);
         doc.setCreateTime(video.getCreateTime());
+        doc.setVisibility(video.getVisibility().getCode());
         videoDocRepository.save(doc);
     }
 }

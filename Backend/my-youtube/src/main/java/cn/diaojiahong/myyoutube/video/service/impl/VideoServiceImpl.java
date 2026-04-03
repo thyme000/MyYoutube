@@ -12,6 +12,7 @@ import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
 import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
+import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
 import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
 import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
@@ -48,8 +49,7 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.PUBLISHED;
-import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.REVIEW;
+import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.*;
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum.LONG_VIDEO;
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum.SHORT_VIDEO;
 
@@ -69,6 +69,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     private final StringRedisTemplate redisTemplate;
     private final IUserFollowService userFollowService;
     private final VideoLikeMapper videoLikeMapper;
+    private final VideoDocRepository videoDocRepository;
 
     private static final int SHORT_VIDEO_DURATION = 300;
     private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
@@ -80,15 +81,12 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             return Result.fail("视频地址不能为空～");
         }
 
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            return Result.fail("用户未登录,请先登录～");
-        }
+        Long userId = getUserId();
 
         Video video = BeanUtil.toBean(videoDTO, Video.class);
         video.setVideoUrl(aliOssUtil.normalizeToObjectKey(video.getVideoUrl()));
 
-        video.setAuthorId(user.getId());
+        video.setAuthorId(userId);
 
         if (video.getDuration() == null) {
             return Result.fail("视频时长不能为空～");
@@ -125,15 +123,12 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
     @Override
     public Result<PageResult<VideoListVO>> getVideoList(VideoPageQuery pageQuery) {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户信息获取失败");
-        }
+        Long userId = getUserId();
 
         // 推荐视频
         if (pageQuery.getSort() == VideoSortEnum.RECOMMENDED) {
             List<Long> ids = recommendService.recommend(
-                    user.getId(),
+                    userId,
                     pageQuery.getCategory() != null ? pageQuery.getCategory().getCode() : null,
                     pageQuery.getVideoType() != null ? pageQuery.getVideoType().getCode() : null,
                     pageQuery.getPageNo(),
@@ -186,7 +181,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
 
         // 排除自己的视频
-        q.ne(Video::getAuthorId, user.getId());
+        q.ne(Video::getAuthorId, userId);
 
         applySort(q, pageQuery.getSort());
         Page<Video> result = page(page, q.eq(Video::getStatus, PUBLISHED));
@@ -201,9 +196,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
     @Override
     public Result<VideoDetailVO> getVideoDetail(Long videoId) {
-        if (UserContext.getUser() == null) {
-            throw new BizException(BizException.USER_ERROR, "用户信息获取失败");
-        }
+        Long userId = getUserId();
         Video video = getById(videoId);
 
         if (video == null ) {
@@ -218,7 +211,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         detailVo.setCoverUrl(aliOssUtil.signGetUrl(detailVo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
 
         // 查看历史播放记录,看是否有播放记录,如果有完成续播功能
-        String playTimeStr = (String) redisTemplate.opsForHash().get(RedisConstants.USER_PLAYBACK_RESUME + UserContext.getUser().getId(), videoId.toString());
+        String playTimeStr = (String) redisTemplate.opsForHash().get(RedisConstants.USER_PLAYBACK_RESUME + userId, videoId.toString());
         Long playTime = (playTimeStr != null && !playTimeStr.isBlank()) ? Long.parseLong(playTimeStr) : null;
         if (playTime != null) {
             // 说明存在播放记录,则设置播放时间
@@ -315,11 +308,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
     @Override
     public Result<PageResult<ShortsVO>> getShortsFeed(PageQuery pageQuery) {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户信息获取失败");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
         // 获得推荐短视频id
         List<Long> videoIds = recommendService.recommend(userId,
                 null, SHORT_VIDEO.getCode(),
@@ -470,11 +459,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     @Override
     public Result<PageResult<FollowVideoVO>> getFollowVideoList(PageQuery pageQuery) {
         // 获取用户信息
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
         // 获取关注用户列表
         List<Long> followIds = userFollowService.getFollowIds(userId);
         if (followIds == null || followIds.isEmpty()) {
@@ -510,6 +495,13 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
 
+        // 获取点赞状态
+        List<Long> likedIds = isLike(userId, videoIds);
+        Map<Long, Boolean> c = likedIds.stream().collect(Collectors.toMap(v -> v, v -> true));
+        for (FollowVideoVO vo : voList) {
+            vo.setIsLike(c.getOrDefault(Long.valueOf(vo.getId()), false));
+        }
+
         // 近似值
         long total = voList.size() < pageQuery.getPageSize() ?
                 (long)(pageQuery.getPageNo() - 1) * pageQuery.getPageSize() + voList.size() :
@@ -518,6 +510,106 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
         return Result.success(PageResult.of(total, pages, voList));
     }
+
+    @Transactional
+    @Override
+    public Result<Void> deleteVideo(Long videoId) {
+        Long userId = getUserId();
+        boolean success = lambdaUpdate().eq(Video::getId, videoId)
+                .eq(Video::getAuthorId, userId)
+                .set(Video::getIsDelete, true).update();
+        if (!success) {
+            return Result.fail("删除失败,请稍后再试");
+        }
+        // 在es中删除这个文档
+        videoDocRepository.deleteById(videoId);
+        return Result.success();
+    }
+
+    @Override
+    public Result<Void> privateVideo(Long videoId) {
+        Long userId = getUserId();
+        boolean success = lambdaUpdate().eq(Video::getId, videoId)
+                .eq(Video::getAuthorId, userId)
+                .set(Video::getVisibility, VideoVisibilityEnum.PRIVATE).update();
+        if (!success) {
+            return Result.fail("修改失败");
+        }
+        // 在es中更新这个文档
+        videoDocRepository.findById(videoId).ifPresent(doc -> {
+            doc.setVisibility("private");
+            videoDocRepository.save(doc);
+        });
+        return Result.success();
+    }
+
+    @Override
+    public Result<String> publicVideo(Long videoId) {
+        Long userId = getUserId();
+        Video video = lambdaQuery().eq(Video::getId, videoId)
+                .eq(Video::getAuthorId, userId)
+                .one();
+        if (video == null) {
+            return Result.fail("该视频不存在");
+        }
+        if (video.getStatus().equals(BANNED)) {
+            return Result.fail("该视频已被封禁,无法修改");
+        }
+        if (video.getStatus().equals(REVIEW)) {
+            boolean success = lambdaUpdate().eq(Video::getId, videoId)
+                    .eq(Video::getAuthorId, userId)
+                    .set(Video::getVisibility, VideoVisibilityEnum.PUBLIC).update();
+            if (!success) {
+                return Result.fail("修改失败");
+            } else {
+                // 在es中更新这个文档
+                videoDocRepository.findById(videoId).ifPresent(doc -> {
+                    doc.setVisibility("public");
+                    videoDocRepository.save(doc);
+                });
+                return Result.success("修改成功,等待审核中");
+            }
+        }
+        // 在es中更新这个文档
+        videoDocRepository.findById(videoId).ifPresent(doc -> {
+            doc.setVisibility("public");
+            videoDocRepository.save(doc);
+        });
+        return Result.success("修改成功");
+    }
+
+    @Override
+    public Result<Void> openComment(Long videoId) {
+        Long userId = getUserId();
+        boolean success = lambdaUpdate().eq(Video::getId, videoId)
+                .eq(Video::getAuthorId, userId)
+                .set(Video::getAllowComment, 1).update();
+        if (!success) {
+            return Result.fail("修改失败");
+        }
+        return Result.success();
+    }
+
+    @Override
+    public Result<Void> closeComment(Long videoId) {
+        Long userId = getUserId();
+        boolean success = lambdaUpdate().eq(Video::getId, videoId)
+                .eq(Video::getAuthorId, userId)
+                .set(Video::getAllowComment, 0).update();
+        if (!success) {
+            return Result.fail("修改失败");
+        }
+        return Result.success();
+    }
+
+    private static Long getUserId() {
+        UserDTO user = UserContext.getUser();
+        if (user == null) {
+            throw new BizException(BizException.USER_ERROR, "用户未登录");
+        }
+        return user.getId();
+    }
+
 
     /**
      * 批量查询作者昵称，避免前端仅展示「用户 作者id」。

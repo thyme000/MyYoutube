@@ -54,4 +54,9 @@ public class RedisConstants {
 
     // 用户获赞量 {userid} hash结构 videoId : likeCount
     public static final String USER_LIKE_COUNT = "user:like:count:";
+
+    /**
+     * 定时任务：按主键游标轮询，将 video 表中的播放量/点赞量同步到 ES（仅存 lastId，重启可续跑）
+     */
+    public static final String SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR = "schedule:es:video:count:sync:cursor";
 }

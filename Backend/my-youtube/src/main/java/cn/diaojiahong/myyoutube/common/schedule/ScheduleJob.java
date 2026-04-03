@@ -1,10 +1,12 @@
 package cn.diaojiahong.myyoutube.common.schedule;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.Cursor;
@@ -13,6 +15,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -24,6 +27,7 @@ public class ScheduleJob {
     private final StringRedisTemplate redisTemplate;
     private final IVideoService videoService;
     private final IUserService userService;
+    private final VideoDocRepository videoDocRepository;
 
     /**
      * 每小时更新一次播放量：分片刷,避免单 Hash (热点key)过大,影响性能
@@ -134,8 +138,74 @@ public class ScheduleJob {
                             .update();
                 });
                 // 删除redisKey
-                redisTemplate.opsForHash().delete(hashKey);
+                redisTemplate.delete(hashKey);
             }
         }
+    }
+
+    /**
+     * 每 30 分钟：把 MySQL {@code video.play_count / like_count} 同步到 ES
+     * {@link cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc}（推荐打分用）。
+     * <p>
+     * 策略：以 MySQL 为准；用 Redis 记录「上次扫到的最大 id」，每次拉一批，扫到表尾后游标归零，下一轮从头再扫，
+     * 避免单次全表扫描。单批失败不影响游标推进（仅打日志），避免坏数据卡死。
+     * <p>
+     * 若希望「只同步近期变更」，可另加 {@code updateTime} 条件或配合 MQ；当前实现侧重简单、可跑满全表。
+     */
+    private static final int ES_COUNT_SYNC_PAGE_SIZE = 500;
+
+    @Scheduled(cron = "0 */30 * * * *")
+    public void flushLikeCountAndPlayCount4ES() {
+        long lastId = readEsSyncCursor();
+        Page<Video> page = videoService.lambdaQuery()
+                .eq(Video::getIsDelete, 0)
+                .gt(Video::getId, lastId)
+                .orderByAsc(Video::getId)
+                .page(new Page<>(1, ES_COUNT_SYNC_PAGE_SIZE));
+        List<Video> list = page.getRecords();
+        if (list.isEmpty()) {
+            redisTemplate.opsForValue().set(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR, "0");
+            return;
+        }
+        for (Video v : list) {
+            try {
+                syncVideoDocPlayLikeFromMysql(v);
+            } catch (Exception e) {
+                log.warn("同步 ES 播放量/点赞量失败, videoId={}", v.getId(), e);
+            }
+        }
+        long maxId = list.get(list.size() - 1).getId();
+        if (list.size() < ES_COUNT_SYNC_PAGE_SIZE) {
+            redisTemplate.opsForValue().set(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR, "0");
+        } else {
+            redisTemplate.opsForValue().set(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR, String.valueOf(maxId));
+        }
+    }
+
+    private long readEsSyncCursor() {
+        String v = redisTemplate.opsForValue().get(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR);
+        if (v == null || v.isBlank()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(v.trim());
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    /**
+     * 仅更新已存在于 ES 的文档；没有索引的 id（从未进过 ES）则跳过，避免误建半空文档。
+     */
+    private void syncVideoDocPlayLikeFromMysql(Video v) {
+        Long id = v.getId();
+        if (id == null) {
+            return;
+        }
+        videoDocRepository.findById(id).ifPresent(doc -> {
+            doc.setPlayCount(v.getPlayCount() != null ? v.getPlayCount() : 0L);
+            doc.setLikeCount(v.getLikeCount() != null ? v.getLikeCount() : 0L);
+            videoDocRepository.save(doc);
+        });
     }
 }

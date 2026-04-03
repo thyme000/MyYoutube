@@ -47,4 +47,7 @@ public class VideoDoc {
 
     @Field(type = FieldType.Date, format = {}, pattern = "yyyy-MM-dd HH:mm:ss || epoch_millis")
     private LocalDateTime createTime;
+
+    @Field(type = FieldType.Keyword)
+    private String visibility;
 }

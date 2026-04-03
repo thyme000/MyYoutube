@@ -38,13 +38,6 @@ public class AuthServiceImpl implements IAuthService {
         String rawPassword = loginRequestDTO.getPassword();
         String captchaKey = RedisConstants.CAPTCHA_LOGIN + username;
 
-        // 校验验证码（用 Objects.equals 防空指针，验证后立即删除防重用）
-        String storedCaptcha = redisTemplate.opsForValue().get(captchaKey);
-        if (!Objects.equals(loginRequestDTO.getCaptcha(), storedCaptcha)) {
-            return Result.fail("验证码错误或已过期!");
-        }
-        redisTemplate.delete(captchaKey);
-
         // 查询用户
         User user = userService.lambdaQuery()
                 .eq(User::getUsername, username)
@@ -57,6 +50,13 @@ public class AuthServiceImpl implements IAuthService {
         if (!PasswordEncoder.matches(rawPassword, user.getPassword())) {
             return Result.fail("密码错误!");
         }
+
+        // 校验验证码（用 Objects.equals 防空指针，验证后立即删除防重用）
+        String storedCaptcha = redisTemplate.opsForValue().get(captchaKey);
+        if (!Objects.equals(loginRequestDTO.getCaptcha(), storedCaptcha)) {
+            return Result.fail("验证码错误或已过期!");
+        }
+        redisTemplate.delete(captchaKey);
 
         // 生成 token，将 UserDTO 关键字段以 Hash 形式存入 Redis
         String token = UUID.randomUUID().toString();

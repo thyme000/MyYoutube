@@ -153,4 +153,59 @@ public class VideoController {
     public Result<PageResult<FollowVideoVO>> getFollowVideoList(@ModelAttribute PageQuery pageQuery) {
         return videoService.getFollowVideoList(pageQuery);
     }
+
+    /**
+     * 用户删除视频
+     * @param videoId 视频id
+     * @return
+     */
+    @Operation(summary = "用户删除某视频")
+    @DeleteMapping("/{videoId}")
+    public Result<Void> deleteVideo(@PathVariable Long videoId) {
+        return videoService.deleteVideo(videoId);
+    }
+
+    /**
+     * 用户私密视频
+     * @param videoId 视频id
+     * @return
+     */
+    @Operation(summary = "用户私密视频")
+    @PostMapping("/private/{videoId}")
+    public Result<Void> privateVideo(@PathVariable Long videoId) {
+        return videoService.privateVideo(videoId);
+    }
+
+    /**
+     * 公开视频(原本在review状态的仍然需要审核)
+     * @param videoId
+     * @return
+     */
+    @Operation(summary = "用户公开视频(原本在review状态的仍然需要审核)")
+    @PostMapping("/public/{videoId}")
+    public Result<String> publicVideo(@PathVariable Long videoId) {
+        return videoService.publicVideo(videoId);
+    }
+
+    /**
+     * 用户开启评论
+     * @param videoId 视频id
+     * @return
+     */
+    @Operation(summary = "用户开启评论")
+    @PostMapping("/open/comment/{videoId}")
+    public Result<Void> openComment(@PathVariable Long videoId) {
+        return videoService.openComment(videoId);
+    }
+
+    /**
+     * 用户关闭评论
+     * @param videoId 视频id
+     * @return
+     */
+    @Operation(summary = "用户关闭评论")
+    @PostMapping("/close/comment/{videoId}")
+    public Result<Void> closeComment(@PathVariable Long videoId) {
+        return videoService.closeComment(videoId);
+    }
 }

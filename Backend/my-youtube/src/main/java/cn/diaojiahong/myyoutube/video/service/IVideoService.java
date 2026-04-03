@@ -43,4 +43,14 @@ public interface IVideoService extends IService<Video> {
     Result<PageResult<VideoListVO>> getOtherUserVideoList(Long userId, PageQuery pageQuery);
 
     Result<PageResult<FollowVideoVO>> getFollowVideoList(PageQuery pageQuery);
+
+    Result<Void> deleteVideo(Long videoId);
+
+    Result<Void> privateVideo(Long videoId);
+
+    Result<String> publicVideo(Long videoId);
+
+    Result<Void> openComment(Long videoId);
+
+    Result<Void> closeComment(Long videoId);
 }
