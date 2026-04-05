@@ -22,4 +22,6 @@ public interface IUserNotificationService extends IService<UserNotification> {
     void readNotification(Long notificationId);
 
     Result<Long> getUnreadCount();
+
+    Result<Void> deleteNotification(Long notificationId);
 }

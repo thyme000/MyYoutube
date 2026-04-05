@@ -24,7 +24,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -206,10 +208,21 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
 
         // 查询用户是否点过赞
         Long userId = getUserId();
-        Object[] array = commentVOList.stream().map(CommentVO::getId).toArray();
-        Map<Object, Boolean> isLikeMap = redisTemplate.opsForSet().isMember(RedisConstants.USER_LIKE_COMMENT + userId, array);
-        if (isLikeMap != null && !isLikeMap.isEmpty()) {
-            commentVOList.forEach(commentVO -> commentVO.setIsLike(isLikeMap.getOrDefault(commentVO.getId(), false)));
+        if (!commentVOList.isEmpty()) {
+            String key = RedisConstants.USER_LIKE_COMMENT + userId;
+            StringRedisSerializer strSer = new StringRedisSerializer();
+            byte[] rawKey = strSer.serialize(key);
+            List<Object> scoreResults = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+                for (CommentVO v : commentVOList) {
+                    byte[] member = strSer.serialize(v.getId().toString());
+                    connection.zScore(rawKey, member);
+                }
+                return null;
+            });
+            for (int i = 0; i < commentVOList.size(); i++) {
+                Double score = (Double) scoreResults.get(i);
+                commentVOList.get(i).setIsLike(score != null);
+            }
         }
 
         return Result.success(PageResult.of(page.getTotal(), page.getPages(), commentVOList));

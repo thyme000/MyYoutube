@@ -23,6 +23,13 @@ public class RabbitMqConstants {
     // 点赞评论交换机
     public static final String LIKE_COMMENT_EXCHANGE = "like_comment_exchange";
 
+    // 取消点赞评论队列
+    public static final String UNLIKE_COMMENT_QUEUE = "unlike_comment_queue";
+    // 取消点赞评论路由键
+    public static final String UNLIKE_COMMENT_ROUTING_KEY = "unlike_comment_routing_key";
+    // 取消点赞评论交换机
+    public static final String UNLIKE_COMMENT_EXCHANGE = "unlike_comment_exchange";
+
     // 发布评论队列
     public static final String PUBLISH_COMMENT_QUEUE = "publish_comment_queue";
     // 发布评论路由键

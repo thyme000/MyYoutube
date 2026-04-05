@@ -38,6 +38,20 @@ const API_BASE_URL = resolveApiBaseUrl();
 const TOKEN_KEY = "myyoutube_token";
 const AUTH_EXPIRED_EVENT = "myyoutube:auth-expired";
 
+/**
+ * 与后端约定：
+ * - HTTP：请求头 Authorization 值为登录返回的 token 原样（Redis key 为完整 header 值），不要加 Bearer 前缀。
+ * - WebSocket /ws/notify：查询串须以 token= 开头，见 buildNotifyWebSocketUrl。
+ */
+export function normalizeAuthToken(raw) {
+  if (raw == null) return "";
+  let s = String(raw).trim();
+  if (/^bearer\s+/i.test(s)) {
+    s = s.replace(/^bearer\s+/i, "").trim();
+  }
+  return s;
+}
+
 function emitAuthExpired(reason = "登录状态已过期，请重新登录") {
   clearToken();
   try {
@@ -82,8 +96,8 @@ export async function uploadMultipart(path, formData, { query, headers } = {}) {
   const response = await fetch(finalUrl, {
     method: "POST",
     headers: {
-      ...(token ? { Authorization: token } : {}),
       ...headers,
+      ...(token ? { Authorization: token } : {}),
     },
     body: formData,
   });
@@ -120,8 +134,8 @@ export async function httpRequest(path, { method = "GET", query, body, headers }
     method,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: token } : {}),
       ...headers,
+      ...(token ? { Authorization: token } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -157,11 +171,28 @@ export function getApiBaseUrl() {
 }
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY) || "";
+  return normalizeAuthToken(localStorage.getItem(TOKEN_KEY) || "");
 }
 
 export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+  const t = normalizeAuthToken(token);
+  if (!t) {
+    localStorage.removeItem(TOKEN_KEY);
+    return;
+  }
+  localStorage.setItem(TOKEN_KEY, t);
+}
+
+/**
+ * 通知 WebSocket；后端要求 query 以 token= 开头（且宜为唯一参数）。
+ * 生产环境 Nginx 需将 `/ws/` 反代到后端并配置 `Upgrade` / `Connection`（与 Vite 里 `/ws` 代理一致）。
+ */
+export function buildNotifyWebSocketUrl() {
+  const t = getToken();
+  if (!t) return "";
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = window.location.host;
+  return `${proto}//${host}/ws/notify?token=${encodeURIComponent(t)}`;
 }
 
 export function clearToken() {

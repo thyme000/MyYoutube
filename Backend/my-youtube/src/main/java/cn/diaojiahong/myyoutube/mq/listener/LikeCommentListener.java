@@ -3,15 +3,11 @@ package cn.diaojiahong.myyoutube.mq.listener;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
-import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
 import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
-import cn.diaojiahong.myyoutube.notification.domain.vo.NotificationForJson;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
-import io.swagger.v3.core.util.Json;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.ExchangeTypes;
@@ -61,4 +57,17 @@ public class LikeCommentListener {
         userNotificationService.save(userNotification);
     }
 
+    @RabbitListener(bindings = @QueueBinding(
+            value = @Queue(name = UNLIKE_COMMENT_QUEUE, durable = "true"),
+            exchange = @Exchange(name = UNLIKE_COMMENT_EXCHANGE, type = ExchangeTypes.TOPIC),
+            key = UNLIKE_COMMENT_ROUTING_KEY
+    ))
+    public void handleUnlikeComment(LikeCommentMessage lc) {
+        log.info("handleUnlikeCommentMessage: {}", lc);
+        // 删除原来的点赞评论通知
+        userNotificationService.remove(new LambdaQueryWrapper<UserNotification>()
+                .eq(UserNotification::getType, NotificationTypeEnum.COMMENT_LIKE.getCode())
+                .eq(UserNotification::getSenderId, lc.getSenderId())
+                .eq(UserNotification::getRefId, lc.getCommentId()));
+    }
 }

@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.like.domain.vo.LikeVideoVO;
 import cn.diaojiahong.myyoutube.like.service.IVideoLikeService;
+import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
 import cn.diaojiahong.myyoutube.video.domain.vo.ShortsVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -94,4 +95,16 @@ public class VideoLikeController {
     public Result<Void> likeComment(@PathVariable Long commentId) {
         return videoLikeService.likeComment(commentId);
     }
+
+    /**
+     * 用户给某条评论取消点赞
+     * @param commentId 评论id
+     * @return
+     */
+    @DeleteMapping("/comment/{commentId}")
+    @Operation(summary = "用户给评论取消点赞")
+    public Result<Void> cancelLikeComment(@PathVariable Long commentId) {
+        return videoLikeService.cancelLikeComment(commentId);
+    }
+
 }

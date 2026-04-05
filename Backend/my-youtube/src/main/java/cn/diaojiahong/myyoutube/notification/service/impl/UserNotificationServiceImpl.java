@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
@@ -38,6 +39,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
 
     private final IUserService userService;
     private final IVideoCommentService videoCommentService;
+    private final AliOssUtil aliOssUtil;
 
     @Override
     public Result<PageResult<NotificationVO>> getNotificationList(PageQuery pageQuery) {
@@ -58,18 +60,20 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
             vo.setId(r.getId());
             vo.setSenderId(r.getSenderId());
             vo.setType(NotificationTypeEnum.valueOf(r.getType()));
-            if (r.getType().equals(NotificationTypeEnum.COMMENT_LIKE.getCode()) ||
-                    r.getType().equals(NotificationTypeEnum.COMMENT_REPLY.getCode()) ||
-                    r.getType().equals(NotificationTypeEnum.VIDEO_COMMENT.getCode())) {
-                // 这些通知需要设置视频id,方便前端跳转
+            if (r.getType().equals(NotificationTypeEnum.VIDEO_COMMENT.getCode())) {
+                // 存库时 refId 即为视频 id（非评论 id）
+                vo.setVideoId(r.getRefId());
+            } else if (r.getType().equals(NotificationTypeEnum.COMMENT_LIKE.getCode()) ||
+                    r.getType().equals(NotificationTypeEnum.COMMENT_REPLY.getCode())) {
                 VideoComment comment = videoCommentService.getById(r.getRefId());
-                if (comment!=null && !comment.getStatus().equals(CommentStatusEnum.DELETED.getCode())) {
+                if (comment != null && !comment.getStatus().equals(CommentStatusEnum.DELETED.getCode())) {
                     vo.setVideoId(comment.getVideoId());
                 }
             }
             vo.setContent(r.getContent());
             vo.setRefId(r.getRefId());
             vo.setCreateTime(r.getCreateTime());
+            vo.setIsRead(r.getIsRead().equals(1));
             result.add(vo);
         });
 
@@ -83,7 +87,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
         List<Long> senderAvatarIds = senderIds;
         Map<Long, String> avatarUrls = userService.getAuthorAvatarUrls(senderAvatarIds);
         result.forEach(r -> {
-            r.setSenderAvatarUrl(avatarUrls.getOrDefault(r.getSenderId(), ""));
+            r.setSenderAvatarUrl(aliOssUtil.signGetUrl(avatarUrls.getOrDefault(r.getSenderId(), ""), 300));
         });
 
         return Result.success(PageResult.of(page.getTotal(), page.getPages(), result));
@@ -108,6 +112,14 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
                 .eq(UserNotification::getReceiverId, userId)
                 .eq(UserNotification::getIsRead, 0).count();
         return Result.success(count);
+    }
+
+    @Override
+    public Result<Void> deleteNotification(Long notificationId) {
+        boolean success = lambdaUpdate().eq(UserNotification::getId, notificationId)
+                .eq(UserNotification::getReceiverId, getUserId())
+                .remove();
+        return success ? Result.success() : Result.fail("删除失败");
     }
 
     private Long getUserId() {

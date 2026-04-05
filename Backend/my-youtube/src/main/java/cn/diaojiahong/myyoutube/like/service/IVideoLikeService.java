@@ -29,4 +29,6 @@ public interface IVideoLikeService extends IService<VideoLike> {
     Result<Boolean> getLikeStatus(Long videoId);
 
     Result<Void> likeComment(Long commentId);
+
+    Result<Void> cancelLikeComment(Long commentId);
 }

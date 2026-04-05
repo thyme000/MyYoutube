@@ -17,6 +17,7 @@ export function normalizeCommentVo(raw) {
     avatarUrl: raw.avatarUrl ?? "",
     createTime: raw.createTime ?? "",
     likeCount: Number(raw.likeCount) || 0,
+    isLike: raw.isLike === true || raw.isLike === 1 || raw.isLike === "1",
     replyCount: Number(raw.replyCount) || 0,
     parentId: raw.parentId,
     replyNickname: raw.replyNickname ?? "",

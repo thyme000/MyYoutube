@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
+import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
@@ -29,6 +30,7 @@ import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
 public class PublishCommentListener {
     private final IUserNotificationService userNotificationService;
     private final IUserService userService;
+    private final IVideoCommentService videoCommentService;
     private final AliOssUtil aliOssUtil;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
 
@@ -52,16 +54,26 @@ public class PublishCommentListener {
 
         userNotificationService.save(userNotification);
 
-        // 判断是不是视频评论,视频评论不发送消息,回复评论才发送
-        if (!message.getIsVideoComment()) {
-            User user = userService.getById(message.getSenderId());
-            NotificationForJson json = new NotificationForJson();
-            json.setSenderNickname(user.getNickname());
-            json.setSenderAvatarUrl(aliOssUtil.signGetUrl(user.getAvatarUrl(), 300));
+        // 实时推送：视频评论与回复评论均推 WebSocket，前端 Toast 依赖此消息
+        User user = userService.getById(message.getSenderId());
+        if (user == null) {
+            return;
+        }
+        NotificationForJson json = new NotificationForJson();
+        json.setId(userNotification.getId());
+        json.setSenderNickname(user.getNickname());
+        json.setSenderAvatarUrl(aliOssUtil.signGetUrl(user.getAvatarUrl(), 300));
+        json.setContent(message.getContent());
+        if (Boolean.TRUE.equals(message.getIsVideoComment())) {
+            json.setType(NotificationTypeEnum.VIDEO_COMMENT.getCode());
+            json.setRefId(message.getVideoId());
+            json.setVideoId(message.getVideoId());
+        } else {
             json.setType(NotificationTypeEnum.COMMENT_REPLY.getCode());
             json.setRefId(message.getCommentId());
             json.setVideoId(message.getVideoId());
-            notifyWebSocketHandler.sendToUser(message.getReceiverId(), new GsonBuilder().create().toJson(json));
         }
+        notifyWebSocketHandler.sendToUser(message.getReceiverId(), new GsonBuilder().create().toJson(json));
     }
+
 }

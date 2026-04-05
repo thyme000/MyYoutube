@@ -16,10 +16,10 @@ import cn.diaojiahong.myyoutube.like.domain.vo.LikeVideoVO;
 import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
 import cn.diaojiahong.myyoutube.like.service.IVideoLikeService;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
-import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.domain.vo.ShortsVO;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -88,7 +88,6 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
             // 没有记录，新增
             save(new VideoLike().setUserId(userId).setVideoId(videoId).setIsLiked(VideoLikeConstants.LIKE));
         }
-
         // 更新用户获赞量
         redisTemplate.opsForHash().increment(RedisConstants.USER_LIKE_COUNT + userId, videoId.toString(), 1);
 
@@ -156,6 +155,9 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
 
         // 查询视频列表
         List<Video> videoList = videoService.lambdaQuery()
+                .eq(Video::getIsDelete, 0)
+                .eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC)
+                .eq(Video::getStatus, VideoStatusEnum.PUBLISHED)
                 .in(Video::getId, videoIds)
                 .list();
 
@@ -224,6 +226,29 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
                     .builder().senderId(userId).commentId(commentId).build();
             rabbitTemplate.convertAndSend(RabbitMqConstants.LIKE_COMMENT_EXCHANGE,
                     RabbitMqConstants.LIKE_COMMENT_ROUTING_KEY, lc);
+        }
+
+        return Result.success();
+    }
+
+    @Override
+    public Result<Void> cancelLikeComment(Long commentId) {
+        // 获取用户id
+        Long userId = getUserId();
+        videoCommentService.lambdaUpdate()
+                .eq(VideoComment::getId, commentId)
+                .setIncrBy(VideoComment::getLikeCount, -1)
+                .update();
+        // 去掉用户点赞过的评论
+        redisTemplate.opsForZSet().remove(RedisConstants.USER_LIKE_COMMENT + userId, commentId.toString());
+        // 发送取消点赞通知(MQ)
+        VideoComment comment = videoCommentService
+                .lambdaQuery().eq(VideoComment::getId, commentId).one();
+        if (!Objects.equals(comment.getUserId(), userId)) {
+            LikeCommentMessage lc = LikeCommentMessage
+                    .builder().senderId(userId).commentId(commentId).build();
+            rabbitTemplate.convertAndSend(RabbitMqConstants.UNLIKE_COMMENT_EXCHANGE,
+                    RabbitMqConstants.UNLIKE_COMMENT_ROUTING_KEY, lc);
         }
 
         return Result.success();

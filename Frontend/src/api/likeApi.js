@@ -3,6 +3,28 @@ import { safeSnowflakeId } from "../utils/snowflakeId.js";
 import { normalizePageResult } from "./videoApi.js";
 
 /**
+ * POST /like/comment/{commentId} 给评论点赞（后端若未做幂等，前端在已赞状态下不再请求）
+ */
+export async function likeComment(commentId) {
+  const id = safeSnowflakeId(commentId);
+  if (!id) {
+    throw new Error("commentId 不能为空");
+  }
+  return httpRequest(`/like/comment/${encodeURIComponent(id)}`, { method: "POST" });
+}
+
+/**
+ * DELETE /like/comment/{commentId} 取消评论点赞
+ */
+export async function cancelLikeComment(commentId) {
+  const id = safeSnowflakeId(commentId);
+  if (!id) {
+    throw new Error("commentId 不能为空");
+  }
+  return httpRequest(`/like/comment/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/**
  * PUT /like/{videoId} 点赞（幂等）
  */
 export async function likeVideo(videoId) {

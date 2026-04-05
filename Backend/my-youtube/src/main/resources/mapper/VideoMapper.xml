@@ -9,6 +9,7 @@
         <foreach collection="ids" item="id" open="(" close=")" separator=",">
             #{id}
         </foreach>
+        AND visibility = 'public' AND status = 'published'
         ORDER BY FIELD(id,
         <foreach collection="ids" item="id" separator=",">
             #{id}

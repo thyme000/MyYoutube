@@ -16,6 +16,7 @@
         SELECT COUNT(*)
         FROM video_like vl
                  INNER JOIN video v ON vl.video_id = v.id AND v.is_delete = 0
+                 AND v.status = 'published' AND v.visibility = 'public'
         WHERE vl.user_id = #{userId}
           AND vl.is_liked = 1
     </select>

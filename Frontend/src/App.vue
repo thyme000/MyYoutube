@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import OSS from "ali-oss";
 import { clearToken, getApiBaseUrl, getAuthExpiredEventName, getToken, setToken } from "./api/http";
+import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
   forgotPasswordApi,
   getLoginCaptcha,
@@ -44,6 +45,8 @@ import {
 } from "./api/userApi";
 import {
   likeVideo as likeVideoApi,
+  likeComment as likeCommentApi,
+  cancelLikeComment as cancelLikeCommentApi,
   cancelLikeVideo as cancelLikeVideoApi,
   dislikeVideo as dislikeVideoApi,
   fetchLikedVideosPage,
@@ -57,6 +60,13 @@ import {
   isFollowed,
   removeFan,
 } from "./api/followApi";
+import {
+  fetchNotificationPage,
+  markNotificationRead,
+  deleteNotification,
+  fetchUnreadNotificationCount,
+  NOTIFICATION_TYPE_LABELS,
+} from "./api/notificationApi";
 import {
   loadCropFromStorage,
   makeDefaultCropRect,
@@ -221,6 +231,16 @@ const studioTotal = ref(0);
 const studioPages = ref(0);
 const studioLoading = ref(false);
 const studioMsg = ref("");
+/** 顶栏通知下拉 */
+const notifyPanelOpen = ref(false);
+const notifyUnreadCount = ref(0);
+const notifyList = ref([]);
+const notifyLoading = ref(false);
+const notifyPageNo = ref(1);
+const notifyPages = ref(0);
+const notifyTotal = ref(0);
+const notifyErrorMsg = ref("");
+const NOTIFY_PAGE_SIZE = 15;
 const uploadModalOpen = ref(false);
 const uploadFileInputRef = ref(null);
 const uploadForm = ref({
@@ -257,10 +277,58 @@ const uploadVisibilityOptions = [
 const showVideoDetail = ref(false);
 const videoDetail = ref(null);
 const detailLoading = ref(false);
+/** 详情页：仅当加载超过阈值才显示加载层，避免闪一下 */
+const detailVideoBuffering = ref(false);
+/** 短视频流：同上，切换很快时不打扰 */
+const shortsFeedVideoBuffering = ref(false);
+const DETAIL_BUFFERING_UI_DELAY_MS = 280;
+const SHORTS_BUFFERING_UI_DELAY_MS = 320;
+let detailBufferingUITimer = null;
+let shortsBufferingUITimer = null;
+
+function clearDetailBufferingUITimer() {
+  if (detailBufferingUITimer != null) {
+    clearTimeout(detailBufferingUITimer);
+    detailBufferingUITimer = null;
+  }
+}
+
+function scheduleDetailBufferingOverlay() {
+  clearDetailBufferingUITimer();
+  detailVideoBuffering.value = false;
+  detailBufferingUITimer = window.setTimeout(() => {
+    detailBufferingUITimer = null;
+    detailVideoBuffering.value = true;
+  }, DETAIL_BUFFERING_UI_DELAY_MS);
+}
+
+function hideDetailBufferingOverlay() {
+  clearDetailBufferingUITimer();
+  detailVideoBuffering.value = false;
+}
+
+function clearShortsBufferingUITimer() {
+  if (shortsBufferingUITimer != null) {
+    clearTimeout(shortsBufferingUITimer);
+    shortsBufferingUITimer = null;
+  }
+}
+
+function scheduleShortsBufferingOverlay() {
+  clearShortsBufferingUITimer();
+  shortsFeedVideoBuffering.value = false;
+  shortsBufferingUITimer = window.setTimeout(() => {
+    shortsBufferingUITimer = null;
+    shortsFeedVideoBuffering.value = true;
+  }, SHORTS_BUFFERING_UI_DELAY_MS);
+}
+
+function hideShortsBufferingOverlay() {
+  clearShortsBufferingUITimer();
+  shortsFeedVideoBuffering.value = false;
+}
 const detailErrorMsg = ref("");
 const detailPlayerRef = ref(null);
-/** 因浏览器策略改用静音自动播放时提示用户可开声 */
-const detailAutoplayMutedFallback = ref(false);
 const detailSidebarTab = ref("all");
 const detailSidebarList = ref([]);
 const detailSidebarPageNo = ref(1);
@@ -292,6 +360,8 @@ const detailReplyTarget = ref(null);
 /** 楼主 id → { loaded, list } */
 const detailThreadByRootId = ref({});
 const detailExpandedRoots = ref({});
+/** 评论点赞请求中，避免连点（commentId → true） */
+const commentLikeBusyById = ref({});
 /** 短视频全屏播放（纵向视频两侧模糊填充） */
 const shortPlayerOpen = ref(false);
 const shortPlayerVideoSrc = ref("");
@@ -630,8 +700,194 @@ function pushToast(message, type = "info") {
   }, 3000);
 }
 
+/**
+ * 从 WS 原始 JSON 文本中提取长整型字段，避免 JSON.parse 把雪花 id 变成 Number 丢精度。
+ */
+function extractWsJsonDigitString(rawText, field) {
+  if (typeof rawText !== "string" || !field) return null;
+  const esc = String(field).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let m = rawText.match(new RegExp(`"${esc}"\\s*:\\s*(\\d+)`));
+  if (m && m[1]) return m[1];
+  m = rawText.match(new RegExp(`"${esc}"\\s*:\\s*"(\\d+)"`));
+  return m && m[1] ? m[1] : null;
+}
+
+/** 通知主键 id（与后端 NotificationForJson.id 一致），从原文提取避免大整数精度问题 */
+function pickNotifyWsNotificationId(rawText, parsed) {
+  const fromText =
+    extractWsJsonDigitString(rawText, "notificationId") ||
+    extractWsJsonDigitString(rawText, "notification_id") ||
+    extractWsJsonDigitString(rawText, "id");
+  if (fromText && /^\d+$/.test(fromText)) return fromText;
+  const o = parsed && typeof parsed === "object" ? parsed : {};
+  const candidates = [o.notificationId, o.notification_id, o.id];
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    if (typeof c === "string") {
+      const t = c.trim();
+      if (/^\d+$/.test(t)) return t;
+    }
+    if (typeof c === "number" && Number.isFinite(c)) {
+      const n = Math.trunc(c);
+      if (Number.isSafeInteger(n)) return String(n);
+    }
+  }
+  return null;
+}
+
+function pickNotifyWsVideoId(rawText, parsed) {
+  const fromText =
+    extractWsJsonDigitString(rawText, "videoId") ||
+    extractWsJsonDigitString(rawText, "video_id");
+  if (fromText && /^\d+$/.test(fromText)) return fromText;
+  const o = parsed && typeof parsed === "object" ? parsed : {};
+  const candidates = [o.videoId, o.video_id];
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    if (typeof c === "string") {
+      const t = c.trim();
+      if (/^\d+$/.test(t)) return t;
+    }
+    if (typeof c === "number" && Number.isFinite(c)) {
+      const n = Math.trunc(c);
+      if (Number.isSafeInteger(n)) return String(n);
+    }
+  }
+  return null;
+}
+
+function pickNotifyWsContentFromObject(o) {
+  if (!o || typeof o !== "object" || Array.isArray(o)) return "";
+  const keys = ["content", "text", "message", "body", "commentContent", "comment_content", "preview", "snippet"];
+  for (const k of keys) {
+    if (!Object.prototype.hasOwnProperty.call(o, k)) continue;
+    const v = o[k];
+    if (v == null) continue;
+    if (typeof v === "string") {
+      const t = v.trim();
+      if (t) return t;
+    }
+    if (typeof v === "number" && Number.isFinite(v)) {
+      const t = String(v).trim();
+      if (t) return t;
+    }
+    if (typeof v === "boolean") {
+      return v ? "true" : "";
+    }
+  }
+  return "";
+}
+
+function pickNotifyWsContent(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  let s = pickNotifyWsContentFromObject(parsed);
+  if (s) return s;
+  const nestKeys = ["data", "payload", "notification", "msg"];
+  for (const nk of nestKeys) {
+    const inner = parsed[nk];
+    if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+      s = pickNotifyWsContentFromObject(inner);
+      if (s) return s;
+    }
+  }
+  return "";
+}
+
+function pickNotifyWsAvatarUrl(parsed) {
+  if (!parsed || typeof parsed !== "object") return "";
+  const keys = ["senderAvatarUrl", "sender_avatar_url", "senderAvatar", "avatarUrl"];
+  for (const k of keys) {
+    const v = parsed[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+function pickNotifyWsNickname(parsed) {
+  if (!parsed || typeof parsed !== "object") return "";
+  const keys = ["senderNickname", "sender_nickname", "nickname", "senderName"];
+  for (const k of keys) {
+    const v = parsed[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+function pickNotifyWsTypeCode(parsed) {
+  if (!parsed || typeof parsed !== "object") return "";
+  const v = parsed.type;
+  if (typeof v === "string" && v.trim()) return v.trim();
+  if (v && typeof v === "object" && typeof v.code === "string") return v.code.trim();
+  if (v && typeof v === "object" && typeof v.name === "string") return v.name.trim();
+  return "";
+}
+
+/** 实时通知（WebSocket）：毛玻璃卡片，含头像与正文，可点进视频 / 标记已读 */
+function pushNotifyLiveToast({ avatarUrl, title, content, videoId, notificationId }) {
+  const ttl = String(title || "通知").trim() || "通知";
+  const body = String(content || "").trim();
+  toastSeed += 1;
+  const id = `toast-${Date.now()}-${toastSeed}`;
+  const vidRaw = videoId != null && videoId !== "" ? String(videoId).trim() : null;
+  const nidRaw =
+    notificationId != null && notificationId !== "" ? String(notificationId).trim() : null;
+  const next = [
+    ...toasts.value,
+    {
+      id,
+      type: "live-notify",
+      notify: {
+        avatarUrl: String(avatarUrl || "").trim(),
+        title: ttl,
+        content: body,
+        videoId: vidRaw && /^\d+$/.test(String(vidRaw)) ? String(vidRaw) : null,
+        notificationId: nidRaw && /^\d+$/.test(String(nidRaw)) ? String(nidRaw) : null,
+      },
+    },
+  ];
+  toasts.value = next.slice(-3);
+  window.setTimeout(() => removeToast(id), 6500);
+}
+
 function removeToast(id) {
   toasts.value = toasts.value.filter((t) => t.id !== id);
+}
+
+async function onNotifyToastClick(t) {
+  const n = t?.notify;
+  if (!n) return;
+  const hasVid = n.videoId != null && n.videoId !== "";
+  const hasNid = n.notificationId != null && n.notificationId !== "";
+  if (!hasVid && !hasNid) return;
+
+  if (hasNid) {
+    try {
+      await markNotificationRead(n.notificationId);
+      await refreshNotifyUnreadCount();
+      if (notifyPanelOpen.value) {
+        void loadNotifyListPage(true);
+      }
+      const nid = n.notificationId;
+      notifyList.value = notifyList.value.map((r) =>
+        String(r.id) === String(nid) ? { ...r, isRead: true } : r
+      );
+    } catch (e) {
+      pushToast(e?.message || "标记已读失败", "error");
+    }
+  }
+
+  if (hasVid) {
+    const vid = parseVideoIdForApi(n.videoId);
+    if (vid != null) {
+      removeToast(t.id);
+      await openVideoDetail({ id: vid });
+      return;
+    }
+  }
+
+  if (hasNid) {
+    removeToast(t.id);
+  }
 }
 
 const avatarImgError = ref(false);
@@ -1745,12 +2001,10 @@ async function tryDetailVideoAutoplay() {
   }
   try {
     el.muted = false;
-    detailAutoplayMutedFallback.value = false;
     await el.play();
   } catch {
     try {
       el.muted = true;
-      detailAutoplayMutedFallback.value = true;
       await el.play();
     } catch {
       /* 静音仍被拦截则只能由用户点击控件播放 */
@@ -1758,16 +2012,18 @@ async function tryDetailVideoAutoplay() {
   }
 }
 
-function onDetailVideoCanPlay() {
-  applyDetailPlaybackResumeIfNeeded();
-  void tryDetailVideoAutoplay();
+function onDetailVideoLoadStart() {
+  scheduleDetailBufferingOverlay();
 }
 
-function onDetailVideoVolumeChange() {
-  const el = detailPlayerRef.value;
-  if (el && !el.muted) {
-    detailAutoplayMutedFallback.value = false;
-  }
+function onDetailVideoMediaError() {
+  hideDetailBufferingOverlay();
+}
+
+function onDetailVideoCanPlay() {
+  hideDetailBufferingOverlay();
+  applyDetailPlaybackResumeIfNeeded();
+  void tryDetailVideoAutoplay();
 }
 
 function onDetailVideoTimeUpdate(e) {
@@ -1998,8 +2254,9 @@ async function sendDetailPlaybackResume(payload, { keepalive = false } = {}) {
     const headers = {
       "Content-Type": "application/json",
     };
-    if (token.value) {
-      headers["Authorization"] = token.value;
+    const authTok = getToken();
+    if (authTok) {
+      headers["Authorization"] = authTok;
     }
     // 用 fetch + keepalive：页面切走/关闭也尽量能发出去
     await fetch("/videos/playback/resume", {
@@ -2089,6 +2346,9 @@ function onDetailVideoPlay(e) {
 
 /** 刷新 / 往返缓存后 DOM 就绪较晚，多补几轮 */
 function onWindowPageShow() {
+  if (isAuthed.value) {
+    reconnectNotifyWebSocketIfNeeded();
+  }
   if (!showVideoDetail.value || !videoDetail.value?.videoUrl) {
     return;
   }
@@ -2245,7 +2505,6 @@ async function openVideoDetail(card, { skipRemoteDetail = false } = {}) {
   if (profileFeedOpen.value) {
     closeProfileFeed();
   }
-  detailAutoplayMutedFallback.value = false;
   const wasAlreadyInDetail = showVideoDetail.value;
   showVideoDetail.value = true;
   showProfileCenter.value = false;
@@ -2336,7 +2595,6 @@ async function openVideoDetail(card, { skipRemoteDetail = false } = {}) {
 }
 
 function closeVideoDetail() {
-  detailAutoplayMutedFallback.value = false;
   // 离开详情：如果当前是长视频且正在播放，立即上报（兜底/切走场景）
   void flushDetailPlaybackResume("leave");
   resetDetailPlaybackResumeState();
@@ -2352,6 +2610,7 @@ function closeVideoDetail() {
   }
   showVideoDetail.value = false;
   videoDetail.value = null;
+  hideDetailBufferingOverlay();
   detailErrorMsg.value = "";
   detailSidebarList.value = [];
   resetDetailCommentsState();
@@ -2817,6 +3076,65 @@ async function onDeleteShortsPanelComment(c) {
     }
   } catch (e) {
     pushToast(e?.message || "删除失败", "error");
+  }
+}
+
+function isCommentLikeBusy(id) {
+  return Boolean(commentLikeBusyById.value[String(id)]);
+}
+
+function applyCommentLikePatch(commentId, patch) {
+  const sid = String(commentId);
+  const merge = (row) => (String(row.id) === sid ? { ...row, ...patch } : row);
+  detailTopComments.value = detailTopComments.value.map(merge);
+  shortsPanelTopComments.value = shortsPanelTopComments.value.map(merge);
+  const dThreads = { ...detailThreadByRootId.value };
+  for (const k of Object.keys(dThreads)) {
+    const t = dThreads[k];
+    if (t?.list?.length) {
+      dThreads[k] = { ...t, list: t.list.map(merge) };
+    }
+  }
+  detailThreadByRootId.value = dThreads;
+  const sThreads = { ...shortsPanelThreadByRootId.value };
+  for (const k of Object.keys(sThreads)) {
+    const t = sThreads[k];
+    if (t?.list?.length) {
+      sThreads[k] = { ...t, list: t.list.map(merge) };
+    }
+  }
+  shortsPanelThreadByRootId.value = sThreads;
+}
+
+async function submitCommentLike(row) {
+  if (!row?.id) return;
+  if (!isAuthed.value) {
+    pushToast("请先登录后再点赞", "info");
+    return;
+  }
+  const sid = String(row.id);
+  if (commentLikeBusyById.value[sid]) return;
+  commentLikeBusyById.value = { ...commentLikeBusyById.value, [sid]: true };
+  try {
+    if (row.isLike) {
+      await cancelLikeCommentApi(row.id);
+      applyCommentLikePatch(row.id, {
+        isLike: false,
+        likeCount: Math.max(0, Number(row.likeCount ?? 0) - 1),
+      });
+    } else {
+      await likeCommentApi(row.id);
+      applyCommentLikePatch(row.id, {
+        isLike: true,
+        likeCount: Number(row.likeCount ?? 0) + 1,
+      });
+    }
+  } catch (e) {
+    pushToast(e?.message || (row.isLike ? "取消点赞失败" : "点赞失败"), "error");
+  } finally {
+    const next = { ...commentLikeBusyById.value };
+    delete next[sid];
+    commentLikeBusyById.value = next;
   }
 }
 
@@ -3861,9 +4179,168 @@ function applyAppFavicon() {
 }
 
 
-function onNotify() {
-  pageHint.value = "点击了通知按钮：后续可展示消息列表和未读状态。";
-  pushToast("通知功能开发中", "info");
+/** 与轮询配合：未读数基准，避免 WS 已推过仍重复提示 */
+let notifyUnreadPollBaseline = -1;
+let notifyUnreadPollTimer = null;
+
+async function refreshNotifyUnreadCount() {
+  if (!getToken()) {
+    notifyUnreadCount.value = 0;
+    notifyUnreadPollBaseline = -1;
+    return;
+  }
+  try {
+    const c = await fetchUnreadNotificationCount();
+    notifyUnreadCount.value = c;
+    notifyUnreadPollBaseline = c;
+  } catch {
+    /* ignore */
+  }
+}
+
+function startNotifyUnreadPoll() {
+  stopNotifyUnreadPoll();
+  notifyUnreadPollTimer = window.setInterval(async () => {
+    if (!getToken()) return;
+    try {
+      const c = await fetchUnreadNotificationCount();
+      if (notifyUnreadPollBaseline >= 0 && c > notifyUnreadPollBaseline) {
+        pushToast("您有新的通知，请点击顶部铃铛查看", "info");
+      }
+      notifyUnreadCount.value = c;
+      notifyUnreadPollBaseline = c;
+      reconnectNotifyWebSocketIfNeeded();
+    } catch {
+      /* ignore */
+    }
+  }, 22000);
+}
+
+function stopNotifyUnreadPoll() {
+  if (notifyUnreadPollTimer != null) {
+    window.clearInterval(notifyUnreadPollTimer);
+    notifyUnreadPollTimer = null;
+  }
+  notifyUnreadPollBaseline = -1;
+}
+
+async function loadNotifyListPage(reset) {
+  if (!getToken()) return;
+  notifyLoading.value = true;
+  if (reset) {
+    notifyErrorMsg.value = "";
+  }
+  const page = reset ? 1 : notifyPageNo.value;
+  if (reset) {
+    notifyPageNo.value = 1;
+  }
+  try {
+    const { total, pages, list } = await fetchNotificationPage({
+      pageNo: page,
+      pageSize: NOTIFY_PAGE_SIZE,
+    });
+    notifyPages.value = pages;
+    notifyTotal.value = total;
+    if (reset) {
+      notifyList.value = list;
+    } else {
+      notifyList.value = [...notifyList.value, ...list];
+    }
+  } catch (e) {
+    notifyErrorMsg.value = e?.message || "加载通知失败";
+  } finally {
+    notifyLoading.value = false;
+  }
+}
+
+function toggleNotifyPanel() {
+  notifyPanelOpen.value = !notifyPanelOpen.value;
+  if (notifyPanelOpen.value) {
+    pageHint.value = "通知";
+    void refreshNotifyUnreadCount();
+    void loadNotifyListPage(true);
+  }
+}
+
+function closeNotifyPanel() {
+  notifyPanelOpen.value = false;
+}
+
+async function loadMoreNotifications() {
+  if (notifyLoading.value) return;
+  if (notifyPageNo.value >= notifyPages.value) return;
+  notifyPageNo.value += 1;
+  await loadNotifyListPage(false);
+}
+
+function formatNotifyTime(t) {
+  if (!t) return "";
+  try {
+    const d = new Date(t);
+    if (Number.isNaN(d.getTime())) return String(t);
+    return d.toLocaleString();
+  } catch {
+    return String(t);
+  }
+}
+
+async function onNotifyItemClick(item) {
+  if (!item?.id) return;
+  try {
+    await markNotificationRead(item.id);
+    await refreshNotifyUnreadCount();
+  } catch (e) {
+    pushToast(e?.message || "标记已读失败", "error");
+    return;
+  }
+  const nid = item.id;
+  notifyList.value = notifyList.value.map((r) => (r.id === nid ? { ...r, isRead: true } : r));
+  const vid = item.videoId != null ? parseVideoIdForApi(item.videoId) : null;
+  if (vid == null) {
+    pushToast("暂无法跳转到视频（可能评论已删除）", "info");
+    return;
+  }
+  closeNotifyPanel();
+  await openVideoDetail({ id: vid });
+}
+
+async function onNotifyDelete(item) {
+  if (!item?.id) return;
+  try {
+    await deleteNotification(item.id);
+    notifyList.value = notifyList.value.filter((r) => r.id !== item.id);
+    notifyTotal.value = Math.max(0, notifyTotal.value - 1);
+    const ps = Math.max(1, Math.ceil(notifyTotal.value / NOTIFY_PAGE_SIZE) || 1);
+    notifyPages.value = ps;
+    await refreshNotifyUnreadCount();
+  } catch (e) {
+    pushToast(e?.message || "删除失败", "error");
+  }
+}
+
+function onNotifySocketMessage(data) {
+  void refreshNotifyUnreadCount();
+  if (notifyPanelOpen.value) {
+    void loadNotifyListPage(true);
+  }
+  const raw = typeof data === "string" ? data : String(data);
+  try {
+    const o = JSON.parse(raw);
+    const nick = pickNotifyWsNickname(o);
+    const typeCode = pickNotifyWsTypeCode(o);
+    const label = NOTIFICATION_TYPE_LABELS[typeCode] || typeCode || "新通知";
+    const title = nick ? `${nick} · ${label}` : label;
+    let content = pickNotifyWsContent(o);
+    if (!String(content || "").trim()) {
+      content = NOTIFICATION_TYPE_LABELS[typeCode] || "";
+    }
+    const avatarUrl = pickNotifyWsAvatarUrl(o);
+    const videoId = pickNotifyWsVideoId(raw, o);
+    const notificationId = pickNotifyWsNotificationId(raw, o);
+    pushNotifyLiveToast({ avatarUrl, title, content, videoId, notificationId });
+  } catch {
+    pushToast(raw.slice(0, 120), "info");
+  }
 }
 
 async function loadProfileUser({ withWorks = false } = {}) {
@@ -4690,6 +5167,15 @@ const shortsFeedCurrent = computed(() => {
 
 const shortsFeedVideoSrc = computed(() => resolveVideoUrl(shortsFeedCurrent.value));
 
+watch(
+  () => shortsFeedVideoSrc.value,
+  (src) => {
+    if (!src) {
+      hideShortsBufferingOverlay();
+    }
+  }
+);
+
 /**
  * 短视频流红心：普通流看接口 isLike；赞过列表后端可能不传该字段，默认视为已赞，
  * 仅当本地明确 patch 为 isLike === false（取消赞）时显示空心。
@@ -5205,8 +5691,9 @@ async function sendShortsHistoryBatch(videoIds, { keepalive = false } = {}) {
   }
   if (keepalive) {
     const headers = { "Content-Type": "application/json" };
-    if (token.value) {
-      headers.Authorization = token.value;
+    const authTok = getToken();
+    if (authTok) {
+      headers.Authorization = authTok;
     }
     await fetch("/videos/shorts/play", {
       method: "PUT",
@@ -5287,6 +5774,18 @@ function formatShortsTime(sec) {
   const s = Math.floor(sec % 60);
   const m = Math.floor(sec / 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function onShortsFeedFgLoadStart() {
+  scheduleShortsBufferingOverlay();
+}
+
+function onShortsFeedFgCanPlay() {
+  hideShortsBufferingOverlay();
+}
+
+function onShortsFeedFgMediaError() {
+  hideShortsBufferingOverlay();
 }
 
 async function onShortsFeedFgLoadedMetadata(e) {
@@ -5683,7 +6182,8 @@ async function sendShortsLongPlaybackResume(payload, { keepalive = false } = {})
   if (!payload) return;
   try {
     const headers = { "Content-Type": "application/json" };
-    if (token.value) headers.Authorization = token.value;
+    const authTok = getToken();
+    if (authTok) headers.Authorization = authTok;
     await fetch("/videos/playback/resume", {
       method: "PUT",
       headers,
@@ -6251,7 +6751,8 @@ async function submitLogin() {
       captcha: loginForm.value.captcha.trim(),
     });
     setToken(responseToken);
-    token.value = responseToken;
+    token.value = getToken();
+    void refreshNotifyUnreadCount();
     authMessage.value = "登录成功。";
     pushToast("登录成功", "success");
     const homeMenu = primaryMenus[0];
@@ -6365,6 +6866,7 @@ function onAuthExpired(event) {
   const msg = event?.detail?.reason || "登录状态已过期，请重新登录。";
   clearToken();
   token.value = "";
+  hideDetailBufferingOverlay();
   showVideoDetail.value = false;
   showProfileCenter.value = false;
   showStudio.value = false;
@@ -6426,7 +6928,6 @@ function onWindowPopState() {
   }
   const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
   if (!v && showVideoDetail.value) {
-    detailAutoplayMutedFallback.value = false;
     try {
       // 切走详情（浏览器返回/关闭 v 参数）：立即上报长视频续播
       void flushDetailPlaybackResume("leave");
@@ -6437,6 +6938,7 @@ function onWindowPopState() {
     }
     showVideoDetail.value = false;
     videoDetail.value = null;
+    hideDetailBufferingOverlay();
     detailErrorMsg.value = "";
     detailSidebarList.value = [];
     void reloadFeedAfterLeavingDetail();
@@ -6473,6 +6975,30 @@ watch(
   () => {
     saveUiStateToSession();
   }
+);
+
+watch(
+  isAuthed,
+  async (authed) => {
+    if (authed) {
+      await refreshNotifyUnreadCount();
+      startNotifyWebSocket({
+        onMessage: onNotifySocketMessage,
+      });
+      startNotifyUnreadPoll();
+    } else {
+      stopNotifyUnreadPoll();
+      stopNotifyWebSocket();
+      hideShortsBufferingOverlay();
+      closeNotifyPanel();
+      notifyUnreadCount.value = 0;
+      notifyList.value = [];
+      notifyPages.value = 0;
+      notifyTotal.value = 0;
+      notifyErrorMsg.value = "";
+    }
+  },
+  { immediate: true }
 );
 
 onMounted(async () => {
@@ -6559,6 +7085,10 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  clearDetailBufferingUITimer();
+  clearShortsBufferingUITimer();
+  stopNotifyUnreadPoll();
+  stopNotifyWebSocket();
   stopCardHoverPreview();
   window.removeEventListener("resize", onWindowResize);
   window.removeEventListener("scroll", onWindowScroll);
@@ -6886,7 +7416,91 @@ onBeforeUnmount(() => {
           <button v-if="showVideoDetail" type="button" class="action-btn" @click="closeVideoDetail">返回</button>
           <button v-else-if="showStudio" type="button" class="action-btn" @click="closeStudio">返回</button>
           <button class="action-btn" @click="onCreate">{{ showStudio ? "上传视频" : "创建" }}</button>
-          <button class="action-btn" @click="onNotify">通知</button>
+          <div class="notify-shell">
+            <div
+              v-if="notifyPanelOpen"
+              class="notify-backdrop"
+              aria-hidden="true"
+              @click="closeNotifyPanel"
+            />
+            <button
+              type="button"
+              class="action-btn notify-trigger"
+              :class="{ 'notify-trigger--active': notifyPanelOpen }"
+              aria-haspopup="dialog"
+              :aria-expanded="String(notifyPanelOpen)"
+              @click.stop="toggleNotifyPanel"
+            >
+              通知
+              <span v-if="notifyUnreadCount > 0" class="notify-badge" :title="`未读 ${notifyUnreadCount}`">
+                {{ notifyUnreadCount > 99 ? "99+" : notifyUnreadCount }}
+              </span>
+            </button>
+            <div
+              v-if="notifyPanelOpen"
+              class="notify-panel"
+              role="dialog"
+              aria-label="通知列表"
+              @click.stop
+            >
+              <div class="notify-panel__head">
+                <div class="notify-panel__title-wrap">
+                  <span class="notify-panel__title">通知</span>
+                  <span v-if="notifyTotal > 0" class="notify-panel__sub">共 {{ notifyTotal }} 条</span>
+                </div>
+                <button type="button" class="notify-panel__close" aria-label="关闭" @click="closeNotifyPanel">
+                  <i class="ri-close-line" aria-hidden="true"></i>
+                </button>
+              </div>
+              <p v-if="notifyErrorMsg" class="notify-panel__err">{{ notifyErrorMsg }}</p>
+              <div v-if="notifyList.length" class="notify-panel__list">
+                <div
+                  v-for="item in notifyList"
+                  :key="item.id"
+                  class="notify-row"
+                  :class="{ 'notify-row--unread': !item.isRead }"
+                >
+                  <button type="button" class="notify-row__main" @click="onNotifyItemClick(item)">
+                    <img
+                      :src="item.senderAvatarUrl || profileAvatar"
+                      alt=""
+                      class="notify-row__avatar"
+                      @error="onTopbarAvatarError"
+                    />
+                    <div class="notify-row__body">
+                      <div class="notify-row__meta">
+                        <span class="notify-row__nick">{{ item.senderNickname }}</span>
+                        <span class="notify-row__type">{{ item.typeLabel }}</span>
+                        <span v-if="!item.isRead" class="notify-row__unread-badge" title="未读">未读</span>
+                      </div>
+                      <p v-if="item.content" class="notify-row__content">{{ item.content }}</p>
+                      <time class="notify-row__time">{{ formatNotifyTime(item.createTime) }}</time>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    class="notify-row__delete"
+                    title="删除"
+                    aria-label="删除此通知"
+                    @click.stop="onNotifyDelete(item)"
+                  >
+                    <i class="ri-delete-bin-line" aria-hidden="true"></i>
+                  </button>
+                </div>
+                <button
+                  v-if="notifyPages > 0 && notifyPageNo < notifyPages"
+                  type="button"
+                  class="notify-load-more"
+                  :disabled="notifyLoading"
+                  @click="loadMoreNotifications"
+                >
+                  {{ notifyLoading ? "加载中…" : "加载更多" }}
+                </button>
+              </div>
+              <p v-else-if="!notifyLoading" class="notify-panel__empty">暂无通知</p>
+              <p v-else class="notify-panel__loading">加载中…</p>
+            </div>
+          </div>
           <button
             type="button"
             class="avatar-btn avatar-btn--img"
@@ -6905,12 +7519,71 @@ onBeforeUnmount(() => {
           v-for="t in toasts"
           :key="t.id"
           class="toast-item"
-          :class="`toast-item--${t.type}`"
+          :class="t.notify ? 'toast-item--live-notify' : `toast-item--${t.type}`"
         >
-          <span class="toast-item__text">{{ t.message }}</span>
-          <button type="button" class="toast-item__close" aria-label="关闭提示" @click="removeToast(t.id)">
-            <i class="ri-close-line"></i>
-          </button>
+          <template v-if="t.notify">
+            <div
+              class="toast-notify-main"
+              :class="{
+                'toast-notify-main--clickable':
+                  (t.notify.videoId != null && t.notify.videoId !== '') ||
+                  (t.notify.notificationId != null && t.notify.notificationId !== ''),
+              }"
+              :role="
+                (t.notify.videoId != null && t.notify.videoId !== '') ||
+                (t.notify.notificationId != null && t.notify.notificationId !== '')
+                  ? 'button'
+                  : undefined
+              "
+              :tabindex="
+                (t.notify.videoId != null && t.notify.videoId !== '') ||
+                (t.notify.notificationId != null && t.notify.notificationId !== '')
+                  ? 0
+                  : undefined
+              "
+              @click="onNotifyToastClick(t)"
+              @keydown.enter.prevent="onNotifyToastClick(t)"
+              @keydown.space.prevent="onNotifyToastClick(t)"
+            >
+              <img
+                :src="t.notify.avatarUrl || profileAvatar"
+                alt=""
+                class="toast-notify-avatar"
+                @error="(e) => (e.target.src = profileAvatar)"
+              />
+              <div class="toast-notify-copy">
+                <div class="toast-notify-title">{{ t.notify.title }}</div>
+                <div v-if="t.notify.content" class="toast-notify-body">{{ t.notify.content }}</div>
+                <div v-else class="toast-notify-body toast-notify-body--muted">（无正文预览）</div>
+                <span
+                  v-if="t.notify.videoId != null && t.notify.videoId !== ''"
+                  class="toast-notify-cta"
+                >
+                  点击查看视频 <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
+                </span>
+                <span
+                  v-else-if="t.notify.notificationId != null && t.notify.notificationId !== ''"
+                  class="toast-notify-cta"
+                >
+                  点击标记已读 <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="toast-item__close toast-item__close--glass"
+              aria-label="关闭"
+              @click.stop="removeToast(t.id)"
+            >
+              <i class="ri-close-line"></i>
+            </button>
+          </template>
+          <template v-else>
+            <span class="toast-item__text">{{ t.message }}</span>
+            <button type="button" class="toast-item__close" aria-label="关闭提示" @click="removeToast(t.id)">
+              <i class="ri-close-line"></i>
+            </button>
+          </template>
         </div>
       </div>
 
@@ -7670,6 +8343,9 @@ onBeforeUnmount(() => {
                       preload="metadata"
                       :src="shortsFeedVideoSrc"
                       @click="shortsTogglePlay"
+                      @loadstart="onShortsFeedFgLoadStart"
+                      @canplay="onShortsFeedFgCanPlay"
+                      @error="onShortsFeedFgMediaError"
                       @loadedmetadata="onShortsFeedFgLoadedMetadata"
                       @durationchange="onShortsFeedFgDurationChange"
                       @timeupdate="onShortsFeedFgTimeUpdate"
@@ -7678,6 +8354,18 @@ onBeforeUnmount(() => {
                       @seeked="onShortsFeedFgSeeked"
                       @ended="onShortsFeedFgEnded"
                     ></video>
+                    <div
+                      v-show="shortsFeedVideoBuffering && shortsFeedVideoSrc"
+                      class="video-player-loading video-player-loading--shorts"
+                      aria-live="polite"
+                      aria-busy="true"
+                    >
+                      <div class="video-player-loading__shimmer video-player-loading__shimmer--shorts" aria-hidden="true" />
+                      <div class="video-player-loading__inner">
+                        <span class="video-player-loading__ring video-player-loading__ring--shorts" />
+                        <span class="video-player-loading__text video-player-loading__text--shorts">正在加载</span>
+                      </div>
+                    </div>
                     <div
                       v-show="shortsFeedPaused"
                       class="shorts-feed-pause-overlay"
@@ -7968,7 +8656,21 @@ onBeforeUnmount(() => {
                           </div>
                           <p class="video-detail-comment-text">{{ c.content }}</p>
                           <div class="video-detail-comment-actions">
-                            <span><i class="ri-thumb-up-line"></i> {{ c.likeCount }}</span>
+                            <button
+                              type="button"
+                              class="video-detail-comment-like-btn"
+                              :class="{ 'video-detail-comment-like-btn--active': c.isLike }"
+                              :disabled="isCommentLikeBusy(c.id)"
+                              :aria-pressed="c.isLike ? 'true' : 'false'"
+                              :aria-label="c.isLike ? '取消点赞' : '点赞'"
+                              @click="submitCommentLike(c)"
+                            >
+                              <i
+                                :class="c.isLike ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'"
+                                aria-hidden="true"
+                              ></i>
+                              {{ c.likeCount ?? 0 }}
+                            </button>
                             <button
                               v-if="isAuthed && shortsFeedCurrentAllowsComment()"
                               type="button"
@@ -8044,7 +8746,21 @@ onBeforeUnmount(() => {
                                 </div>
                                 <p class="video-detail-comment-text">{{ r.content }}</p>
                                 <div class="video-detail-comment-actions">
-                                  <span><i class="ri-thumb-up-line"></i> {{ r.likeCount }}</span>
+                                  <button
+                                    type="button"
+                                    class="video-detail-comment-like-btn"
+                                    :class="{ 'video-detail-comment-like-btn--active': r.isLike }"
+                                    :disabled="isCommentLikeBusy(r.id)"
+                                    :aria-pressed="r.isLike ? 'true' : 'false'"
+                                    :aria-label="r.isLike ? '取消点赞' : '点赞'"
+                                    @click="submitCommentLike(r)"
+                                  >
+                                    <i
+                                      :class="r.isLike ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'"
+                                      aria-hidden="true"
+                                    ></i>
+                                    {{ r.likeCount ?? 0 }}
+                                  </button>
                                   <button
                                     v-if="isAuthed && shortsFeedCurrentAllowsComment()"
                                     type="button"
@@ -8545,7 +9261,10 @@ onBeforeUnmount(() => {
       </main>
 
       <div v-if="showVideoDetail" class="video-detail-page video-detail-page--layer">
-        <div v-if="detailLoading" class="video-detail-loading">加载中…</div>
+        <div v-if="detailLoading" class="video-detail-loading" aria-busy="true">
+          <span class="video-player-loading__ring video-player-loading__ring--detail" />
+          <span class="video-detail-loading__text">加载中…</span>
+        </div>
         <template v-else-if="videoDetail">
           <div class="video-detail-layout">
             <div class="video-detail-main">
@@ -8559,9 +9278,10 @@ onBeforeUnmount(() => {
                   playsinline
                   preload="auto"
                   autoplay
-                  :poster="videoDetail.coverUrl || undefined"
                   :src="videoDetail.videoUrl"
+                  @loadstart="onDetailVideoLoadStart"
                   @canplay="onDetailVideoCanPlay"
+                  @error="onDetailVideoMediaError"
                   @loadeddata="() => void tryDetailVideoAutoplay()"
                   @loadedmetadata="() => { applyDetailPlaybackResumeIfNeeded(); void tryDetailVideoAutoplay(); }"
                   @canplaythrough="() => void tryDetailVideoAutoplay()"
@@ -8570,12 +9290,20 @@ onBeforeUnmount(() => {
                   @timeupdate="onDetailVideoTimeUpdate"
                   @seeked="onDetailVideoSeeked"
                   @ended="onDetailVideoEnded"
-                  @volumechange="onDetailVideoVolumeChange"
                 />
-                <div v-else class="video-detail-player-empty">暂无播放地址</div>
-                <p v-if="detailAutoplayMutedFallback" class="video-detail-autoplay-hint">
-                  浏览器限制自动播放已静音，请点播放器音量图标开声
-                </p>
+                <div
+                  v-if="videoDetail.videoUrl && detailVideoBuffering"
+                  class="video-player-loading video-player-loading--detail"
+                  aria-live="polite"
+                  aria-busy="true"
+                >
+                  <div class="video-player-loading__shimmer" aria-hidden="true" />
+                  <div class="video-player-loading__inner">
+                    <span class="video-player-loading__ring video-player-loading__ring--detail" />
+                    <span class="video-player-loading__text video-player-loading__text--detail">正在加载视频</span>
+                  </div>
+                </div>
+                <div v-else-if="!videoDetail.videoUrl" class="video-detail-player-empty">暂无播放地址</div>
               </div>
               <h1 class="video-detail-title">{{ videoDetail.title }}</h1>
               <div class="video-detail-meta-row">
@@ -8693,7 +9421,21 @@ onBeforeUnmount(() => {
                         </div>
                         <p class="video-detail-comment-text">{{ c.content }}</p>
                         <div class="video-detail-comment-actions">
-                          <span><i class="ri-thumb-up-line"></i> {{ c.likeCount }}</span>
+                          <button
+                            type="button"
+                            class="video-detail-comment-like-btn"
+                            :class="{ 'video-detail-comment-like-btn--active': c.isLike }"
+                            :disabled="isCommentLikeBusy(c.id)"
+                            :aria-pressed="c.isLike ? 'true' : 'false'"
+                            :aria-label="c.isLike ? '取消点赞' : '点赞'"
+                            @click="submitCommentLike(c)"
+                          >
+                            <i
+                              :class="c.isLike ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'"
+                              aria-hidden="true"
+                            ></i>
+                            {{ c.likeCount ?? 0 }}
+                          </button>
                           <button
                             v-if="isAuthed && detailVideoAllowComment()"
                             type="button"
@@ -8772,7 +9514,21 @@ onBeforeUnmount(() => {
                               </div>
                               <p class="video-detail-comment-text">{{ r.content }}</p>
                               <div class="video-detail-comment-actions">
-                                <span><i class="ri-thumb-up-line"></i> {{ r.likeCount }}</span>
+                                <button
+                                  type="button"
+                                  class="video-detail-comment-like-btn"
+                                  :class="{ 'video-detail-comment-like-btn--active': r.isLike }"
+                                  :disabled="isCommentLikeBusy(r.id)"
+                                  :aria-pressed="r.isLike ? 'true' : 'false'"
+                                  :aria-label="r.isLike ? '取消点赞' : '点赞'"
+                                  @click="submitCommentLike(r)"
+                                >
+                                  <i
+                                    :class="r.isLike ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'"
+                                    aria-hidden="true"
+                                  ></i>
+                                  {{ r.likeCount ?? 0 }}
+                                </button>
                                 <button
                                   v-if="isAuthed && detailVideoAllowComment()"
                                   type="button"

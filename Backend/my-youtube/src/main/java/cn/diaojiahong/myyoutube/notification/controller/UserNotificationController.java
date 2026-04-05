@@ -59,4 +59,15 @@ public class UserNotificationController {
     public Result<Long> getUnreadCount() {
         return userNotificationService.getUnreadCount();
     }
+
+    /**
+     * 用户删除某条通知
+     * @param notificationId 通知id
+     * @return
+     */
+    @Operation(summary = "用户删除某条通知")
+    @DeleteMapping("/{notificationId}")
+    public Result<Void> deleteNotification(@PathVariable Long notificationId) {
+        return userNotificationService.deleteNotification(notificationId);
+    }
 }

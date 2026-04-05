@@ -24,4 +24,6 @@ public class NotificationVO {
     private Long videoId;
     // 发送时间
     private LocalDateTime createTime;
+    // 是否已读
+    private Boolean isRead;
 }

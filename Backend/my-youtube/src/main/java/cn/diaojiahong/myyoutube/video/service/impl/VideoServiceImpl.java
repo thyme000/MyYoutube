@@ -166,6 +166,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         Page<Video> page = pageQuery.toPage();
         LambdaQueryWrapper<Video> q = new LambdaQueryWrapper<>();
         q.eq(Video::getIsDelete, 0);
+        q.eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC);
 
         if (pageQuery.getCategory() != null) {
             q.eq(Video::getCategory, pageQuery.getCategory());
@@ -238,7 +239,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 获取作者的信息
         User author = userService.getById(video.getAuthorId());
         detailVo.setAuthorFanCount(author.getFans());
-        detailVo.setAuthorAvatarUrl(author.getAvatarUrl());
+        detailVo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(author.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         detailVo.setAuthorNickname(author.getNickname());
 
         return Result.success(detailVo);
