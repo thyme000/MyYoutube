@@ -28,4 +28,6 @@ public class CommentVO {
     private String replyNickname;
     // 回复用户的id
     private Long replyUserId;
+    // 是否点赞
+    private Boolean isLike;
 }

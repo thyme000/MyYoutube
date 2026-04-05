@@ -83,4 +83,15 @@ public class VideoLikeController {
     public Result<Boolean> getLikeStatus(@PathVariable Long videoId) {
         return videoLikeService.getLikeStatus(videoId);
     }
+
+    /**
+     * 用户给某条评论点赞
+     * @param commentId 评论id
+     * @return
+     */
+    @Operation(summary = "用户给评论点赞")
+    @PostMapping("/comment/{commentId}")
+    public Result<Void> likeComment(@PathVariable Long commentId) {
+        return videoLikeService.likeComment(commentId);
+    }
 }

@@ -15,4 +15,18 @@ public class RabbitMqConstants {
     public static final String UPDATE_VIDEO_DOCUMENT_ROUTING_KEY = "update_video_document_routing_key";
     // 更新视频文档交换机
     public static final String UPDATE_VIDEO_DOCUMENT_EXCHANGE = "update_video_document_exchange";
+
+    // 点赞评论队列
+    public static final String LIKE_COMMENT_QUEUE = "like_comment_queue";
+    // 点赞评论路由键
+    public static final String LIKE_COMMENT_ROUTING_KEY = "like_comment_routing_key";
+    // 点赞评论交换机
+    public static final String LIKE_COMMENT_EXCHANGE = "like_comment_exchange";
+
+    // 发布评论队列
+    public static final String PUBLISH_COMMENT_QUEUE = "publish_comment_queue";
+    // 发布评论路由键
+    public static final String PUBLISH_COMMENT_ROUTING_KEY = "publish_comment_routing_key";
+    // 发布评论交换机
+    public static final String PUBLISH_COMMENT_EXCHANGE = "publish_comment_exchange";
 }

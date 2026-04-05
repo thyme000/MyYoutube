@@ -1759,20 +1759,9 @@ body {
 }
 
 .video-detail-comments-note {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.video-detail-sort-btn {
   margin-left: auto;
-  border: none;
-  background: transparent;
-  color: var(--muted);
   font-size: 13px;
-  cursor: not-allowed;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  color: var(--muted);
 }
 
 .video-detail-comment-input {
@@ -1789,6 +1778,58 @@ body {
   object-fit: cover;
   flex-shrink: 0;
   background: var(--line);
+}
+
+.video-detail-comment-avatar--clickable {
+  cursor: pointer;
+}
+
+.video-detail-comment-avatar--clickable:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.video-detail-comment-user--link {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.video-detail-comment-user--link:hover {
+  color: #3b82f6;
+}
+
+.video-detail-comment-arrow {
+  display: inline-block;
+  margin: 0 6px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+  vertical-align: middle;
+  user-select: none;
+}
+
+.video-detail-comment-at--link {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: #3b82f6;
+  cursor: pointer;
+}
+
+.video-detail-comment-at--link:hover {
+  text-decoration: underline;
 }
 
 .video-detail-comment-field {
@@ -1841,9 +1882,112 @@ body {
 
 .video-detail-comment-actions {
   display: flex;
+  align-items: center;
   gap: 16px;
   font-size: 13px;
   color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.video-detail-comment-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.video-detail-comment-reply-hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.video-detail-comment-reply-cancel {
+  border: none;
+  background: transparent;
+  color: #3b82f6;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+
+.video-detail-comment-send {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-radius: 18px;
+  border: none;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.video-detail-comment-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.video-detail-comment-action-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+
+.video-detail-comment-action-btn:hover {
+  color: var(--text);
+}
+
+.video-detail-comment-action-btn--danger:hover {
+  color: #ef4444;
+}
+
+.video-detail-thread-toggle {
+  margin-top: 6px;
+  border: none;
+  background: transparent;
+  color: #3b82f6;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.video-detail-comment-replies {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0 0 0 8px;
+  border-left: 2px solid var(--line);
+}
+
+.video-detail-comment-item--reply {
+  margin-bottom: 14px;
+}
+
+.video-detail-comment-avatar--sm {
+  width: 32px;
+  height: 32px;
+}
+
+.video-detail-comment-at {
+  font-size: 12px;
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.video-detail-comments-empty {
+  margin: 12px 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.video-detail-comments-more {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
 }
 
 .video-detail-side {
@@ -3839,6 +3983,24 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   color: #ffffff;
 }
 
+.shorts-feed-user-link {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  text-shadow: inherit;
+  cursor: pointer;
+  text-align: left;
+  pointer-events: auto;
+}
+
+.shorts-feed-user-link:hover {
+  text-decoration: underline;
+}
+
 .shorts-feed-time-dot {
   font-weight: 500;
   color: rgba(255, 255, 255, 0.86);
@@ -4251,11 +4413,280 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   padding: 0;
 }
 
+/* 特异性需高于上一则，否则全屏连播里评论栏会被压到视频下方 */
+.profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+}
+
+.shorts-feed-player-column {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.shorts-feed-body--comments-open {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  padding: 0 0 18px 0;
+}
+
+.content--shorts .shorts-feed-body.shorts-feed-body--comments-open {
+  padding: 0 0 18px 0;
+}
+
+/* 播放区占满「评论栏」以外的宽度，避免大屏下右侧大块留白 */
+.shorts-feed-body--comments-open .shorts-feed-player-column {
+  flex: 1 1 0%;
+  min-width: 0;
+  max-width: none;
+}
+
+.profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open .shorts-feed-player-column {
+  flex: 1 1 0%;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  z-index: 0;
+}
+
+/* 避免全屏连播里 width:100vw 的视频层盖住右侧评论栏 */
+.profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open .shorts-feed-center {
+  width: 100% !important;
+  max-width: 100%;
+  height: 100% !important;
+  max-height: 100%;
+  min-height: 0;
+}
+
+.shorts-feed-comments-panel {
+  flex: 0 0 auto;
+  width: min(400px, 40vw);
+  min-width: 280px;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  /* 浅灰 + 轻微渐变与侧向阴影，做出「嵌在画面里」的体积感 */
+  background: linear-gradient(165deg, #fafbfc 0%, #f1f4f8 42%, #e8ecf2 100%);
+  color: #1e293b;
+  border-left: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow:
+    -12px 0 40px rgba(15, 23, 42, 0.1),
+    inset 1px 0 0 rgba(255, 255, 255, 0.9);
+  --text: #1e293b;
+  --muted: #64748b;
+  --line: rgba(15, 23, 42, 0.1);
+  --panel: #ffffff;
+  padding: 14px 14px 14px 16px;
+  min-height: 0;
+  box-sizing: border-box;
+  backdrop-filter: saturate(1.05) blur(10px);
+  -webkit-backdrop-filter: saturate(1.05) blur(10px);
+}
+
+.profile-feed-overlay .shorts-feed-body--comments-open {
+  padding: 0;
+}
+
+.profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open .shorts-feed-comments-panel {
+  flex: 0 0 auto;
+  width: min(400px, 40vw);
+  min-width: 280px;
+  max-width: 440px;
+  align-self: stretch;
+  height: auto;
+  min-height: 0;
+  position: relative;
+  z-index: 2;
+}
+
+.shorts-feed-comments-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.shorts-feed-comments-panel-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.shorts-feed-comments-panel-close {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.shorts-feed-comments-panel-close:hover {
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+  color: #1e293b;
+}
+
+/* 侧栏内评论列表与输入区：白底凹槽 + 轻阴影，与浅灰侧栏形成层次 */
+.shorts-feed-comments-panel .video-detail-comment-input {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  gap: 10px;
+  align-items: center;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 1px rgba(15, 23, 42, 0.04),
+    0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.shorts-feed-comments-panel .video-detail-comment-field {
+  border: none;
+  border-bottom: none;
+  padding: 6px 4px;
+  color: #1e293b;
+}
+
+.shorts-feed-comments-panel .video-detail-comment-field::placeholder {
+  color: #94a3b8;
+}
+
+.shorts-feed-comments-panel .video-detail-comment-avatar {
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.shorts-feed-comments-panel .video-detail-comment-send {
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.35);
+}
+
+.shorts-feed-comments-panel .video-detail-comment-send:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.shorts-feed-comments-panel .video-detail-comments-note {
+  color: #64748b;
+  margin-bottom: 8px;
+  display: inline-block;
+}
+
+.shorts-feed-comments-panel .video-detail-comment-reply-hint {
+  color: #475569;
+}
+
+.shorts-feed-comments-panel .video-detail-comments-empty {
+  margin: 8px 0 12px;
+  padding: 22px 14px;
+  text-align: center;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px dashed rgba(15, 23, 42, 0.1);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.shorts-feed-comments-panel .video-detail-comments-mock > li.video-detail-comment-item {
+  padding: 12px 12px 12px 10px;
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.shorts-feed-comments-panel .video-detail-comment-item--reply {
+  padding: 8px 0 0;
+  margin-bottom: 12px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.shorts-feed-comments-panel .video-detail-comment-replies {
+  border-left-color: rgba(15, 23, 42, 0.1);
+}
+
+.shorts-feed-comments-panel .video-detail-comments-more .history-layout-btn {
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  color: #334155;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.shorts-feed-comments-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 8px;
+  padding-right: 4px;
+}
+
+@media (max-width: 900px) {
+  .shorts-feed-body--comments-open {
+    position: relative;
+  }
+
+  .shorts-feed-body--comments-open .shorts-feed-player-column {
+    max-width: 100%;
+    flex: 1 1 auto;
+  }
+
+  .profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open .shorts-feed-player-column {
+    max-width: 100%;
+    flex: 1 1 auto;
+  }
+
+  .shorts-feed-comments-panel {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: min(100%, 400px);
+    max-width: none;
+    flex: none;
+    z-index: 60;
+    box-shadow:
+      -16px 0 48px rgba(15, 23, 42, 0.14),
+      inset 1px 0 0 rgba(255, 255, 255, 0.85);
+  }
+
+  .profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open .shorts-feed-comments-panel {
+    flex: none;
+    max-width: none;
+    z-index: 60;
+  }
+}
+
 .profile-feed-close {
   position: absolute;
   top: 16px;
   right: 16px;
-  z-index: 20;
+  z-index: 80;
   width: 44px;
   height: 44px;
   border-radius: 50%;
@@ -4272,6 +4703,12 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 
 .profile-feed-close:hover {
   background: rgba(0, 0, 0, 0.62);
+}
+
+/* 打开评论侧栏时避免与侧栏右上角关闭钮叠在一起 */
+.profile-feed-close--comments-open {
+  left: 16px;
+  right: auto;
 }
 
 /* 短视频全屏弹窗：底层同帧模糊填充，前景 contain（纵向视频两侧留边时效果类似抖音） */

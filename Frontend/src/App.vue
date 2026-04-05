@@ -31,6 +31,7 @@ import {
   openMyVideoComment,
   closeMyVideoComment,
 } from "./api/videoApi";
+import { fetchCommentPage, publishComment as publishCommentApi, deleteComment as deleteCommentApi } from "./api/commentApi";
 import { reportVideoBehavior } from "./api/behaviorApi";
 import { getOssSts } from "./api/otherApi";
 import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
@@ -70,10 +71,6 @@ import {
 } from "./utils/userProfile";
 import { parseDigitSnowflakeId, safeSnowflakeId } from "./utils/snowflakeId.js";
 /** 短视频无接口数据时的本地 fallback（static 目录下四个 mp4） */
-import localShortV1 from "../static/c7bed897269ef9d11cfcaf38c27e855d.mp4?url";
-import localShortV2 from "../static/8d20eed729b54235eeaca56d49808aa9.mp4?url";
-import localShortV3 from "../static/d7527aad3983ad86bd80b09c5e4d826c.mp4?url";
-import localShortV4 from "../static/a5da19be6fe54cb2ca9f50d87315c755.mp4?url";
 import appIco from "../static/11.ico?url";
 
 const primaryMenus = [
@@ -167,6 +164,8 @@ const forgotCaptchaPreview = ref("");
 const showProfileCenter = ref(false);
 /** null = 自己的主页；有值 = 正在查看该 userId 的主页 */
 const profileTargetUserId = ref(null);
+/** 从详情页或短视频流进个人主页：浏览器后退时恢复（含侧栏评论里点头像） */
+const profileReturnContextRef = ref(null);
 /** 当前登录用户 id，来自 /user/info，用于判断是否「看自己」 */
 const currentUserId = ref(null);
 /** 当前登录用户资料快照（顶栏头像等），不因进入他人主页而被替换 */
@@ -281,23 +280,18 @@ const detailSidebarTabs = [
   { key: "short", label: "短视频" },
 ];
 
-/** 评论区占位（后端未就绪） */
-const detailMockComments = [
-  {
-    user: "@demo_user",
-    time: "2个月前",
-    text: "占位评论：后端接入后将显示真实评论。",
-    likes: 42,
-    avatar: profileAvatar,
-  },
-  {
-    user: "@viewer",
-    time: "1周前",
-    text: "👍 期待接口上线。",
-    likes: 12,
-    avatar: profileAvatar,
-  },
-];
+/** 长视频详情页评论（GET /comment/list、POST publish/delete） */
+const DETAIL_COMMENT_PAGE_SIZE = 10;
+const detailTopComments = ref([]);
+const detailCommentsLoading = ref(false);
+const detailCommentsPageNo = ref(1);
+const detailCommentsPages = ref(0);
+const detailCommentDraft = ref("");
+const detailCommentSubmitting = ref(false);
+const detailReplyTarget = ref(null);
+/** 楼主 id → { loaded, list } */
+const detailThreadByRootId = ref({});
+const detailExpandedRoots = ref({});
 /** 短视频全屏播放（纵向视频两侧模糊填充） */
 const shortPlayerOpen = ref(false);
 const shortPlayerVideoSrc = ref("");
@@ -319,6 +313,17 @@ const shortsFeedMuted = ref(false);
 const shortsFeedPaused = ref(true);
 /** 切换视频后自动播放（含进入短视频页） */
 const shortsFeedAutoplayPending = ref(false);
+/** 短视频流右侧评论侧栏（与详情共用 /comment API） */
+const shortsCommentPanelOpen = ref(false);
+const shortsPanelTopComments = ref([]);
+const shortsPanelCommentsLoading = ref(false);
+const shortsPanelCommentsPageNo = ref(1);
+const shortsPanelCommentsPages = ref(0);
+const shortsPanelCommentDraft = ref("");
+const shortsPanelCommentSubmitting = ref(false);
+const shortsPanelReplyTarget = ref(null);
+const shortsPanelThreadByRootId = ref({});
+const shortsPanelExpandedRoots = ref({});
 const historyLongRows = ref([]);
 const historyLongLoading = ref(false);
 const historyLongPageNo = ref(1);
@@ -370,8 +375,41 @@ const DEMO_VIDEO_LANDSCAPE =
   "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 const DEMO_VIDEO_PORTRAIT =
   "https://assets.mixkit.co/videos/preview/mixkit-tree-with-yellow-flowers-1173-large.mp4";
-const LOCAL_STATIC_VIDEO_POOL = [localShortV1, localShortV2, localShortV3, localShortV4];
+/** 无本地静态片源时，用在线演示 MP4 作占位（已移除 static 下四个本地文件） */
+const FALLBACK_DEMO_VIDEO_POOL = [DEMO_VIDEO_LANDSCAPE, DEMO_VIDEO_PORTRAIT];
 const UI_STATE_STORAGE_KEY = "myyoutube_ui_state_v1";
+/** 进个人主页时把返回快照写入 sessionStorage，避免内存 ref 丢失导致后退无法恢复短视频流 */
+const PROFILE_RETURN_CTX_STORAGE_KEY = "myyoutube_profile_return_ctx_v1";
+
+function persistProfileReturnContext(ctx) {
+  try {
+    if (ctx == null) {
+      sessionStorage.removeItem(PROFILE_RETURN_CTX_STORAGE_KEY);
+      return;
+    }
+    sessionStorage.setItem(PROFILE_RETURN_CTX_STORAGE_KEY, JSON.stringify(ctx));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readPersistedProfileReturnContext() {
+  try {
+    const raw = sessionStorage.getItem(PROFILE_RETURN_CTX_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const o = JSON.parse(raw);
+    return o && typeof o === "object" ? o : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearCapturedProfileReturnContext() {
+  profileReturnContextRef.value = null;
+  persistProfileReturnContext(null);
+}
 
 function pickFallbackVideoUrl(seed = "") {
   const s = String(seed || "");
@@ -379,8 +417,8 @@ function pickFallbackVideoUrl(seed = "") {
   for (let i = 0; i < s.length; i++) {
     hash = (hash * 31 + s.charCodeAt(i)) | 0;
   }
-  const idx = Math.abs(hash || Math.floor(Math.random() * 9973)) % LOCAL_STATIC_VIDEO_POOL.length;
-  return LOCAL_STATIC_VIDEO_POOL[idx] || DEMO_VIDEO_LANDSCAPE;
+  const idx = Math.abs(hash || Math.floor(Math.random() * 9973)) % FALLBACK_DEMO_VIDEO_POOL.length;
+  return FALLBACK_DEMO_VIDEO_POOL[idx] || DEMO_VIDEO_LANDSCAPE;
 }
 
 const profileWorksRows = ref([]);
@@ -1374,7 +1412,12 @@ function maybePrefetchFollowFeed() {
 }
 
 function getShortsLocalFallbackCards() {
-  const urls = [localShortV1, localShortV2, localShortV3, localShortV4];
+  const urls = [
+    DEMO_VIDEO_PORTRAIT,
+    DEMO_VIDEO_LANDSCAPE,
+    DEMO_VIDEO_PORTRAIT,
+    DEMO_VIDEO_LANDSCAPE,
+  ];
   return urls.map((url, index) => ({
     id: `local-short-${index + 1}`,
     title: `本地视频 ${index + 1}`,
@@ -1519,6 +1562,7 @@ function buildDetailFromCard(card) {
     authorFanCount: card?.authorFanCount ?? 0,
     isFollow: card?.isFollow,
     isLike: card?.isLike,
+    allowComment: card?.allowComment,
   });
 }
 
@@ -1799,9 +1843,13 @@ async function onDetailLikeClick() {
     const raw = await fetchVideoDetail(vid);
     const merged = normalizeVideoDetail(raw);
     if (merged) {
+      const keepVideoUrl = d.videoUrl;
+      const keepCoverUrl = d.coverUrl;
       videoDetail.value = {
         ...d,
         ...merged,
+        videoUrl: keepVideoUrl || merged.videoUrl,
+        coverUrl: keepCoverUrl ?? merged.coverUrl,
         isLike: detailSessionLiked.value,
       };
     } else {
@@ -2063,6 +2111,105 @@ function getMenuByActiveKey() {
   return primaryMenus[0];
 }
 
+function applyMenuKeyIfKnown(key) {
+  if (key == null || key === "") {
+    return;
+  }
+  const menu = [...primaryMenus, ...exploreMenus].find((m) => m.key === key);
+  if (!menu) {
+    return;
+  }
+  activeMenuKey.value = menu.key;
+  activeMenuLabel.value = menu.label;
+}
+
+function captureProfileReturnContext() {
+  if (showVideoDetail.value && videoDetail.value?.id != null) {
+    return {
+      kind: "detail",
+      videoId: String(videoDetail.value.id),
+      menuKey: activeMenuKey.value,
+    };
+  }
+  const cur = shortsFeedCurrent.value;
+  const curVid = cur?.id ?? cur?.videoId;
+  /** 含：短视频/关注主 feed，以及历史、赞过、个人作品等全屏 overlay（此时 menu 可能仍是 history/liked） */
+  const inUnifiedShortsPlayback =
+    activeMenuKey.value === "shorts" ||
+    activeMenuKey.value === "subscribed" ||
+    profileFeedOpen.value;
+  if (
+    inUnifiedShortsPlayback &&
+    unifiedFeedList.value.length &&
+    cur &&
+    curVid != null &&
+    String(curVid) !== ""
+  ) {
+    const list = unifiedFeedList.value;
+    return {
+      kind: "shortsFeed",
+      menuKey: activeMenuKey.value,
+      feedState: {
+        feedScope: feedScope.value,
+        profileFeedOpen: profileFeedOpen.value,
+        shortsFeedIndex: shortsFeedIndex.value,
+        shortsCommentPanelOpen: shortsCommentPanelOpen.value,
+        followSubscribedFilterAuthorId: followSubscribedFilterAuthorId.value,
+        queueCopy: list.map((row) => ({ ...row })),
+      },
+    };
+  }
+  return null;
+}
+
+async function restoreProfileReturnContext(ctx) {
+  if (!ctx) {
+    return;
+  }
+  if (ctx.kind === "detail") {
+    applyMenuKeyIfKnown(ctx.menuKey);
+    await restoreVideoDetailFromUrl(ctx.videoId);
+    return;
+  }
+  if (ctx.kind !== "shortsFeed") {
+    return;
+  }
+  const st = ctx.feedState;
+  applyMenuKeyIfKnown(ctx.menuKey);
+  followSubscribedFilterAuthorId.value = st.followSubscribedFilterAuthorId;
+  feedScope.value = st.feedScope;
+  const copy = Array.isArray(st.queueCopy) ? st.queueCopy.map((x) => ({ ...x })) : [];
+  if (st.feedScope === "profile") {
+    profileFeedQueue.value = copy;
+  } else if (st.feedScope === "liked") {
+    likedFeedQueue.value = copy;
+  } else if (st.feedScope === "follow") {
+    const aid = st.followSubscribedFilterAuthorId;
+    if (aid != null && aid !== "") {
+      followAuthorFeedQueue.value = copy;
+    } else {
+      followFeedQueue.value = copy;
+    }
+  } else if (st.feedScope === "home") {
+    homeShortsRows.value = copy;
+  } else {
+    cards.value = copy;
+  }
+  profileFeedOpen.value = st.profileFeedOpen;
+  const maxI = Math.max(0, copy.length - 1);
+  shortsFeedIndex.value = Math.min(Math.max(0, st.shortsFeedIndex), maxI);
+  shortsCommentPanelOpen.value = st.shortsCommentPanelOpen;
+  shortsFeedAutoplayPending.value = true;
+  await nextTick();
+  try {
+    shortsFeedFgRef.value?.load();
+    shortsFeedBgRef.value?.load();
+  } catch {
+    /* ignore */
+  }
+  persistProfileReturnContext(null);
+}
+
 /** 离开详情 / 关闭创作中心后刷新列表，避免主区空白 */
 async function reloadFeedAfterLeavingDetail() {
   if (showProfileCenter.value || showStudio.value) {
@@ -2207,8 +2354,490 @@ function closeVideoDetail() {
   videoDetail.value = null;
   detailErrorMsg.value = "";
   detailSidebarList.value = [];
+  resetDetailCommentsState();
+  clearCapturedProfileReturnContext();
   clearVideoDetailFromAddressBar();
 }
+
+function resetDetailCommentsState() {
+  detailTopComments.value = [];
+  detailCommentsLoading.value = false;
+  detailCommentsPageNo.value = 1;
+  detailCommentsPages.value = 0;
+  detailCommentDraft.value = "";
+  detailCommentSubmitting.value = false;
+  detailReplyTarget.value = null;
+  detailThreadByRootId.value = {};
+  detailExpandedRoots.value = {};
+}
+
+function detailVideoAllowComment() {
+  return Number(videoDetail.value?.allowComment ?? 1) === 1;
+}
+
+/** 评论区：本人评论显示「我」，与 currentUserId / 评论 userId 比较 */
+function commentDisplayNickname(userId, nickname) {
+  const nick = nickname ?? "用户";
+  if (currentUserId.value == null || userId == null || userId === "") {
+    return nick;
+  }
+  return String(userId) === String(currentUserId.value) ? "我" : nick;
+}
+
+function formatDetailCommentTime(isoLike) {
+  if (isoLike == null || isoLike === "") {
+    return "";
+  }
+  try {
+    const s = String(isoLike);
+    const d = new Date(s.includes("T") ? s : s.replace(" ", "T"));
+    if (Number.isNaN(d.getTime())) {
+      return s;
+    }
+    const diff = Date.now() - d.getTime();
+    const sec = Math.floor(diff / 1000);
+    if (sec < 60) {
+      return "刚刚";
+    }
+    if (sec < 3600) {
+      return `${Math.floor(sec / 60)} 分钟前`;
+    }
+    if (sec < 86400) {
+      return `${Math.floor(sec / 3600)} 小时前`;
+    }
+    if (sec < 86400 * 7) {
+      return `${Math.floor(sec / 86400)} 天前`;
+    }
+    return d.toLocaleDateString("zh-CN");
+  } catch {
+    return String(isoLike);
+  }
+}
+
+async function loadDetailTopComments(reset, opts = {}) {
+  const preserveThreadUi = opts.preserveThreadUi === true;
+  const savedExpanded =
+    preserveThreadUi && reset ? { ...detailExpandedRoots.value } : null;
+
+  const vid = parseVideoIdForApi(videoDetail.value?.id);
+  if (!vid) {
+    return;
+  }
+  if (reset) {
+    detailCommentsPageNo.value = 1;
+    detailTopComments.value = [];
+    if (!preserveThreadUi) {
+      detailThreadByRootId.value = {};
+      detailExpandedRoots.value = {};
+    }
+  }
+  detailCommentsLoading.value = true;
+  try {
+    const { pages, list } = await fetchCommentPage({
+      videoId: vid,
+      parentId: 0,
+      pageNo: detailCommentsPageNo.value,
+      pageSize: DETAIL_COMMENT_PAGE_SIZE,
+    });
+    detailCommentsPages.value = pages || 0;
+    if (reset) {
+      detailTopComments.value = list;
+    } else {
+      detailTopComments.value = [...detailTopComments.value, ...list];
+    }
+
+    if (savedExpanded) {
+      const topIds = new Set(detailTopComments.value.map((x) => String(x.id)));
+      const nextExpanded = {};
+      for (const k of Object.keys(savedExpanded)) {
+        if (savedExpanded[k] && topIds.has(k)) {
+          nextExpanded[k] = true;
+        }
+      }
+      detailExpandedRoots.value = nextExpanded;
+      const nextThreads = { ...detailThreadByRootId.value };
+      for (const k of Object.keys(nextExpanded)) {
+        delete nextThreads[k];
+      }
+      detailThreadByRootId.value = nextThreads;
+      for (const k of Object.keys(nextExpanded)) {
+        void ensureDetailThreadLoaded(k);
+      }
+    }
+  } catch (e) {
+    pushToast(e?.message || "评论加载失败", "error");
+  } finally {
+    detailCommentsLoading.value = false;
+  }
+}
+
+function detailCommentHasMore() {
+  return detailCommentsPageNo.value < detailCommentsPages.value;
+}
+
+async function loadMoreDetailComments() {
+  if (detailCommentsLoading.value || !detailCommentHasMore()) {
+    return;
+  }
+  detailCommentsPageNo.value += 1;
+  await loadDetailTopComments(false);
+}
+
+async function ensureDetailThreadLoaded(rootId) {
+  const vid = parseVideoIdForApi(videoDetail.value?.id);
+  const k = String(rootId);
+  if (!vid || detailThreadByRootId.value[k]?.loaded) {
+    return;
+  }
+  detailThreadByRootId.value = {
+    ...detailThreadByRootId.value,
+    [k]: { ...(detailThreadByRootId.value[k] || {}), loading: true, list: [] },
+  };
+  try {
+    const { list } = await fetchCommentPage({
+      videoId: vid,
+      parentId: rootId,
+      rootId,
+      pageNo: 1,
+      pageSize: 100,
+    });
+    detailThreadByRootId.value = {
+      ...detailThreadByRootId.value,
+      [k]: { loaded: true, loading: false, list },
+    };
+  } catch (e) {
+    detailThreadByRootId.value = {
+      ...detailThreadByRootId.value,
+      [k]: { loaded: false, loading: false, list: [] },
+    };
+    pushToast(e?.message || "回复加载失败", "error");
+  }
+}
+
+function toggleDetailThread(rootId) {
+  const k = String(rootId);
+  if (detailExpandedRoots.value[k]) {
+    const next = { ...detailExpandedRoots.value };
+    delete next[k];
+    detailExpandedRoots.value = next;
+  } else {
+    detailExpandedRoots.value = { ...detailExpandedRoots.value, [k]: true };
+    void ensureDetailThreadLoaded(rootId);
+  }
+}
+
+function setDetailReplyTarget(row) {
+  if (!row) {
+    detailReplyTarget.value = null;
+    return;
+  }
+  detailReplyTarget.value = {
+    id: row.id,
+    nickname: row.nickname || "用户",
+  };
+}
+
+async function submitDetailComment() {
+  const text = detailCommentDraft.value.trim();
+  if (!text) {
+    return;
+  }
+  const vid = parseVideoIdForApi(videoDetail.value?.id);
+  if (!vid) {
+    return;
+  }
+  if (!isAuthed.value) {
+    pushToast("请先登录后再评论", "info");
+    return;
+  }
+  if (!detailVideoAllowComment()) {
+    pushToast("作者已关闭评论", "info");
+    return;
+  }
+  const wasTopLevel = detailReplyTarget.value == null;
+  const parentId = wasTopLevel ? 0 : detailReplyTarget.value.id;
+  detailCommentSubmitting.value = true;
+  try {
+    await publishCommentApi({ videoId: vid, content: text, parentId });
+    detailCommentDraft.value = "";
+    detailReplyTarget.value = null;
+    if (videoDetail.value && wasTopLevel) {
+      videoDetail.value = {
+        ...videoDetail.value,
+        commentCount: Number(videoDetail.value.commentCount ?? 0) + 1,
+      };
+    }
+    await loadDetailTopComments(true, { preserveThreadUi: true });
+  } catch (e) {
+    pushToast(e?.message || "发送失败", "error");
+  } finally {
+    detailCommentSubmitting.value = false;
+  }
+}
+
+function onDetailCommentUserClick(ev, userId) {
+  if (userId == null || userId === "") {
+    return;
+  }
+  onAuthorAvatarClick(ev, userId);
+}
+
+async function onDeleteDetailComment(c) {
+  if (!c?.id || !isAuthed.value) {
+    return;
+  }
+  if (String(c.userId) !== String(currentUserId.value)) {
+    return;
+  }
+  try {
+    await deleteCommentApi(c.id);
+    pushToast("已删除", "success");
+    await loadDetailTopComments(true, { preserveThreadUi: true });
+    const pid = c.parentId;
+    if (videoDetail.value && (pid === 0 || pid === "0")) {
+      const n = Math.max(0, Number(videoDetail.value.commentCount ?? 0) - 1);
+      videoDetail.value = { ...videoDetail.value, commentCount: n };
+    }
+  } catch (e) {
+    pushToast(e?.message || "删除失败", "error");
+  }
+}
+
+function resetShortsPanelCommentsState() {
+  shortsPanelTopComments.value = [];
+  shortsPanelCommentsLoading.value = false;
+  shortsPanelCommentsPageNo.value = 1;
+  shortsPanelCommentsPages.value = 0;
+  shortsPanelCommentDraft.value = "";
+  shortsPanelCommentSubmitting.value = false;
+  shortsPanelReplyTarget.value = null;
+  shortsPanelThreadByRootId.value = {};
+  shortsPanelExpandedRoots.value = {};
+}
+
+function shortsFeedCurrentAllowsComment() {
+  return Number(shortsFeedCurrent.value?.allowComment ?? 1) === 1;
+}
+
+function toggleShortsCommentPanel() {
+  if (!shortsFeedCurrent.value?.id) {
+    return;
+  }
+  shortsCommentPanelOpen.value = !shortsCommentPanelOpen.value;
+}
+
+function closeShortsCommentPanel() {
+  shortsCommentPanelOpen.value = false;
+}
+
+async function loadShortsPanelTopComments(reset, opts = {}) {
+  const preserveThreadUi = opts.preserveThreadUi === true;
+  const savedExpanded =
+    preserveThreadUi && reset ? { ...shortsPanelExpandedRoots.value } : null;
+
+  const vid = parseVideoIdForApi(shortsFeedCurrent.value?.id);
+  if (!vid) {
+    return;
+  }
+  if (reset) {
+    shortsPanelCommentsPageNo.value = 1;
+    shortsPanelTopComments.value = [];
+    if (!preserveThreadUi) {
+      shortsPanelThreadByRootId.value = {};
+      shortsPanelExpandedRoots.value = {};
+    }
+  }
+  shortsPanelCommentsLoading.value = true;
+  try {
+    const { pages, list } = await fetchCommentPage({
+      videoId: vid,
+      parentId: 0,
+      pageNo: shortsPanelCommentsPageNo.value,
+      pageSize: DETAIL_COMMENT_PAGE_SIZE,
+    });
+    shortsPanelCommentsPages.value = pages || 0;
+    if (reset) {
+      shortsPanelTopComments.value = list;
+    } else {
+      shortsPanelTopComments.value = [...shortsPanelTopComments.value, ...list];
+    }
+
+    if (savedExpanded) {
+      const topIds = new Set(shortsPanelTopComments.value.map((x) => String(x.id)));
+      const nextExpanded = {};
+      for (const k of Object.keys(savedExpanded)) {
+        if (savedExpanded[k] && topIds.has(k)) {
+          nextExpanded[k] = true;
+        }
+      }
+      shortsPanelExpandedRoots.value = nextExpanded;
+      const nextThreads = { ...shortsPanelThreadByRootId.value };
+      for (const k of Object.keys(nextExpanded)) {
+        delete nextThreads[k];
+      }
+      shortsPanelThreadByRootId.value = nextThreads;
+      for (const k of Object.keys(nextExpanded)) {
+        void ensureShortsPanelThreadLoaded(k);
+      }
+    }
+  } catch (e) {
+    pushToast(e?.message || "评论加载失败", "error");
+  } finally {
+    shortsPanelCommentsLoading.value = false;
+  }
+}
+
+function shortsPanelCommentHasMore() {
+  return shortsPanelCommentsPageNo.value < shortsPanelCommentsPages.value;
+}
+
+async function loadMoreShortsPanelComments() {
+  if (shortsPanelCommentsLoading.value || !shortsPanelCommentHasMore()) {
+    return;
+  }
+  shortsPanelCommentsPageNo.value += 1;
+  await loadShortsPanelTopComments(false);
+}
+
+async function ensureShortsPanelThreadLoaded(rootId) {
+  const vid = parseVideoIdForApi(shortsFeedCurrent.value?.id);
+  const k = String(rootId);
+  if (!vid || shortsPanelThreadByRootId.value[k]?.loaded) {
+    return;
+  }
+  shortsPanelThreadByRootId.value = {
+    ...shortsPanelThreadByRootId.value,
+    [k]: { ...(shortsPanelThreadByRootId.value[k] || {}), loading: true, list: [] },
+  };
+  try {
+    const { list } = await fetchCommentPage({
+      videoId: vid,
+      parentId: rootId,
+      rootId,
+      pageNo: 1,
+      pageSize: 100,
+    });
+    shortsPanelThreadByRootId.value = {
+      ...shortsPanelThreadByRootId.value,
+      [k]: { loaded: true, loading: false, list },
+    };
+  } catch (e) {
+    shortsPanelThreadByRootId.value = {
+      ...shortsPanelThreadByRootId.value,
+      [k]: { loaded: false, loading: false, list: [] },
+    };
+    pushToast(e?.message || "回复加载失败", "error");
+  }
+}
+
+function toggleShortsPanelThread(rootId) {
+  const k = String(rootId);
+  if (shortsPanelExpandedRoots.value[k]) {
+    const next = { ...shortsPanelExpandedRoots.value };
+    delete next[k];
+    shortsPanelExpandedRoots.value = next;
+  } else {
+    shortsPanelExpandedRoots.value = { ...shortsPanelExpandedRoots.value, [k]: true };
+    void ensureShortsPanelThreadLoaded(rootId);
+  }
+}
+
+function setShortsPanelReplyTarget(row) {
+  if (!row) {
+    shortsPanelReplyTarget.value = null;
+    return;
+  }
+  shortsPanelReplyTarget.value = {
+    id: row.id,
+    nickname: row.nickname || "用户",
+  };
+}
+
+async function submitShortsPanelComment() {
+  const text = shortsPanelCommentDraft.value.trim();
+  if (!text) {
+    return;
+  }
+  const cur = shortsFeedCurrent.value;
+  const vid = parseVideoIdForApi(cur?.id);
+  if (!vid) {
+    return;
+  }
+  if (!isAuthed.value) {
+    pushToast("请先登录后再评论", "info");
+    return;
+  }
+  if (!shortsFeedCurrentAllowsComment()) {
+    pushToast("作者已关闭评论", "info");
+    return;
+  }
+  const wasTopLevel = shortsPanelReplyTarget.value == null;
+  const parentId = wasTopLevel ? 0 : shortsPanelReplyTarget.value.id;
+  shortsPanelCommentSubmitting.value = true;
+  try {
+    await publishCommentApi({ videoId: vid, content: text, parentId });
+    shortsPanelCommentDraft.value = "";
+    shortsPanelReplyTarget.value = null;
+    if (cur?.id && wasTopLevel) {
+      patchFeedVideoById(cur.id, {
+        commentCount: Number(cur.commentCount ?? 0) + 1,
+      });
+    }
+    await loadShortsPanelTopComments(true, { preserveThreadUi: true });
+  } catch (e) {
+    pushToast(e?.message || "发送失败", "error");
+  } finally {
+    shortsPanelCommentSubmitting.value = false;
+  }
+}
+
+function onShortsPanelCommentUserClick(ev, userId) {
+  if (userId == null || userId === "") {
+    return;
+  }
+  onAuthorAvatarClick(ev, userId);
+}
+
+async function onDeleteShortsPanelComment(c) {
+  if (!c?.id || !isAuthed.value) {
+    return;
+  }
+  if (String(c.userId) !== String(currentUserId.value)) {
+    return;
+  }
+  const cur = shortsFeedCurrent.value;
+  try {
+    await deleteCommentApi(c.id);
+    pushToast("已删除", "success");
+    await loadShortsPanelTopComments(true, { preserveThreadUi: true });
+    const pid = c.parentId;
+    if (cur?.id && (pid === 0 || pid === "0")) {
+      const n = Math.max(0, Number(cur.commentCount ?? 0) - 1);
+      patchFeedVideoById(cur.id, { commentCount: n });
+    }
+  } catch (e) {
+    pushToast(e?.message || "删除失败", "error");
+  }
+}
+
+watch(
+  () => [showVideoDetail.value, parseVideoIdForApi(videoDetail.value?.id)],
+  ([open, vid], prev) => {
+    const prevOpen = prev?.[0];
+    const prevVid = prev?.[1];
+    if (!open) {
+      resetDetailCommentsState();
+      return;
+    }
+    if (!vid) {
+      return;
+    }
+    if (open && vid === prevVid && prevOpen) {
+      return;
+    }
+    void loadDetailTopComments(true);
+  },
+);
 
 function isSidebarItemNowPlaying(item) {
   return item && videoDetail.value && videoIdsEqual(item.id, videoDetail.value.id);
@@ -2329,7 +2958,8 @@ function onShortsFeedFgEnded() {
     void flushShortsLongPlaybackResume("ended");
   }
   const n = unifiedFeedList.value.length;
-  if (n <= 1) {
+  /** 评论打开时循环当前条，避免播完突然切走影响阅读 */
+  if (n <= 1 || shortsCommentPanelOpen.value) {
     const v = shortsFeedFgRef.value;
     const bg = shortsFeedBgRef.value;
     if (v) {
@@ -2900,6 +3530,7 @@ async function setActiveMenu(menu) {
   showVideoDetail.value = false;
   videoDetail.value = null;
   showProfileCenter.value = false;
+  clearCapturedProfileReturnContext();
   mediaPreviewOpen.value = false;
   activeMenuKey.value = menu.key;
   activeMenuLabel.value = menu.label;
@@ -3543,6 +4174,8 @@ function onProfile() {
   if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
     pauseShortsFeedVideos({ muteForeground: true });
   }
+  profileReturnContextRef.value = captureProfileReturnContext();
+  persistProfileReturnContext(profileReturnContextRef.value);
   if (profileFeedOpen.value) {
     closeProfileFeed();
   }
@@ -3551,7 +4184,7 @@ function onProfile() {
   }
   showStudio.value = false;
   uploadModalOpen.value = false;
-  if (showVideoDetail.value) {
+  if (!showVideoDetail.value) {
     clearVideoDetailFromAddressBar();
   }
   showVideoDetail.value = false;
@@ -3579,6 +4212,8 @@ function openOtherUserProfile(userId) {
   if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
     pauseShortsFeedVideos({ muteForeground: true });
   }
+  profileReturnContextRef.value = captureProfileReturnContext();
+  persistProfileReturnContext(profileReturnContextRef.value);
   if (profileFeedOpen.value) {
     closeProfileFeed();
   }
@@ -3587,7 +4222,7 @@ function openOtherUserProfile(userId) {
   }
   showStudio.value = false;
   uploadModalOpen.value = false;
-  if (showVideoDetail.value) {
+  if (!showVideoDetail.value) {
     clearVideoDetailFromAddressBar();
   }
   showVideoDetail.value = false;
@@ -4055,17 +4690,35 @@ const shortsFeedCurrent = computed(() => {
 
 const shortsFeedVideoSrc = computed(() => resolveVideoUrl(shortsFeedCurrent.value));
 
-/** 短视频流红心：接口 isLike；赞过列表流内一律视为已赞 */
+/**
+ * 短视频流红心：普通流看接口 isLike；赞过列表后端可能不传该字段，默认视为已赞，
+ * 仅当本地明确 patch 为 isLike === false（取消赞）时显示空心。
+ */
 const shortsFeedLikedDisplay = computed(() => {
   const cur = shortsFeedCurrent.value;
   if (!cur?.id) {
     return false;
   }
   if (feedScope.value === "liked") {
-    return true;
+    return cur.isLike !== false;
   }
   return Boolean(cur.isLike);
 });
+
+watch(
+  () => [shortsCommentPanelOpen.value, String(shortsFeedCurrent.value?.id ?? "")],
+  ([open, idStr]) => {
+    if (!open) {
+      resetShortsPanelCommentsState();
+      return;
+    }
+    if (!idStr) {
+      return;
+    }
+    resetShortsPanelCommentsState();
+    void loadShortsPanelTopComments(true);
+  },
+);
 
 /** 从 video 元素读取有效时长，避免 NaN / Infinity / 未缓冲导致进度条错乱 */
 function readVideoDurationFromVideoEl(v) {
@@ -4124,7 +4777,15 @@ const shortsFeedAuthorName = computed(() => {
   if (nick) return nick;
   if (feedScope.value === "profile") {
     const p = stripUserIdLikeName(profileUser.value?.nickName || profileUser.value?.nickname);
-    if (p) return p;
+    if (p) {
+      return p;
+    }
+    if (isViewingSelf.value) {
+      const s = stripUserIdLikeName(selfUserProfile.value?.nickName || selfUserProfile.value?.nickname);
+      if (s) {
+        return s;
+      }
+    }
   }
   if (feedScope.value === "liked") {
     return nick || "创作者";
@@ -4159,6 +4820,19 @@ const shortsFeedAuthorAvatar = computed(() => {
     sanitizeImageUrl(c.authorAvatarUrl ?? "") || sanitizeImageUrl(c.authorAvatar ?? "");
   if (fromAuthor) {
     return fromAuthor;
+  }
+  if (feedScope.value === "profile" && showProfileCenter.value) {
+    if (isViewingSelf.value) {
+      const selfAv = sanitizeImageUrl(selfUserProfile.value?.avatarUrl || "");
+      if (selfAv) {
+        return selfAv;
+      }
+      return topbarAvatarSrc.value;
+    }
+    const pav = sanitizeImageUrl(profileUser.value?.avatarUrl || "");
+    if (pav) {
+      return pav;
+    }
   }
   return profileAvatar;
 });
@@ -4644,14 +5318,16 @@ async function onShortsFeedFgLoadedMetadata(e) {
 }
 
 function onShortsFeedFgTimeUpdate(e) {
-  if (activeMenuKey.value !== "shorts" && activeMenuKey.value !== "subscribed") {
+  const inMainShorts =
+    activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed";
+  if (!inMainShorts && !profileFeedOpen.value) {
     return;
   }
   const fg = e.target;
   const dur = readVideoDurationFromVideoEl(fg);
   if (dur > 0) {
     const prev = shortsFeedDuration.value;
-    if (!Number.isFinite(prev) || prev <= 0 || Math.abs(prev - dur) > 0.2) {
+    if (!Number.isFinite(prev) || prev <= 0 || Math.abs(prev - dur) > 0.35) {
       shortsFeedDuration.value = dur;
     }
   }
@@ -4867,6 +5543,10 @@ function closeTopMostOverlayByEsc() {
     closeShortPlayer();
     return true;
   }
+  if (shortsCommentPanelOpen.value) {
+    closeShortsCommentPanel();
+    return true;
+  }
   if (profileFeedOpen.value) {
     closeProfileFeed();
     return true;
@@ -4939,7 +5619,10 @@ function onShortsFeedFgDurationChange(e) {
   const v = e.target;
   const dur = readVideoDurationFromVideoEl(v);
   if (dur > 0) {
-    shortsFeedDuration.value = dur;
+    const prev = shortsFeedDuration.value;
+    if (!Number.isFinite(prev) || prev <= 0 || Math.abs(prev - dur) > 0.35) {
+      shortsFeedDuration.value = dur;
+    }
     let ct = Number(v.currentTime) || 0;
     shortsFeedCurrentTime.value = dur > 0 ? Math.min(ct, dur) : ct;
   }
@@ -5181,15 +5864,35 @@ async function openProfileWorkFeed(item) {
     pageHint.value = "该作者暂无可播放作品";
     return;
   }
+  resetShortsFeedProgressUiForSwitch();
   const selectedUrl = resolveVideoUrl(item) || resolveVideoUrlForListItem(item.id, item);
   if (!selectedUrl) {
     pageHint.value = "该内容暂无视频地址";
     return;
   }
+  const viewAuthorId =
+    profileUser.value?.id != null && profileUser.value.id !== ""
+      ? profileUser.value.id
+      : currentUserId.value != null
+        ? currentUserId.value
+        : null;
+  const viewAvatar =
+    sanitizeImageUrl(profileUser.value?.avatarUrl || "") ||
+    (isViewingSelf.value ? sanitizeImageUrl(selfUserProfile.value?.avatarUrl || "") : "") ||
+    "";
+  const viewNick =
+    stripUserIdLikeName(profileUser.value?.nickName || profileUser.value?.nickname || "") ||
+    (isViewingSelf.value
+      ? stripUserIdLikeName(selfUserProfile.value?.nickName || selfUserProfile.value?.nickname || "")
+      : "") ||
+    "";
   const playableQueue = source
     .map((x) => {
       const url = resolveVideoUrl(x) || resolveVideoUrlForListItem(x.id, x);
-      return { ...x, videoUrl: url };
+      const authorId = x.authorId ?? x.userId ?? viewAuthorId;
+      const authorAvatarUrl = x.authorAvatarUrl || x.authorAvatar || viewAvatar;
+      const authorNickname = x.authorNickname || x.author || viewNick;
+      return { ...x, videoUrl: url, authorId, authorAvatarUrl, authorNickname };
     })
     .filter((x) => x.videoUrl);
   if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
@@ -5252,9 +5955,24 @@ function onLikedWorkClick(item) {
 function closeProfileFeed() {
   void flushShortsLongPlaybackResume("leave");
   pauseShortsFeedVideos({ muteForeground: true });
+  try {
+    const fg = shortsFeedFgRef.value;
+    const bg = shortsFeedBgRef.value;
+    if (fg) {
+      fg.removeAttribute("src");
+      fg.load();
+    }
+    if (bg) {
+      bg.removeAttribute("src");
+      bg.load();
+    }
+  } catch {
+    /* ignore */
+  }
   selfVideoActionOpen.value = false;
   selfVideoDeleteConfirmOpen.value = false;
   pendingDeleteVideoId.value = null;
+  shortsCommentPanelOpen.value = false;
   profileFeedOpen.value = false;
   feedScope.value = "shorts";
   profileFeedQueue.value = [];
@@ -5266,6 +5984,10 @@ function closeProfileFeed() {
 
 function onProfileFeedKeydown(ev) {
   if (ev.key === "Escape") {
+    if (shortsCommentPanelOpen.value) {
+      closeShortsCommentPanel();
+      return;
+    }
     closeProfileFeed();
     return;
   }
@@ -5597,6 +6319,7 @@ function logout() {
   currentUserId.value = null;
   profileTargetUserId.value = null;
   mediaPreviewOpen.value = false;
+  clearCapturedProfileReturnContext();
   authMessage.value = "你已退出登录。";
   pushToast("已退出登录", "info");
   try {
@@ -5647,6 +6370,7 @@ function onAuthExpired(event) {
   showStudio.value = false;
   uploadModalOpen.value = false;
   profileFeedOpen.value = false;
+  clearCapturedProfileReturnContext();
   clearVideoDetailFromAddressBar();
   authMessage.value = msg;
 }
@@ -5664,7 +6388,39 @@ function onWindowPopState() {
     return;
   }
   if (showProfileCenter.value || activeMenuKey.value !== "home") {
+    const vParam = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
+    const hadProfile = showProfileCenter.value;
+    const returnCtx = profileReturnContextRef.value || readPersistedProfileReturnContext();
     showProfileCenter.value = false;
+    profileTargetUserId.value = null;
+    if (hadProfile && returnCtx?.kind === "shortsFeed") {
+      clearCapturedProfileReturnContext();
+      void restoreProfileReturnContext(returnCtx);
+      return;
+    }
+    const vidRestore = vParam || (returnCtx?.kind === "detail" ? returnCtx.videoId : null);
+    if (hadProfile && vidRestore) {
+      if (returnCtx?.menuKey) {
+        applyMenuKeyIfKnown(returnCtx.menuKey);
+      }
+      clearCapturedProfileReturnContext();
+      void restoreVideoDetailFromUrl(vidRestore);
+      return;
+    }
+    clearCapturedProfileReturnContext();
+    if (hadProfile) {
+      const ui = loadUiStateFromSession();
+      if (ui?.activeMenuKey) {
+        applyMenuKeyIfKnown(ui.activeMenuKey);
+        if (ui.homeCategoryKey) {
+          homeCategoryKey.value = ui.homeCategoryKey;
+        }
+        if (ui.homeSortKey) {
+          homeSortKey.value = ui.homeSortKey;
+        }
+        return;
+      }
+    }
     setActiveMenu(primaryMenus[0]);
     return;
   }
@@ -6871,6 +7627,7 @@ onBeforeUnmount(() => {
             v-if="profileFeedOpen"
             type="button"
             class="profile-feed-close"
+            :class="{ 'profile-feed-close--comments-open': shortsCommentPanelOpen }"
             :aria-label="feedScope === 'liked' ? '关闭赞过视频连播' : '关闭作品连播'"
             @click="closeProfileFeed"
           >
@@ -6880,7 +7637,8 @@ onBeforeUnmount(() => {
             {{ activeMenuKey === "subscribed" ? "正在加载关注动态…" : "正在加载短视频…" }}
           </div>
           <template v-else-if="shortsFeedVideoSrc">
-            <div class="shorts-feed-body">
+            <div class="shorts-feed-body" :class="{ 'shorts-feed-body--comments-open': shortsCommentPanelOpen }">
+              <div class="shorts-feed-player-column">
               <div
                 ref="shortsFeedCenterRef"
                 class="shorts-feed-center"
@@ -6941,7 +7699,16 @@ onBeforeUnmount(() => {
                   <div class="shorts-feed-ui">
                     <div class="shorts-feed-caption">
                       <p class="shorts-feed-user">
-                        @{{ shortsFeedAuthorName }}
+                        <button
+                          v-if="shortsFeedCurrent?.authorId != null && shortsFeedCurrent?.authorId !== ''"
+                          type="button"
+                          class="shorts-feed-user-link"
+                          title="查看作者主页"
+                          @click.stop="onAuthorAvatarClick($event, shortsFeedCurrent.authorId)"
+                        >
+                          @{{ shortsFeedAuthorName }}
+                        </button>
+                        <template v-else>@{{ shortsFeedAuthorName }}</template>
                         <span v-if="shortsFeedMetaTimeText" class="shorts-feed-time-dot"> · {{ shortsFeedMetaTimeText }}</span>
                       </p>
                       <p class="shorts-feed-topic">{{ shortsFeedTitleText }}</p>
@@ -6998,7 +7765,13 @@ onBeforeUnmount(() => {
                         <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.likeCount ?? 0 }}</span>
                       </div>
                       <div class="shorts-feed-action-item">
-                        <button type="button" class="shorts-feed-action-btn" title="评论" aria-label="评论">
+                        <button
+                          type="button"
+                          class="shorts-feed-action-btn"
+                          title="评论"
+                          aria-label="评论"
+                          @click.stop="toggleShortsCommentPanel"
+                        >
                           <i class="ri-chat-3-line"></i>
                         </button>
                         <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.commentCount ?? 0 }}</span>
@@ -7109,6 +7882,214 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </div>
+              </div>
+              <aside
+                v-if="shortsCommentPanelOpen"
+                class="shorts-feed-comments-panel"
+                aria-label="评论"
+                @click.stop
+              >
+                <div class="shorts-feed-comments-panel-head">
+                  <h3>评论 {{ shortsFeedCurrent?.commentCount != null ? `（${shortsFeedCurrent.commentCount}）` : "" }}</h3>
+                  <button
+                    type="button"
+                    class="shorts-feed-comments-panel-close"
+                    aria-label="关闭评论"
+                    @click="closeShortsCommentPanel"
+                  >
+                    <i class="ri-close-line"></i>
+                  </button>
+                </div>
+                <span v-if="!shortsFeedCurrentAllowsComment()" class="video-detail-comments-note">作者已关闭评论</span>
+                <p v-if="shortsPanelReplyTarget" class="video-detail-comment-reply-hint">
+                  回复 @{{ commentDisplayNickname(shortsPanelReplyTarget.userId, shortsPanelReplyTarget.nickname) }}
+                  <button type="button" class="video-detail-comment-reply-cancel" @click="setShortsPanelReplyTarget(null)">
+                    取消
+                  </button>
+                </p>
+                <div class="video-detail-comment-input">
+                  <img :src="topbarAvatarSrc" alt="" class="video-detail-comment-avatar" @error="onTopbarAvatarError" />
+                  <input
+                    v-model="shortsPanelCommentDraft"
+                    type="text"
+                    class="video-detail-comment-field"
+                    :disabled="!isAuthed || !shortsFeedCurrentAllowsComment() || shortsPanelCommentSubmitting"
+                    :placeholder="
+                      !isAuthed
+                        ? '登录后参与评论…'
+                        : !shortsFeedCurrentAllowsComment()
+                          ? '评论已关闭'
+                          : shortsPanelReplyTarget
+                            ? `回复 @${commentDisplayNickname(shortsPanelReplyTarget.userId, shortsPanelReplyTarget.nickname)}…`
+                            : '添加评论…'
+                    "
+                    maxlength="500"
+                    @keyup.enter.prevent="submitShortsPanelComment"
+                  />
+                  <button
+                    type="button"
+                    class="video-detail-comment-send"
+                    :disabled="
+                      !isAuthed || !shortsFeedCurrentAllowsComment() || shortsPanelCommentSubmitting || !shortsPanelCommentDraft.trim()
+                    "
+                    @click="submitShortsPanelComment"
+                  >
+                    {{ shortsPanelCommentSubmitting ? "发送中…" : "发送" }}
+                  </button>
+                </div>
+                <div class="shorts-feed-comments-panel-scroll">
+                  <p v-if="shortsPanelCommentsLoading && !shortsPanelTopComments.length" class="video-detail-comments-empty">
+                    加载评论中…
+                  </p>
+                  <ul v-else-if="shortsPanelTopComments.length" class="video-detail-comments-mock">
+                    <template v-for="c in shortsPanelTopComments" :key="`sp-top-${c.id}`">
+                      <li class="video-detail-comment-item">
+                        <img
+                          :src="c.avatarUrl || profileAvatar"
+                          alt=""
+                          class="video-detail-comment-avatar video-detail-comment-avatar--clickable"
+                          role="button"
+                          tabindex="0"
+                          title="查看用户主页"
+                          @click.stop="onShortsPanelCommentUserClick($event, c.userId)"
+                          @keyup.enter.stop="onShortsPanelCommentUserClick($event, c.userId)"
+                          @error="(e) => { const t = e.target; if (t) t.src = profileAvatar; }"
+                        />
+                        <div class="video-detail-comment-body">
+                          <div class="video-detail-comment-meta">
+                            <button
+                              type="button"
+                              class="video-detail-comment-user video-detail-comment-user--link"
+                              @click.stop="onShortsPanelCommentUserClick($event, c.userId)"
+                            >
+                              {{ commentDisplayNickname(c.userId, c.nickname) }}
+                            </button>
+                            <span class="video-detail-comment-time">{{ formatDetailCommentTime(c.createTime) }}</span>
+                          </div>
+                          <p class="video-detail-comment-text">{{ c.content }}</p>
+                          <div class="video-detail-comment-actions">
+                            <span><i class="ri-thumb-up-line"></i> {{ c.likeCount }}</span>
+                            <button
+                              v-if="isAuthed && shortsFeedCurrentAllowsComment()"
+                              type="button"
+                              class="video-detail-comment-action-btn"
+                              @click="setShortsPanelReplyTarget(c)"
+                            >
+                              回复
+                            </button>
+                            <button
+                              v-if="isAuthed && currentUserId != null && String(c.userId) === String(currentUserId)"
+                              type="button"
+                              class="video-detail-comment-action-btn video-detail-comment-action-btn--danger"
+                              @click="onDeleteShortsPanelComment(c)"
+                            >
+                              删除
+                            </button>
+                          </div>
+                          <button
+                            v-if="c.replyCount > 0"
+                            type="button"
+                            class="video-detail-thread-toggle"
+                            @click="toggleShortsPanelThread(c.id)"
+                          >
+                            {{
+                              shortsPanelExpandedRoots[String(c.id)]
+                                ? "收起回复"
+                                : `展开 ${c.replyCount} 条回复`
+                            }}
+                          </button>
+                          <ul v-if="shortsPanelExpandedRoots[String(c.id)]" class="video-detail-comment-replies">
+                            <li
+                              v-for="r in shortsPanelThreadByRootId[String(c.id)]?.list || []"
+                              :key="`sp-r-${r.id}`"
+                              class="video-detail-comment-item video-detail-comment-item--reply"
+                            >
+                              <img
+                                :src="r.avatarUrl || profileAvatar"
+                                alt=""
+                                class="video-detail-comment-avatar video-detail-comment-avatar--sm video-detail-comment-avatar--clickable"
+                                role="button"
+                                tabindex="0"
+                                title="查看用户主页"
+                                @click.stop="onShortsPanelCommentUserClick($event, r.userId)"
+                                @keyup.enter.stop="onShortsPanelCommentUserClick($event, r.userId)"
+                                @error="(e) => { const t = e.target; if (t) t.src = profileAvatar; }"
+                              />
+                              <div class="video-detail-comment-body">
+                                <div class="video-detail-comment-meta">
+                                  <button
+                                    type="button"
+                                    class="video-detail-comment-user video-detail-comment-user--link"
+                                    @click.stop="onShortsPanelCommentUserClick($event, r.userId)"
+                                  >
+                                    {{ commentDisplayNickname(r.userId, r.nickname) }}
+                                  </button>
+                                  <span
+                                    v-if="r.replyNickname"
+                                    class="video-detail-comment-arrow"
+                                    aria-hidden="true"
+                                    title="回复"
+                                  >▶</span>
+                                  <button
+                                    v-if="r.replyNickname && r.replyUserId != null && r.replyUserId !== ''"
+                                    type="button"
+                                    class="video-detail-comment-at video-detail-comment-at--link"
+                                    @click.stop="onShortsPanelCommentUserClick($event, r.replyUserId)"
+                                  >
+                                    @{{ commentDisplayNickname(r.replyUserId, r.replyNickname) }}
+                                  </button>
+                                  <span v-else-if="r.replyNickname" class="video-detail-comment-at"
+                                    >@{{ commentDisplayNickname(r.replyUserId, r.replyNickname) }}</span>
+                                  <span class="video-detail-comment-time">{{ formatDetailCommentTime(r.createTime) }}</span>
+                                </div>
+                                <p class="video-detail-comment-text">{{ r.content }}</p>
+                                <div class="video-detail-comment-actions">
+                                  <span><i class="ri-thumb-up-line"></i> {{ r.likeCount }}</span>
+                                  <button
+                                    v-if="isAuthed && shortsFeedCurrentAllowsComment()"
+                                    type="button"
+                                    class="video-detail-comment-action-btn"
+                                    @click="setShortsPanelReplyTarget(r)"
+                                  >
+                                    回复
+                                  </button>
+                                  <button
+                                    v-if="isAuthed && currentUserId != null && String(r.userId) === String(currentUserId)"
+                                    type="button"
+                                    class="video-detail-comment-action-btn video-detail-comment-action-btn--danger"
+                                    @click="onDeleteShortsPanelComment(r)"
+                                  >
+                                    删除
+                                  </button>
+                                </div>
+                              </div>
+                            </li>
+                            <li
+                              v-if="shortsPanelThreadByRootId[String(c.id)]?.loading"
+                              class="video-detail-comment-item video-detail-comment-item--reply"
+                            >
+                              <span class="video-detail-comments-empty">加载回复中…</span>
+                            </li>
+                          </ul>
+                        </div>
+                      </li>
+                    </template>
+                  </ul>
+                  <p v-if="!shortsPanelCommentsLoading && !shortsPanelTopComments.length" class="video-detail-comments-empty">
+                    暂无评论，来抢沙发吧
+                  </p>
+                  <div v-if="shortsPanelCommentHasMore()" class="video-detail-comments-more">
+                    <button
+                      type="button"
+                      class="history-layout-btn"
+                      :disabled="shortsPanelCommentsLoading"
+                      @click="loadMoreShortsPanelComments"
+                    >
+                      {{ shortsPanelCommentsLoading ? "加载中…" : "加载更多评论" }}
+                    </button>
+                  </div>
+                </div>
+              </aside>
             </div>
           </template>
           <div v-else class="shorts-feed-empty">
@@ -7649,32 +8630,190 @@ onBeforeUnmount(() => {
 
               <section class="video-detail-comments" aria-label="评论区">
                 <div class="video-detail-comments-head">
-                  <h3>评论</h3>
-                  <span class="video-detail-comments-note">（评论功能即将接入后端）</span>
-                  <button type="button" class="video-detail-sort-btn" disabled>
-                    <i class="ri-menu-line"></i> 排序
-                  </button>
+                  <h3>评论 {{ videoDetail.commentCount != null ? `（${videoDetail.commentCount}）` : "" }}</h3>
+                  <span v-if="!detailVideoAllowComment()" class="video-detail-comments-note">作者已关闭评论</span>
                 </div>
+                <p v-if="detailReplyTarget" class="video-detail-comment-reply-hint">
+                  回复 @{{ commentDisplayNickname(detailReplyTarget.userId, detailReplyTarget.nickname) }}
+                  <button type="button" class="video-detail-comment-reply-cancel" @click="setDetailReplyTarget(null)">取消</button>
+                </p>
                 <div class="video-detail-comment-input">
                   <img :src="topbarAvatarSrc" alt="" class="video-detail-comment-avatar" @error="onTopbarAvatarError" />
-                  <input type="text" class="video-detail-comment-field" disabled placeholder="添加评论…" />
+                  <input
+                    v-model="detailCommentDraft"
+                    type="text"
+                    class="video-detail-comment-field"
+                    :disabled="!isAuthed || !detailVideoAllowComment() || detailCommentSubmitting"
+                    :placeholder="
+                      !isAuthed
+                        ? '登录后参与评论…'
+                        : !detailVideoAllowComment()
+                          ? '评论已关闭'
+                          : detailReplyTarget
+                            ? `回复 @${commentDisplayNickname(detailReplyTarget.userId, detailReplyTarget.nickname)}…`
+                            : '添加评论…'
+                    "
+                    maxlength="500"
+                    @keyup.enter.prevent="submitDetailComment"
+                  />
+                  <button
+                    type="button"
+                    class="video-detail-comment-send"
+                    :disabled="!isAuthed || !detailVideoAllowComment() || detailCommentSubmitting || !detailCommentDraft.trim()"
+                    @click="submitDetailComment"
+                  >
+                    {{ detailCommentSubmitting ? "发送中…" : "发送" }}
+                  </button>
                 </div>
-                <ul class="video-detail-comments-mock">
-                  <li v-for="(c, ci) in detailMockComments" :key="ci" class="video-detail-comment-item">
-                    <img :src="c.avatar" alt="" class="video-detail-comment-avatar" />
-                    <div>
-                      <div class="video-detail-comment-meta">
-                        <span class="video-detail-comment-user">{{ c.user }}</span>
-                        <span class="video-detail-comment-time">{{ c.time }}</span>
+                <p v-if="detailCommentsLoading && !detailTopComments.length" class="video-detail-comments-empty">加载评论中…</p>
+                <ul v-else class="video-detail-comments-mock">
+                  <template v-for="c in detailTopComments" :key="`dc-top-${c.id}`">
+                    <li class="video-detail-comment-item">
+                      <img
+                        :src="c.avatarUrl || profileAvatar"
+                        alt=""
+                        class="video-detail-comment-avatar video-detail-comment-avatar--clickable"
+                        role="button"
+                        tabindex="0"
+                        title="查看用户主页"
+                        @click.stop="onDetailCommentUserClick($event, c.userId)"
+                        @keyup.enter.stop="onDetailCommentUserClick($event, c.userId)"
+                        @error="(e) => { const t = e.target; if (t) t.src = profileAvatar; }"
+                      />
+                      <div class="video-detail-comment-body">
+                        <div class="video-detail-comment-meta">
+                          <button
+                            type="button"
+                            class="video-detail-comment-user video-detail-comment-user--link"
+                            @click.stop="onDetailCommentUserClick($event, c.userId)"
+                          >
+                            {{ commentDisplayNickname(c.userId, c.nickname) }}
+                          </button>
+                          <span class="video-detail-comment-time">{{ formatDetailCommentTime(c.createTime) }}</span>
+                        </div>
+                        <p class="video-detail-comment-text">{{ c.content }}</p>
+                        <div class="video-detail-comment-actions">
+                          <span><i class="ri-thumb-up-line"></i> {{ c.likeCount }}</span>
+                          <button
+                            v-if="isAuthed && detailVideoAllowComment()"
+                            type="button"
+                            class="video-detail-comment-action-btn"
+                            @click="setDetailReplyTarget(c)"
+                          >
+                            回复
+                          </button>
+                          <button
+                            v-if="isAuthed && currentUserId != null && String(c.userId) === String(currentUserId)"
+                            type="button"
+                            class="video-detail-comment-action-btn video-detail-comment-action-btn--danger"
+                            @click="onDeleteDetailComment(c)"
+                          >
+                            删除
+                          </button>
+                        </div>
+                        <button
+                          v-if="c.replyCount > 0"
+                          type="button"
+                          class="video-detail-thread-toggle"
+                          @click="toggleDetailThread(c.id)"
+                        >
+                          {{
+                            detailExpandedRoots[String(c.id)]
+                              ? "收起回复"
+                              : `展开 ${c.replyCount} 条回复`
+                          }}
+                        </button>
+                        <ul
+                          v-if="detailExpandedRoots[String(c.id)]"
+                          class="video-detail-comment-replies"
+                        >
+                          <li
+                            v-for="r in detailThreadByRootId[String(c.id)]?.list || []"
+                            :key="`dc-r-${r.id}`"
+                            class="video-detail-comment-item video-detail-comment-item--reply"
+                          >
+                            <img
+                              :src="r.avatarUrl || profileAvatar"
+                              alt=""
+                              class="video-detail-comment-avatar video-detail-comment-avatar--sm video-detail-comment-avatar--clickable"
+                              role="button"
+                              tabindex="0"
+                              title="查看用户主页"
+                              @click.stop="onDetailCommentUserClick($event, r.userId)"
+                              @keyup.enter.stop="onDetailCommentUserClick($event, r.userId)"
+                              @error="(e) => { const t = e.target; if (t) t.src = profileAvatar; }"
+                            />
+                            <div class="video-detail-comment-body">
+                              <div class="video-detail-comment-meta">
+                                <button
+                                  type="button"
+                                  class="video-detail-comment-user video-detail-comment-user--link"
+                                  @click.stop="onDetailCommentUserClick($event, r.userId)"
+                                >
+                                  {{ commentDisplayNickname(r.userId, r.nickname) }}
+                                </button>
+                                <span
+                                  v-if="r.replyNickname"
+                                  class="video-detail-comment-arrow"
+                                  aria-hidden="true"
+                                  title="回复"
+                                >▶</span>
+                                <button
+                                  v-if="r.replyNickname && r.replyUserId != null && r.replyUserId !== ''"
+                                  type="button"
+                                  class="video-detail-comment-at video-detail-comment-at--link"
+                                  @click.stop="onDetailCommentUserClick($event, r.replyUserId)"
+                                >
+                                  @{{ commentDisplayNickname(r.replyUserId, r.replyNickname) }}
+                                </button>
+                                <span v-else-if="r.replyNickname" class="video-detail-comment-at"
+                                  >@{{ commentDisplayNickname(r.replyUserId, r.replyNickname) }}</span>
+                                <span class="video-detail-comment-time">{{ formatDetailCommentTime(r.createTime) }}</span>
+                              </div>
+                              <p class="video-detail-comment-text">{{ r.content }}</p>
+                              <div class="video-detail-comment-actions">
+                                <span><i class="ri-thumb-up-line"></i> {{ r.likeCount }}</span>
+                                <button
+                                  v-if="isAuthed && detailVideoAllowComment()"
+                                  type="button"
+                                  class="video-detail-comment-action-btn"
+                                  @click="setDetailReplyTarget(r)"
+                                >
+                                  回复
+                                </button>
+                                <button
+                                  v-if="isAuthed && currentUserId != null && String(r.userId) === String(currentUserId)"
+                                  type="button"
+                                  class="video-detail-comment-action-btn video-detail-comment-action-btn--danger"
+                                  @click="onDeleteDetailComment(r)"
+                                >
+                                  删除
+                                </button>
+                              </div>
+                            </div>
+                          </li>
+                          <li
+                            v-if="detailThreadByRootId[String(c.id)]?.loading"
+                            class="video-detail-comment-item video-detail-comment-item--reply"
+                          >
+                            <span class="video-detail-comments-empty">加载回复中…</span>
+                          </li>
+                        </ul>
                       </div>
-                      <p class="video-detail-comment-text">{{ c.text }}</p>
-                      <div class="video-detail-comment-actions">
-                        <span><i class="ri-thumb-up-line"></i> {{ c.likes }}</span>
-                        <span>回复</span>
-                      </div>
-                    </div>
-                  </li>
+                    </li>
+                  </template>
                 </ul>
+                <p v-if="!detailCommentsLoading && !detailTopComments.length" class="video-detail-comments-empty">暂无评论，来抢沙发吧</p>
+                <div v-if="detailCommentHasMore()" class="video-detail-comments-more">
+                  <button
+                    type="button"
+                    class="history-layout-btn"
+                    :disabled="detailCommentsLoading"
+                    @click="loadMoreDetailComments"
+                  >
+                    {{ detailCommentsLoading ? "加载中…" : "加载更多评论" }}
+                  </button>
+                </div>
               </section>
             </div>
 

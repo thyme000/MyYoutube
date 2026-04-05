@@ -45,6 +45,37 @@ function pickVisibility(item) {
   return item.visibility ?? item.visible ?? item.scope ?? "PUBLIC";
 }
 
+/**
+ * 列表项「当前用户是否已赞」：无字段或显式 null 时返回 undefined，避免 Boolean(undefined) 误成 false
+ * （赞过列表接口常不带 isLike，全屏播放器需走 feedScope==='liked' 的默认已赞逻辑）
+ */
+function pickListItemIsLike(item) {
+  if (item == null || typeof item !== "object") {
+    return undefined;
+  }
+  if (Object.prototype.hasOwnProperty.call(item, "isLike")) {
+    const v = item.isLike;
+    if (v === null || v === undefined || v === "") {
+      return undefined;
+    }
+    if (v === false || v === 0 || v === "0") {
+      return false;
+    }
+    return Boolean(v);
+  }
+  if (Object.prototype.hasOwnProperty.call(item, "liked")) {
+    const v = item.liked;
+    if (v === null || v === undefined || v === "") {
+      return undefined;
+    }
+    if (v === false || v === 0 || v === "0") {
+      return false;
+    }
+    return Boolean(v);
+  }
+  return undefined;
+}
+
 /** 探索/模块等接口与首页列表共用：优先展示作者昵称，与详情页一致 */
 function normalizeVideo(item, index) {
   const cover =
@@ -161,8 +192,8 @@ export function normalizeVideoListVo(item, index) {
     createTime: pickDateTime(item),
     playbackTime: item.playbackTime ?? 0,
     authorNickname: nick || undefined,
-    /** 当前用户是否已点赞（短视频流等接口返回） */
-    isLike: Boolean(item.isLike ?? item.liked),
+    /** 当前用户是否已点赞（短视频流等接口返回；缺省为 undefined） */
+    isLike: pickListItemIsLike(item),
     /** 是否允许评论：0/1 或 boolean（我的作品列表等） */
     allowComment:
       item.allowComment == null
@@ -229,6 +260,17 @@ export function normalizeVideoDetail(raw) {
     createTime: raw.createTime,
     isFollow: raw.isFollow,
     isLike: Boolean(raw.isLike ?? raw.liked),
+    /** 是否允许评论：0/1 或 boolean，缺省视为允许 */
+    allowComment:
+      raw.allowComment == null
+        ? 1
+        : typeof raw.allowComment === "boolean"
+          ? raw.allowComment
+            ? 1
+            : 0
+          : Number(raw.allowComment) === 1
+            ? 1
+            : 0,
   };
 }
 

@@ -30,7 +30,7 @@ public class OtherService implements IOtherService {
     @Override
     public OssStsVO issueUploadSts() {
 
-        Long userId = UserContext.getUser().getId();
+        Long userId = Long.valueOf(UserContext.getUserId());
 
         String dir = "uploads/video/" + userId + "/";
         String roleSessionName = "u-" + userId;

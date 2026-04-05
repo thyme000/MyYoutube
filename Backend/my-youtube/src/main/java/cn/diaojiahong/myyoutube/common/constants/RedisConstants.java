@@ -59,4 +59,11 @@ public class RedisConstants {
      * 定时任务：按主键游标轮询，将 video 表中的播放量/点赞量同步到 ES（仅存 lastId，重启可续跑）
      */
     public static final String SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR = "schedule:es:video:count:sync:cursor";
+
+    /**
+     * 用户赞过的评论
+     */
+    public static final String USER_LIKE_COMMENT = "user:like:comment:";
+    // 10天后过期
+    public static final Long USER_LIKE_COMMENT_EXPIRE = 10L;
 }

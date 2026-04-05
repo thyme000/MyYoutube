@@ -33,17 +33,15 @@ public class LoginInterceptor implements HandlerInterceptor {
             return false;
         }
 
-        Map<Object, Object> userMap = redisTemplate.opsForHash().entries(RedisConstants.USER_TOKEN + token);
-        if (userMap.isEmpty()) {
+        String userId = redisTemplate.opsForValue().get(RedisConstants.USER_TOKEN + token);
+        if (userId == null) {
             //解析token失败,返回未登录错误
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             return false;
         }
 
         // 解析token成功,将用户id放入threadLocal
-        UserDTO user = BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false);
-
-        UserContext.setUser(user);
+        UserContext.setUser(userId);
         return true;
     }
 

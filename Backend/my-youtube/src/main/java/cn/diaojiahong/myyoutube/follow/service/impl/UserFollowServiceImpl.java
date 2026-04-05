@@ -47,11 +47,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     @Override
     @Transactional
     public Result<Void> follow(Long authorId) {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
         if (userId.equals(authorId)) {
             throw new BizException(BizException.USER_ERROR, "不能关注自己");
         }
@@ -67,14 +63,18 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         return Result.success();
     }
 
+    private Long getUserId() {
+        String userId = UserContext.getUserId();
+        if (userId == null || userId.isEmpty()) {
+            throw new BizException(BizException.USER_ERROR, "用户未登录");
+        }
+        return Long.valueOf(userId);
+    }
+
     @Transactional
     @Override
     public Result<Void> cancelFollow(Long authorId) {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
         // 取消关注
         int row = baseMapper.cancelFollow(userId, authorId);
         // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一
@@ -88,11 +88,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public Result<PageResult<UserFollowVO>> getUserFollowList(PageQuery pageQuery) {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
         Page<UserFollow> page = lambdaQuery().eq(UserFollow::getFollowerId, userId)
                 .eq(UserFollow::getIsDeleted, false)
                 .orderByDesc(UserFollow::getCreateTime)
@@ -127,11 +123,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public Result<Boolean> isFollow(Long authorId) {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
         UserFollow one = lambdaQuery()
                 .eq(UserFollow::getFollowerId, userId)
                 .eq(UserFollow::getFolloweeId, authorId).one();
@@ -140,11 +132,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public Result<PageResult<UserFanVO>> getFansList(PageQuery pageQuery) {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
         Page<UserFollow> page = lambdaQuery().eq(UserFollow::getFolloweeId, userId)
                 .eq(UserFollow::getIsDeleted, false)
                 .orderByDesc(UserFollow::getCreateTime)
@@ -203,11 +191,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public Result<Void> removeFan(Long followerId) {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
         // 取消关注
         int row = baseMapper.cancelFollow(followerId, userId);
         // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一

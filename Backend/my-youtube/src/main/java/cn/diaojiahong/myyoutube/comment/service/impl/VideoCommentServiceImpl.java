@@ -7,25 +7,30 @@ import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
 import cn.diaojiahong.myyoutube.comment.domain.vo.CommentVO;
 import cn.diaojiahong.myyoutube.comment.mapper.VideoCommentMapper;
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
+import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -42,6 +47,8 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
     private final IUserService userService;
     private final AliOssUtil aliOssUtil;
     private final IVideoService videoService;
+    private final StringRedisTemplate redisTemplate;
+    private final RabbitTemplate rabbitTemplate;
     private final static int OSS_EXPIRE = 60 * 20;
 
     @Transactional
@@ -63,15 +70,13 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
         videoComment.setVideoId(commentDTO.getVideoId());
         videoComment.setContent(commentDTO.getContent());
         videoComment.setParentId(parentId);
+
+        VideoComment parent = getById(parentId);
         // 判断是否是一级评论
         if (parentId == 0) {
-            // 一级评论 更新视频的评论数
-            videoService.lambdaUpdate().eq(Video::getId, commentDTO.getVideoId())
-                    .setIncrBy(Video::getCommentCount, 1).update();
             videoComment.setRootId(null);
         } else {
             // 父评论
-            VideoComment parent = getById(parentId);
             if (parent == null || !CommentStatusEnum.VISIBLE.getCode().equals(parent.getStatus())) {
                 throw new IllegalArgumentException("父评论不存在或不可回复");
             }
@@ -79,7 +84,6 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
                 throw new IllegalArgumentException("父评论不属于该视频");
             }
             videoComment.setReplyUserId(parent.getUserId());
-
             // 找根评论id
             if (parent.getRootId() == null) {
                 // 父评论是一级评论
@@ -96,7 +100,38 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
                 updateById(root);
             }
         }
+        // 更新视频的评论数
+        videoService.lambdaUpdate().eq(Video::getId, commentDTO.getVideoId())
+                .setIncrBy(Video::getCommentCount, 1).update();
         saveOrUpdate(videoComment);
+
+        // 发送Mq通知, 自己回复自己不通知
+        CommentMessage message = null;
+        boolean isSend = false;
+        if (parentId == 0) {
+            // 接受方是视频作者
+            if (!userId.equals(video.getAuthorId())) {
+                message = CommentMessage.builder()
+                       .content(commentDTO.getContent()).videoId(video.getId())
+                       .senderId(userId).receiverId(video.getAuthorId()).isVideoComment(true)
+                       .commentId(videoComment.getId()).build();
+                isSend = true;
+            }
+        } else {
+            // 接受方是父评论的用户
+            if (!userId.equals(parent.getUserId())) {
+                message = CommentMessage.builder()
+                        .content(commentDTO.getContent()).videoId(video.getId())
+                        .senderId(userId).receiverId(parent.getUserId()).isVideoComment(false)
+                        .commentId(videoComment.getId()).build();
+                isSend = true;
+            }
+        }
+        if (isSend) {
+            rabbitTemplate.convertAndSend(RabbitMqConstants.PUBLISH_COMMENT_EXCHANGE,
+                    RabbitMqConstants.PUBLISH_COMMENT_ROUTING_KEY, message);
+        }
+
         return Result.success();
     }
 
@@ -114,9 +149,6 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
         videoComment.setStatus(CommentStatusEnum.DELETED.getCode());
         updateById(videoComment);
         if (videoComment.getParentId() == 0) {
-            // 一级评论更新视频评论数
-            videoService.lambdaUpdate().eq(Video::getId, videoComment.getVideoId())
-                    .setIncrBy(Video::getCommentCount, -1).update();
             // 删除所有回复评论
             lambdaUpdate()
                     .eq(VideoComment::getRootId, commentId)
@@ -128,20 +160,28 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
                     .gt(VideoComment::getReplyCount, 0)
                     .setIncrBy(VideoComment::getReplyCount, -1).update();
         }
+        // 更新视频评论数
+        videoService.lambdaUpdate().eq(Video::getId, videoComment.getVideoId())
+                .setIncrBy(Video::getCommentCount, -1).update();
         return Result.success();
     }
 
     @Override
     public Result<PageResult<CommentVO>> getCommentList(CommentPageQuery commentPageQuery) {
         // 视频评论 -> 根据点赞量排序(一样按创建时间排序)
-        Page<VideoComment> page = lambdaQuery()
+        LambdaQueryWrapper<VideoComment> w = new LambdaQueryWrapper<VideoComment>()
                 .eq(VideoComment::getVideoId, commentPageQuery.getVideoId())
                 .eq(VideoComment::getStatus, CommentStatusEnum.VISIBLE.getCode())
-                .eq(VideoComment::getRootId, commentPageQuery.getParentId() == 0 ? null : commentPageQuery.getParentId())
                 .orderByDesc(VideoComment::getLikeCount)
-                .orderByDesc(VideoComment::getReplyCount)
-                .orderByDesc(VideoComment::getCreateTime)
-                .page(commentPageQuery.toPage());
+                .orderByDesc(VideoComment::getReplyCount);
+        if (commentPageQuery.getParentId() == 0) {
+            w.isNull(VideoComment::getRootId);
+            w.orderByDesc(VideoComment::getCreateTime);
+        } else {
+            w.eq(VideoComment::getRootId, commentPageQuery.getRootId());
+            w.orderByAsc(VideoComment::getCreateTime);
+        }
+        Page<VideoComment> page = page(commentPageQuery.toPage(), w);
         List<VideoComment> records = page.getRecords();
         // 转vo
         List<CommentVO> commentVOList = records.stream()
@@ -164,15 +204,23 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
             commentVOList.forEach(commentVO -> commentVO.setReplyNickname(replyNicknames.get(commentVO.getReplyUserId())));
         }
 
+        // 查询用户是否点过赞
+        Long userId = getUserId();
+        Object[] array = commentVOList.stream().map(CommentVO::getId).toArray();
+        Map<Object, Boolean> isLikeMap = redisTemplate.opsForSet().isMember(RedisConstants.USER_LIKE_COMMENT + userId, array);
+        if (isLikeMap != null && !isLikeMap.isEmpty()) {
+            commentVOList.forEach(commentVO -> commentVO.setIsLike(isLikeMap.getOrDefault(commentVO.getId(), false)));
+        }
+
         return Result.success(PageResult.of(page.getTotal(), page.getPages(), commentVOList));
     }
 
     private Long getUserId() {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
+        String userId = UserContext.getUserId();
+        if (userId == null || userId.isEmpty()) {
             throw new IllegalArgumentException("用户未登录");
         }
-        return user.getId();
+        return Long.valueOf(userId);
     }
 
 }

@@ -11,7 +11,6 @@ import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
 import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
-import cn.diaojiahong.myyoutube.like.service.IVideoLikeService;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserLongHistoryVideoVO;
@@ -80,7 +79,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 更新用户头像url
         lambdaUpdate()
                 .set(User::getAvatarUrl, upload)
-                .eq(User::getId, UserContext.getUser().getId())
+                .eq(User::getId, UserContext.getUserId())
                 .update();
         return Result.success(upload);
     }
@@ -93,7 +92,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             log.error("更新头像或背景图片失败...", e);
         }
         return aliOssUtil.uploadForObjectKey(bytes, file.getOriginalFilename(),
-                UserContext.getUser().getId(), bizPrefix);
+                getUserId(), bizPrefix);
     }
 
     @Override
@@ -105,7 +104,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 更新用户头像url
         lambdaUpdate()
                 .set(User::getBgImage, upload)
-                .eq(User::getId, UserContext.getUser().getId())
+                .eq(User::getId, UserContext.getUserId())
                 .update();
         return Result.success(upload);
     }
@@ -143,6 +142,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         return listByIds(authorIds).stream().collect(Collectors.toMap(User::getId, User::getAvatarUrl));
     }
 
+    private Long getUserId() {
+        String userId = UserContext.getUserId();
+        if (userId == null || userId.isEmpty()) {
+            throw new BizException(BizException.USER_ERROR, "用户未登录");
+        }
+        return Long.valueOf(userId);
+    }
+
+
     @Override
     public Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(PageQuery pageQuery) {
         int pageSize = pageQuery.getPageSize();
@@ -151,10 +159,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         int start = (pageNo - 1) * pageSize;
         // 结束索引
         int end = start + pageSize - 1;
-        Long userId = UserContext.getUser() == null ? null : UserContext.getUser().getId();
-        if (userId == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
-        }
+        Long userId = getUserId();
 
         // 长视频id
         Set<String> longVideoIds = redisTemplate.opsForZSet().reverseRange(
@@ -257,7 +262,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         int start = (pageNo - 1) * pageSize;
         // 结束索引
         int end = start + pageSize - 1;
-        Long userId = UserContext.getUser() == null ? null : UserContext.getUser().getId();
+        Long userId = getUserId();
         if (userId == null) {
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
@@ -344,11 +349,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public Result<UserVO> getCurrentUserInfo() {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
-        }
-        User userInfo = getById(user.getId());
+        Long userId = getUserId();
+        User userInfo = getById(userId);
 
         userInfo.setAvatarUrl(aliOssUtil.signGetUrl(userInfo.getAvatarUrl(), OSS_EXPIRE));
         userInfo.setBgImage(aliOssUtil.signGetUrl(userInfo.getBgImage(), OSS_EXPIRE));

@@ -58,14 +58,11 @@ public class AuthServiceImpl implements IAuthService {
         }
         redisTemplate.delete(captchaKey);
 
-        // 生成 token，将 UserDTO 关键字段以 Hash 形式存入 Redis
+        // 生成 token，将 userId 关键字段以 字符串 形式存入 Redis
         String token = UUID.randomUUID().toString();
         String tokenKey = RedisConstants.USER_TOKEN + token;
 
-        Map<String, String> userMap = new HashMap<>(1);
-        userMap.put("id", String.valueOf(user.getId()));
-        userMap.put("nickname", user.getNickname());
-        redisTemplate.opsForHash().putAll(tokenKey, userMap);
+        redisTemplate.opsForValue().set(tokenKey, String.valueOf(user.getId()));
         redisTemplate.expire(tokenKey, RedisConstants.USER_TOKEN_EXPIRE, TimeUnit.HOURS);
 
         log.info("用户 [{}] 登录成功", username);

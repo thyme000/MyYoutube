@@ -1,6 +1,10 @@
 package cn.diaojiahong.myyoutube.like.service.impl;
 
+import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
+import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
+import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -11,6 +15,7 @@ import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
 import cn.diaojiahong.myyoutube.like.domain.vo.LikeVideoVO;
 import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
 import cn.diaojiahong.myyoutube.like.service.IVideoLikeService;
+import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -20,6 +25,7 @@ import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +55,9 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     private final IUserService userService;
     private final AliOssUtil aliOssUtil;
     private final VideoLikeMapper videoLikeMapper;
+    private final IVideoCommentService videoCommentService;
+    private final RabbitTemplate rabbitTemplate;
+
     // 24小时后过期
     private static final int OSS_EXPIRE = 24;
 
@@ -56,11 +65,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     @Transactional
     public Result<Void> likeVideo(Long videoId) {
         // 获取用户id
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            return Result.fail("用户未登录");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
 
         // 判断用户是否已经点过赞
         VideoLike like = lambdaQuery()
@@ -90,15 +95,19 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         return Result.success();
     }
 
+    private Long getUserId() {
+        String userId = UserContext.getUserId();
+        if (userId == null) {
+            throw new BizException(BizException.USER_ERROR, "用户未登录");
+        }
+        return Long.valueOf(userId);
+    }
+
     @Override
     @Transactional
     public Result<Void> cancelLikeVideo(Long videoId) {
         // 获取用户id
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            return Result.fail("用户未登录");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
 
         // 判断用户是否点过赞
         VideoLike like = lambdaQuery()
@@ -127,11 +136,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
 
     @Override
     public Result<Void> dislikeVideo(Long videoId) {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
-            return Result.fail("用户未登录");
-        }
-        Long userId = user.getId();
+        Long userId = getUserId();
 
         // 用户不喜欢的视频默认存储在redis中
         redisTemplate.opsForSet().add(RedisConstants.USER_DISLIKE + userId, videoId.toString());
@@ -188,9 +193,39 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     public Result<Boolean> getLikeStatus(Long videoId) {
         // 查询用户是否点过赞
         VideoLike like = lambdaQuery()
-                .eq(VideoLike::getUserId, UserContext.getUser().getId())
+                .eq(VideoLike::getUserId, UserContext.getUserId())
                 .eq(VideoLike::getVideoId, videoId)
                 .one();
         return Result.success(like != null && like.getIsLiked() == VideoLikeConstants.LIKE);
+    }
+
+    @Override
+    public Result<Void> likeComment(Long commentId) {
+        // 获取用户id
+        Long userId = getUserId();
+        videoCommentService.lambdaUpdate()
+                .eq(VideoComment::getId, commentId)
+                .setIncrBy(VideoComment::getLikeCount, 1)
+                .update();
+        // 更新用户赞过的评论
+        Long size = redisTemplate.opsForZSet().size(RedisConstants.USER_LIKE_COMMENT + userId);
+        redisTemplate.opsForZSet().add(RedisConstants.USER_LIKE_COMMENT + userId, commentId.toString(), size == null ? 1 : size + 1);
+        redisTemplate.expire(RedisConstants.USER_LIKE_COMMENT + userId, RedisConstants.USER_LIKE_COMMENT_EXPIRE, TimeUnit.DAYS);
+        if (size != null && size > 100) {
+            // 超过100条,删除最早的
+            redisTemplate.opsForZSet().removeRangeByScore(RedisConstants.USER_LIKE_COMMENT + userId, 0, size - 100);
+        }
+
+        VideoComment comment = videoCommentService
+                .lambdaQuery().eq(VideoComment::getId, commentId).one();
+        if (!Objects.equals(comment.getUserId(), userId)) {
+            // 发送点赞通知(MQ)
+            LikeCommentMessage lc = LikeCommentMessage
+                    .builder().senderId(userId).commentId(commentId).build();
+            rabbitTemplate.convertAndSend(RabbitMqConstants.LIKE_COMMENT_EXCHANGE,
+                    RabbitMqConstants.LIKE_COMMENT_ROUTING_KEY, lc);
+        }
+
+        return Result.success();
     }
 }

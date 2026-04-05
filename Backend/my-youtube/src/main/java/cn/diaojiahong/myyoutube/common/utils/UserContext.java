@@ -1,5 +1,4 @@
 package cn.diaojiahong.myyoutube.common.utils;
-import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 
 /**
  *  工具类
@@ -7,13 +6,13 @@ import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
  */
 public class UserContext {
 
-    private static final ThreadLocal<UserDTO> TL = new ThreadLocal<>();
+    private static final ThreadLocal<String> TL = new ThreadLocal<>();
 
-    public static void setUser(UserDTO user) {
-        TL.set(user);
+    public static void setUser(String userId) {
+        TL.set(userId);
     }
 
-    public static UserDTO getUser() {
+    public static String getUserId() {
         return TL.get();
     }
 

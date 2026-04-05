@@ -48,7 +48,7 @@ public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorM
     @Transactional
     @Override
     public Result<Void> watchVideo(BehaviorDTO behaviorDTO) {
-        Long userId = UserContext.getUser().getId();
+        Long userId = Long.valueOf(UserContext.getUserId());
         Long videoId = behaviorDTO.getVideoId();
 
         UserVideoBehavior userVideoBehavior = new UserVideoBehavior();

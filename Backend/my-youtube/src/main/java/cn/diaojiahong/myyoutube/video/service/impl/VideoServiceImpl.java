@@ -35,6 +35,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.sun.jdi.LongValue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -114,7 +115,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 RabbitMqConstants.VIDEO_COVER_ROUTING_KEY,
                 VideoCoverMessage.builder()
                         .videoId(video.getId())
-                        .userId(UserContext.getUser().getId())
+                        .userId(userId)
                         .videoOssObjectKey(videoDTO.getVideoUrl())
                         .build());
 
@@ -279,10 +280,11 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
     @Override
     public Result<PageResult<VideoListVO>> getMyVideoList(VideoPageQuery pageQuery) {
+        Long userId = getUserId();
         Page<Video> page = pageQuery.toPage();
 
         LambdaQueryWrapper<Video> q = new LambdaQueryWrapper<>();
-        q.eq(Video::getAuthorId, UserContext.getUser().getId());
+        q.eq(Video::getAuthorId, userId);
         q.orderByDesc(Video::getCreateTime);
         if (pageQuery.getVideoType() != null) {
             q.eq(Video::getVideoType, pageQuery.getVideoType().getCode());
@@ -300,7 +302,20 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         signListCoverUrlsForVideoListVO(result);
         // 视频url
         signListVideoUrlsForVideoListVO(result);
-        log.info("查询用户 {} 的视频列表，共 {} 条", UserContext.getUser().getId(), result.size());
+
+        // 查看点赞状态
+        List<Long> videoIds = result.stream().map(v -> {
+            return Long.valueOf(v.getId());
+        }).toList();
+        List<Long> isLike = isLike(userId, videoIds);
+        // 转换为map
+        Map<Long, Boolean> likeMap = isLike.stream().collect(Collectors.toMap(v -> v, v -> true));
+        // 填充点赞信息
+        for (VideoListVO vo : result) {
+            vo.setIsLike(likeMap.getOrDefault(Long.valueOf(vo.getId()), false));
+        }
+
+        log.info("查询用户 {} 的视频列表，共 {} 条", userId, result.size());
         return Result.success(PageResult.of(list.getTotal(), list.getPages(), result));
     }
 
@@ -463,7 +478,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         signListVideoUrlsForVideoListVO(voList);
 
         // 填充是否点过赞
-        List<Long> likedIds = isLike(UserContext.getUser().getId(), videoList.stream().map(Video::getId).toList());
+        List<Long> likedIds = isLike(getUserId(), videoList.stream().map(Video::getId).toList());
         Map<Long, Boolean> collect = likedIds.stream().collect(Collectors.toMap(v -> v, v -> true));
         for (int i = 0; i < voList.size(); i++) {
             voList.get(i).setIsLike(collect.getOrDefault(videoList.get(i).getId(), false));
@@ -619,11 +634,11 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     }
 
     private static Long getUserId() {
-        UserDTO user = UserContext.getUser();
-        if (user == null) {
+        String userId = UserContext.getUserId();
+        if (userId == null) {
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
-        return user.getId();
+        return Long.valueOf(userId);
     }
 
 
