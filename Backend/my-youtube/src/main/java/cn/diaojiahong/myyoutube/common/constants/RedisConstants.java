@@ -66,4 +66,15 @@ public class RedisConstants {
     public static final String USER_LIKE_COMMENT = "user:like:comment:";
     // 10天后过期
     public static final Long USER_LIKE_COMMENT_EXPIRE = 10L;
+
+    /**
+     * 热搜榜(top7)
+     */
+    public static final String HOT_SEARCH = "hot:search";
+    // 7天后过期
+    public static final Long HOT_SEARCH_EXPIRE = 7L;
+    // 用户搜过的关键词,防止重复搜索
+    public static final String USER_SEARCH_KEYWORD = "user:search:keyword:";
+    // 30分钟后过期
+    public static final Long USER_SEARCH_KEYWORD_EXPIRE = 30L;
 }

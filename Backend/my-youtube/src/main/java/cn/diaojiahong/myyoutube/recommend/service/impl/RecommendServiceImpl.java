@@ -88,6 +88,14 @@ public class RecommendServiceImpl implements IRecommendService {
                         .missing(0.0)  // playCount 不存在时当 0
                 )
         ));
+        // 用 field_value_factor 把 likeCount 转成分数
+        allFunctions.add(FunctionScore.of(f -> f
+                .fieldValueFactor(fvf -> fvf
+                        .field("likeCount")
+                        .modifier(co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier.Log1p)
+                        .missing(0.0)  // likeCount 不存在时当 0
+                )
+        ));
 
         // 判断用户是否有偏好(新用户不具有偏好) -> 按热度推荐
         if (preferences.isEmpty()) {

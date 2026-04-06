@@ -36,4 +36,11 @@ public class RabbitMqConstants {
     public static final String PUBLISH_COMMENT_ROUTING_KEY = "publish_comment_routing_key";
     // 发布评论交换机
     public static final String PUBLISH_COMMENT_EXCHANGE = "publish_comment_exchange";
+
+    // 更新用户文档队列
+    public static final String UPDATE_USER_DOCUMENT_QUEUE = "update_user_document_queue";
+    // 更新用户文档路由键
+    public static final String UPDATE_USER_DOCUMENT_ROUTING_KEY = "update_user_document_routing_key";
+    // 更新用户文档交换机
+    public static final String UPDATE_USER_DOCUMENT_EXCHANGE = "update_user_document_exchange";
 }

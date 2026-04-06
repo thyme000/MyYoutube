@@ -6,9 +6,13 @@ import net.sourceforge.pinyin4j.format.HanyuPinyinOutputFormat;
 import net.sourceforge.pinyin4j.format.HanyuPinyinToneType;
 import net.sourceforge.pinyin4j.format.exception.BadHanyuPinyinOutputFormatCombination;
 
+import java.text.Normalizer;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 public class StrUtils {
+
+    private static final int MAX_LEN = 30;
 
     public static boolean isEmpty(String str) {
         return str == null || str.trim().isEmpty();
@@ -35,9 +39,9 @@ public class StrUtils {
         // 1. 转拼音
         StringBuilder pinyin = new StringBuilder();
         for (char c : text.toCharArray()) {
-            if (Character.isLetterOrDigit(c)) {
+            if (isChinese(c)) {
                 pinyin.append(c);
-            } else if (isChinese(c)) {
+            } else if (Character.isLetterOrDigit(c)) {
                 try {
                     String[] pinyinArr = PinyinHelper.toHanyuPinyinStringArray(c, PINYIN_FORMAT);
                     if (pinyinArr != null && pinyinArr.length > 0) {
@@ -64,5 +68,36 @@ public class StrUtils {
      */
     private static boolean isChinese(char c) {
         return String.valueOf(c).matches("[\\u4e00-\\u9fa5]");
+    }
+
+    /**
+     * 标准化显示关键词
+     * @param keyword
+     * @return
+     */
+    public static String normalizeDisplayKeyword(String keyword) {
+        if (keyword == null) {
+            return "";
+        }
+        String s = keyword
+                .replaceAll("\\p{Cntrl}", " ")
+                .trim()
+                .replaceAll("\\s+", " ");
+        if (s.isEmpty()) {
+            return "";
+        }
+        return s.length() > MAX_LEN ? s.substring(0, MAX_LEN) : s;
+    }
+
+    public static String normalizeDedupKeyword(String keyword) {
+        String display = normalizeDisplayKeyword(keyword);
+        if (display.isEmpty()) {
+            return "";
+        }
+        String lower = display.toLowerCase(Locale.ROOT);
+        String noAccent = Normalizer.normalize(lower, Normalizer.Form.NFKD)
+                .replaceAll("\\p{M}+", "");
+        String dedup = noAccent.replaceAll("[^\\p{IsHan}a-z0-9]", "");
+        return dedup.isEmpty() ? lower.replaceAll("\\s+", "") : dedup;
     }
 }

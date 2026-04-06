@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.auth.service.impl;
 
+import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.CaptchaUtils;
@@ -10,16 +11,16 @@ import cn.diaojiahong.myyoutube.auth.controller.domain.dto.ForgetPasswordDTO;
 import cn.diaojiahong.myyoutube.auth.controller.domain.dto.LoginRequestDTO;
 import cn.diaojiahong.myyoutube.auth.controller.domain.dto.RegisterRequestDTO;
 import cn.diaojiahong.myyoutube.auth.service.IAuthService;
+import cn.diaojiahong.myyoutube.mq.message.UserDocMessage;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.hutool.core.bean.BeanUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +32,7 @@ public class AuthServiceImpl implements IAuthService {
 
     private final IUserService userService;
     private final StringRedisTemplate redisTemplate;
+    private final RabbitTemplate rabbitTemplate;
 
     @Override
     public Result<String> login(LoginRequestDTO loginRequestDTO) {
@@ -109,6 +111,13 @@ public class AuthServiceImpl implements IAuthService {
         user.setNickname(registerRequestDTO.getUsername());
 
         userService.save(user);
+
+        // 发送RabbitMQ消息,用于更新用户文档
+        rabbitTemplate.convertAndSend(
+                RabbitMqConstants.UPDATE_USER_DOCUMENT_EXCHANGE,
+                RabbitMqConstants.UPDATE_USER_DOCUMENT_ROUTING_KEY,
+                UserDocMessage.builder().user(user).build());
+
         log.info("用户 [{}] 注册成功", registerRequestDTO.getUsername());
         return Result.success();
     }

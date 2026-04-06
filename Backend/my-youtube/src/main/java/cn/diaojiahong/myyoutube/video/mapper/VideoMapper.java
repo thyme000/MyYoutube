@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.video.mapper;
 
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 import java.util.Set;
@@ -16,5 +17,7 @@ import java.util.Set;
  */
 public interface VideoMapper extends BaseMapper<Video> {
 
-    List<Video> selectOrderedList(Set<String> ids);
+    List<Video> selectOrderedList(@Param("ids") Set<String> ids);
+
+    List<Video> selectOrderedListByList(@Param("ids") List<String> ids);
 }

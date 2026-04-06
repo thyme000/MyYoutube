@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.recommend.domain.doc;
 import lombok.Data;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.elasticsearch.annotations.*;
+import org.springframework.data.elasticsearch.core.suggest.Completion;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -50,4 +51,13 @@ public class VideoDoc {
 
     @Field(type = FieldType.Keyword)
     private String visibility;
+
+    @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
+    private List<String> tagNames;
+
+    @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
+    private String authorName;
+
+    @CompletionField(maxInputLength = 100, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
+    private Completion suggest;
 }

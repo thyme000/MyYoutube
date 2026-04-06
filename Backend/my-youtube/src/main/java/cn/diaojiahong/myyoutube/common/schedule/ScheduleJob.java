@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.common.schedule;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
+import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -28,6 +29,7 @@ public class ScheduleJob {
     private final IVideoService videoService;
     private final IUserService userService;
     private final VideoDocRepository videoDocRepository;
+    private final UserDocRepository userDocRepository;
 
     /**
      * 每小时更新一次播放量：分片刷,避免单 Hash (热点key)过大,影响性能
@@ -124,21 +126,26 @@ public class ScheduleJob {
         ScanOptions options = ScanOptions.scanOptions().match(RedisConstants.USER_LIKE_COUNT + "*").build();
         try (Cursor<String> cursor = redisTemplate.scan(options)) {
             while (cursor.hasNext()) {
-                String hashKey = cursor.next();
-                String userId = hashKey.split(RedisConstants.USER_LIKE_COUNT)[1];
-                Map<Object, Object> entries = redisTemplate.opsForHash().entries(hashKey);
-                if (entries.isEmpty()) {
+                String key = cursor.next();
+                String userId = key.split(RedisConstants.USER_LIKE_COUNT)[1];
+                String s = redisTemplate.opsForValue().get(key);
+                if (s == null || s.isEmpty()) {
                     continue;
                 }
-                entries.forEach((videoId, likeCount) -> {
-                    Long likeCountLong = Long.parseLong(likeCount.toString());
-                    userService.lambdaUpdate()
-                            .setIncrBy(User::getLikeCount, likeCountLong)
-                            .eq(User::getId, userId)
-                            .update();
-                });
+                Long likeCountLong = Long.parseLong(s);
+                userService.lambdaUpdate()
+                        .setIncrBy(User::getLikeCount, likeCountLong)
+                        .eq(User::getId, userId)
+                        .update();
+                // 修改es中用户获赞量
+                userDocRepository.findById(Long.parseLong(userId)).ifPresent(
+                        u -> {
+                            u.setLikeCount(u.getLikeCount() + likeCountLong);
+                            userDocRepository.save(u);
+                        }
+                );
                 // 删除redisKey
-                redisTemplate.delete(hashKey);
+                redisTemplate.delete(key);
             }
         }
     }
@@ -207,5 +214,13 @@ public class ScheduleJob {
             doc.setLikeCount(v.getLikeCount() != null ? v.getLikeCount() : 0L);
             videoDocRepository.save(doc);
         });
+    }
+
+    /**
+     * 每周一0点0分清空热搜榜
+     */
+    @Scheduled(cron = "0 0 0 * * 1")
+    public void clearHotSearch() {
+        redisTemplate.delete(RedisConstants.HOT_SEARCH);
     }
 }

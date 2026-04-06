@@ -15,7 +15,6 @@ import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
 import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
 import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
-import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;

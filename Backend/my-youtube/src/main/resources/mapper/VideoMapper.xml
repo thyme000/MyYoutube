@@ -16,4 +16,18 @@
         </foreach>
         )
     </select>
+    <select id="selectOrderedListByList" resultType="cn.diaojiahong.myyoutube.video.domain.po.Video">
+        SELECT * FROM video
+        WHERE is_delete = 0
+        AND id IN
+        <foreach collection="ids" item="id" open="(" close=")" separator=",">
+            #{id}
+        </foreach>
+        AND visibility = 'public' AND status = 'published'
+        ORDER BY FIELD(id,
+        <foreach collection="ids" item="id" separator=",">
+            #{id}
+        </foreach>
+        )
+    </select>
 </mapper>

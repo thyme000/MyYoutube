@@ -11,6 +11,7 @@ import cn.diaojiahong.myyoutube.follow.domain.vo.UserFanVO;
 import cn.diaojiahong.myyoutube.follow.domain.vo.UserFollowVO;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
+import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
@@ -41,6 +42,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     private final IUserService userService;
     private final AliOssUtil aliOssUtil;
+    private final UserDocRepository userDocRepository;
 
     private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
@@ -59,7 +61,13 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
             userService.lambdaUpdate().eq(User::getId, authorId).setIncrBy(User::getFans, 1).update();
             userService.lambdaUpdate().eq(User::getId, userId).setIncrBy(User::getAttentionCount, 1).update();
         }
-
+        // 修改es中的用户文档 -> 被关注者粉丝数加一
+        userDocRepository.findById(authorId).ifPresent(
+                u -> {
+                    u.setFans(u.getFans() + 1);
+                    userDocRepository.save(u);
+                }
+        );
         return Result.success();
     }
 
@@ -82,7 +90,13 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
             userService.lambdaUpdate().eq(User::getId, authorId).setDecrBy(User::getFans, 1).gt(User::getFans, 0).update();
             userService.lambdaUpdate().eq(User::getId, userId).setDecrBy(User::getAttentionCount, 1).gt(User::getAttentionCount, 0).update();
         }
-
+        // 更新es中的用户文档
+        userDocRepository.findById(authorId).ifPresent(
+                u -> {
+                    u.setFans(u.getFans() - 1);
+                    userDocRepository.save(u);
+                }
+        );
         return Result.success();
     }
 
@@ -199,6 +213,13 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
             userService.lambdaUpdate().eq(User::getId, userId).setDecrBy(User::getFans, 1).gt(User::getFans, 0).update();
             userService.lambdaUpdate().eq(User::getId, followerId).setDecrBy(User::getAttentionCount, 1).gt(User::getAttentionCount, 0).update();
         }
+        // 更新es用户文档
+        userDocRepository.findById(userId).ifPresent(
+                u -> {
+                    u.setFans(u.getFans() - 1);
+                    userDocRepository.save(u);
+                }
+        );
         return Result.success();
     }
 
