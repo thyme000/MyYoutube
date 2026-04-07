@@ -42,6 +42,7 @@ public class UserDocListener {
         userDoc.setLikeCount(user.getLikeCount());
         userDoc.setVideoCount(user.getVideoCount());
         userDoc.setCreateTime(user.getCreateTime());
+        userDoc.setIdKeyword(user.getId().toString());
         userDoc.setSuggest(new Completion(List.of(
                 user.getNickname()
         )));

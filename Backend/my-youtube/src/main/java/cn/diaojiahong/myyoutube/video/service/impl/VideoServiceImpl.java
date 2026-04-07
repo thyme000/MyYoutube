@@ -34,10 +34,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.sun.jdi.LongValue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.data.redis.core.DefaultTypedTuple;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
@@ -309,7 +309,12 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }).toList();
         List<Long> isLike = isLike(userId, videoIds);
         // 转换为map
-        Map<Long, Boolean> likeMap = isLike.stream().collect(Collectors.toMap(v -> v, v -> true));
+        Map<Long, Boolean> likeMap = null;
+        if (isLike == null || isLike.isEmpty()) {
+            likeMap = Collections.emptyMap();
+        } else {
+            likeMap = isLike.stream().collect(Collectors.toMap(v -> v, v -> true));
+        }
         // 填充点赞信息
         for (VideoListVO vo : result) {
             vo.setIsLike(likeMap.getOrDefault(Long.valueOf(vo.getId()), false));
@@ -401,10 +406,17 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     }
 
     private List<Long> isLike(Long userId, List<Long> videoIds) {
-        return new LambdaQueryChainWrapper<>(videoLikeMapper)
+        if (videoIds == null || videoIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<VideoLike> list = new LambdaQueryChainWrapper<>(videoLikeMapper)
                 .eq(VideoLike::getIsLiked, 1)
                 .eq(VideoLike::getUserId, userId)
-                .in(VideoLike::getVideoId, videoIds).list().stream().map(VideoLike::getVideoId).toList();
+                .in(VideoLike::getVideoId, videoIds).list();
+        if (list == null || list.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return list.stream().map(VideoLike::getVideoId).toList();
     }
 
     @Override
@@ -569,6 +581,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 在es中更新这个文档
         videoDocRepository.findById(videoId).ifPresent(doc -> {
             doc.setVisibility("private");
+            doc.setSuggest(new Completion());
             videoDocRepository.save(doc);
         });
         return Result.success();
@@ -603,7 +616,14 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
         // 在es中更新这个文档
         videoDocRepository.findById(videoId).ifPresent(doc -> {
+            List<String> list = new ArrayList<>(List.of(
+                    video.getTitle(),
+                    video.getDescription(),
+                    doc.getAuthorName()
+            ));
+            list.addAll(Arrays.asList(video.getTags().split(",")));
             doc.setVisibility("public");
+            doc.setSuggest(new Completion(list));
             videoDocRepository.save(doc);
         });
         return Result.success("修改成功");

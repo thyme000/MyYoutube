@@ -29,38 +29,43 @@ public class StrUtils {
 
     /**
      * 生成标准 URL slug
-     * 示例：搞笑视频 → gao-xiao-shi-pin
+     * 示例：搞笑视频 → gao-xiao-shi-pin；hello世界 → hello-shi-jie
+     * 规则：汉字转拼音；仅保留 ASCII 字母与数字，其余交给第二步统一成连字符。
      */
     public static String generateSlug(String text) {
         if (text == null || text.isBlank()) {
             return "";
         }
 
-        // 1. 转拼音
         StringBuilder pinyin = new StringBuilder();
         for (char c : text.toCharArray()) {
             if (isChinese(c)) {
-                pinyin.append(c);
-            } else if (Character.isLetterOrDigit(c)) {
                 try {
                     String[] pinyinArr = PinyinHelper.toHanyuPinyinStringArray(c, PINYIN_FORMAT);
                     if (pinyinArr != null && pinyinArr.length > 0) {
-                        pinyin.append(pinyinArr[0]).append("-");
+                        pinyin.append(pinyinArr[0]).append('-');
                     }
-                } catch (BadHanyuPinyinOutputFormatCombination e) {
-                    // 忽略异常
+                } catch (BadHanyuPinyinOutputFormatCombination ignored) {
+                    // 单字无法转拼音时跳过
                 }
+            } else if (isAsciiLetterOrDigit(c)) {
+                pinyin.append(Character.toLowerCase(c));
             }
         }
 
-        // 2. 清理特殊字符 + 处理连接符
         String slug = SPECIAL_CHAR_PATTERN.matcher(pinyin.toString())
                 .replaceAll("-")
                 .replaceAll("-+", "-")
                 .replaceAll("^-|-$", "")
-                .toLowerCase();
+                .toLowerCase(Locale.ROOT);
 
         return slug.isBlank() ? "" : slug;
+    }
+
+    private static boolean isAsciiLetterOrDigit(char c) {
+        return (c >= 'a' && c <= 'z')
+                || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9');
     }
 
     /**

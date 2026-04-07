@@ -8,6 +8,8 @@ import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
+import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
+import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
@@ -24,6 +26,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreMode;
+import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -52,6 +55,7 @@ public class SearchServiceImpl implements ISearchService {
     private final AliOssUtil aliOssUtil;
     private final StringRedisTemplate redisTemplate;
     private final ElasticsearchClient elasticsearchClient;
+    private final VideoLikeMapper videoLikeMapper;
     private static final int OSS_EXPIRE_SECONDS = 3600 * 2;
 
     @Override
@@ -72,7 +76,6 @@ public class SearchServiceImpl implements ISearchService {
                     .withQuery(q -> q.functionScore(fs -> fs
                             .query(inner -> inner.bool(b -> {
                                         b.must(m -> m.term(t -> t.field("status").value("published")));
-                                        b.mustNot(m -> m.term(t -> t.field("authorId").value(userId)));
                                         b.must(m -> m.term(t -> t.field("visibility").value("public")));
                                         if (pageQuery.getVideoType() != null) {
                                             b.must(m -> m.term(t -> t.field("videoType").value(pageQuery.getVideoType())));
@@ -85,7 +88,7 @@ public class SearchServiceImpl implements ISearchService {
                                                     .query(keyword)
                                                     .fields("title^5", "tagNames^4", "authorName^2", "description^3")
                                                     .fuzziness("AUTO")
-                                                    .minimumShouldMatch("70%")
+                                                    .minimumShouldMatch("50%")
                                             ));
                                         }
                                         return b;
@@ -116,7 +119,7 @@ public class SearchServiceImpl implements ISearchService {
                                     .query(keyword)
                                     .fields("title^5", "tagNames^4", "authorName^2", "description^3")
                                     .fuzziness("AUTO")
-                                    .minimumShouldMatch("70%")
+                                    .minimumShouldMatch("50%")
                             ));
                         }
                         return b;
@@ -177,10 +180,10 @@ public class SearchServiceImpl implements ISearchService {
                                                 .query(keyword)
                                                 .fields("nickname^5", "introduction^2")
                                                 .fuzziness("AUTO")
-                                                .minimumShouldMatch("70%")
+                                                .minimumShouldMatch("50%")
                                         ));
                                         if (numeric) {
-                                            b.should(s -> s.term(t -> t.field("id").value(Long.parseLong(keyword)).boost(20.0f)));
+                                            b.should(s -> s.wildcard(t -> t.field("idKeyword").value("*" + keyword + "*")));
                                         }
                                         b.minimumShouldMatch("1");
                                     }
@@ -212,6 +215,11 @@ public class SearchServiceImpl implements ISearchService {
         });
 
         loadForHotSearch(userId, keyword);
+        // 判断是否关注过
+        Map<Long, Boolean> isFollows = followIds.stream().collect(Collectors.toMap(id -> id, id -> true));
+        result.forEach(vo -> {
+            vo.setIsFollow(isFollows.getOrDefault(vo.getId(), false));
+        });
 
         long total = hits.getTotalHits();
         long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
@@ -378,10 +386,40 @@ public class SearchServiceImpl implements ISearchService {
             re.setVideoUrl(aliOssUtil.signGetUrl(re.getVideoUrl(), OSS_EXPIRE_SECONDS));
             re.setCoverUrl(aliOssUtil.signGetUrl(re.getCoverUrl(), OSS_EXPIRE_SECONDS));
         });
+        // 判断是否点过赞
+        List<Long> likedIds = isLike(getUserId(), videos.stream().map(Video::getId).collect(Collectors.toList()));
+        if (likedIds != null && !likedIds.isEmpty()) {
+            Map<Long, Boolean> isLikes = likedIds.stream().collect(Collectors.toMap(id -> id, id -> true));
+            result.forEach(vo -> {
+                vo.setIsLike(isLikes.getOrDefault(Long.valueOf(vo.getId()), false));
+            });
+        }
+        // 填充是否关注
+        List<Long> followIds = userFollowService.getFollowIds(getUserId());
+        if (followIds!=null && !followIds.isEmpty()) {
+            Map<Long, Boolean> isFollows = followIds.stream().collect(Collectors.toMap(id -> id, id -> true));
+            result.forEach(vo -> {
+                vo.setIsFollow(isFollows.getOrDefault(vo.getAuthorId(), false));
+            });
+        }
 
         long total = hits.getTotalHits();
         long pages = (total + pageSize - 1) / pageSize;
         return Result.success(PageResult.of(total, pages, result));
+    }
+
+    private List<Long> isLike(Long userId, List<Long> videoIds) {
+        if (videoIds == null || videoIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<VideoLike> list = new LambdaQueryChainWrapper<>(videoLikeMapper)
+                .eq(VideoLike::getIsLiked, 1)
+                .eq(VideoLike::getUserId, userId)
+                .in(VideoLike::getVideoId, videoIds).list();
+        if (list == null || list.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return list.stream().map(VideoLike::getVideoId).toList();
     }
 
     private List<FunctionScore> getFunction(Long userId) {

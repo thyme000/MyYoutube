@@ -129,7 +129,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         updateById(like);
 
         // 更新用户获赞量
-        redisTemplate.opsForHash().increment(RedisConstants.USER_LIKE_COUNT + userId, videoId.toString(), -1);
+        redisTemplate.opsForValue().increment(RedisConstants.USER_LIKE_COUNT + videoService.getById(videoId).getAuthorId(), -1);
 
         return Result.success();
     }

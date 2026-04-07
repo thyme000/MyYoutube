@@ -21,6 +21,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -109,7 +110,11 @@ public class AuthServiceImpl implements IAuthService {
         User user = BeanUtil.toBean(registerRequestDTO, User.class);
         user.setPassword(PasswordEncoder.encode(registerRequestDTO.getPassword()));
         user.setNickname(registerRequestDTO.getUsername());
-
+        user.setCreateTime(LocalDateTime.now());
+        user.setFans(0L);
+        user.setVideoCount(0L);
+        user.setLikeCount(0L);
+        user.setIntroduction("");
         userService.save(user);
 
         // 发送RabbitMQ消息,用于更新用户文档

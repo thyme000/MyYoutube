@@ -57,12 +57,15 @@ public class VideoDocListener {
         doc.setVisibility(video.getVisibility().getCode());
         doc.setTagNames(list);
         doc.setAuthorName(userService.getById(video.getAuthorId() == null ? null : video.getAuthorId()).getNickname());
-        doc.setSuggest(new Completion(List.of(
+        List<String> suggest = new java.util.ArrayList<>(List.of(
                 video.getTitle(),
                 video.getDescription(),
-                doc.getAuthorName(),
-                doc.getTagNames() == null || doc.getTagNames().isEmpty() ? "" : String.join(" ", doc.getTagNames())
-        )));
+                doc.getAuthorName() == null ? "" : doc.getAuthorName()
+        ));
+        if (list != null && !list.isEmpty()) {
+            suggest.addAll(list);
+        }
+        doc.setSuggest(new Completion(suggest));
         videoDocRepository.save(doc);
     }
 }

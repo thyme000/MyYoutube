@@ -14,6 +14,10 @@ import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.BANNED;
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.PUBLISHED;
 
@@ -44,7 +48,14 @@ public class AdminServiceImpl implements IAdminService {
                 .update();
         // 修改es中的视频状态
         videoDocRepository.findById(videoId).ifPresent(doc -> {
+            List<String> list = new ArrayList<>(List.of(
+                    video.getTitle(),
+                    video.getDescription(),
+                    doc.getAuthorName()
+            ));
+            list.addAll(Arrays.asList(video.getTags().split(",")));
             doc.setStatus(PUBLISHED.getCode());
+            doc.setSuggest(new Completion(list));
             videoDocRepository.save(doc);
         });
         // 修改es中用户的作品数量

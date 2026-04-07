@@ -16,4 +16,6 @@ public class SearchUserVO {
     private Long fans;
     // 获赞数
     private Long likeCount;
+    // 是否关注
+    private Boolean isFollow;
 }
