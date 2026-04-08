@@ -5,6 +5,12 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
+      /** 必须排在 /search 等前缀之前，避免 dev 环境下路径匹配歧义；见 src/api/musicApi.js */
+      "/music-svc": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/music-svc/, ""),
+      },
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,

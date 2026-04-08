@@ -88,6 +88,9 @@ import {
 import { parseDigitSnowflakeId, safeSnowflakeId } from "./utils/snowflakeId.js";
 /** 短视频无接口数据时的本地 fallback（static 目录下四个 mp4） */
 import appIco from "../static/11.ico?url";
+import MusicLyricsAppleView from "./components/MusicLyricsAppleView.vue";
+import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
+import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
 
 const primaryMenus = [
   { key: "home", label: "首页", icon: "ri-home-4-line" },
@@ -5062,6 +5065,17 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       pageHint.value = "关注 · 左侧为关注列表，右侧为关注作者的短视频推荐（GET /videos/follow/list）";
       return;
     }
+    if (menu.key === "music") {
+      loading.value = false;
+      cards.value = [];
+      homeShortsRows.value = [];
+      homeShortsPageNo.value = 1;
+      homeShortsPages.value = 0;
+      homeLongPageNo.value = 1;
+      homeLongPages.value = 0;
+      pageHint.value = "音乐 · 本地播放与全屏歌词（前端演示）";
+      return;
+    }
     homeShortsRows.value = [];
     homeShortsPageNo.value = 1;
     homeShortsPages.value = 0;
@@ -9059,6 +9073,8 @@ onBeforeUnmount(() => {
             !showVideoDetail,
           'content--studio': showStudio,
           'content--search': searchActive && !showStudio,
+          'content--music':
+            !showProfileCenter && activeMenuKey === 'music' && !showStudio && !searchActive,
         }"
       >
         <!-- 创作中心（YouTube Studio 风格） -->
@@ -11023,6 +11039,10 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
+          <section v-else-if="activeMenuKey === 'music'" class="explore-music-apple">
+            <MusicLyricsAppleView />
+          </section>
+
           <section v-else-if="activeMenuKey === 'home'" class="home-mixed-feed">
             <section class="card-grid">
               <article v-if="loading" v-for="n in 8" :key="`skeleton-home-a-${n}`" class="video-card video-card--skeleton">
@@ -11749,5 +11769,8 @@ onBeforeUnmount(() => {
         </form>
       </div>
     </div>
+
+    <MusicPlayerAudioHost />
+    <MusicMiniPlayer :show="activeMenuKey !== 'music'" />
   </div>
 </template>
