@@ -36,9 +36,9 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
     private static final Long OSS_EXPIRE_TIME = 3600 * 2L;
     private final AliOssUtil aliOssUtil;
 
-    public ChatUserConversationService(MongoTemplate mongoTemplate, Class<ChatUserConversationDoc> entityClass,
+    public ChatUserConversationService(MongoTemplate mongoTemplate,
                                        AliOssUtil aliOssUtil) {
-        super(mongoTemplate, entityClass);
+        super(mongoTemplate, ChatUserConversationDoc.class);
         this.aliOssUtil = aliOssUtil;
     }
 

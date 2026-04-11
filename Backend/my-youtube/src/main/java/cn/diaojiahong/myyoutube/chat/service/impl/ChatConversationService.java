@@ -21,6 +21,7 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -39,18 +40,19 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     private final IUserService userService;
     private final AliOssUtil aliOssUtil;
     private final RabbitTemplate rabbitTemplate;
-    public ChatConversationService(MongoTemplate mongoTemplate, Class<ChatConversationDoc> entityClass,
+    public ChatConversationService(MongoTemplate mongoTemplate,
                                    IUserFollowService userFollowService,
                                    IUserService userService,
                                    AliOssUtil aliOssUtil,
                                    RabbitTemplate rabbitTemplate) {
-        super(mongoTemplate, entityClass);
+        super(mongoTemplate, ChatConversationDoc.class);
         this.userFollowService = userFollowService;
         this.userService = userService;
         this.aliOssUtil = aliOssUtil;
         this.rabbitTemplate = rabbitTemplate;
     }
 
+    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public Result<ConversationVO> createConversation(CreateConversationDTO createConversationDTO) {
         Long userId = getUserId();
         // 判断是否是互关用户 -> 不是互关用户则返回错误
@@ -82,11 +84,21 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         chatConversationDoc.setCreatedBy(userId);
         save(chatConversationDoc);
         // 创建用户会话状态表
+        LocalDateTime now = LocalDateTime.now();
         List<ChatUserConversationDoc> chatUserConversationDocs = new ArrayList<>();
         for (Long memberId : memberIds) {
             ChatUserConversationDoc chatUserConversationDoc = new ChatUserConversationDoc();
             chatUserConversationDoc.setConversationId(chatConversationDoc.getId());
             chatUserConversationDoc.setUserId(memberId);
+            chatUserConversationDoc.setUnreadCount(0);
+            chatUserConversationDoc.setLastReadSeq(0L);
+            chatUserConversationDoc.setMute(false);
+            chatUserConversationDoc.setPin(false);
+            chatUserConversationDoc.setDeleted(false);
+            chatUserConversationDoc.setBanned(false);
+            chatUserConversationDoc.setLastPullAt(now);
+            chatUserConversationDoc.setCreatedAt(now);
+            chatUserConversationDoc.setUpdatedAt(now);
             chatUserConversationDocs.add(chatUserConversationDoc);
         }
         mongoTemplate.insert(chatUserConversationDocs);
@@ -176,6 +188,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         return Result.success("删除成功");
     }
 
+    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public Result<Void> removeConversationMember(String conversationId, String removeUserId) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
@@ -204,6 +217,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         return opt.get();
     }
 
+    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public Result<Void> inviteConversationMember(String conversationId, Long invitedUserId) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         Long userId = getUserId();
@@ -235,7 +249,11 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         userConversationDoc.setMute(false);
         userConversationDoc.setPin(false);
         userConversationDoc.setDeleted(false);
-        userConversationDoc.setLastPullAt(LocalDateTime.now());
+        userConversationDoc.setBanned(false);
+        LocalDateTime now = LocalDateTime.now();
+        userConversationDoc.setLastPullAt(now);
+        userConversationDoc.setCreatedAt(now);
+        userConversationDoc.setUpdatedAt(now);
         mongoTemplate.insert(userConversationDoc, "chat_user_conversation");
         return Result.success(null);
     }

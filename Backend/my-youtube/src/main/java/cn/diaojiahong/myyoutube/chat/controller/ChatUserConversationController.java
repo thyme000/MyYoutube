@@ -23,7 +23,7 @@ public class ChatUserConversationController {
      * @param mute 是否开启免打扰模式
      */
     @Operation(summary = "开启或关闭免打扰")
-    @PostMapping("/{conversationId}/mute")
+    @PutMapping("/{conversationId}/mute")
     public Result<Void> setMute(@PathVariable String conversationId, @RequestParam boolean mute) {
         return chatUserConversationService.setMute(conversationId, mute);
     }
@@ -34,7 +34,7 @@ public class ChatUserConversationController {
      * @param pin 是否置顶
      */
     @Operation(summary = "对某会话置顶或取消置顶")
-    @PostMapping("/{conversationId}/pin")
+    @PutMapping("/{conversationId}/pin")
     public Result<Void> setPin(@PathVariable String conversationId, @RequestParam boolean pin) {
         return chatUserConversationService.setPin(conversationId, pin);
     }

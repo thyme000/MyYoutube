@@ -38,6 +38,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.transaction.annotation.Transactional;
 
 
 import java.time.LocalDateTime;
@@ -107,6 +108,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return page(q, PageRequest.of(0, size));
     }
 
+    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public Result<ChatMessageAckDTO> send(ChatMessageDTO chatMessageDTO) {
         validateByType(chatMessageDTO);
         String userId = getUserId();
@@ -114,7 +116,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(Long.valueOf(userId));
         Query q = Query.query(c);
         ChatUserConversationDoc userConversationDoc = mongoTemplate.findOne(q, ChatUserConversationDoc.class);
-        if (userConversationDoc == null || userConversationDoc.getDeleted()) {
+        if (userConversationDoc == null || Boolean.TRUE.equals(userConversationDoc.getDeleted())) {
             throw new BizException(BizException.CONVERSATION_ERROR, "不合法的会话状态");
         }
         // 判断是否被禁言
@@ -235,6 +237,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return userId;
     }
 
+    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public Result<ChatMessageAckDTO> withdraw(ChatMessageWithdrawDTO chatMessageWithdrawDTO) {
         String userId = getUserId();
         if (chatMessageWithdrawDTO.getClientMsgId() == null) {
@@ -248,7 +251,9 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         ChatMessageDoc chatMessageDoc = existed.get();
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(chatMessageDoc.getConversationId());
         // 判断是否是发送人撤回或群主撤回
-        if (!chatMessageDoc.getSenderId().toString().equals(userId) && !chatConversationDoc.getCreatedBy().toString().equals(userId)) {
+        Long createdBy = chatConversationDoc.getCreatedBy();
+        if (!chatMessageDoc.getSenderId().toString().equals(userId)
+                && (createdBy == null || !createdBy.toString().equals(userId))) {
             throw new BizException(BizException.MESSAGE_ERROR, "不是发送人或群主");
         }
         LocalDateTime recallTime = LocalDateTime.now();
@@ -265,7 +270,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                 throw new BizException(BizException.MESSAGE_ERROR, "消息已发送超过2分钟,不能撤回");
             }
             up.set("recallType", RecallTypeEnum.SENDER);
-        } else if (chatConversationDoc.getCreatedBy() != null && chatConversationDoc.getCreatedBy().equals(operatorId)) {
+        } else if (createdBy != null && createdBy.equals(operatorId)) {
             // 群主撤回他人消息：管理撤回
             up.set("recallType", RecallTypeEnum.ADMIN);
         }
@@ -367,6 +372,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return Result.success(vo);
     }
 
+    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public Result<Void> read(String conversationId, Long lastReadSeq) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         // 判断是否是会话成员
@@ -406,8 +412,11 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         }
         // 更新用户会话状态
         Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(Long.parseLong(getUserId()));
+        int prevUnread = chatUserConversationDoc.getUnreadCount() != null ? chatUserConversationDoc.getUnreadCount() : 0;
+        long seqDelta = lastReadSeq - oldLastReadSeq;
+        int nextUnread = (int) Math.max(0L, (long) prevUnread - seqDelta);
         Update up = new Update().set("lastReadSeq", lastReadSeq).set("updatedAt", LocalDateTime.now())
-                .set("unreadCount", Math.max(0, chatUserConversationDoc.getUnreadCount() - (lastReadSeq - oldLastReadSeq)));
+                .set("unreadCount", nextUnread);
         mongoTemplate.updateFirst(Query.query(c), up, ChatUserConversationDoc.class);
         // 推送消息给对方
         Long receiverId = null;
