@@ -43,4 +43,25 @@ public class RabbitMqConstants {
     public static final String UPDATE_USER_DOCUMENT_ROUTING_KEY = "update_user_document_routing_key";
     // 更新用户文档交换机
     public static final String UPDATE_USER_DOCUMENT_EXCHANGE = "update_user_document_exchange";
+
+    // 发送消息队列
+    public static final String MESSAGE_QUEUE = "message_queue";
+    // 发送消息路由键
+    public static final String MESSAGE_ROUTING_KEY = "message_routing_key";
+    // 发送消息交换机
+    public static final String MESSAGE_EXCHANGE = "message_exchange";
+
+    // 已读消息队列
+    public static final String READ_MESSAGE_QUEUE = "read_message_queue";
+    // 已读消息路由键
+    public static final String READ_MESSAGE_ROUTING_KEY = "read_message_routing_key";
+    // 已读消息交换机
+    public static final String READ_MESSAGE_EXCHANGE = "read_message_exchange";
+
+    // 通知群成员会话已删除队列
+    public static final String NOTIFY_GROUP_MEMBER_DELETED_QUEUE = "notify_group_member_deleted_queue";
+    // 通知群成员会话已删除路由键
+    public static final String NOTIFY_GROUP_MEMBER_DELETED_ROUTING_KEY = "notify_group_member_deleted_routing_key";
+    // 通知群成员会话已删除交换机
+    public static final String NOTIFY_GROUP_MEMBER_DELETED_EXCHANGE = "notify_group_member_deleted_exchange";
 }

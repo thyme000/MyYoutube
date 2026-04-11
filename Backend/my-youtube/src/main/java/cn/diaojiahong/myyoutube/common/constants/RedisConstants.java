@@ -77,4 +77,11 @@ public class RedisConstants {
     public static final String USER_SEARCH_KEYWORD = "user:search:keyword:";
     // 30分钟后过期
     public static final Long USER_SEARCH_KEYWORD_EXPIRE = 30L;
+
+    /**
+     * 用户会话记录(用户记录非互关用户) -> 非互关关系每天只能给对方发10条消息
+     */
+    public static final String USER_CONVERSATION = "user:conversation:";
+    // 1天后过期
+    public static final Long USER_CONVERSATION_EXPIRE = 1L;
 }

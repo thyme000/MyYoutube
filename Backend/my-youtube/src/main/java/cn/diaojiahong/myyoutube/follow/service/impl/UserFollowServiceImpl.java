@@ -12,7 +12,6 @@ import cn.diaojiahong.myyoutube.follow.domain.vo.UserFollowVO;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
-import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
@@ -22,7 +21,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -143,6 +141,13 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 .eq(UserFollow::getFolloweeId, authorId).one();
         return Result.success(one != null && !one.getIsDeleted());
     }
+
+    @Override
+    public Boolean interrelated(Long userId, List<Long> memberIds) {
+        int expectedCount = (int) memberIds.stream().distinct().count();
+        return baseMapper.interrelated(userId, memberIds, expectedCount);
+    }
+
 
     @Override
     public Result<PageResult<UserFanVO>> getFansList(PageQuery pageQuery) {

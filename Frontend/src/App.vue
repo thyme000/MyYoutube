@@ -5214,7 +5214,7 @@ async function setActiveMenu(menu) {
         });
         return;
       }
-      await loadModuleCards(menu);
+  await loadModuleCards(menu);
       return;
     }
     if (prevMenuKey === "home" && !prevShowProfile) {
@@ -8458,7 +8458,7 @@ onMounted(async () => {
     const ok = await restoreVideoDetailFromUrl(v);
     if (!ok) {
       clearVideoDetailFromAddressBar();
-      await loadModuleCards(homeMenu);
+  await loadModuleCards(homeMenu);
     } else {
       await nextTick();
       requestAnimationFrame(() => {
@@ -8826,14 +8826,14 @@ onBeforeUnmount(() => {
       <header class="topbar">
         <div class="search-box search-box--with-dropdown">
           <div class="search-box__input-wrap">
-            <input
+          <input
               ref="searchInputRef"
-              v-model="searchKeyword"
-              type="text"
+            v-model="searchKeyword"
+            type="text"
               :placeholder="SEARCH_UI.placeholder"
-              aria-label="搜索"
+            aria-label="搜索"
               autocomplete="off"
-              @keyup.enter="onSearch"
+            @keyup.enter="onSearch"
               @focus="onSearchInputFocus"
               @blur="onSearchInputBlur"
             />
@@ -11044,17 +11044,17 @@ onBeforeUnmount(() => {
           </section>
 
           <section v-else-if="activeMenuKey === 'home'" class="home-mixed-feed">
-            <section class="card-grid">
+        <section class="card-grid">
               <article v-if="loading" v-for="n in 8" :key="`skeleton-home-a-${n}`" class="video-card video-card--skeleton">
                 <div class="video-cover video-cover-loading"></div>
-                <div class="video-info">
+            <div class="video-info">
                   <div class="video-card-author-avatar"></div>
                   <div class="video-info-text">
                     <strong></strong>
                     <span></span>
                   </div>
-                </div>
-              </article>
+            </div>
+          </article>
               <article
                 v-if="!loading"
                 v-for="(card, index) in homeLongHeadCards"
@@ -11166,7 +11166,7 @@ onBeforeUnmount(() => {
                   preload="metadata"
                 ></video>
                 <img v-else class="video-cover" :src="cardCoverSrc(card, index + homeLongHeadCards.length)" :alt="card.title" />
-                <div class="video-info">
+            <div class="video-info">
                   <img
                     class="video-card-author-avatar"
                     :src="cardAuthorAvatar(card, index + homeLongHeadCards.length)"
@@ -11177,12 +11177,12 @@ onBeforeUnmount(() => {
                     @error="(e) => (e.target.src = profileAvatar)"
                   />
                   <div class="video-info-text">
-                    <strong>{{ card.title }}</strong>
+              <strong>{{ card.title }}</strong>
                     <span>{{ cardAuthorLabel(card) }} · {{ card.viewsText || "1.2万次观看" }}</span>
                   </div>
-                </div>
-              </article>
-            </section>
+            </div>
+          </article>
+        </section>
             <section v-if="homeLongLoadingMore" class="card-grid card-grid--loading-more">
               <article v-for="n in 5" :key="`skeleton-home-more-${n}`" class="video-card video-card--skeleton">
                 <div class="video-cover video-cover-loading"></div>
@@ -11257,7 +11257,7 @@ onBeforeUnmount(() => {
         <div v-if="detailLoading" class="video-detail-loading" aria-busy="true">
           <span class="video-player-loading__ring video-player-loading__ring--detail" />
           <span class="video-detail-loading__text">加载中…</span>
-        </div>
+    </div>
         <template v-else-if="videoDetail">
           <div class="video-detail-layout">
             <div class="video-detail-main">
@@ -11294,7 +11294,7 @@ onBeforeUnmount(() => {
                   <div class="video-player-loading__inner">
                     <span class="video-player-loading__ring video-player-loading__ring--detail" />
                     <span class="video-player-loading__text video-player-loading__text--detail">正在加载视频</span>
-                  </div>
+  </div>
                 </div>
                 <div v-else-if="!videoDetail.videoUrl" class="video-detail-player-empty">暂无播放地址</div>
               </div>

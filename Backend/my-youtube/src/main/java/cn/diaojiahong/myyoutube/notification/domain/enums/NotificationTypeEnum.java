@@ -39,6 +39,11 @@ public enum NotificationTypeEnum {
     NEW_FOLLOW("NEW_FOLLOW", "新增关注"),
 
     /**
+     * 聊天通知(所在群主解散群聊)
+     */
+    CHAT_NOTICE("CHAT_NOTICE", "聊天通知(所在群主解散群聊)"),
+
+    /**
      * 系统通知
      */
     SYSTEM_NOTICE("SYSTEM_NOTICE", "系统通知");

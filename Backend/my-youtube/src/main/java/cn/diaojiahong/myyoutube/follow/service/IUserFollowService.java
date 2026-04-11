@@ -29,6 +29,8 @@ public interface IUserFollowService extends IService<UserFollow> {
 
     Result<Boolean> isFollow(Long authorId);
 
+    Boolean interrelated(Long userId, List<Long> memberIds);
+
     Result<PageResult<UserFanVO>> getFansList(PageQuery pageQuery);
 
     List<Long> getFollowIds(Long userId);
