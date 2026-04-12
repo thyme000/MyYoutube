@@ -7,8 +7,7 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
-import cn.diaojiahong.myyoutube.follow.domain.vo.UserFanVO;
-import cn.diaojiahong.myyoutube.follow.domain.vo.UserFollowVO;
+import cn.diaojiahong.myyoutube.follow.domain.vo.UserRelationshipVO;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
@@ -99,7 +98,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     }
 
     @Override
-    public Result<PageResult<UserFollowVO>> getUserFollowList(PageQuery pageQuery) {
+    public Result<PageResult<UserRelationshipVO>> getUserFollowList(PageQuery pageQuery) {
         Long userId = getUserId();
         Page<UserFollow> page = lambdaQuery().eq(UserFollow::getFollowerId, userId)
                 .eq(UserFollow::getIsDeleted, false)
@@ -111,24 +110,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         }
         List<Long> list = follows.stream().map(UserFollow::getFolloweeId).toList();
 
-        List<User> users = userService.listByIds(list);
-        // 转换为 Map
-        Map<Long, User> userMap = users.stream()
-                .collect(Collectors.toMap(User::getId, u -> u));
-        // 按原始顺序重组列表
-        List<User> orderedList = list.stream().map(userMap::get)
-                .filter(Objects::nonNull)
-                .toList();
-
-        // 转vo
-        List<UserFollowVO> voList = orderedList.stream().map(u -> {
-            UserFollowVO vo = new UserFollowVO();
-            vo.setNickname(u.getNickname());
-            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(u.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
-            vo.setIntroduction(u.getIntroduction());
-            vo.setFolloweeId(u.getId());
-            return vo;
-        }).toList();
+        List<UserRelationshipVO> voList = getUserRelationshipVOS(list);
 
         return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
     }
@@ -150,7 +132,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
 
     @Override
-    public Result<PageResult<UserFanVO>> getFansList(PageQuery pageQuery) {
+    public Result<PageResult<UserRelationshipVO>> getFansList(PageQuery pageQuery) {
         Long userId = getUserId();
         Page<UserFollow> page = lambdaQuery().eq(UserFollow::getFolloweeId, userId)
                 .eq(UserFollow::getIsDeleted, false)
@@ -161,23 +143,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
             return Result.success(PageResult.of(page.getTotal(), page.getPages(), List.of()));
         }
         List<Long> list = follows.stream().map(UserFollow::getFollowerId).toList();
-        List<User> users = userService.listByIds(list);
-        // 转换为 Map
-        Map<Long, User> userMap = users.stream()
-                .collect(Collectors.toMap(User::getId, u -> u));
-        // 按原始顺序重组列表
-        List<User> orderedList = list.stream().map(userMap::get)
-                .filter(Objects::nonNull)
-                .toList();
-        // 转vo
-        List<UserFanVO> voList = orderedList.stream().map(u -> {
-            UserFanVO vo = new UserFanVO();
-            vo.setNickname(u.getNickname());
-            vo.setAvatarUrl(aliOssUtil.signGetUrl(u.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
-            vo.setIntroduction(u.getIntroduction());
-            vo.setFanId(u.getId());
-            return vo;
-        }).toList();
+        List<UserRelationshipVO> voList = getUserRelationshipVOS(list);
         return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
     }
 
@@ -228,4 +194,38 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         return Result.success();
     }
 
+    @Override
+    public Result<PageResult<UserRelationshipVO>> getInterrelated(PageQuery pageQuery) {
+        Long userId = getUserId();
+        Page<Long> page = baseMapper.selectInterrelatedPage(pageQuery.toPage(), userId);
+        if (page == null) {
+            return Result.success(PageResult.of(0, 0, List.of()));
+        }
+        List<Long> records = page.getRecords() != null ? page.getRecords() : List.of();
+        if (records.isEmpty()) {
+            return Result.success(PageResult.of(page.getTotal(), page.getPages(), List.of()));
+        }
+        List<UserRelationshipVO> voList = getUserRelationshipVOS(records);
+        return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
+    }
+
+    private List<UserRelationshipVO> getUserRelationshipVOS(List<Long> records) {
+        List<User> users = userService.listByIds(records);
+        // 转换为 Map
+        Map<Long, User> userMap = users.stream()
+                .collect(Collectors.toMap(User::getId, u -> u));
+        // 按原始顺序重组列表
+        List<User> orderedList = records.stream().map(userMap::get)
+                .filter(Objects::nonNull)
+                .toList();
+        // 转vo
+        return orderedList.stream().map(u -> {
+            UserRelationshipVO vo = new UserRelationshipVO();
+            vo.setNickname(u.getNickname());
+            vo.setAvatarUrl(aliOssUtil.signGetUrl(u.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+            vo.setIntroduction(u.getIntroduction());
+            vo.setUserId(u.getId());
+            return vo;
+        }).toList();
+    }
 }

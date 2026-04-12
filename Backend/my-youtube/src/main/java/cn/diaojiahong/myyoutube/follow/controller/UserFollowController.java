@@ -4,8 +4,7 @@ package cn.diaojiahong.myyoutube.follow.controller;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.follow.domain.vo.UserFanVO;
-import cn.diaojiahong.myyoutube.follow.domain.vo.UserFollowVO;
+import cn.diaojiahong.myyoutube.follow.domain.vo.UserRelationshipVO;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -56,7 +55,7 @@ public class UserFollowController {
      */
     @Operation(summary = "获取用户的关注列表")
     @GetMapping("/list")
-    public Result<PageResult<UserFollowVO>> getUserFollowList(@ModelAttribute PageQuery pageQuery) {
+    public Result<PageResult<UserRelationshipVO>> getUserFollowList(@ModelAttribute PageQuery pageQuery) {
         return userFollowService.getUserFollowList(pageQuery);
     }
 
@@ -80,7 +79,7 @@ public class UserFollowController {
      */
     @Operation(summary = "用户查看粉丝列表")
     @GetMapping("/fans")
-    public Result<PageResult<UserFanVO>> getFansList(@ModelAttribute PageQuery pageQuery) {
+    public Result<PageResult<UserRelationshipVO>> getFansList(@ModelAttribute PageQuery pageQuery) {
         return userFollowService.getFansList(pageQuery);
     }
 
@@ -95,4 +94,14 @@ public class UserFollowController {
         return userFollowService.removeFan(followerId);
     }
 
+    /**
+     * 查询用户的互关用户
+     * @param pageQuery
+     * @return
+     */
+    @Operation(summary = "查询互关用户")
+    @GetMapping("/interrelated")
+    public Result<PageResult<UserRelationshipVO>> interrelated(@ModelAttribute PageQuery pageQuery) {
+        return userFollowService.getInterrelated(pageQuery);
+    }
 }

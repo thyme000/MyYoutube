@@ -1,12 +1,15 @@
 package cn.diaojiahong.myyoutube.chat.controller;
 
 import cn.diaojiahong.myyoutube.chat.mongo.dto.CreateConversationDTO;
+import cn.diaojiahong.myyoutube.chat.mongo.dto.PublishAnnouncementDTO;
+import cn.diaojiahong.myyoutube.chat.mongo.vo.AnnouncementPublishVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationMembersVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationVO;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -70,13 +73,13 @@ public class ChatConversationController {
     /**
      * 移除会话成员
      * @param conversationId 会话id
-     * @param userId 用户id
+     * @param userIds 用户id
      * @return
      */
     @Operation(summary = "移除会话成员")
-    @DeleteMapping("/remove/{conversationId}/{userId}")
-    public Result<Void> removeConversationMember(@PathVariable String conversationId, @PathVariable String userId) {
-        return chatConversationService.removeConversationMember(conversationId, userId);
+    @DeleteMapping("/remove/member/{conversationId}")
+    public Result<Void> removeConversationMember(@PathVariable String conversationId, @RequestParam List<Long> userIds) {
+        return chatConversationService.removeConversationMember(conversationId, userIds);
     }
 
     /**
@@ -111,5 +114,27 @@ public class ChatConversationController {
     @PutMapping("/ban/{conversationId}")
     public Result<Void> banConversation(@PathVariable String conversationId, @RequestParam Boolean banned) {
         return chatConversationService.banConversation(conversationId, banned);
+    }
+
+    /**
+     * 发布/更新群公告（仅群主）；Body：{ "text": "..." }
+     */
+    @Operation(summary = "发布群公告")
+    @PutMapping("/announcement/{conversationId}")
+    public Result<AnnouncementPublishVO> publishAnnouncement(
+            @PathVariable String conversationId,
+            @Valid @RequestBody PublishAnnouncementDTO body) {
+        return chatConversationService.publishAnnouncement(conversationId, body.getText());
+    }
+
+    /**
+     * 查询群公告
+     * @param conversationId 会话id
+     * @return
+     */
+    @Operation(summary = "查询群公告")
+    @GetMapping("/announcement/{conversationId}")
+    public Result<AnnouncementPublishVO> getAnnouncement(@PathVariable String conversationId) {
+        return chatConversationService.getAnnouncement(conversationId);
     }
 }

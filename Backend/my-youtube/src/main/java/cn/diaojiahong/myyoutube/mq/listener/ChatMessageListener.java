@@ -27,6 +27,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.jmx.export.naming.MetadataNamingStrategy;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -45,6 +46,7 @@ public class ChatMessageListener {
     private final ChatConversationService chatConversationService;
     private final AliOssUtil aliOssUtil;
     private final MongoTemplate mongoTemplate;
+    private final MetadataNamingStrategy metadataNamingStrategy;
 
     @RabbitListener(bindings = @QueueBinding(
             value = @Queue(name = MESSAGE_QUEUE, durable = "true"),
@@ -63,8 +65,10 @@ public class ChatMessageListener {
         ChatConversationDoc conversation = opt.get();
         List<Long> memberIds = conversation.getMemberIds();
         User user = userService.getById(chatMessageMessage.getSenderId());
+        Update up = new Update().set("lastPullAt", LocalDateTime.now());
         if (conversation.getType().equals(ConversationTypeEnum.GROUP)) {
             // 发送消息事件
+            up.inc("unreadCount");
             // 群聊 -> 通知除发送人之外的所有成员(不包括开启免打扰的用户)
             memberIds.remove(chatMessageMessage.getSenderId());
             if (chatMessageMessage.getEvent().equals(ChatEventType.SEND.getCode())) {
@@ -105,13 +109,8 @@ public class ChatMessageListener {
                 log.warn("会话 {} 没有成员", conversation.getId());
                 return;
             }
-            Long receiverId = null;
-            for (Long memberId : memberIds) {
-                if (!memberId.equals(Long.parseLong(chatMessageMessage.getSenderId().toString()))) {
-                    receiverId = memberId;
-                    break;
-                }
-            }
+            memberIds.remove(chatMessageMessage.getSenderId());
+            Long receiverId = memberIds.get(0);
             // 判断用户是否对此会话开启了免打扰
             Criteria c = Criteria.where("conversationId").is(conversation.getId()).and("userId").is(receiverId);
             ChatUserConversationDoc chatUserConversationDoc = mongoTemplate.findOne(Query.query(c), ChatUserConversationDoc.class);
@@ -121,6 +120,7 @@ public class ChatMessageListener {
             }
             if (chatMessageMessage.getEvent().equals(ChatEventType.SEND.getCode())) {
                 // 发送消息事件
+                up.inc("unreadCount");
                 // 获取发送人头像url
                 NotificationForSendMessageVO json = getNotificationForSendVO(chatMessageMessage, user, conversation);
                 json.setAvatarUrl(aliOssUtil.signGetUrl(user.getAvatarUrl(), 300));
@@ -134,7 +134,7 @@ public class ChatMessageListener {
         }
         // 更新用户会话状态最后同步时间
         Criteria c = Criteria.where("conversationId").is(conversation.getId()).and("userId").in(memberIds);
-        mongoTemplate.updateMulti(Query.query(c), new Update().set("lastPullAt", LocalDateTime.now()), ChatUserConversationDoc.class);
+        mongoTemplate.updateMulti(Query.query(c), up, ChatUserConversationDoc.class);
     }
 
     @RabbitListener(bindings = @QueueBinding(

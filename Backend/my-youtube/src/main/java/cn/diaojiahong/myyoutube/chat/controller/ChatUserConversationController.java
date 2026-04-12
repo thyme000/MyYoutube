@@ -55,7 +55,18 @@ public class ChatUserConversationController {
      */
     @Operation(summary = "查询用户所有未读的消息")
     @GetMapping("/unread")
-    public Result<Integer> getUnreadMessages() {
+    public Result<Long> getUnreadMessages() {
         return chatUserConversationService.getUnreadMessages();
+    }
+
+    /**
+     * 读取群公告
+     * @param conversationId
+     * @return
+     */
+    @Operation(summary = "读取群公告")
+    @PutMapping("/{conversationId}/read/announcement")
+    public Result<Void> readAnnouncement(@PathVariable String conversationId) {
+        return chatUserConversationService.readAnnouncement(conversationId);
     }
 }

@@ -38,4 +38,6 @@ public class LikeVideoVO {
     private LocalDateTime createTime;
     // 视频标签
     private String tags;
+    // 是否关注作者
+    private Boolean isFollow;
 }

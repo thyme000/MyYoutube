@@ -9,25 +9,27 @@ import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.MessageStatusEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.*;
+import cn.diaojiahong.myyoutube.chat.mongo.vo.FindRecordVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePage;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePageVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
-import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.BeanUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -42,11 +44,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -380,10 +380,6 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         if (!memberIds.contains(Long.valueOf(getUserId()))) {
             throw new BizException(BizException.USER_ERROR, "不是会话成员");
         }
-        // 判断是否是私聊,只有私聊才有是否已读状态
-        if (!Objects.equals(chatConversationDoc.getType(), ConversationTypeEnum.SINGLE)) {
-            return Result.success();
-        }
         Criteria criteria = Criteria.where("conversationId").is(conversationId).and("userId").is(Long.parseLong(getUserId()));
         ChatUserConversationDoc chatUserConversationDoc = mongoTemplate.findOne(Query.query(criteria), ChatUserConversationDoc.class);
         if (chatUserConversationDoc == null) {
@@ -418,6 +414,10 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         Update up = new Update().set("lastReadSeq", lastReadSeq).set("updatedAt", LocalDateTime.now())
                 .set("unreadCount", nextUnread);
         mongoTemplate.updateFirst(Query.query(c), up, ChatUserConversationDoc.class);
+        // 判断是否是私聊,只有私聊才有是否已读状态,才需要推送消息
+        if (!Objects.equals(chatConversationDoc.getType(), ConversationTypeEnum.SINGLE)) {
+            return Result.success();
+        }
         // 推送消息给对方
         Long receiverId = null;
         for (Long memberId : memberIds) {
@@ -443,5 +443,61 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             throw new BizException(BizException.MESSAGE_ERROR, "会话不存在");
         }
         return opt.get();
+    }
+
+
+    public Result<PageResult<FindRecordVO>> findRecord(String conversationId, String keyword, Integer pageNum, Integer pageSize) {
+        ChatConversationDoc conv = getChatConversationDoc(conversationId);
+        List<Long> memberIds = conv.getMemberIds();
+        if (!memberIds.contains(Long.valueOf(getUserId()))) {
+            throw new BizException(BizException.USER_ERROR, "不是会话成员");
+        }
+        String kw = keyword == null ? "" : keyword.trim();
+        if (kw.isEmpty()) {
+            return Result.success(PageResult.of(0L, 0L, List.of()));
+        }
+        int pn = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int ps = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 50);
+        // 字面量匹配，避免 keyword 里的正则元字符出问题
+        Pattern p = Pattern.compile(Pattern.quote(kw), Pattern.CASE_INSENSITIVE);
+        Criteria c = Criteria.where("conversationId").is(conversationId)
+                .andOperator(new Criteria().orOperator(
+                        Criteria.where("content.text").regex(p),
+                        Criteria.where("content.systemText").regex(p),
+                        Criteria.where("content.fileName").regex(p)
+                )).and("recalled").ne(true);
+        Query countQ = Query.query(c);
+        long total = mongoTemplate.count(countQ, ChatMessageDoc.class);
+        if (total == 0L) {
+            return Result.success(PageResult.of(0L, 0L, List.of()));
+        }
+        long pages = (total + ps - 1) / ps;
+        Query q = Query.query(c)
+                .with(PageRequest.of(pn - 1, ps, Sort.by(Sort.Direction.DESC, "seq")));
+        List<ChatMessageDoc> docs = mongoTemplate.find(q, ChatMessageDoc.class);
+        Map<Long, String> nickMap = userService.getAuthorNicknames(memberIds);
+        Map<Long, String> avMap = userService.getAuthorAvatarUrls(memberIds);
+        List<FindRecordVO> list = new ArrayList<>(docs.size());
+        for (ChatMessageDoc doc : docs) {
+            FindRecordVO vo = new FindRecordVO();
+            vo.setSeq(doc.getSeq());
+            vo.setContentType(doc.getContentType());
+            vo.setCreatedAt(doc.getCreatedAt());
+            vo.setSenderNickname(nickMap.get(doc.getSenderId()));
+            vo.setSenderAvatarUrl(aliOssUtil.signGetUrl(avMap.get(doc.getSenderId()), OSS_EXPIRE));
+            ChatContent content = doc.getContent();
+            if (content != null
+                    && (doc.getContentType() == ContentTypeEnum.FILE || doc.getContentType() == ContentTypeEnum.IMAGE)
+                    && content.getObjectKey() != null) {
+                ChatContent copy = new ChatContent();
+                BeanUtils.copyProperties(content, copy);
+                copy.setObjectKey(aliOssUtil.signGetUrl(content.getObjectKey(), OSS_EXPIRE));
+                vo.setContent(copy);
+            } else {
+                vo.setContent(content);
+            }
+            list.add(vo);
+        }
+        return Result.success(PageResult.of(total, pages, list));
     }
 }

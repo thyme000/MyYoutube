@@ -37,4 +37,8 @@ public class ChatConversationDoc extends BaseMongoEntity {
     private Long createdBy;
     /** 是否开启全员禁言(群才有) */
     private Boolean banned;
+    /** 群公告 */
+    private String announcement;
+    /** 群公告版本号 */
+    private Integer announcementVersion;
 }

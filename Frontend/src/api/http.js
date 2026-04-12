@@ -90,11 +90,13 @@ function buildUrl(path, query) {
 /**
  * multipart/form-data 上传（如头像、背景图），不要手动设置 Content-Type，以便浏览器自动带 boundary。
  */
-export async function uploadMultipart(path, formData, { query, headers } = {}) {
+export async function uploadMultipart(path, formData, { query, headers, method = "POST" } = {}) {
   const finalUrl = buildUrl(path, query);
   const token = getToken();
+  const m = String(method || "POST").toUpperCase();
+  const httpMethod = m === "PUT" || m === "PATCH" ? m : "POST";
   const response = await fetch(finalUrl, {
-    method: "POST",
+    method: httpMethod,
     headers: {
       ...headers,
       ...(token ? { Authorization: token } : {}),

@@ -51,6 +51,14 @@ export async function fetchMyFansPage(query = {}) {
 }
 
 /**
+ * GET /follow/interrelated 互关用户列表（分页，pageNo 从 1 起）
+ * @param {{ pageNo?: number, pageSize?: number }} [query]
+ */
+export async function fetchInterrelatedPage(query = {}) {
+  return httpRequest("/follow/interrelated", { method: "GET", query });
+}
+
+/**
  * POST /follow/remove/{followerId} 移除粉丝（当前用户为被关注方）
  */
 export async function removeFan(followerId) {

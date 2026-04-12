@@ -26,13 +26,20 @@ public class OtherService implements IOtherService {
     private String accessKeySecret;
 
     private final AliOssProperties aliOssProperties;
+    private static final String WORKDIR = "work";
+    private static final String CHATDIR = "chat";
 
     @Override
-    public OssStsVO issueUploadSts() {
+    public OssStsVO issueUploadSts(String bizType) {
 
         Long userId = Long.valueOf(UserContext.getUserId());
 
-        String dir = "uploads/video/" + userId + "/";
+        String dir = null;
+        if (WORKDIR.equals(bizType)) {
+            dir = "uploads/video/" + userId + "/";
+        } else if (CHATDIR.equals(bizType)) {
+            dir = "uploads/chat/" + userId + "/";
+        }
         String roleSessionName = "u-" + userId;
 
         String policy = String.format(

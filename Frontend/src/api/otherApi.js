@@ -1,8 +1,12 @@
 import { httpRequest } from "./http";
 
+/** 与后端 OtherService：视频等业务 work，聊天附件 chat */
+export const OSS_STS_BIZ_WORK = "work";
+export const OSS_STS_BIZ_CHAT = "chat";
+
 /**
  * 获取 OSS STS 临时凭证
- * GET /oss/sts
+ * GET /oss/sts?bizType=work|chat
  */
 function tryParseJson(raw) {
   if (typeof raw !== "string") return raw;
@@ -24,12 +28,13 @@ function normalizeWrappedPayload(raw) {
   return parsed;
 }
 
-export async function getOssSts() {
+export async function getOssSts(bizType) {
+  const bt = String(bizType || "").trim() || OSS_STS_BIZ_WORK;
   const candidates = ["/oss/sts"];
   let lastRaw = null;
   for (const path of candidates) {
     try {
-      const raw = await httpRequest(path, { method: "GET" });
+      const raw = await httpRequest(path, { method: "GET", query: { bizType: bt } });
       lastRaw = raw;
       const data = normalizeWrappedPayload(raw);
       if (data && typeof data === "object") {

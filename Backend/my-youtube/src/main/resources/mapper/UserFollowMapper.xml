@@ -34,4 +34,16 @@
               </foreach>
           AND f1.is_deleted = 0;
     </select>
+    <select id="selectInterrelatedPage" resultType="java.lang.Long">
+        SELECT uf.followee_id
+        FROM user_follow uf
+                 INNER JOIN user_follow rev
+                            ON rev.follower_id = uf.followee_id
+                                AND rev.followee_id = uf.follower_id
+                                AND rev.is_deleted = 0
+        WHERE uf.follower_id = #{userId}
+          AND uf.is_deleted = 0
+          AND uf.followee_id != #{userId}
+        ORDER BY uf.create_time DESC
+    </select>
 </mapper>

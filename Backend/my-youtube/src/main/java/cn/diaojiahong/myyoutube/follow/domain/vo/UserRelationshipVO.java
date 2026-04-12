@@ -3,11 +3,11 @@ package cn.diaojiahong.myyoutube.follow.domain.vo;
 import lombok.Data;
 
 @Data
-public class UserFollowVO {
-    // 被关注用户的id
-    private Long followeeId;
+public class UserRelationshipVO {
+    // 用户的id
+    private Long userId;
     // 头像url
-    private String authorAvatarUrl;
+    private String avatarUrl;
     // 昵称
     private String nickname;
     // 个人简介

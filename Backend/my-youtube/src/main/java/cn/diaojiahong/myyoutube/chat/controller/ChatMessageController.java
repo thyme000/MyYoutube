@@ -4,8 +4,11 @@ import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageWithdrawDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.MessageListPageQuery;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ack.ChatMessageAckDTO;
+import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
+import cn.diaojiahong.myyoutube.chat.mongo.vo.FindRecordVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePageVO;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatMessageService;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -69,7 +72,7 @@ public class ChatMessageController {
     }
 
     /**
-     * 会话消息已读(私聊才有)
+     * 会话消息已读
      * @param conversationId
      * @return
      */
@@ -79,5 +82,19 @@ public class ChatMessageController {
         return chatMessageService.read(conversationId, lastReadSeq);
     }
 
+    /**
+     * 分页查找聊天记录
+     * @param conversationId
+     * @param keyword
+     * @param pageNum
+     * @param pageSize
+     * @return
+     */
+    @Operation(summary = "查找聊天记录")
+    @GetMapping("/find/record/{conversationId}")
+    public Result<PageResult<FindRecordVO>> findRecord(@PathVariable String conversationId,  @RequestParam String keyword,
+                                                       @RequestParam Integer pageNum, @RequestParam Integer pageSize) {
+        return chatMessageService.findRecord(conversationId, keyword, pageNum, pageSize);
+    }
 }
 

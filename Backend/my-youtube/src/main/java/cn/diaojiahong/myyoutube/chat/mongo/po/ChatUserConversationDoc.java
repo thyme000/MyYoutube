@@ -30,4 +30,6 @@ public class ChatUserConversationDoc extends BaseMongoEntity {
     private LocalDateTime lastPullAt;
     /** 是否被禁言 */
     private Boolean banned;
+    /** 上次查看群公告版本号 */
+    private Integer lastSeenAnnouncementVersion;
 }

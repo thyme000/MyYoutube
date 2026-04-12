@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
 import cn.diaojiahong.myyoutube.chat.mongo.dto.CreateConversationDTO;
+import cn.diaojiahong.myyoutube.chat.mongo.vo.AnnouncementPublishVO;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
@@ -8,12 +9,14 @@ import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationMembersVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
+import com.google.gson.GsonBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -27,7 +30,9 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -40,16 +45,20 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     private final IUserService userService;
     private final AliOssUtil aliOssUtil;
     private final RabbitTemplate rabbitTemplate;
+    private final NotifyWebSocketHandler notifyWebSocketHandler;
+
     public ChatConversationService(MongoTemplate mongoTemplate,
                                    IUserFollowService userFollowService,
                                    IUserService userService,
                                    AliOssUtil aliOssUtil,
-                                   RabbitTemplate rabbitTemplate) {
+                                   RabbitTemplate rabbitTemplate,
+                                   NotifyWebSocketHandler notifyWebSocketHandler) {
         super(mongoTemplate, ChatConversationDoc.class);
         this.userFollowService = userFollowService;
         this.userService = userService;
         this.aliOssUtil = aliOssUtil;
         this.rabbitTemplate = rabbitTemplate;
+        this.notifyWebSocketHandler = notifyWebSocketHandler;
     }
 
     @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
@@ -63,25 +72,23 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             }
             // 刚创建的群聊将使用前端默认头像为会话头像url
         }
-        if (createConversationDTO.getType() == ConversationTypeEnum.SINGLE) {
-            if (memberIds.size() != 1) {
-                return Result.fail("私聊只能创建一个用户");
-            }
-            // 私聊将对方的头像url设置为会话头像url
-            User user = userService.getById(memberIds.get(0));
-            if (user == null) {
-                log.error("用户不存在，userId: {}", memberIds.get(0));
-                return Result.fail("用户不存在");
-            }
-            createConversationDTO.setAvatar(user.getAvatarUrl());
-        }
+        boolean isSingle = createConversationDTO.getType() == ConversationTypeEnum.SINGLE;
         memberIds.add(userId);
         // 创建聊天会话表
         ChatConversationDoc chatConversationDoc = new ChatConversationDoc();
         chatConversationDoc.setType(createConversationDTO.getType());
         chatConversationDoc.setMemberIds(memberIds);
-        chatConversationDoc.setName(createConversationDTO.getName());
+        chatConversationDoc.setName(isSingle ? null : createConversationDTO.getName());
         chatConversationDoc.setCreatedBy(userId);
+        chatConversationDoc.setAvatar(isSingle ? null : createConversationDTO.getAvatar());
+        chatConversationDoc.setBanned(false);
+        chatConversationDoc.setAnnouncement(null);
+        chatConversationDoc.setAnnouncementVersion(0);
+        chatConversationDoc.setIsLastMessageRecall(false);
+        chatConversationDoc.setLastMessageId(null);
+        chatConversationDoc.setLastMessagePreview(null);
+        chatConversationDoc.setLastMessageSenderNickname(null);
+        chatConversationDoc.setLastMessageAt(null);
         save(chatConversationDoc);
         // 创建用户会话状态表
         LocalDateTime now = LocalDateTime.now();
@@ -101,7 +108,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             chatUserConversationDoc.setUpdatedAt(now);
             chatUserConversationDocs.add(chatUserConversationDoc);
         }
-        mongoTemplate.insert(chatUserConversationDocs);
+        mongoTemplate.insert(chatUserConversationDocs, "chat_user_conversation");
         // 构建VO
         ConversationVO conversationVO = new ConversationVO();
         conversationVO.setId(chatConversationDoc.getId());
@@ -157,6 +164,46 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         return Result.success(name);
     }
 
+    /**
+     * 发布/更新群公告：仅群主（创建人），写入会话文档并递增版本；经 WebSocket 通知成员刷新。
+     */
+    public Result<AnnouncementPublishVO> publishAnnouncement(String conversationId, String text) {
+        Long userId = getUserId();
+        ChatConversationDoc doc = getChatConversationDoc(conversationId);
+        if (doc.getType() != ConversationTypeEnum.GROUP) {
+            throw new IllegalArgumentException("仅群聊可发布公告");
+        }
+        if (doc.getCreatedBy() == null || !doc.getCreatedBy().equals(userId)) {
+            throw new IllegalArgumentException("仅群主可发布公告");
+        }
+        String t = text == null ? "" : text.trim();
+        if (t.isEmpty()) {
+            throw new IllegalArgumentException("公告内容不能为空");
+        }
+        int prev = doc.getAnnouncementVersion() == null ? 0 : doc.getAnnouncementVersion();
+        int next = prev + 1;
+        LocalDateTime now = LocalDateTime.now();
+        doc.setAnnouncement(t);
+        doc.setAnnouncementVersion(next);
+        doc.setUpdatedAt(now);
+        save(doc);
+
+        Map<String, Object> ws = new LinkedHashMap<>();
+        ws.put("type", "ANNOUNCEMENT_UPDATED");
+        ws.put("conversationId", conversationId);
+        ws.put("version", next);
+        String json = new GsonBuilder().create().toJson(ws);
+        List<Long> memberIds = doc.getMemberIds();
+        if (memberIds != null) {
+            for (Long memberId : memberIds) {
+                if (memberId != null && !memberId.equals(userId)) {
+                    notifyWebSocketHandler.sendToUser(memberId, json);
+                }
+            }
+        }
+        return Result.success(new AnnouncementPublishVO(conversationId, next, t));
+    }
+
     public Result<String> deleteConversation(String conversationId) {
         Long userId = getUserId();
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
@@ -189,7 +236,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     }
 
     @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
-    public Result<Void> removeConversationMember(String conversationId, String removeUserId) {
+    public Result<Void> removeConversationMember(String conversationId, List<Long> removeUserIds) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
             throw new IllegalArgumentException("私聊不能移除成员");
@@ -199,13 +246,13 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         }
         // 移除会话成员
         List<Long> memberIds = chatConversationDoc.getMemberIds();
-        memberIds.remove(Long.parseLong(removeUserId));
+        memberIds.removeAll(removeUserIds);
         chatConversationDoc.setMemberIds(memberIds);
         save(chatConversationDoc);
         // 修改用户会话状态为已删除
-        Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(Long.parseLong(removeUserId));
+        Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").in(removeUserIds);
         Update update = new Update().set("deleted", true);
-        mongoTemplate.updateFirst(new Query(c), update, ChatUserConversationDoc.class);
+        mongoTemplate.updateMulti(new Query(c), update, ChatUserConversationDoc.class);
         return Result.success(null);
     }
 
@@ -267,7 +314,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         for (Long userId : chatConversationDoc.getMemberIds()) {
             User user = userService.getById(userId);
             conversationMembersVOs.add(new ConversationMembersVO(user.getId(),
-                    user.getUsername(), aliOssUtil.signGetUrl(user.getAvatarUrl(), 600),
+                    user.getNickname(), aliOssUtil.signGetUrl(user.getAvatarUrl(), 600),
                     userId.equals(chatConversationDoc.getCreatedBy())));
         }
         return Result.success(conversationMembersVOs);
@@ -285,5 +332,20 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         chatConversationDoc.setBanned(banned);
         save(chatConversationDoc);
         return Result.success(null);
+    }
+
+    public Result<AnnouncementPublishVO> getAnnouncement(String conversationId) {
+        ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
+        if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
+            throw new IllegalArgumentException("私聊没有公告");
+        }
+        if (!chatConversationDoc.getMemberIds().contains(getUserId())) {
+            return Result.fail("你不是该群的成员");
+        }
+        if (chatConversationDoc.getAnnouncement() == null) {
+            return Result.success(new AnnouncementPublishVO(conversationId, 0, null));
+        }
+        return Result.success(new AnnouncementPublishVO(conversationId, chatConversationDoc.getAnnouncementVersion(),
+                chatConversationDoc.getAnnouncement()));
     }
 }

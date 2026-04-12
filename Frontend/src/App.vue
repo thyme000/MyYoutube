@@ -1,6 +1,5 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import OSS from "ali-oss";
 import { clearToken, getApiBaseUrl, getAuthExpiredEventName, getToken, setToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
@@ -40,7 +39,8 @@ import {
 } from "./api/searchApi";
 import { fetchCommentPage, publishComment as publishCommentApi, deleteComment as deleteCommentApi } from "./api/commentApi";
 import { reportVideoBehavior } from "./api/behaviorApi";
-import { getOssSts } from "./api/otherApi";
+import { OSS_STS_BIZ_WORK } from "./api/otherApi";
+import { uploadFileWithSts } from "./utils/ossStsUpload.js";
 import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
 import {
   getUserInfo,
@@ -91,6 +91,22 @@ import appIco from "../static/11.ico?url";
 import MusicLyricsAppleView from "./components/MusicLyricsAppleView.vue";
 import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
 import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
+import ChatWorkspace from "./components/chat/ChatWorkspace.vue";
+import ChatFloatingRail from "./components/chat/ChatFloatingRail.vue";
+import { registerGlobalToast } from "./utils/toast.js";
+import { playNotificationSound } from "./utils/uiSounds.js";
+import { registerChatNavigator, navigateToChat } from "./utils/chatNavigator.js";
+import {
+  setChatUserContext,
+  resetChatWhenLogout,
+  tryIngestChatWebSocket,
+  initChatWhenAuthed,
+  openConversation as openChatConversation,
+  startSingleChat,
+  getChatSelfUserId,
+  chatActiveConversationId,
+  chatTotalUnread,
+} from "./stores/chatStore.js";
 
 const primaryMenus = [
   { key: "home", label: "首页", icon: "ri-home-4-line" },
@@ -98,15 +114,11 @@ const primaryMenus = [
   { key: "subscribed", label: "关注", icon: "ri-star-line" },
   { key: "history", label: "历史播放记录", icon: "ri-history-line" },
   { key: "liked", label: "赞过的视频", icon: "ri-thumb-up-line" },
-  { key: "watchLater", label: "稍后再看", icon: "ri-time-line" },
 ];
 
 const exploreMenus = [
   { key: "music", label: "音乐", icon: "ri-music-2-line" },
-  { key: "movies", label: "电影", icon: "ri-film-line" },
-  { key: "live", label: "直播", icon: "ri-broadcast-line" },
-  { key: "news", label: "新闻", icon: "ri-newspaper-line" },
-  { key: "fashion", label: "时尚", icon: "ri-shirt-line" },
+  { key: "chat", label: "聊天", icon: "ri-chat-3-line" },
 ];
 
 const activeMenuKey = ref("home");
@@ -1458,6 +1470,7 @@ const profileLoading = ref(false);
 /** 他人主页：是否已关注该用户（GET /follow/isFollow/{authorId}） */
 const profileTargetFollowed = ref(false);
 const profileFollowBusy = ref(false);
+const profileChatBusy = ref(false);
 const profileMsg = ref("");
 const profileUploadBusy = ref(false);
 const pendingCropUploadFile = ref(null);
@@ -2095,8 +2108,46 @@ function pickNotifyWsTypeCode(parsed) {
   return "";
 }
 
-/** 实时通知（WebSocket）：毛玻璃卡片，含头像与正文，可点进视频 / 标记已读 */
-function pushNotifyLiveToast({ avatarUrl, title, content, videoId, notificationId }) {
+/** 与 chatStore previewFromSendWs 对齐：WebSocket 下发的 contentType 可能是枚举名或对象 */
+function previewChatIncomingWsBody(o) {
+  if (!o || typeof o !== "object") return "[消息]";
+  let ct = o.contentType;
+  if (ct && typeof ct === "object") {
+    ct = ct.name ?? ct.code ?? ct;
+  }
+  ct = String(ct || "").toUpperCase();
+  if (ct === "TEXT") return String(o.content || "").slice(0, 80);
+  if (ct === "IMAGE") return "[图片]";
+  if (ct === "FILE") return "[文件]";
+  if (ct === "SYSTEM") return "[系统消息]";
+  return "[消息]";
+}
+
+/** 他人发来新消息且当前未打开该会话时，与评论通知同款的实时毛玻璃 Toast */
+function maybePushChatIncomingLiveToast(parsed) {
+  // chatStore 的 self 依赖 setChatUserContext；其 watch 晚于 notify WS 时 getChatSelfUserId 会为空，用 currentUserId 兜底
+  const selfId = String(getChatSelfUserId() ?? currentUserId.value ?? "").trim();
+  const sender = String(parsed?.senderId ?? "").trim();
+  if (!selfId || !sender || sender === selfId) return;
+  const conv = String(parsed?.conversationId || "").trim();
+  if (!conv) return;
+  if (chatActiveConversationId.value === conv) return;
+  const nick = pickNotifyWsNickname(parsed);
+  const title = nick ? `${nick} · 新消息` : "新消息";
+  const content = previewChatIncomingWsBody(parsed);
+  const avatarUrl = typeof parsed?.avatarUrl === "string" ? parsed.avatarUrl.trim() : "";
+  pushNotifyLiveToast({
+    avatarUrl,
+    title,
+    content,
+    videoId: null,
+    notificationId: null,
+    conversationId: conv,
+  });
+}
+
+/** 实时通知（WebSocket）：毛玻璃卡片，含头像与正文，可点进视频 / 标记已读 / 打开聊天 */
+function pushNotifyLiveToast({ avatarUrl, title, content, videoId, notificationId, conversationId }) {
   const ttl = String(title || "通知").trim() || "通知";
   const body = String(content || "").trim();
   toastSeed += 1;
@@ -2104,6 +2155,7 @@ function pushNotifyLiveToast({ avatarUrl, title, content, videoId, notificationI
   const vidRaw = videoId != null && videoId !== "" ? String(videoId).trim() : null;
   const nidRaw =
     notificationId != null && notificationId !== "" ? String(notificationId).trim() : null;
+  const convRaw = conversationId != null && conversationId !== "" ? String(conversationId).trim() : null;
   const next = [
     ...toasts.value,
     {
@@ -2115,10 +2167,12 @@ function pushNotifyLiveToast({ avatarUrl, title, content, videoId, notificationI
         content: body,
         videoId: vidRaw && /^\d+$/.test(String(vidRaw)) ? String(vidRaw) : null,
         notificationId: nidRaw && /^\d+$/.test(String(nidRaw)) ? String(nidRaw) : null,
+        conversationId: convRaw || null,
       },
     },
   ];
   toasts.value = next.slice(-3);
+  playNotificationSound();
   window.setTimeout(() => removeToast(id), 6500);
 }
 
@@ -2129,9 +2183,16 @@ function removeToast(id) {
 async function onNotifyToastClick(t) {
   const n = t?.notify;
   if (!n) return;
+  const hasConv = n.conversationId != null && String(n.conversationId).trim() !== "";
   const hasVid = n.videoId != null && n.videoId !== "";
   const hasNid = n.notificationId != null && n.notificationId !== "";
-  if (!hasVid && !hasNid) return;
+  if (!hasVid && !hasNid && !hasConv) return;
+
+  if (hasConv) {
+    removeToast(t.id);
+    navigateToChat(String(n.conversationId).trim());
+    return;
+  }
 
   if (hasNid) {
     try {
@@ -5076,6 +5137,17 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       pageHint.value = "音乐 · 本地播放与全屏歌词（前端演示）";
       return;
     }
+    if (menu.key === "chat") {
+      loading.value = false;
+      cards.value = [];
+      homeShortsRows.value = [];
+      homeShortsPageNo.value = 1;
+      homeShortsPages.value = 0;
+      homeLongPageNo.value = 1;
+      homeLongPages.value = 0;
+      pageHint.value = "聊天 · 会话与消息（对接后端 /chat/*）";
+      return;
+    }
     homeShortsRows.value = [];
     homeShortsPageNo.value = 1;
     homeShortsPages.value = 0;
@@ -5642,13 +5714,28 @@ async function onNotifyDelete(item) {
 }
 
 function onNotifySocketMessage(data) {
+  const raw = typeof data === "string" ? data : String(data);
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    /* 非 JSON：走下方 Toast */
+  }
+  if (parsed && typeof parsed === "object") {
+    const chatKind = tryIngestChatWebSocket(parsed);
+    if (chatKind) {
+      if (chatKind === "send") {
+        maybePushChatIncomingLiveToast(parsed);
+      }
+      return;
+    }
+  }
   void refreshNotifyUnreadCount();
   if (notifyPanelOpen.value) {
     void loadNotifyListPage(true);
   }
-  const raw = typeof data === "string" ? data : String(data);
   try {
-    const o = JSON.parse(raw);
+    const o = parsed && typeof parsed === "object" ? parsed : JSON.parse(raw);
     const nick = pickNotifyWsNickname(o);
     const typeCode = pickNotifyWsTypeCode(o);
     const label = NOTIFICATION_TYPE_LABELS[typeCode] || typeCode || "新通知";
@@ -5709,6 +5796,34 @@ async function refreshProfileTargetFollowState() {
     profileTargetFollowed.value = await isFollowed(profileTargetUserId.value);
   } catch {
     profileTargetFollowed.value = false;
+  }
+}
+
+async function onProfileWorksChatClick() {
+  if (!isAuthed.value) {
+    pushToast("请先登录", "info");
+    return;
+  }
+  if (profileTargetUserId.value == null || isViewingSelf.value) {
+    return;
+  }
+  const aid = profileTargetUserId.value;
+  if (currentUserId.value != null && String(aid) === String(currentUserId.value)) {
+    return;
+  }
+  const u = profileUser.value;
+  const peerId =
+    parseDigitSnowflakeId(u?.id) ?? parseDigitSnowflakeId(aid) ?? safeSnowflakeId(u?.id) ?? safeSnowflakeId(aid);
+  const name = stripUserIdLikeName(u?.nickName || u?.nickname || "") || `用户 ${peerId}`;
+  const avatar = sanitizeImageUrl(u?.avatarUrl) || profileAvatar;
+  profileChatBusy.value = true;
+  try {
+    await startSingleChat(peerId, { name, avatar });
+    pushToast("已打开会话", "success");
+  } catch (e) {
+    pushToast(e?.message || "发起聊天失败", "error");
+  } finally {
+    profileChatBusy.value = false;
   }
 }
 
@@ -5964,6 +6079,14 @@ async function onBgFileChange(event) {
   profileMsg.value = "请先裁剪背景图后再上传";
 }
 
+function onSidebarOpenMyProfile() {
+  if (!isAuthed.value) {
+    pushToast("请先登录", "info");
+    return;
+  }
+  onProfile();
+}
+
 function onProfile() {
   searchActive.value = false;
   teardownSearchVideoObserver();
@@ -6005,6 +6128,13 @@ function onProfile() {
 
 /** 进入他人主页（可从视频作者、关注列表等调用 userId；此处提供顶部「Ta」演示入口） */
 function openOtherUserProfile(userId) {
+  if (searchActive.value) {
+    searchActive.value = false;
+    teardownSearchVideoObserver();
+    if (searchExpandOpen.value) {
+      closeSearchExpand();
+    }
+  }
   if (activeMenuKey.value === "home") {
     saveHomeFeedSnapshot();
   }
@@ -6053,6 +6183,27 @@ function onAuthorAvatarClick(event, authorId) {
     return;
   }
   openOtherUserProfile(authorId);
+}
+
+/** 搜索「用户」Tab：整行进入主页（排除关注按钮） */
+function pickSearchUserSnowflakeId(u) {
+  const raw = u?.id;
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "bigint") return raw.toString();
+  const s = String(raw).trim();
+  if (/^\d+$/.test(s)) return s;
+  return parseDigitSnowflakeId(raw);
+}
+
+function onSearchUserRowActivate(u, ev) {
+  if (ev?.target?.closest?.(".search-user-follow-pill")) {
+    return;
+  }
+  const id = pickSearchUserSnowflakeId(u);
+  if (!id || !/^\d+$/.test(id)) {
+    return;
+  }
+  onAuthorAvatarClick(ev, id);
 }
 
 function openRelationTable(type) {
@@ -6287,98 +6438,6 @@ function videoCardPlayable(card) {
   return Boolean(resolveVideoUrl(card));
 }
 
-function sanitizeUploadFilename(name) {
-  const base = String(name || "video.mp4").replace(/[^a-zA-Z0-9._-]/g, "_");
-  return base || "video.mp4";
-}
-
-function buildUploadObjectKey(sts, file) {
-  const dir = String(sts?.dir || "uploads/video/anonymous/");
-  const safeDir = dir.endsWith("/") ? dir : `${dir}/`;
-  const safeFile = sanitizeUploadFilename(file?.name);
-  return `${safeDir}${Date.now()}-${Math.random().toString(16).slice(2, 10)}-${safeFile}`;
-}
-
-function tryParseJsonLike(input) {
-  if (typeof input !== "string") return input;
-  const text = input.trim();
-  if (!text) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    return {};
-  }
-}
-
-function pickStsField(obj, keys) {
-  for (const k of keys) {
-    const v = obj?.[k];
-    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
-  }
-  return "";
-}
-
-function deepCollectObjects(input, out = []) {
-  const node = tryParseJsonLike(input);
-  if (!node) return out;
-  if (Array.isArray(node)) {
-    node.forEach((it) => deepCollectObjects(it, out));
-    return out;
-  }
-  if (typeof node !== "object") return out;
-  out.push(node);
-  Object.values(node).forEach((v) => deepCollectObjects(v, out));
-  return out;
-}
-
-function normalizeStsPayload(raw) {
-  const r0 = tryParseJsonLike(raw);
-  const x0 = r0?.data ?? r0?.result ?? r0 ?? {};
-  const objects = deepCollectObjects(x0, []);
-  let finalObj = {};
-  for (const obj of objects) {
-    const accessKeyId = pickStsField(obj, ["accessKeyId", "AccessKeyId", "accessKeyID", "ak", "access_key_id"]);
-    const accessKeySecret = pickStsField(obj, ["accessKeySecret", "AccessKeySecret", "sk", "access_key_secret"]);
-    const securityToken = pickStsField(obj, ["securityToken", "SecurityToken", "stsToken", "token"]);
-    const bucket = pickStsField(obj, ["bucket", "bucketName", "Bucket", "bucket_name"]);
-    const region = pickStsField(obj, ["region", "Region", "regionId"]);
-    if (accessKeyId || accessKeySecret || securityToken || bucket || region) {
-      finalObj = obj;
-      break;
-    }
-  }
-  if (!Object.keys(finalObj).length && r0 && typeof r0 === "object") {
-    finalObj = r0;
-  }
-  return {
-    accessKeyId: pickStsField(finalObj, ["accessKeyId", "AccessKeyId", "accessKeyID", "ak", "access_key_id"]),
-    accessKeySecret: pickStsField(finalObj, ["accessKeySecret", "AccessKeySecret", "sk", "access_key_secret"]),
-    securityToken: pickStsField(finalObj, ["securityToken", "SecurityToken", "stsToken", "token"]),
-    bucket: pickStsField(finalObj, ["bucket", "bucketName", "Bucket", "bucket_name"]),
-    endpoint: pickStsField(finalObj, ["endpoint", "EndPoint", "host"]),
-    region: pickStsField(finalObj, ["region", "Region", "regionId"]),
-    dir: pickStsField(finalObj, ["dir", "uploadDir", "prefix"]) || "uploads/video/anonymous/",
-    expiration: pickStsField(finalObj, ["expiration", "Expiration"]),
-    __rawKeys: Object.keys(finalObj),
-    __rawType: Array.isArray(r0) ? "array" : typeof r0,
-  };
-}
-
-function createOssClient(sts) {
-  const regionRaw = String(sts?.region || "").trim();
-  const region = regionRaw.startsWith("oss-") ? regionRaw : `oss-${regionRaw}`;
-  return new OSS({
-    region,
-    accessKeyId: sts.accessKeyId,
-    accessKeySecret: sts.accessKeySecret,
-    stsToken: sts.securityToken,
-    bucket: sts.bucket,
-    secure: true,
-    /** 分片上传时单片请求易超时，适当拉长（毫秒） */
-    timeout: 120000,
-  });
-}
-
 function readVideoDuration(file) {
   return new Promise((resolve) => {
     try {
@@ -6424,22 +6483,8 @@ async function submitUploadVideo() {
   uploadMsg.value = "";
   uploadProgress.value = 0;
   try {
-    const rawSts = await getOssSts();
-    const sts = normalizeStsPayload(rawSts);
-    if (!sts.accessKeyId || !sts.accessKeySecret || !sts.securityToken || !sts.bucket || !sts.region) {
-      throw new Error(
-        `STS 凭证不完整（缺少 accessKeyId/accessKeySecret/securityToken/bucket/region）。响应类型：${sts.__rawType || "unknown"}；已收到字段：${(sts.__rawKeys || []).join(",") || "无"}`,
-      );
-    }
-    const client = createOssClient(sts);
-    const objectKey = buildUploadObjectKey(sts, file);
-    /** 大文件单次 put 易 Connect timeout，改用 SDK 分片上传 */
-    await client.multipartUpload(objectKey, file, {
-      parallel: 4,
-      partSize: 4 * 1024 * 1024,
-      progress: (p) => {
-        uploadProgress.value = Math.max(0, Math.min(100, Math.round((p || 0) * 100)));
-      },
+    const { objectKey } = await uploadFileWithSts(file, OSS_STS_BIZ_WORK, (p) => {
+      uploadProgress.value = Math.max(0, Math.min(100, Math.round((p || 0) * 100)));
     });
     uploadProgress.value = 100;
 
@@ -8388,6 +8433,13 @@ watch(
   }
 );
 
+/** 离开聊天全屏页后仍保留 chatActiveConversationId 会导致 WS 新消息 Toast 被误判为「正在看该会话」；切走菜单时取消选中 */
+watch(activeMenuKey, (key) => {
+  if (key !== "chat") {
+    chatActiveConversationId.value = null;
+  }
+});
+
 watch(
   isAuthed,
   async (authed) => {
@@ -8412,7 +8464,33 @@ watch(
   { immediate: true }
 );
 
+watch(
+  () => [isAuthed.value, currentUserId.value, selfUserProfile.value],
+  () => {
+    if (isAuthed.value && currentUserId.value != null) {
+      const u = selfUserProfile.value;
+      setChatUserContext({
+        userId: currentUserId.value,
+        nickName: u?.nickName || u?.nickname || "",
+        avatarUrl: u?.avatarUrl ? sanitizeImageUrl(u.avatarUrl) : "",
+      });
+      void initChatWhenAuthed();
+    } else {
+      resetChatWhenLogout();
+    }
+  },
+  { immediate: true }
+);
+
 onMounted(async () => {
+  registerGlobalToast(pushToast);
+  registerChatNavigator(async (conversationId) => {
+    const menu = exploreMenus.find((m) => m.key === "chat");
+    if (menu) {
+      await setActiveMenu(menu);
+    }
+    await openChatConversation(String(conversationId || ""));
+  });
   applyAppFavicon();
   window.addEventListener("resize", onWindowResize);
   window.addEventListener("scroll", onWindowScroll, { passive: true });
@@ -8793,13 +8871,23 @@ onBeforeUnmount(() => {
         <template v-for="menu in primaryMenus" :key="menu.key">
         <button
           class="nav-item"
-          :class="{ active: menu.key === activeMenuKey }"
+          :class="{ active: menu.key === activeMenuKey && !(showProfileCenter && isViewingSelf) }"
           @click="setActiveMenu(menu)"
         >
             <span class="nav-icon"><i :class="menu.icon"></i></span>
           <span class="nav-label">{{ menu.label }}</span>
         </button>
         </template>
+        <button
+          type="button"
+          class="nav-item"
+          :class="{ active: showProfileCenter && isViewingSelf }"
+          title="我的主页"
+          @click="onSidebarOpenMyProfile"
+        >
+          <span class="nav-icon"><i class="ri-user-smile-line"></i></span>
+          <span class="nav-label">我的</span>
+        </button>
       </nav>
 
       <section class="nav-section">
@@ -8812,11 +8900,18 @@ onBeforeUnmount(() => {
             v-for="menu in exploreMenus"
             :key="menu.key"
             class="nav-item"
-            :class="{ active: menu.key === activeMenuKey }"
+            :class="{ active: menu.key === activeMenuKey && !(showProfileCenter && isViewingSelf) }"
             @click="setActiveMenu(menu)"
           >
             <span class="nav-icon"><i :class="menu.icon"></i></span>
             <span class="nav-label">{{ menu.label }}</span>
+            <span
+              v-if="menu.key === 'chat' && isAuthed && (chatTotalUnread ?? 0) > 0"
+              class="nav-item__chat-unread"
+              aria-label="未读聊天消息"
+            >
+              {{ chatTotalUnread > 99 ? "99+" : chatTotalUnread }}
+            </span>
           </button>
         </div>
       </section>
@@ -8999,16 +9094,19 @@ onBeforeUnmount(() => {
               class="toast-notify-main"
               :class="{
                 'toast-notify-main--clickable':
+                  (t.notify.conversationId != null && String(t.notify.conversationId).trim() !== '') ||
                   (t.notify.videoId != null && t.notify.videoId !== '') ||
                   (t.notify.notificationId != null && t.notify.notificationId !== ''),
               }"
               :role="
+                (t.notify.conversationId != null && String(t.notify.conversationId).trim() !== '') ||
                 (t.notify.videoId != null && t.notify.videoId !== '') ||
                 (t.notify.notificationId != null && t.notify.notificationId !== '')
                   ? 'button'
                   : undefined
               "
               :tabindex="
+                (t.notify.conversationId != null && String(t.notify.conversationId).trim() !== '') ||
                 (t.notify.videoId != null && t.notify.videoId !== '') ||
                 (t.notify.notificationId != null && t.notify.notificationId !== '')
                   ? 0
@@ -9029,7 +9127,13 @@ onBeforeUnmount(() => {
                 <div v-if="t.notify.content" class="toast-notify-body">{{ t.notify.content }}</div>
                 <div v-else class="toast-notify-body toast-notify-body--muted">（无正文预览）</div>
                 <span
-                  v-if="t.notify.videoId != null && t.notify.videoId !== ''"
+                  v-if="t.notify.conversationId != null && String(t.notify.conversationId).trim() !== ''"
+                  class="toast-notify-cta"
+                >
+                  点击打开聊天 <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
+                </span>
+                <span
+                  v-else-if="t.notify.videoId != null && t.notify.videoId !== ''"
                   class="toast-notify-cta"
                 >
                   点击查看视频 <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
@@ -9075,6 +9179,8 @@ onBeforeUnmount(() => {
           'content--search': searchActive && !showStudio,
           'content--music':
             !showProfileCenter && activeMenuKey === 'music' && !showStudio && !searchActive,
+          'content--chat':
+            !showProfileCenter && activeMenuKey === 'chat' && !showStudio && !searchActive,
         }"
       >
         <!-- 创作中心（YouTube Studio 风格） -->
@@ -9445,16 +9551,19 @@ onBeforeUnmount(() => {
               <p>{{ SEARCH_UI.noResult }}</p>
             </div>
             <ul v-else class="search-user-list">
-              <li v-for="u in searchUserRows" :key="'usr-' + u.id" class="search-user-row">
-                <img
-                  role="button"
-                  tabindex="0"
-                  :src="u.avatarUrl || profileAvatar"
-                  alt=""
-                  @click="onAuthorAvatarClick($event, u.id)"
-                  @error="(e) => (e.target.src = profileAvatar)"
-                />
-                <div class="search-user-row-main" role="button" tabindex="0" @click="onAuthorAvatarClick($event, u.id)">
+              <li
+                v-for="u in searchUserRows"
+                :key="'usr-' + u.id"
+                class="search-user-row"
+                role="button"
+                tabindex="0"
+                :title="'查看「' + (u.nickname || '用户') + '」的主页'"
+                @click="onSearchUserRowActivate(u, $event)"
+                @keydown.enter.prevent="onSearchUserRowActivate(u, $event)"
+                @keydown.space.prevent="onSearchUserRowActivate(u, $event)"
+              >
+                <img :src="u.avatarUrl || profileAvatar" alt="" @error="(e) => (e.target.src = profileAvatar)" />
+                <div class="search-user-row-main">
                   <strong>{{ u.nickname }}</strong>
                   <span class="search-user-row-sub">{{ u.introduction }}</span>
                   <span class="search-user-row-meta">粉丝 {{ formatHomeShortStat(u.fans) }} · 获赞 {{ formatHomeShortStat(u.likeCount ?? 0) }}</span>
@@ -10108,6 +10217,16 @@ onBeforeUnmount(() => {
                     @click="toggleProfileTargetFollow"
                   >
                     {{ profileTargetFollowed ? "已关注" : "+ 关注" }}
+                  </button>
+                  <button
+                    v-if="!isViewingSelf && isAuthed"
+                    type="button"
+                    class="profile-works-filter-btn"
+                    :disabled="profileChatBusy"
+                    title="与对方发起私聊"
+                    @click="onProfileWorksChatClick"
+                  >
+                    {{ profileChatBusy ? "创建中…" : "聊一聊" }}
                   </button>
                   <div v-if="isViewingSelf" class="profile-works-filters">
                     <button
@@ -11043,6 +11162,15 @@ onBeforeUnmount(() => {
             <MusicLyricsAppleView />
           </section>
 
+          <section v-else-if="activeMenuKey === 'chat'" class="explore-chat-page">
+            <ChatWorkspace v-if="isAuthed" :self-user-id="currentUserId" />
+            <div v-else class="module-empty explore-chat-empty">
+              <div class="module-empty-icon"><i class="ri-chat-3-line"></i></div>
+              <h5>聊天</h5>
+              <p>请先登录后使用会话与消息功能。</p>
+            </div>
+          </section>
+
           <section v-else-if="activeMenuKey === 'home'" class="home-mixed-feed">
         <section class="card-grid">
               <article v-if="loading" v-for="n in 8" :key="`skeleton-home-a-${n}`" class="video-card video-card--skeleton">
@@ -11205,7 +11333,7 @@ onBeforeUnmount(() => {
             </section>
           </section>
 
-          <section v-else-if="activeMenuKey !== 'subscribed'" class="card-grid">
+          <section v-else-if="activeMenuKey !== 'subscribed' && activeMenuKey !== 'chat'" class="card-grid">
             <article v-if="loading" v-for="n in 8" :key="`skeleton-${n}`" class="video-card video-card--skeleton">
               <div class="video-cover video-cover-loading"></div>
               <div class="video-info">
@@ -11771,6 +11899,12 @@ onBeforeUnmount(() => {
     </div>
 
     <MusicPlayerAudioHost />
-    <MusicMiniPlayer :show="activeMenuKey !== 'music'" />
+    <MusicMiniPlayer :show="activeMenuKey !== 'music' && activeMenuKey !== 'chat'" />
+    <ChatFloatingRail
+      :authed="isAuthed"
+      :chat-page-active="activeMenuKey === 'chat'"
+      :narrow-peek="activeMenuKey === 'shorts' || activeMenuKey === 'subscribed'"
+      :suppress="searchExpandOpen || profileFeedOpen || shortPlayerOpen || showVideoDetail"
+    />
   </div>
 </template>

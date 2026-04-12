@@ -67,6 +67,10 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
+      "/chat": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
       // 与后端 NotifyWebSocketHandler：/ws/notify?token=...
       "/ws": {
         target: "http://localhost:8080",

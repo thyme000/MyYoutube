@@ -10,6 +10,9 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.user.domain.po.User;
+import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
+import cn.diaojiahong.myyoutube.user.service.IUserService;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.Document;
 import org.springframework.data.domain.Page;
@@ -35,11 +38,14 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
 
     private static final Long OSS_EXPIRE_TIME = 3600 * 2L;
     private final AliOssUtil aliOssUtil;
+    private final IUserService userService;
 
     public ChatUserConversationService(MongoTemplate mongoTemplate,
-                                       AliOssUtil aliOssUtil) {
+                                       AliOssUtil aliOssUtil,
+                                       IUserService userService) {
         super(mongoTemplate, ChatUserConversationDoc.class);
         this.aliOssUtil = aliOssUtil;
+        this.userService = userService;
     }
 
     private Long getUserId() {
@@ -81,7 +87,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
             return Result.success(PageResult.of(0, 0, List.of()));
         }
         List<String> list = content.stream().map(ChatUserConversationDoc::getConversationId).toList();
-        Query q = Query.query(Criteria.where("conversationId").in(list));
+        Query q = Query.query(Criteria.where("id").in(list));
         List<ChatConversationDoc> chatConversationDocList = mongoTemplate.find(q, ChatConversationDoc.class);
         // 转map
         Map<String, ChatConversationDoc> collect = chatConversationDocList.stream()
@@ -90,28 +96,40 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         List<UserConversationVO> voList = content.stream()
                 .map(c -> {
                     ChatConversationDoc conversationDoc = collect.get(c.getConversationId());
+                    boolean isSingle = conversationDoc.getType() == ConversationTypeEnum.SINGLE;
                     UserConversationVO vo = new UserConversationVO();
                     vo.setConversationId(c.getConversationId());
-                    vo.setConversationName(conversationDoc.getName() == null ? conversationDoc.getId() : conversationDoc.getName());
-                    vo.setConversationAvatar(aliOssUtil.signGetUrl(conversationDoc.getAvatar(), OSS_EXPIRE_TIME));
+                    if (isSingle) {
+                        // 需要展示的是对方的头像和昵称
+                        conversationDoc.getMemberIds().remove(getUserId());
+                        User user = userService.getById(conversationDoc.getMemberIds().get(0));
+                        vo.setConversationAvatar(aliOssUtil.signGetUrl(user.getAvatarUrl(), OSS_EXPIRE_TIME));
+                        vo.setConversationName(user.getNickname());
+                    } else {
+                        // 需要展示的是群聊名称
+                        vo.setConversationAvatar(aliOssUtil.signGetUrl(conversationDoc.getAvatar(), OSS_EXPIRE_TIME));
+                        vo.setConversationName(conversationDoc.getName() == null ? conversationDoc.getId() : conversationDoc.getName());
+                    }
                     vo.setConversationType(conversationDoc.getType());
                     vo.setLastMessageTime(conversationDoc.getLastMessageAt());
                     vo.setLastMessageContent(conversationDoc.getIsLastMessageRecall() ? "撤回了一条消息" : conversationDoc.getLastMessagePreview());
-                    vo.setLastMessageSenderNickname(conversationDoc.getType() == ConversationTypeEnum.SINGLE ?
-                            null : conversationDoc.getLastMessageSenderNickname());
+                    vo.setLastMessageSenderNickname(isSingle ? null : conversationDoc.getLastMessageSenderNickname());
                     vo.setIsLastMessageRecall(conversationDoc.getIsLastMessageRecall());
                     vo.setBanned(c.getBanned());
                     vo.setPin(c.getPin());
                     vo.setMute(c.getMute());
                     vo.setLastReadSeq(c.getLastReadSeq());
                     vo.setUnreadCount(c.getUnreadCount());
+                    vo.setCreatedBy(conversationDoc.getCreatedBy());
+                    vo.setLastSeenAnnouncementVersion(c.getLastSeenAnnouncementVersion());
+                    vo.setLastAnnouncementVersion(conversationDoc.getAnnouncementVersion());
                     return vo;
                 })
                 .toList();
         return Result.success(PageResult.of(p.getTotalElements(), p.getTotalPages(), voList));
     }
 
-    public Result<Integer> getUnreadMessages() {
+    public Result<Long> getUnreadMessages() {
         Long userId = getUserId();
         // 统计用户所有会话的未读消息数总和
         Aggregation aggregation = Aggregation.newAggregation(
@@ -122,8 +140,34 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         AggregationResults<Document> results = mongoTemplate.aggregate(
                 aggregation, "chat_user_conversation", Document.class
         );
-        // 获取统计结果
+        // 获取统计结果（$sum 在 BSON 中常为 Long，不能用 getInteger 强转）
         Document result = results.getUniqueMappedResult();
-        return Result.success(result != null ? result.getInteger("totalUnread", 0) : 0);
+        if (result == null) {
+            return Result.success(0L);
+        }
+        Object raw = result.get("totalUnread");
+        Long total = raw instanceof Number ? ((Number) raw).longValue() : 0L;
+        return Result.success(total);
+    }
+
+    public Result<Void> readAnnouncement(String conversationId) {
+        Long userId = getUserId();
+        Criteria c = Criteria.where("id").is(conversationId);
+        Query query = Query.query(c);
+        ChatConversationDoc chatConversationDoc = mongoTemplate.findOne(query, ChatConversationDoc.class);
+        if (chatConversationDoc == null) {
+            return Result.fail("会话不存在");
+        }
+        // 读取群公告
+        if (chatConversationDoc.getAnnouncement() == null) {
+            return Result.success(null);
+        }
+        if (!chatConversationDoc.getMemberIds().contains(userId)) {
+            return Result.fail("用户不是群成员");
+        }
+        c = Criteria.where("conversationId").is(conversationId).and("userId").is(userId);
+        Update update = new Update().set("lastSeenAnnouncementVersion", chatConversationDoc.getAnnouncementVersion());
+        mongoTemplate.updateFirst(Query.query(c), update, ChatUserConversationDoc.class);
+        return Result.success();
     }
 }

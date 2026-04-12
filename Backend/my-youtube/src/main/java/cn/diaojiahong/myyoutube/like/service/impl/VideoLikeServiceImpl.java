@@ -10,6 +10,7 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.like.domain.constants.VideoLikeConstants;
 import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
 import cn.diaojiahong.myyoutube.like.domain.vo.LikeVideoVO;
@@ -57,6 +58,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     private final VideoLikeMapper videoLikeMapper;
     private final IVideoCommentService videoCommentService;
     private final RabbitTemplate rabbitTemplate;
+    private final IUserFollowService userFollowService;
 
     // 24小时后过期
     private static final int OSS_EXPIRE = 24;
@@ -185,6 +187,11 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
             vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_EXPIRE));
             vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
         });
+        // 填充是否关注作者
+        List<Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);
+        for (int i = 0; i < voList.size(); i++) {
+            voList.get(i).setIsFollow(isFollows.get(i));
+        }
 
         int total = videoLikeMapper.selectUserLikedCount(userId);
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
