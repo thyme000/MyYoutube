@@ -45,8 +45,8 @@ function onCubeAnimationEnd(event, index) {
 
 .wrapper-grid {
   /* 单轮扫光：周期越长、间隔越大，观感越慢 */
-  --animation-duration: 4s;
-  --stagger-step: 0.36s;
+  --animation-duration: 1.3s;
+  --stagger-step: 0.12s;
   --cube-color: #0000;
   --highlight-color: #00cc44;
   --cube-width: 76px;

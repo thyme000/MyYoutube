@@ -16,6 +16,7 @@ export function normalizeCommentVo(raw) {
     nickname: raw.nickname ?? "用户",
     avatarUrl: raw.avatarUrl ?? "",
     createTime: raw.createTime ?? "",
+    status: raw.status ?? raw.commentStatus ?? raw.comment_status,
     likeCount: Number(raw.likeCount) || 0,
     isLike: raw.isLike === true || raw.isLike === 1 || raw.isLike === "1",
     replyCount: Number(raw.replyCount) || 0,
@@ -107,4 +108,27 @@ export async function deleteComment(commentId) {
     throw new Error("commentId 不能为空");
   }
   return httpRequest("/comment/delete", { method: "POST", query: { commentId: id } });
+}
+
+/**
+ * PUT /comment/report
+ * body: { commentId, reportType, remark }
+ */
+export async function reportComment(body) {
+  const commentId = safeSnowflakeId(body?.commentId);
+  if (!commentId) {
+    throw new Error("commentId 不能为空");
+  }
+  const reportType = String(body?.reportType ?? "").trim();
+  if (!reportType) {
+    throw new Error("举报原因不能为空");
+  }
+  const remark = String(body?.remark ?? "").trim();
+  if (!remark) {
+    throw new Error("补充说明不能为空");
+  }
+  return httpRequest("/comment/report", {
+    method: "PUT",
+    body: { commentId, reportType, remark },
+  });
 }

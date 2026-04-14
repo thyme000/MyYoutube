@@ -27,7 +27,6 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
-import org.springframework.jmx.export.naming.MetadataNamingStrategy;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -46,7 +45,6 @@ public class ChatMessageListener {
     private final ChatConversationService chatConversationService;
     private final AliOssUtil aliOssUtil;
     private final MongoTemplate mongoTemplate;
-    private final MetadataNamingStrategy metadataNamingStrategy;
 
     @RabbitListener(bindings = @QueueBinding(
             value = @Queue(name = MESSAGE_QUEUE, durable = "true"),

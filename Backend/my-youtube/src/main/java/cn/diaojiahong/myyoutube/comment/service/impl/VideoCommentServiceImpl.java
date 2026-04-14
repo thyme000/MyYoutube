@@ -173,7 +173,7 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
         // 视频评论 -> 根据点赞量排序(一样按创建时间排序)
         LambdaQueryWrapper<VideoComment> w = new LambdaQueryWrapper<VideoComment>()
                 .eq(VideoComment::getVideoId, commentPageQuery.getVideoId())
-                .eq(VideoComment::getStatus, CommentStatusEnum.VISIBLE.getCode())
+                .in(VideoComment::getStatus, CommentStatusEnum.VISIBLE.getCode(), CommentStatusEnum.BLOCKED.getCode())
                 .orderByDesc(VideoComment::getLikeCount)
                 .orderByDesc(VideoComment::getReplyCount);
         if (commentPageQuery.getParentId() == 0) {
@@ -188,6 +188,12 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
         // 转vo
         List<CommentVO> commentVOList = records.stream()
                 .map(record -> BeanUtil.toBean(record, CommentVO.class)).toList();
+        // 对违规的评论处理
+        for (CommentVO commentVO : commentVOList) {
+            if (commentVO.getStatus().equals(CommentStatusEnum.BLOCKED.getCode())) {
+                commentVO.setContent("[评论违规,已被处理]");
+            }
+        }
         // 填充用户昵称
         // 填充用户头像url
         List<Long> userIds = commentVOList.stream().map(CommentVO::getUserId).toList();

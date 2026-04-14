@@ -54,11 +54,13 @@ public class AuthServiceImpl implements IAuthService {
             return Result.fail("密码错误!");
         }
 
-        // 校验验证码（用 Objects.equals 防空指针，验证后立即删除防重用）
+        // TODO
+/*        // 校验验证码（用 Objects.equals 防空指针，验证后立即删除防重用）
         String storedCaptcha = redisTemplate.opsForValue().get(captchaKey);
         if (!Objects.equals(loginRequestDTO.getCaptcha(), storedCaptcha)) {
             return Result.fail("验证码错误或已过期!");
-        }
+        }*/
+
         redisTemplate.delete(captchaKey);
 
         // 生成 token，将 userId 关键字段以 字符串 形式存入 Redis
@@ -78,13 +80,16 @@ public class AuthServiceImpl implements IAuthService {
         if (!registerRequestDTO.getPassword().equals(registerRequestDTO.getConfirmPassword())) {
             return Result.fail("两次密码不一致!");
         }
-        // 校验注册验证码
+
+        // TODO
+/*        // 校验注册验证码
         String captchaKey = RedisConstants.CAPTCHA_REGISTER + registerRequestDTO.getPhone();
         String storedCaptcha = redisTemplate.opsForValue().get(captchaKey);
         if (storedCaptcha != null && !Objects.equals(registerRequestDTO.getCaptcha(), storedCaptcha)) {
             return Result.fail("验证码错误或已过期!");
         }
-        redisTemplate.delete(captchaKey);
+        redisTemplate.delete(captchaKey);*/
+
         // 密码格式校验
         if (RegexUtils.isPasswordInvalid(registerRequestDTO.getPassword())) {
             return Result.fail("密码格式错误，需10~32位字母/数字/下划线!");
@@ -185,13 +190,14 @@ public class AuthServiceImpl implements IAuthService {
             return Result.fail("用户不存在!");
         }
 
-        // 校验验证码
+        // TODO
+/*        // 校验验证码
         String captchaKey = RedisConstants.CAPTCHA_FORGET + forgetPasswordDTO.getPhone();
         String storedCaptcha = redisTemplate.opsForValue().get(captchaKey);
         if (storedCaptcha != null && !storedCaptcha.equals(forgetPasswordDTO.getCaptcha())) {
             return Result.fail("验证码错误或已过期!");
         }
-        redisTemplate.delete(captchaKey);
+        redisTemplate.delete(captchaKey);*/
 
         //校验通过,把新密码加密后更新数据库
         user.setPassword(PasswordEncoder.encode(newPassword));

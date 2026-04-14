@@ -25,7 +25,7 @@ const props = defineProps({
   selfUserId: { type: [String, Number], default: null },
 });
 
-const emit = defineEmits(["open-video"]);
+const emit = defineEmits(["open-video", "open-user"]);
 
 const activeRow = computed(() =>
   chatConversations.value.find((r) => String(r.conversationId) === String(chatActiveConversationId.value)),
@@ -135,6 +135,11 @@ async function onJumpToSeqFromFind({ seq }) {
 function onOpenVideo(e) {
   emit("open-video", e);
 }
+
+function onOpenUser(e) {
+  sessionDetailOpen.value = false;
+  emit("open-user", e);
+}
 </script>
 
 <template>
@@ -178,6 +183,7 @@ function onOpenVideo(e) {
           :self-user-id="selfUserId"
           @close="onCloseSessionDetail"
           @jump-to-seq="onJumpToSeqFromFind"
+          @open-user="onOpenUser"
         />
         <ChatConversationList
           v-show="!sessionDetailOpen"

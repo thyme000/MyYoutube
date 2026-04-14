@@ -89,7 +89,7 @@ import {
 } from "./utils/userProfile";
 import { parseDigitSnowflakeId, safeSnowflakeId } from "./utils/snowflakeId.js";
 /** 短视频无接口数据时的本地 fallback（static 目录下四个 mp4） */
-import appIco from "../static/11.ico?url";
+import appIco from "../static/狗.png?url";
 import MusicLyricsAppleView from "./components/MusicLyricsAppleView.vue";
 import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
 import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
@@ -97,6 +97,7 @@ import ChatWorkspace from "./components/chat/ChatWorkspace.vue";
 import ChatFloatingRail from "./components/chat/ChatFloatingRail.vue";
 import ChatEmojiPicker from "./components/chat/ChatEmojiPicker.vue";
 import ChatForwardVideoModal from "./components/chat/ChatForwardVideoModal.vue";
+import CommentReportModal from "./components/CommentReportModal.vue";
 import SlideshowMusicPicker from "./components/SlideshowMusicPicker.vue";
 import LoginLoadingCubes from "./components/LoginLoadingCubes.vue";
 import { musicLyricsFullscreen } from "./stores/musicPlayerStore.js";
@@ -131,7 +132,7 @@ const exploreMenus = [
 
 const activeMenuKey = ref("home");
 const activeMenuLabel = ref("首页");
-const pageHint = ref(`欢迎来到 MyYoutube。请选择左侧模块查看内容。API 基础地址：${getApiBaseUrl()}`);
+const pageHint = ref(`欢迎来到 THYME。请选择左侧模块查看内容。API 基础地址：${getApiBaseUrl()}`);
 const searchKeyword = ref("");
 const searchInputRef = ref(null);
 
@@ -693,6 +694,18 @@ async function onSearchExpandShareClick() {
 const forwardVideoOpen = ref(false);
 const forwardVideoCard = ref(null);
 
+const commentReportOpen = ref(false);
+const commentReportTarget = ref(null);
+
+function isBlockedComment(comment) {
+  const stRaw = comment?.status ?? comment?.commentStatus ?? comment?.comment_status;
+  const st = String(stRaw ?? "").trim().toUpperCase();
+  if (st === "BLOCKED" || st === "BANNED") return true;
+  if (stRaw === 2 || stRaw === "2") return true;
+  const text = String(comment?.content || "");
+  return text.includes("评论违规") || text.includes("已被处理");
+}
+
 function openForwardVideoModal(card) {
   if (!isAuthed.value) {
     pushToast("请先登录后使用转发", "info");
@@ -704,6 +717,27 @@ function openForwardVideoModal(card) {
   }
   forwardVideoCard.value = card;
   forwardVideoOpen.value = true;
+}
+
+function openCommentReportModal(comment) {
+  if (!isAuthed.value) {
+    pushToast("请先登录后再举报", "info");
+    return;
+  }
+  if (!comment?.id) {
+    pushToast("缺少评论信息", "error");
+    return;
+  }
+  if (currentUserId.value != null && String(comment.userId) === String(currentUserId.value)) {
+    pushToast("不能举报自己的评论", "info");
+    return;
+  }
+  if (isBlockedComment(comment)) {
+    pushToast("该评论已被处理，无法举报", "info");
+    return;
+  }
+  commentReportTarget.value = comment;
+  commentReportOpen.value = true;
 }
 
 function onSearchExpandForwardClick() {
@@ -3180,7 +3214,7 @@ function getShortsLocalFallbackCards() {
   return urls.map((url, index) => ({
     id: `local-short-${index + 1}`,
     title: `本地视频 ${index + 1}`,
-    author: "MyYoutube",
+    author: "THYME",
     viewsText: "本地",
     playCount: 1200 + index * 100,
     likeCount: 30 + index * 5,
@@ -3197,7 +3231,7 @@ function getMockCards(moduleLabel, moduleKey) {
   return Array.from({ length: 8 }).map((_, index) => ({
     id: `${moduleKey}-${index + 1}`,
     title: `${moduleLabel} 示例内容 ${index + 1}`,
-    author: `MyYoutube频道示例 ${index + 1}`,
+    author: `THYME频道示例 ${index + 1}`,
     viewsText: "1.2万次观看",
     videoUrl: pickFallbackVideoUrl(`${moduleKey}-${index + 1}`),
     coverUrl: feedCoverPool[index % feedCoverPool.length],
@@ -5896,7 +5930,7 @@ function applyAppFavicon() {
     link.setAttribute("rel", "icon");
     head.appendChild(link);
   }
-  link.setAttribute("type", "image/x-icon");
+  link.setAttribute("type", "image/png");
   link.setAttribute("href", appIco);
 }
 
@@ -8665,8 +8699,11 @@ async function submitLogin() {
       /** 动画事件异常时兜底，避免永久卡住（正常约 6s 内结束） */
       cubesFallbackTimer = setTimeout(finishCubes, 16000);
     });
-    /** 最后一格扫光结束才撤层；数据未好则多等接口，数据先好则等动画 */
-    await Promise.all([loadAfterLogin(), cubesAnimDone]);
+    const loadAfterLoginPromise = loadAfterLogin();
+    /** 最后一格扫光结束即撤层；数据继续在后台加载 */
+    await cubesAnimDone;
+    showLoginLoadingOverlay.value = false;
+    await loadAfterLoginPromise;
   } catch (error) {
     authMessage.value = `登录失败：${error.message}`;
     pushToast(`登录失败：${error.message || "请检查账号信息"}`, "error");
@@ -9315,7 +9352,7 @@ onBeforeUnmount(() => {
     <aside v-if="!showStudio && !showVideoDetail" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-header">
         <button class="icon-btn" title="折叠侧边栏" @click="sidebarCollapsed = !sidebarCollapsed">☰</button>
-        <h1 class="brand">MyYoutube</h1>
+        <h1 class="brand">THYME</h1>
       </div>
 
       <nav class="nav-section">
@@ -10388,6 +10425,19 @@ onBeforeUnmount(() => {
                             >
                               删除
                             </button>
+                          <span
+                            v-if="isAuthed && currentUserId != null && String(c.userId) !== String(currentUserId) && !isBlockedComment(c)"
+                            class="video-detail-comment-actions-spacer"
+                          ></span>
+                          <button
+                            v-if="isAuthed && currentUserId != null && String(c.userId) !== String(currentUserId) && !isBlockedComment(c)"
+                            type="button"
+                            class="video-detail-comment-action-btn video-detail-comment-action-btn--report"
+                            title="举报"
+                            @click="openCommentReportModal(c)"
+                          >
+                            <i class="ri-flag-line" aria-hidden="true"></i>举报
+                          </button>
                           </div>
                           <button
                             v-if="c.replyCount > 0"
@@ -10477,6 +10527,19 @@ onBeforeUnmount(() => {
                                     @click="onDeleteShortsPanelComment(r)"
                                   >
                                     删除
+                                  </button>
+                                  <span
+                                    v-if="isAuthed && currentUserId != null && String(r.userId) !== String(currentUserId) && !isBlockedComment(r)"
+                                    class="video-detail-comment-actions-spacer"
+                                  ></span>
+                                  <button
+                                    v-if="isAuthed && currentUserId != null && String(r.userId) !== String(currentUserId) && !isBlockedComment(r)"
+                                    type="button"
+                                    class="video-detail-comment-action-btn video-detail-comment-action-btn--report"
+                                    title="举报"
+                                    @click="openCommentReportModal(r)"
+                                  >
+                                    <i class="ri-flag-line" aria-hidden="true"></i>举报
                                   </button>
                                 </div>
                               </div>
@@ -11612,7 +11675,12 @@ onBeforeUnmount(() => {
           </section>
 
           <section v-else-if="activeMenuKey === 'chat'" class="explore-chat-page">
-            <ChatWorkspace v-if="isAuthed" :self-user-id="currentUserId" @open-video="({ videoId }) => openVideoDetail({ id: videoId })" />
+            <ChatWorkspace
+              v-if="isAuthed"
+              :self-user-id="currentUserId"
+              @open-video="({ videoId }) => openVideoDetail({ id: videoId })"
+              @open-user="({ userId }) => openOtherUserProfile(userId)"
+            />
             <div v-else class="module-empty explore-chat-empty">
               <div class="module-empty-icon"><i class="ri-chat-3-line"></i></div>
               <h5>聊天</h5>
@@ -12042,6 +12110,19 @@ onBeforeUnmount(() => {
                           >
                             删除
                           </button>
+                          <span
+                            v-if="isAuthed && currentUserId != null && String(c.userId) !== String(currentUserId) && !isBlockedComment(c)"
+                            class="video-detail-comment-actions-spacer"
+                          ></span>
+                          <button
+                            v-if="isAuthed && currentUserId != null && String(c.userId) !== String(currentUserId) && !isBlockedComment(c)"
+                            type="button"
+                            class="video-detail-comment-action-btn video-detail-comment-action-btn--report"
+                            title="举报"
+                            @click="openCommentReportModal(c)"
+                          >
+                            <i class="ri-flag-line" aria-hidden="true"></i>举报
+                          </button>
                         </div>
                         <button
                           v-if="c.replyCount > 0"
@@ -12134,6 +12215,19 @@ onBeforeUnmount(() => {
                                   @click="onDeleteDetailComment(r)"
                                 >
                                   删除
+                                </button>
+                                <span
+                                  v-if="isAuthed && currentUserId != null && String(r.userId) !== String(currentUserId) && !isBlockedComment(r)"
+                                  class="video-detail-comment-actions-spacer"
+                                ></span>
+                                <button
+                                  v-if="isAuthed && currentUserId != null && String(r.userId) !== String(currentUserId) && !isBlockedComment(r)"
+                                  type="button"
+                                  class="video-detail-comment-action-btn video-detail-comment-action-btn--report"
+                                  title="举报"
+                                  @click="openCommentReportModal(r)"
+                                >
+                                  <i class="ri-flag-line" aria-hidden="true"></i>举报
                                 </button>
                               </div>
                             </div>
@@ -12504,6 +12598,12 @@ onBeforeUnmount(() => {
       :video-title="forwardVideoCard?.title ?? ''"
       :video-cover-url="forwardVideoCard?.coverUrl || forwardVideoCard?.cover || forwardVideoCard?.avatarUrl || ''"
       @sent="() => refreshConversationList(true)"
+    />
+    <CommentReportModal
+      v-model="commentReportOpen"
+      :comment="commentReportTarget"
+      :self-user-id="currentUserId"
+      @reported="() => pushToast('已提交举报', 'success')"
     />
 
     <Teleport to="body">

@@ -23,7 +23,7 @@ const props = defineProps({
   selfUserId: { type: [String, Number], default: null },
 });
 
-const emit = defineEmits(["close", "jump-to-seq"]);
+const emit = defineEmits(["close", "jump-to-seq", "open-user"]);
 
 const members = ref(/** @type {any[]} */ ([]));
 const membersLoading = ref(false);
@@ -90,6 +90,12 @@ function displayNick(m) {
   const n = String(m?.userName || m?.user_name || "").trim();
   if (!n) return `用户 ${m?.userId ?? ""}`;
   return n.length > 6 ? `${n.slice(0, 6)}…` : n;
+}
+
+function onMemberAvatarClick(m) {
+  const uid = m?.userId != null ? String(m.userId) : "";
+  if (!uid) return;
+  emit("open-user", { userId: uid });
 }
 
 async function loadMembers() {
@@ -669,7 +675,12 @@ async function submitLeaveConfirm() {
               class="chat-session-detail__member-av"
               :src="sanitizeImageUrl(m.avatar) || DEFAULT_PROFILE_AVATAR_URL"
               alt=""
+              role="button"
+              tabindex="0"
               @error="onMemberAvatarError"
+              @click.stop="onMemberAvatarClick(m)"
+              @keydown.enter.prevent="onMemberAvatarClick(m)"
+              @keydown.space.prevent="onMemberAvatarClick(m)"
             />
             <span class="chat-session-detail__member-name" :title="String(m.userName || '')">{{
               displayNick(m)

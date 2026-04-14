@@ -1,12 +1,19 @@
 package cn.diaojiahong.myyoutube.admin.service.impl;
 
+import cn.diaojiahong.myyoutube.admin.domain.dto.AdminCommentReportPageQueryDTO;
 import cn.diaojiahong.myyoutube.admin.domain.dto.AdminVideoPageQueryDTO;
+import cn.diaojiahong.myyoutube.admin.domain.vo.AdminCommentReportVO;
+import cn.diaojiahong.myyoutube.admin.domain.vo.AdminCommentVO;
 import cn.diaojiahong.myyoutube.admin.domain.vo.AdminVideoVO;
 import cn.diaojiahong.myyoutube.admin.service.IAdminService;
+import cn.diaojiahong.myyoutube.comment.domain.enums.CommentReportStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
+import cn.diaojiahong.myyoutube.comment.domain.po.CommentReport;
 import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
+import cn.diaojiahong.myyoutube.comment.service.ICommentReportService;
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
@@ -28,6 +35,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static cn.diaojiahong.myyoutube.common.exception.BizException.USER_ERROR;
 import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.BANNED;
@@ -43,6 +52,7 @@ public class AdminServiceImpl implements IAdminService {
     private final UserDocRepository userDocRepository;
     private final IVideoCommentService videoCommentService;
     private final AliOssUtil aliOssUtil;
+    private final ICommentReportService commentReportService;
 
     @Transactional
     @Override
@@ -138,6 +148,7 @@ public class AdminServiceImpl implements IAdminService {
                 .eq(adminVideoPageQueryDTO.getUserId() != null, Video::getAuthorId, adminVideoPageQueryDTO.getUserId())
                 .eq(adminVideoPageQueryDTO.getVideoType() != null, Video::getVideoType, adminVideoPageQueryDTO.getVideoType())
                 .eq(adminVideoPageQueryDTO.getVideoCategory() != null, Video::getCategory, adminVideoPageQueryDTO.getVideoCategory())
+                .orderByDesc(Video::getCreateTime)
                 .page(adminVideoPageQueryDTO.toPage());
         if (page == null || page.getRecords().isEmpty()) {
             return Result.success(PageResult.of(0, 0, new ArrayList<>()));
@@ -164,11 +175,12 @@ public class AdminServiceImpl implements IAdminService {
             vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(video.getAuthorId()), 60 * 10));
             voList.add(vo);
         });
-        return Result.success(PageResult.of(page.getTotal(), page.getSize(), voList));
+        return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
     }
 
+    @Transactional
     @Override
-    public Result<Void> deleteComment(Long commentId) {
+    public Result<Void> blockComment(Long commentId) {
         Long userId = getUserId();
         // 判断是否时管理员
         if (!isAdmin(userId)) {
@@ -179,21 +191,124 @@ public class AdminServiceImpl implements IAdminService {
                 || comment.getStatus().equals(CommentStatusEnum.BLOCKED.getCode())) {
             return Result.success();
         }
-        if (comment.getParentId() == 0) {
-            // 删除所有回复评论
-            videoCommentService.lambdaUpdate()
-                    .eq(VideoComment::getRootId, commentId)
-                    .set(VideoComment::getStatus, CommentStatusEnum.BLOCKED.getCode())
-                    .update();
-        } else {
-            // 更新回复数
-            videoCommentService.lambdaUpdate().eq(VideoComment::getId, comment.getRootId())
-                    .gt(VideoComment::getReplyCount, 0)
-                    .setIncrBy(VideoComment::getReplyCount, -1).update();
+        // 将评论设为违规
+        comment.setStatus(CommentStatusEnum.BLOCKED.getCode());
+        videoCommentService.updateById(comment);
+        // 将用户举报设为已处理
+        commentReportService.lambdaUpdate()
+                .eq(CommentReport::getCommentId, commentId)
+                .set(CommentReport::getStatus, CommentReportStatusEnum.PROCESSED)
+                .update();
+        return Result.success();
+    }
+
+    @Override
+    public Result<PageResult<AdminCommentVO>> getCommentsPage(PageQuery pageQuery) {
+        Long userId = getUserId();
+        // 判断是否时管理员
+        if (!isAdmin(userId)) {
+            throw new BizException(USER_ERROR, "用户不是管理员");
         }
-        // 更新视频评论数
-        videoService.lambdaUpdate().eq(Video::getId, comment.getVideoId())
-                .setIncrBy(Video::getCommentCount, -1).update();
+        Page<VideoComment> page = videoCommentService.lambdaQuery()
+                .eq(VideoComment::getStatus, CommentStatusEnum.BLOCKED.getCode())
+                .orderByDesc(VideoComment::getCreateTime)
+                .page(pageQuery.toPage());
+        if (page == null || page.getRecords().isEmpty()) {
+            return Result.success(PageResult.of(0, 0, new ArrayList<>()));
+        }
+        // 转vo
+        List<AdminCommentVO> voList = new ArrayList<>();
+        page.getRecords().forEach(comment -> {
+            AdminCommentVO vo = new AdminCommentVO();
+            vo.setCommentId(comment.getId());
+            vo.setContent(comment.getContent());
+            vo.setUserId(comment.getUserId());
+            vo.setCreateTime(comment.getCreateTime());
+            voList.add(vo);
+        });
+        return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
+    }
+
+    @Override
+    public Result<Void> restoreComment(Long commentId) {
+        Long userId = getUserId();
+        // 判断是否时管理员
+        if (!isAdmin(userId)) {
+            throw new BizException(USER_ERROR, "用户不是管理员");
+        }
+        VideoComment comment = videoCommentService.getById(commentId);
+        if (comment == null) {
+            return Result.fail("评论不存在");
+        }
+        if (comment.getStatus().equals(CommentStatusEnum.DELETED.getCode())) {
+            return Result.fail("评论已被删除");
+        }
+        if (comment.getStatus().equals(CommentStatusEnum.VISIBLE.getCode())) {
+            return Result.success();
+        }
+        // 将评论设为正常
+        comment.setStatus(CommentStatusEnum.VISIBLE.getCode());
+        videoCommentService.updateById(comment);
+        return Result.success();
+    }
+
+    @Override
+    public Result<PageResult<AdminCommentReportVO>> getReportCommentsPage(AdminCommentReportPageQueryDTO pageQuery) {
+        Long userId = getUserId();
+        // 判断是否时管理员
+        if (!isAdmin(userId)) {
+            throw new BizException(USER_ERROR, "用户不是管理员");
+        }
+        Page<CommentReport> page = commentReportService.lambdaQuery()
+                .eq(CommentReport::getStatus, CommentReportStatusEnum.PENDING.getCode())
+                .eq(pageQuery.getReasonCode() != null, CommentReport::getReasonCode, pageQuery.getReasonCode())
+                .eq(pageQuery.getReporterId() != null, CommentReport::getReporterUserId, pageQuery.getReporterId())
+                .orderByDesc(CommentReport::getCreatedAt)
+                .page(pageQuery.toPage());
+        if (page == null || page.getRecords() == null) {
+            return Result.success(PageResult.of(0, 0, new ArrayList<>()));
+        }
+        List<CommentReport> records = page.getRecords();
+        List<Long> list = records.stream().map(CommentReport::getCommentId).toList();
+        if (list.isEmpty()) {
+            return Result.success(PageResult.of(0, 0, new ArrayList<>()));
+        }
+        List<VideoComment> videoComments = videoCommentService.lambdaQuery()
+                .eq(VideoComment::getStatus, CommentStatusEnum.VISIBLE.getCode())
+                .in(VideoComment::getId, list)
+                .list();
+        if (videoComments.isEmpty()) {
+            return Result.success(PageResult.of(0, 0, new ArrayList<>()));
+        }
+        // 转map
+        Map<Long, VideoComment> videoCommentMap = videoComments.stream()
+                .collect(Collectors.toMap(VideoComment::getId, Function.identity()));
+        // 转vo
+        List<AdminCommentReportVO> voList = new ArrayList<>();
+        records.forEach(report -> {
+            AdminCommentReportVO vo = new AdminCommentReportVO();
+            vo.setCommentId(report.getCommentId());
+            vo.setRemark(report.getRemark());
+            vo.setReporterUserId(report.getReporterUserId());
+            vo.setCreateTime(report.getCreatedAt());
+            vo.setContent(videoCommentMap.get(report.getCommentId()).getContent());
+            voList.add(vo);
+        });
+        return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
+    }
+
+    @Override
+    public Result<Void> ignoreReportComment(Long commentId) {
+        Long userId = getUserId();
+        // 判断是否时管理员
+        if (!isAdmin(userId)) {
+            throw new BizException(USER_ERROR, "用户不是管理员");
+        }
+        // 将举报设为已处理
+        commentReportService.lambdaUpdate()
+                        .eq(CommentReport::getCommentId, commentId)
+                        .set(CommentReport::getStatus, CommentReportStatusEnum.PROCESSED.getCode())
+                        .update();
         return Result.success();
     }
 

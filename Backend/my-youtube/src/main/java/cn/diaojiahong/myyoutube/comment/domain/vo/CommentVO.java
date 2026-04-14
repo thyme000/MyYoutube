@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.comment.domain.vo;
 
+import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import lombok.Data;
 
 @Data
@@ -30,4 +31,6 @@ public class CommentVO {
     private Long replyUserId;
     // 是否点赞
     private Boolean isLike;
+    // 评论状态
+    private String status;
 }
