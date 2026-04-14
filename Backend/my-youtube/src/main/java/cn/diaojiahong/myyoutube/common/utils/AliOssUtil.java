@@ -11,7 +11,6 @@ import org.springframework.util.StringUtils;
 
 import java.io.ByteArrayInputStream;
 import java.net.URI;
-import java.net.URL;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
@@ -194,6 +193,40 @@ public class AliOssUtil {
         }
 
         log.info("文件上传到 objectKey: {}", objectKey);
+    }
+
+    /**
+     * 删除 OSS 对象（支持传入 URL，会先规范为 objectKey）。
+     * 失败仅打日志，不抛异常，便于合成后清理素材等场景。
+     */
+    public void deleteObjectQuietly(String keyOrUrl) {
+        if (!StringUtils.hasText(keyOrUrl)) {
+            return;
+        }
+        String objectKey = normalizeToObjectKey(keyOrUrl.trim());
+        if (!StringUtils.hasText(objectKey)) {
+            return;
+        }
+        String endpoint = properties.getEndpoint();
+        String accessKeyId = properties.getAccessKeyId();
+        String accessKeySecret = properties.getAccessKeySecret();
+        String bucketName = properties.getBucketName();
+
+        OSS ossClient = new OSSClientBuilder().build(endpoint, accessKeyId, accessKeySecret);
+        try {
+            ossClient.deleteObject(bucketName, objectKey);
+            log.debug("OSS 删除成功: {}", objectKey);
+        } catch (OSSException oe) {
+            if ("NoSuchKey".equalsIgnoreCase(oe.getErrorCode())) {
+                log.debug("OSS 删除跳过（对象不存在）: {}", objectKey);
+                return;
+            }
+            log.warn("OSS 删除失败 objectKey={} code={} msg={}", objectKey, oe.getErrorCode(), oe.getMessage());
+        } catch (ClientException ce) {
+            log.warn("OSS 删除客户端异常 objectKey={} msg={}", objectKey, ce.getMessage());
+        } finally {
+            ossClient.shutdown();
+        }
     }
 
     private String buildObjectUrl(String objectKey) {

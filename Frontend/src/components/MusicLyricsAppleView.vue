@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onUnmounted } from "vue";
+import { GradFlow } from "gradflow-vue";
 import { extractCoverPalette } from "../utils/coverPalette.js";
 import { musicSearch } from "../api/musicApi.js";
 import {
@@ -31,6 +32,7 @@ import {
   lineKaraokeDisplayText,
   lineSweepMaskStyle,
   lineSweepWidthPct,
+  musicLyricsFullscreen,
 } from "../stores/musicPlayerStore.js";
 
 const lyricsScrollRef = ref(null);
@@ -42,6 +44,7 @@ const coverPalette = ref(null);
 const blurMode = ref("soft");
 const frostedOn = computed(() => blurMode.value === "frosted");
 const blurAmount = computed(() => (blurMode.value === "deep" || blurMode.value === "frosted" ? 72 : 40));
+/** 开关：gradflow-vue Silk 流光层（替代原 CSS 双层扫光） */
 const shimmerOn = ref(true);
 const lyricsFullscreen = ref(false);
 
@@ -85,6 +88,7 @@ onUnmounted(() => {
   document.removeEventListener("click", onDocCloseVolume, true);
   document.removeEventListener("keydown", onFsKeydown);
   document.body.style.overflow = "";
+  musicLyricsFullscreen.value = false;
 });
 
 /** 避免把 Nginx/HTML 整页塞进界面 */
@@ -109,8 +113,13 @@ const auroraFallbackStyle = computed(() => ({
 
 const meshBackgroundStyle = computed(() => {
   const p = coverPalette.value;
+  /** 播放中略压低 mesh，避免盖住 Silk WebGL 层次 */
+  const meshOpacity = playing.value ? 0.72 : 0.96;
   if (!p) {
-    return { ...auroraFallbackStyle.value };
+    return {
+      ...auroraFallbackStyle.value,
+      opacity: playing.value ? 0.78 : auroraFallbackStyle.value.opacity,
+    };
   }
   return {
     background: `
@@ -120,24 +129,77 @@ const meshBackgroundStyle = computed(() => {
       radial-gradient(ellipse 95% 65% at 52% 58%, ${p.c2} 0%, transparent 48%),
       linear-gradient(165deg, #060508 0%, #0e0c12 100%)
     `,
-    opacity: 0.96,
+    opacity: meshOpacity,
   };
 });
 
-const shimmerStyle = computed(() => {
-  const p = coverPalette.value;
-  const tint = p?.shimmer || "rgba(255,255,255,0.22)";
+/** 将封面色盘 hsla 串解析为 RGB（供 GradFlow） */
+function cssColorToRgb(css) {
+  if (typeof css !== "string" || !css.trim()) return null;
+  if (typeof document === "undefined") return null;
+  const el = document.createElement("div");
+  el.style.color = css;
+  document.body.appendChild(el);
+  const rgb = getComputedStyle(el).color;
+  document.body.removeChild(el);
+  const m = rgb.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (!m) return null;
+  return { r: Math.round(Number(m[1])), g: Math.round(Number(m[2])), b: Math.round(Number(m[3])) };
+}
+
+function mixRgb(a, b, t) {
   return {
-    background: `
-      linear-gradient(118deg, transparent 12%, ${tint} 38%, rgba(255,255,255,0.58) 50%, ${tint} 62%, transparent 88%),
-      linear-gradient(52deg, transparent 40%, rgba(255,255,255,0.08) 50%, transparent 60%)
-    `,
+    r: Math.round(a.r + (b.r - a.r) * t),
+    g: Math.round(a.g + (b.g - a.g) * t),
+    b: Math.round(a.b + (b.b - a.b) * t),
+  };
+}
+
+/**
+ * 封面色盘偏灰、三色接近时 Silk 容易糊成一片；拉高高光/暗部对比，褶皱更明显。
+ */
+function enrichSilkTriple(c1, c2, c3) {
+  const hi = { r: 255, g: 255, b: 255 };
+  const lo = { r: 6, g: 5, b: 14 };
+  return {
+    color1: mixRgb(c1, hi, 0.1),
+    color2: mixRgb(c2, hi, 0.32),
+    color3: mixRgb(c3, lo, 0.38),
+  };
+}
+
+/** gradflow-vue：Silk 模式 + 随封面变化的三色；播放中加快流动并略提噪声，抵消 UI 与 mesh 抢视线 */
+const gradFlowSilkConfig = computed(() => {
+  const p = coverPalette.value;
+  const fallback = {
+    color1: { r: 130, g: 165, b: 220 },
+    color2: { r: 255, g: 255, b: 255 },
+    color3: { r: 18, g: 16, b: 32 },
+  };
+  const on = playing.value;
+  const silk = {
+    type: "silk",
+    speed: on ? 0.74 : 0.56,
+    scale: on ? 1.68 : 1.58,
+    noise: on ? 0.2 : 0.15,
+  };
+  if (!p) {
+    return {
+      ...silk,
+      ...fallback,
+    };
+  }
+  const c1 = cssColorToRgb(p.c1) || fallback.color1;
+  const c2 = cssColorToRgb(p.c2) || fallback.color2;
+  const c3 = cssColorToRgb(p.c3) || fallback.color3;
+  const enriched = enrichSilkTriple(c1, c2, c3);
+  return {
+    ...silk,
+    color1: enriched.color1,
+    color2: enriched.color2,
+    color3: enriched.color3,
   };
 });
-
-const shimmerStyleB = computed(() => ({
-  background: `linear-gradient(-38deg, transparent 28%, rgba(255,255,255,0.1) 48%, rgba(255,255,255,0.42) 51%, rgba(255,255,255,0.1) 54%, transparent 74%)`,
-}));
 
 const coverBgStyle = computed(() => {
   if (!displayCover.value) return {};
@@ -278,6 +340,7 @@ function onFsKeydown(e) {
 }
 
 watch(lyricsFullscreen, (on) => {
+  musicLyricsFullscreen.value = on;
   if (typeof document === "undefined") return;
   document.body.style.overflow = on ? "hidden" : "";
   if (on) {
@@ -303,8 +366,9 @@ watch(
     <div class="am-bg">
       <div class="am-bg-blur" :style="{ ...coverBgStyle, filter: `saturate(1.5) blur(${blurAmount}px)` }" />
       <div class="am-bg-mesh" :style="meshBackgroundStyle" />
-      <div v-if="shimmerOn" class="am-bg-shimmer am-bg-shimmer--a" :style="shimmerStyle" />
-      <div v-if="shimmerOn" class="am-bg-shimmer am-bg-shimmer--b" :style="shimmerStyleB" />
+      <div v-if="shimmerOn" class="am-bg-gradflow">
+        <GradFlow :config="gradFlowSilkConfig" class-name="am-gradflow-canvas" />
+      </div>
       <div class="am-bg-vignette" />
     </div>
 
@@ -404,7 +468,7 @@ watch(
           </template>
 
           <div class="am-modal-foot">
-            <span class="am-foot-lab">流光</span>
+            <span class="am-foot-lab">Silk</span>
             <label class="am-sw"><input v-model="shimmerOn" type="checkbox" /><i /></label>
             <span class="am-foot-lab">背景</span>
             <div class="am-seg">
@@ -601,16 +665,39 @@ watch(
 /* 整块音乐页全屏：Teleport 到 body，盖住侧栏；顶栏右侧为全屏/退出 */
 .am-page--fs {
   position: fixed;
-  inset: 0;
-  z-index: 9000;
-  width: 100vw;
-  max-width: 100vw;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  /* 不用 100vw：含垂直滚动条时会产生右侧一条缝，Silk/WebGL 露底 */
+  width: auto;
+  max-width: none;
+  min-height: 100vh;
   min-height: 100dvh;
-  height: 100dvh;
-  max-height: 100dvh;
+  height: auto;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  /* 高于 .chat-float(11080)，避免会话条叠在音乐全屏之上 */
+  z-index: 12100;
   flex: none;
   overflow: hidden;
   box-sizing: border-box;
+  /* 与 mesh 底层色一致，避免亚像素缝透出 #app 白/灰边 */
+  background: #060508;
+  isolation: isolate;
+  overscroll-behavior: none;
+}
+
+/* 背景层略外扩 + 强制铺满，保证 Silk 全屏不断档 */
+.am-page--fs .am-bg {
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  right: -3px;
+  bottom: -3px;
+  width: auto;
+  height: auto;
 }
 
 .am-page--fs .am-shell {
@@ -729,6 +816,8 @@ watch(
 
 .am-topbar-end {
   pointer-events: auto;
+  /* 全屏/退出按钮略离开右缘，避免贴边 */
+  margin-right: 28px;
 }
 
 .am-topbar-btn {
@@ -826,48 +915,36 @@ watch(
   transition: background 1s ease;
 }
 
-.am-bg-shimmer {
+/* gradflow-vue Silk：WebGL 流光；soft-light 比 overlay 更易保留丝绸明暗层次 */
+.am-bg-gradflow {
   position: absolute;
-  inset: -55%;
+  inset: 0;
+  z-index: 1;
   pointer-events: none;
-}
-
-.am-bg-shimmer--a {
-  opacity: 0.92;
-  mix-blend-mode: overlay;
-  animation: am-sh 4s ease-in-out infinite;
-  filter: saturate(1.35) brightness(1.08);
-}
-
-.am-bg-shimmer--b {
-  opacity: 0.72;
+  opacity: 0.97;
   mix-blend-mode: soft-light;
-  animation: am-sh2 6.8s ease-in-out infinite;
-  filter: saturate(1.2);
+  filter: saturate(1.14) contrast(1.05);
 }
 
-@keyframes am-sh {
-  0% {
-    transform: translate(-18%, -12%) rotate(10deg) scale(1.02);
-  }
-  50% {
-    transform: translate(20%, 14%) rotate(10deg) scale(1.05);
-  }
-  100% {
-    transform: translate(-18%, -12%) rotate(10deg) scale(1.02);
-  }
+/* 播放中与波形/歌词同屏时略加强 Silk，避免「只有暂停时才明显」 */
+.am-page--playing .am-bg-gradflow {
+  opacity: 1;
+  filter: saturate(1.22) contrast(1.1);
 }
 
-@keyframes am-sh2 {
-  0% {
-    transform: translate(8%, 18%) rotate(-6deg) scale(1.03);
-  }
-  50% {
-    transform: translate(-16%, -10%) rotate(-6deg) scale(1.08);
-  }
-  100% {
-    transform: translate(8%, 18%) rotate(-6deg) scale(1.03);
-  }
+.am-bg-gradflow .am-gradflow-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  transform: scale(1.03);
+  transform-origin: center center;
+}
+
+/* 全屏时取消缩放，避免四角露底；由 .am-bg 外扩补缝 */
+.am-page--fs .am-bg-gradflow .am-gradflow-canvas {
+  transform: none;
+  min-width: 100%;
+  min-height: 100%;
 }
 
 .am-bg-vignette {

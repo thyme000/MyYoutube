@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.DownLoadMP4ToTemp;
-import cn.diaojiahong.myyoutube.common.utils.VideoAutoCoverUtil;
+import cn.diaojiahong.myyoutube.common.utils.FFmpegUtil;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
@@ -51,7 +51,7 @@ public class VideoCoverListener {
 
         try {
             if (msg.getVideoOssObjectKey() == null || msg.getVideoOssObjectKey().isBlank()) {
-                url = VideoAutoCoverUtil.DEFAULT_FALLBACK_COVER_URL;
+                url = FFmpegUtil.DEFAULT_FALLBACK_COVER_URL;
             } else {
                 String taskId = java.util.UUID.randomUUID().toString().replace("-", "");
                 String day = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
@@ -66,8 +66,8 @@ public class VideoCoverListener {
                         taskDir, ".mp4");
 
                 // 2) 生成封面
-                VideoAutoCoverUtil.Options opt = new VideoAutoCoverUtil.Options();
-                VideoAutoCoverUtil.Result result = VideoAutoCoverUtil.generateBestCover(
+                FFmpegUtil.Options opt = new FFmpegUtil.Options();
+                FFmpegUtil.Result result = FFmpegUtil.generateBestCover(
                         tempPath,
                         taskDir,
                         "video-cover-" + msg.getVideoId() + "-" + taskId + ".jpg",
@@ -82,11 +82,11 @@ public class VideoCoverListener {
                 } else {
                     url = (result.selectedCoverUrl() != null && !result.selectedCoverUrl().isBlank())
                             ? result.selectedCoverUrl()
-                            : VideoAutoCoverUtil.DEFAULT_FALLBACK_COVER_URL;
+                            : FFmpegUtil.DEFAULT_FALLBACK_COVER_URL;
                 }
             }
         } catch (Exception e) {
-            url = VideoAutoCoverUtil.DEFAULT_FALLBACK_COVER_URL;
+            url = FFmpegUtil.DEFAULT_FALLBACK_COVER_URL;
             log.error("生成视频封面失败, 视频id={}", msg.getVideoId(), e);
         } finally {
             // 只删本次任务产生的文件/目录，避免并发误删

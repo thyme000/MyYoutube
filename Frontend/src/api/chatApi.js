@@ -4,6 +4,18 @@
  */
 import { httpRequest, uploadMultipart } from "./http.js";
 
+/**
+ * 按分类拉取表情（Unicode glyph），需登录。
+ * @param {string} categoryCode 如 expression、travel
+ * @returns {Promise<Array<{ id?: number, categoryCode?: string, glyph?: string, nameZh?: string, sortOrder?: number }>>}
+ */
+export function listEmojisByCategory(categoryCode) {
+  return httpRequest("/emoji/category", {
+    method: "GET",
+    query: { categoryCode: String(categoryCode || "").trim() },
+  });
+}
+
 /** @param {{ type: string, memberIds: string[], name: string, avatar: string }} body — memberIds 用数字字符串避免 JS Number 精度丢失 */
 export function createConversation(body) {
   return httpRequest("/chat/conversation/create", { method: "POST", body });
@@ -57,6 +69,16 @@ export function banConversation(conversationId, banned) {
   });
 }
 
+export function banGroupMember(conversationId, userId, banned) {
+  return httpRequest(
+    `/chat/conversation/ban/${encodeURIComponent(String(userId))}/${encodeURIComponent(conversationId)}`,
+    {
+      method: "PUT",
+      query: { banned },
+    }
+  );
+}
+
 /** @returns {Promise<{ conversationId?: string, version?: number, text?: string|null }>} */
 export function getAnnouncement(conversationId) {
   return httpRequest(`/chat/conversation/announcement/${encodeURIComponent(conversationId)}`, {
@@ -80,6 +102,11 @@ export function markAnnouncementRead(conversationId) {
 /** @param {Record<string, unknown>} body ChatMessageDTO */
 export function sendMessage(body) {
   return httpRequest("/chat/message/send", { method: "POST", body });
+}
+
+/** @param {Record<string, unknown>} body ChatMessageDTO */
+export function forwardVideoMessage(body) {
+  return httpRequest("/chat/message/forward/video", { method: "PUT", body });
 }
 
 /** @param {Record<string, unknown>} body ChatMessageWithdrawDTO */

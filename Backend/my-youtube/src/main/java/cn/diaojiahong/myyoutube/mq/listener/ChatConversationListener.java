@@ -3,8 +3,8 @@ package cn.diaojiahong.myyoutube.mq.listener;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
-import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
+import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
 import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.enums.RefTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
@@ -41,16 +41,19 @@ public class ChatConversationListener {
             exchange = @Exchange(name = NOTIFY_GROUP_MEMBER_DELETED_EXCHANGE, type = ExchangeTypes.TOPIC),
             key = NOTIFY_GROUP_MEMBER_DELETED_ROUTING_KEY
     ))
-    public void handleNotifyGroupMemberDeleted(String conversationId) {
-        log.info("收到通知群成员删除消息: {}", conversationId);
+    public void handleNotifyGroupMemberDeleted(GroupDeletedMessage message) {
+        log.info("收到通知群成员删除消息: {}", message);
+        String conversationId = message.getConversationId();
+        List<Long> memberIds = message.getUserIds();
+        if (memberIds.isEmpty() || conversationId == null) {
+            return;
+        }
         Optional<ChatConversationDoc> opt = chatConversationService.getById(conversationId);
         if (opt.isEmpty()) {
             log.warn("群聊不存在: {}", conversationId);
             return;
         }
         ChatConversationDoc conversation = opt.get();
-        List<Long> memberIds = conversation.getMemberIds();
-        memberIds.remove(Long.valueOf(UserContext.getUserId()));
         List<UserNotification> userNotifications = new ArrayList<>();
         for (Long memberId : memberIds) {
             UserNotification userNotification = new UserNotification();
@@ -58,7 +61,7 @@ public class ChatConversationListener {
             userNotification.setType(NotificationTypeEnum.CHAT_NOTICE.getCode());
             userNotification.setContent("群:" + conversation.getName() + "已解散");
             userNotification.setRefType(RefTypeEnum.CHAT.getCode());
-            userNotification.setRefId(Long.valueOf(conversationId));
+            userNotification.setExtraJson(conversationId);
             userNotifications.add(userNotification);
             // 通知用户
             ChatNotificationForJson json = new ChatNotificationForJson();

@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.message;
 
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
 import lombok.Builder;
 import lombok.Data;
 
@@ -25,4 +26,6 @@ public class ChatMessageMessage {
     private String event;
     // 服务时间
     private LocalDateTime serviceTime;
+    // 撤回类型
+    private RecallTypeEnum recallType;
 }

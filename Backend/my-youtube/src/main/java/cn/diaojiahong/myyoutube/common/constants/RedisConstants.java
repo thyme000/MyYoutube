@@ -84,4 +84,9 @@ public class RedisConstants {
     public static final String USER_CONVERSATION = "user:conversation:";
     // 1天后过期
     public static final Long USER_CONVERSATION_EXPIRE = 1L;
+
+    /** 多图合成视频任务 merge:pic:job:{jobId} */
+    public static final String MERGE_PICTURE_JOB = "merge:pic:job:";
+    /** 任务状态在 Redis 中的保留时间（分钟） */
+    public static final long MERGE_PICTURE_JOB_EXPIRE_MINUTES = 60L;
 }

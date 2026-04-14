@@ -26,7 +26,12 @@ public enum ContentTypeEnum {
     /**
      * 系统消息
      */
-    SYSTEM("system", "系统消息");
+    SYSTEM("system", "系统消息"),
+
+    /**
+     * 转发视频消息
+     */
+    FORWARD_VIDEO("forward_video", "转发视频消息");
 
     /**
      * 类型值
@@ -63,5 +68,13 @@ public enum ContentTypeEnum {
      */
     public boolean isText() {
         return this == TEXT;
+    }
+
+    /**
+     * 判断是否为转发视频消息
+     * @return
+     */
+    public boolean isForwardVideo() {
+        return this == FORWARD_VIDEO;
     }
 }

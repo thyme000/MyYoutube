@@ -5,10 +5,7 @@ import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
-import cn.diaojiahong.myyoutube.video.domain.dto.RecordUserWatchTimeDTO;
-import cn.diaojiahong.myyoutube.video.domain.dto.UserShortsWatchRecords;
-import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
-import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
+import cn.diaojiahong.myyoutube.video.domain.dto.*;
 import cn.diaojiahong.myyoutube.video.domain.vo.*;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -207,5 +204,27 @@ public class VideoController {
     @PostMapping("/close/comment/{videoId}")
     public Result<Void> closeComment(@PathVariable Long videoId) {
         return videoService.closeComment(videoId);
+    }
+
+    /**
+     * 用户上传一张照片或多张照片合成视频
+     * @param pictureForVideoDTO
+     * @return
+     */
+    @Operation(summary = "提交多图（+可选音频 OSS key）合成视频任务，返回 jobId；完成后用状态接口取 objectKey 再走发布视频")
+    @PostMapping("/picture/merge")
+    public Result<String> mergePictures(@RequestBody PictureToVideoDTO pictureForVideoDTO) {
+        return videoService.mergePictures(pictureForVideoDTO);
+    }
+
+    /**
+     * 查询多图合成任务状态
+     * @param jobId
+     * @return
+     */
+    @Operation(summary = "查询多图合成任务状态（DONE 时 videoObjectKey 可填到发布接口的 videoUrl）")
+    @GetMapping("/picture/merge/status/{jobId}")
+    public Result<MergePictureJobStatusVO> getMergePictureJobStatus(@PathVariable String jobId) {
+        return videoService.getMergePictureJobStatus(jobId);
     }
 }

@@ -23,6 +23,8 @@ import {
   fetchVideoDetail,
   normalizeVideoDetail,
   publishVideo,
+  mergePicturesToVideo,
+  getMergePictureJobStatus,
   reportShortHistoryBatch,
   deleteMyVideo,
   setMyVideoPrivate,
@@ -93,6 +95,11 @@ import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
 import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
 import ChatWorkspace from "./components/chat/ChatWorkspace.vue";
 import ChatFloatingRail from "./components/chat/ChatFloatingRail.vue";
+import ChatEmojiPicker from "./components/chat/ChatEmojiPicker.vue";
+import ChatForwardVideoModal from "./components/chat/ChatForwardVideoModal.vue";
+import SlideshowMusicPicker from "./components/SlideshowMusicPicker.vue";
+import LoginLoadingCubes from "./components/LoginLoadingCubes.vue";
+import { musicLyricsFullscreen } from "./stores/musicPlayerStore.js";
 import { registerGlobalToast } from "./utils/toast.js";
 import { playNotificationSound } from "./utils/uiSounds.js";
 import { registerChatNavigator, navigateToChat } from "./utils/chatNavigator.js";
@@ -106,6 +113,7 @@ import {
   getChatSelfUserId,
   chatActiveConversationId,
   chatTotalUnread,
+  refreshConversationList,
 } from "./stores/chatStore.js";
 
 const primaryMenus = [
@@ -360,6 +368,11 @@ function closeSearchExpand() {
   searchExpandCard.value = null;
   try {
     searchExpandPlayerRef.value?.pause?.();
+  } catch {
+    /* ignore */
+  }
+  try {
+    searchExpandBlurRef.value?.pause?.();
   } catch {
     /* ignore */
   }
@@ -675,6 +688,30 @@ async function onSearchExpandShareClick() {
   } catch {
     /* 用户取消或不可用 */
   }
+}
+
+const forwardVideoOpen = ref(false);
+const forwardVideoCard = ref(null);
+
+function openForwardVideoModal(card) {
+  if (!isAuthed.value) {
+    pushToast("请先登录后使用转发", "info");
+    return;
+  }
+  if (!card?.id) {
+    pushToast("缺少视频信息", "error");
+    return;
+  }
+  forwardVideoCard.value = card;
+  forwardVideoOpen.value = true;
+}
+
+function onSearchExpandForwardClick() {
+  openForwardVideoModal(searchExpandCard.value);
+}
+
+function onShortsForwardClick() {
+  openForwardVideoModal(shortsFeedCurrent.value);
 }
 
 watch(searchActive, (v) => {
@@ -1236,22 +1273,9 @@ function searchFeedListTogglePlay(card, ev) {
   else v.pause();
 }
 
-async function onSearchFeedShareClick(card, ev) {
+function onSearchFeedForwardClick(card, ev) {
   ev?.stopPropagation?.();
-  const cur = card;
-  const url = typeof window !== "undefined" ? window.location.href : "";
-  try {
-    if (navigator.share && cur?.title) {
-      await navigator.share({ title: cur.title, url });
-    } else if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(url);
-      pushToast("链接已复制", "success");
-    } else {
-      pushToast(url || "无法分享", "info");
-    }
-  } catch {
-    /* 用户取消或不可用 */
-  }
+  openForwardVideoModal(card);
 }
 
 function onSearchFeedListTimeUpdate(e, cardId) {
@@ -1412,9 +1436,18 @@ const activePreviewCardId = ref("");
 const activePreviewVideoUrl = ref("");
 let hoverPreviewTimer = null;
 const authLoading = ref(false);
+/** 登录成功后全屏 LOADING 立方体动画，与首屏数据加载并行 */
+const showLoginLoadingOverlay = ref(false);
+/** 登录立方体动画播完（最后一格 llc-translate-z 结束）时 resolve */
+let loginCubesAnimResolve = null;
+function onLoginCubesAnimFinished() {
+  loginCubesAnimResolve?.();
+  loginCubesAnimResolve = null;
+}
 const authMessage = ref("");
 const activeAuthTab = ref("login");
 const token = ref(getToken());
+let activeMenuSwitchSeq = 0;
 
 const loginForm = ref({
   username: "",
@@ -1528,7 +1561,17 @@ const notifyTotal = ref(0);
 const notifyErrorMsg = ref("");
 const NOTIFY_PAGE_SIZE = 15;
 const uploadModalOpen = ref(false);
+/** 上传弹窗：整段视频 或 多图幻灯片（OSS 合成后再 publishVideo） */
+const uploadMode = ref("video");
+const MAX_SLIDESHOW_IMAGES = 50;
+const MERGE_POLL_INTERVAL_MS = 2000;
+const MERGE_POLL_MAX_ATTEMPTS = 200;
+const uploadSlideshowImages = ref([]);
+const uploadSlideshowAudioFile = ref(null);
 const uploadFileInputRef = ref(null);
+const uploadSlideshowImagesInputRef = ref(null);
+const uploadSlideshowAudioInputRef = ref(null);
+const uploadMusicPickerOpen = ref(false);
 const uploadForm = ref({
   title: "",
   description: "",
@@ -1641,6 +1684,7 @@ const detailCommentsLoading = ref(false);
 const detailCommentsPageNo = ref(1);
 const detailCommentsPages = ref(0);
 const detailCommentDraft = ref("");
+const detailCommentInputRef = ref(null);
 const detailCommentSubmitting = ref(false);
 const detailReplyTarget = ref(null);
 /** 楼主 id → { loaded, list } */
@@ -1669,6 +1713,7 @@ const shortsFeedMuted = ref(false);
 const shortsFeedPaused = ref(true);
 /** 切换视频后自动播放（含进入短视频页） */
 const shortsFeedAutoplayPending = ref(false);
+let shortsFeedPlayToken = 0;
 /** 短视频流右侧评论侧栏（与详情共用 /comment API） */
 const shortsCommentPanelOpen = ref(false);
 const shortsPanelTopComments = ref([]);
@@ -1676,6 +1721,7 @@ const shortsPanelCommentsLoading = ref(false);
 const shortsPanelCommentsPageNo = ref(1);
 const shortsPanelCommentsPages = ref(0);
 const shortsPanelCommentDraft = ref("");
+const shortsPanelCommentInputRef = ref(null);
 const shortsPanelCommentSubmitting = ref(false);
 const shortsPanelReplyTarget = ref(null);
 const shortsPanelThreadByRootId = ref({});
@@ -1794,6 +1840,17 @@ const followVideoPageNo = ref(1);
 const followVideoHasMore = ref(true);
 const followVideoLoadingMore = ref(false);
 const profileFeedOpen = ref(false);
+
+/** 仅音乐歌词「全屏」时隐藏右侧会话条；普通音乐页仍显示 */
+const chatRailSuppress = computed(
+  () =>
+    searchExpandOpen.value ||
+    profileFeedOpen.value ||
+    shortPlayerOpen.value ||
+    showVideoDetail.value ||
+    musicLyricsFullscreen.value,
+);
+
 /** 赞过的视频列表（GET /like/{userId}/list） */
 const likedRows = ref([]);
 const likedPageNo = ref(1);
@@ -1924,6 +1981,24 @@ const uploadTagList = computed(() =>
     .filter((x) => x)
 );
 
+/** 幻灯片成片总时长（秒），与后端规则一致：每图约 2s，不足 6s 时按 6s 均摊 */
+const slideshowBgmTargetSec = computed(() => {
+  const n = uploadSlideshowImages.value.length;
+  if (n <= 0) return 0;
+  let perImage = 2;
+  if (n * perImage < 6) perImage = 6 / n;
+  return Math.round(perImage * n);
+});
+
+watch(slideshowBgmTargetSec, (sec, oldSec) => {
+  if (oldSec === undefined || oldSec <= 0) return;
+  if (sec === oldSec) return;
+  if (uploadSlideshowAudioFile.value) {
+    uploadSlideshowAudioFile.value = null;
+    pushToast("图片张数已变更，请重新选择背景音乐", "info");
+  }
+});
+
 const homeLongHeadCount = computed(() =>
   viewportWidth.value >= 1320 ? HOME_LONG_HEAD_COUNT_DESKTOP : HOME_LONG_HEAD_COUNT_MOBILE
 );
@@ -1986,6 +2061,27 @@ function pushToast(message, type = "info") {
   }, 3000);
 }
 
+function pauseAllDomVideos() {
+  try {
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    document.querySelectorAll("video").forEach((v) => {
+      try {
+        v.pause();
+      } catch {
+        /* ignore */
+      }
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * 从 WS 原始 JSON 文本中提取长整型字段，避免 JSON.parse 把雪花 id 变成 Number 丢精度。
  */
@@ -2042,6 +2138,19 @@ function pickNotifyWsVideoId(rawText, parsed) {
   return null;
 }
 
+/** 聊天类 WS 通知：会话 id 多为 Mongo 字符串，不能用仅数字的 extractWsJsonDigitString */
+function pickNotifyWsConversationId(rawText, parsed) {
+  if (typeof rawText === "string") {
+    const m = rawText.match(/"conversationId"\s*:\s*"([^"]*)"/);
+    if (m && m[1] != null && String(m[1]).trim()) return String(m[1]).trim();
+  }
+  const o = parsed && typeof parsed === "object" ? parsed : {};
+  const v = o.conversationId ?? o.conversation_id;
+  if (v == null || v === "") return null;
+  const s = String(v).trim();
+  return s || null;
+}
+
 function pickNotifyWsContentFromObject(o) {
   if (!o || typeof o !== "object" || Array.isArray(o)) return "";
   const keys = ["content", "text", "message", "body", "commentContent", "comment_content", "preview", "snippet"];
@@ -2081,7 +2190,14 @@ function pickNotifyWsContent(parsed) {
 
 function pickNotifyWsAvatarUrl(parsed) {
   if (!parsed || typeof parsed !== "object") return "";
-  const keys = ["senderAvatarUrl", "sender_avatar_url", "senderAvatar", "avatarUrl"];
+  const keys = [
+    "senderAvatarUrl",
+    "sender_avatar_url",
+    "senderAvatar",
+    "avatarUrl",
+    "conversationAvatarUrl",
+    "conversation_avatar_url",
+  ];
   for (const k of keys) {
     const v = parsed[k];
     if (typeof v === "string" && v.trim()) return v.trim();
@@ -2091,7 +2207,14 @@ function pickNotifyWsAvatarUrl(parsed) {
 
 function pickNotifyWsNickname(parsed) {
   if (!parsed || typeof parsed !== "object") return "";
-  const keys = ["senderNickname", "sender_nickname", "nickname", "senderName"];
+  const keys = [
+    "senderNickname",
+    "sender_nickname",
+    "nickname",
+    "senderName",
+    "conversationName",
+    "conversation_name",
+  ];
   for (const k of keys) {
     const v = parsed[k];
     if (typeof v === "string" && v.trim()) return v.trim();
@@ -2147,7 +2270,15 @@ function maybePushChatIncomingLiveToast(parsed) {
 }
 
 /** 实时通知（WebSocket）：毛玻璃卡片，含头像与正文，可点进视频 / 标记已读 / 打开聊天 */
-function pushNotifyLiveToast({ avatarUrl, title, content, videoId, notificationId, conversationId }) {
+function pushNotifyLiveToast({
+  avatarUrl,
+  title,
+  content,
+  videoId,
+  notificationId,
+  conversationId,
+  notifyKind = null,
+}) {
   const ttl = String(title || "通知").trim() || "通知";
   const body = String(content || "").trim();
   toastSeed += 1;
@@ -2168,6 +2299,7 @@ function pushNotifyLiveToast({ avatarUrl, title, content, videoId, notificationI
         videoId: vidRaw && /^\d+$/.test(String(vidRaw)) ? String(vidRaw) : null,
         notificationId: nidRaw && /^\d+$/.test(String(nidRaw)) ? String(nidRaw) : null,
         conversationId: convRaw || null,
+        notifyKind: notifyKind || null,
       },
     },
   ];
@@ -2183,6 +2315,11 @@ function removeToast(id) {
 async function onNotifyToastClick(t) {
   const n = t?.notify;
   if (!n) return;
+  if (String(n.notifyKind || "") === "CHAT_NOTICE") {
+    removeToast(t.id);
+    pushToast(String(n.content || "该群聊已解散").trim() || "该群聊已解散", "info");
+    return;
+  }
   const hasConv = n.conversationId != null && String(n.conversationId).trim() !== "";
   const hasVid = n.videoId != null && n.videoId !== "";
   const hasNid = n.notificationId != null && n.notificationId !== "";
@@ -2860,15 +2997,23 @@ function mapToFollowPlayableRows(list) {
     .filter((x) => Boolean(String(resolveVideoUrl(x) || x.videoUrl || "").trim()));
 }
 
+let followFeedLoadSeq = 0;
+let followAuthorLoadSeq = 0;
+
 async function loadSubscribedFollowVideos({ reset = false } = {}) {
   if (!isAuthed.value) return;
-  if (followVideoLoadingMore.value) return;
+  const seq = ++followFeedLoadSeq;
+  if (followVideoLoadingMore.value && !reset) return;
   if (!reset && !followVideoHasMore.value) return;
   followVideoLoadingMore.value = true;
   try {
     const pageNo = reset ? 1 : followVideoPageNo.value;
     const pageSize = 12;
     const res = await fetchFollowVideoFeedPage({ pageNo, pageSize });
+    if (seq !== followFeedLoadSeq) return;
+    if (followSubscribedFilterAuthorId.value != null && followSubscribedFilterAuthorId.value !== "") {
+      return;
+    }
     const list = Array.isArray(res.list) ? res.list : [];
     const playable = mapToFollowPlayableRows(list);
     const pages = Number(res.pages || 0);
@@ -2893,6 +3038,10 @@ async function loadSubscribedFollowVideos({ reset = false } = {}) {
       pushToast("接口返回了视频但未解析到播放地址，请检查 OSS 签名或 videoUrl 字段", "info");
     }
   } catch (e) {
+    if (seq !== followFeedLoadSeq) return;
+    if (followSubscribedFilterAuthorId.value != null && followSubscribedFilterAuthorId.value !== "") {
+      return;
+    }
     if (reset) {
       followFeedQueue.value = [];
       cards.value = [];
@@ -2900,20 +3049,25 @@ async function loadSubscribedFollowVideos({ reset = false } = {}) {
     followVideoHasMore.value = false;
     pushToast(e?.message || "加载关注视频失败", "error");
   } finally {
-    followVideoLoadingMore.value = false;
+    if (seq === followFeedLoadSeq) {
+      followVideoLoadingMore.value = false;
+    }
   }
 }
 
 async function loadSubscribedAuthorVideos(authorId, { reset = false } = {}) {
   const aid = authorId != null && authorId !== "" ? String(authorId) : "";
   if (!aid || !isAuthed.value) return;
-  if (followAuthorLoadingMore.value) return;
+  const seq = ++followAuthorLoadSeq;
+  if (followAuthorLoadingMore.value && !reset) return;
   if (!reset && !followAuthorVideoHasMore.value) return;
   followAuthorLoadingMore.value = true;
   try {
     const pageNo = reset ? 1 : followAuthorVideoPageNo.value;
     const pageSize = 12;
     const res = await fetchOtherUserVideos(aid, { pageNo, pageSize });
+    if (seq !== followAuthorLoadSeq) return;
+    if (String(followSubscribedFilterAuthorId.value || "") !== aid) return;
     const list = Array.isArray(res.list) ? res.list : [];
     const playable = mapToFollowPlayableRows(list);
     const pages = Number(res.pages || 0);
@@ -2937,28 +3091,36 @@ async function loadSubscribedAuthorVideos(authorId, { reset = false } = {}) {
       pushToast("该作者的作品暂无可用播放地址", "info");
     }
   } catch (e) {
+    if (seq !== followAuthorLoadSeq) return;
+    if (String(followSubscribedFilterAuthorId.value || "") !== aid) return;
     if (reset) {
       followAuthorFeedQueue.value = [];
     }
     followAuthorVideoHasMore.value = false;
     pushToast(e?.message || "加载作者视频失败", "error");
   } finally {
-    followAuthorLoadingMore.value = false;
+    if (seq === followAuthorLoadSeq) {
+      followAuthorLoadingMore.value = false;
+    }
   }
 }
 
 async function selectFollowSidebarAll() {
   const hadFilter = followSubscribedFilterAuthorId.value != null && followSubscribedFilterAuthorId.value !== "";
+  followAuthorLoadSeq += 1;
   resetShortsFeedProgressUiForSwitch();
   followSubscribedFilterAuthorId.value = null;
   followAuthorFeedQueue.value = [];
   followAuthorVideoPageNo.value = 1;
   followAuthorVideoHasMore.value = false;
   shortsFeedIndex.value = 0;
+  shortsFeedPlayToken += 1;
+  shortsFeedAutoplayPending.value = true;
   if (hadFilter || followFeedQueue.value.length === 0) {
     await loadSubscribedFollowVideos({ reset: true });
   }
   nextTick(() => {
+    if (followSubscribedFilterAuthorId.value != null && followSubscribedFilterAuthorId.value !== "") return;
     shortsFeedFgRef.value?.load();
     shortsFeedBgRef.value?.load();
   });
@@ -2970,11 +3132,18 @@ async function selectFollowSidebarAuthor(user) {
   if (String(followSubscribedFilterAuthorId.value) === String(id)) {
     return;
   }
+  followFeedLoadSeq += 1;
   resetShortsFeedProgressUiForSwitch();
   followSubscribedFilterAuthorId.value = id;
+  followAuthorFeedQueue.value = [];
+  followAuthorVideoPageNo.value = 1;
+  followAuthorVideoHasMore.value = true;
   shortsFeedIndex.value = 0;
+  shortsFeedPlayToken += 1;
+  shortsFeedAutoplayPending.value = true;
   await loadSubscribedAuthorVideos(id, { reset: true });
   nextTick(() => {
+    if (String(followSubscribedFilterAuthorId.value || "") !== String(id)) return;
     shortsFeedFgRef.value?.load();
     shortsFeedBgRef.value?.load();
   });
@@ -4137,6 +4306,33 @@ function setDetailReplyTarget(row) {
   };
 }
 
+function insertGlyphIntoCommentDraft(draftRef, inputRef, glyph) {
+  const g = String(glyph || "");
+  if (!g) return;
+  const el = inputRef?.value;
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    const v = String(draftRef.value ?? "");
+    const start = typeof el.selectionStart === "number" ? el.selectionStart : v.length;
+    const end = typeof el.selectionEnd === "number" ? el.selectionEnd : start;
+    draftRef.value = `${v.slice(0, start)}${g}${v.slice(end)}`;
+    nextTick(() => {
+      const pos = start + g.length;
+      el.selectionStart = el.selectionEnd = pos;
+      el.focus();
+    });
+  } else {
+    draftRef.value = String(draftRef.value ?? "") + g;
+  }
+}
+
+function onShortsPanelCommentEmojiPick(glyph) {
+  insertGlyphIntoCommentDraft(shortsPanelCommentDraft, shortsPanelCommentInputRef, glyph);
+}
+
+function onDetailCommentEmojiPick(glyph) {
+  insertGlyphIntoCommentDraft(detailCommentDraft, detailCommentInputRef, glyph);
+}
+
 async function submitDetailComment() {
   const text = detailCommentDraft.value.trim();
   if (!text) {
@@ -5208,6 +5404,7 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
 }
 
 async function setActiveMenu(menu) {
+  const switchSeq = ++activeMenuSwitchSeq;
   searchActive.value = false;
   teardownSearchVideoObserver();
   const prevMenuKey = activeMenuKey.value;
@@ -5217,6 +5414,7 @@ async function setActiveMenu(menu) {
     (prevMenuKey === "shorts" || prevMenuKey === "subscribed") &&
     (menu.key === "shorts" || menu.key === "subscribed");
   if (switchingShortsTabs) {
+    shortsFeedPlayToken += 1;
     pauseShortsFeedVideos({ muteForeground: true });
     shortsFeedPaused.value = true;
     resetShortsFeedProgressUiForSwitch();
@@ -5261,11 +5459,13 @@ async function setActiveMenu(menu) {
     }
   }
   if (menu.key === "shorts") {
+    shortsFeedPlayToken += 1;
     feedScope.value = "shorts";
     shortsFeedIndex.value = 0;
     shortsFeedAutoplayPending.value = true;
   }
   if (menu.key === "subscribed") {
+    shortsFeedPlayToken += 1;
     feedScope.value = "follow";
     followSubscribedFilterAuthorId.value = null;
     followAuthorFeedQueue.value = [];
@@ -5308,8 +5508,13 @@ async function setActiveMenu(menu) {
     saveHomeFeedSnapshot();
   }
   await loadModuleCards(menu);
+  if (switchSeq !== activeMenuSwitchSeq) {
+    return;
+  }
   if (menu.key === "shorts" || menu.key === "subscribed") {
     nextTick(() => {
+      if (switchSeq !== activeMenuSwitchSeq) return;
+      if (activeMenuKey.value !== menu.key) return;
       shortsFeedFgRef.value?.load();
       shortsFeedBgRef.value?.load();
     });
@@ -5488,6 +5693,12 @@ async function loadStudioVideos() {
 function openUploadModal() {
   uploadMsg.value = "";
   uploadProgress.value = 0;
+  uploadMode.value = "video";
+  uploadSlideshowImages.value = [];
+  uploadSlideshowAudioFile.value = null;
+  uploadMusicPickerOpen.value = false;
+  uploadPickedFile.value = null;
+  uploadPickedDuration.value = 0;
   uploadTagEditorOpen.value = false;
   uploadTagDraft.value = "";
   uploadModalOpen.value = true;
@@ -5499,7 +5710,123 @@ function closeUploadModal() {
   }
   uploadTagEditorOpen.value = false;
   uploadTagDraft.value = "";
+  uploadSlideshowImages.value = [];
+  uploadSlideshowAudioFile.value = null;
+  uploadMusicPickerOpen.value = false;
   uploadModalOpen.value = false;
+}
+
+function setUploadMode(mode) {
+  if (uploadSubmitting.value) return;
+  const m = mode === "slideshow" ? "slideshow" : "video";
+  uploadMode.value = m;
+  uploadMsg.value = "";
+  uploadMusicPickerOpen.value = false;
+  if (m === "video") {
+    uploadSlideshowImages.value = [];
+    uploadSlideshowAudioFile.value = null;
+  } else {
+    uploadPickedFile.value = null;
+    uploadPickedDuration.value = 0;
+  }
+}
+
+function triggerSlideshowImagesPick() {
+  uploadSlideshowImagesInputRef.value?.click();
+}
+
+function triggerSlideshowAudioPick() {
+  uploadSlideshowAudioInputRef.value?.click();
+}
+
+function openSlideshowMusicPicker() {
+  if (uploadSubmitting.value) return;
+  if (!uploadSlideshowImages.value.length) {
+    pushToast("请先添加图片，再选择背景音乐", "info");
+    return;
+  }
+  uploadMusicPickerOpen.value = true;
+}
+
+function onSlideshowCloudMusicPicked(file) {
+  uploadSlideshowAudioFile.value = file;
+  uploadMusicPickerOpen.value = false;
+  uploadMsg.value = `已选背景音乐：${file.name}`;
+}
+
+function onSlideshowImagesInputChange(e) {
+  const raw = Array.from(e?.target?.files || []).filter((f) => String(f?.type || "").startsWith("image/"));
+  if (e?.target && "value" in e.target) {
+    e.target.value = "";
+  }
+  if (!raw.length) return;
+  const merged = [...uploadSlideshowImages.value, ...raw].slice(0, MAX_SLIDESHOW_IMAGES);
+  uploadSlideshowImages.value = merged;
+  uploadMsg.value = `已选 ${merged.length} 张图片（最多 ${MAX_SLIDESHOW_IMAGES} 张）`;
+}
+
+function onSlideshowAudioInputChange(e) {
+  const f = e?.target?.files?.[0];
+  if (e?.target && "value" in e.target) {
+    e.target.value = "";
+  }
+  if (!f) return;
+  if (!String(f.type || "").startsWith("audio/") && !/\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name || "")) {
+    uploadMsg.value = "请选择音频文件";
+    return;
+  }
+  uploadSlideshowAudioFile.value = f;
+  uploadMsg.value = `已选背景音乐：${f.name}`;
+}
+
+function removeSlideshowImage(idx) {
+  const next = uploadSlideshowImages.value.filter((_, i) => i !== idx);
+  uploadSlideshowImages.value = next;
+}
+
+function clearSlideshowImages() {
+  uploadSlideshowImages.value = [];
+  uploadMsg.value = "";
+}
+
+function clearSlideshowAudio() {
+  uploadSlideshowAudioFile.value = null;
+}
+
+function onUploadModalDrop(e) {
+  if (uploadSubmitting.value) return;
+  if (uploadMode.value === "slideshow") {
+    const files = Array.from(e?.dataTransfer?.files || []).filter((f) => String(f?.type || "").startsWith("image/"));
+    if (!files.length) return;
+    const merged = [...uploadSlideshowImages.value, ...files].slice(0, MAX_SLIDESHOW_IMAGES);
+    uploadSlideshowImages.value = merged;
+    uploadMsg.value = `已添加 ${files.length} 张图片，共 ${merged.length} 张`;
+    return;
+  }
+  onUploadInputOrDrop(e);
+}
+
+async function pollMergePictureJob(jobId) {
+  const id = String(jobId || "").trim();
+  if (!id) throw new Error("缺少合成任务 ID");
+  for (let i = 0; i < MERGE_POLL_MAX_ATTEMPTS; i++) {
+    const st = await getMergePictureJobStatus(id);
+    if (!st || typeof st !== "object") {
+      throw new Error("任务状态异常");
+    }
+    if (st.status === "DONE") {
+      if (!st.videoObjectKey) {
+        throw new Error("合成成功但未返回视频地址");
+      }
+      return st;
+    }
+    if (st.status === "FAIL") {
+      throw new Error(st.errorMessage || "幻灯片合成失败");
+    }
+    uploadProgress.value = Math.min(92, 72 + Math.floor(i / 4));
+    await new Promise((r) => setTimeout(r, MERGE_POLL_INTERVAL_MS));
+  }
+  throw new Error("合成超时，请稍后重试或联系管理员");
 }
 
 function triggerUploadPick() {
@@ -5690,6 +6017,11 @@ async function onNotifyItemClick(item) {
   }
   const nid = item.id;
   notifyList.value = notifyList.value.map((r) => (r.id === nid ? { ...r, isRead: true } : r));
+  if (String(item.type || "").toUpperCase() === "CHAT_NOTICE") {
+    closeNotifyPanel();
+    pushToast(String(item.content || "该群聊已解散").trim() || "该群聊已解散", "info");
+    return;
+  }
   const vid = item.videoId != null ? parseVideoIdForApi(item.videoId) : null;
   if (vid == null) {
     pushToast("暂无法跳转到视频（可能评论已删除）", "info");
@@ -5747,7 +6079,25 @@ function onNotifySocketMessage(data) {
     const avatarUrl = pickNotifyWsAvatarUrl(o);
     const videoId = pickNotifyWsVideoId(raw, o);
     const notificationId = pickNotifyWsNotificationId(raw, o);
-    pushNotifyLiveToast({ avatarUrl, title, content, videoId, notificationId });
+    const typeUpper = String(typeCode || "").toUpperCase();
+    const isChatNotice = typeUpper === "CHAT_NOTICE";
+    const conversationId = isChatNotice ? null : pickNotifyWsConversationId(raw, o);
+    pushNotifyLiveToast({
+      avatarUrl,
+      title,
+      content,
+      videoId,
+      notificationId,
+      conversationId,
+      notifyKind: isChatNotice ? "CHAT_NOTICE" : null,
+    });
+    if (isChatNotice) {
+      const dissolvedConvId = pickNotifyWsConversationId(raw, o);
+      if (dissolvedConvId && String(chatActiveConversationId.value || "") === String(dissolvedConvId)) {
+        chatActiveConversationId.value = null;
+      }
+      void refreshConversationList(true);
+    }
   } catch {
     pushToast(raw.slice(0, 120), "info");
   }
@@ -6467,46 +6817,99 @@ async function submitUploadVideo() {
   if (uploadSubmitting.value) {
     return;
   }
-  const file = uploadPickedFile.value;
-  if (!file) {
-    uploadMsg.value = "请先选择视频文件";
-    pushToast("请先选择视频文件", "info");
-    return;
-  }
   const title = String(uploadForm.value.title || "").trim();
   if (!title) {
     uploadMsg.value = "请填写视频标题";
     pushToast("请填写视频标题", "info");
     return;
   }
+  const isSlideshow = uploadMode.value === "slideshow";
+  if (isSlideshow) {
+    if (!uploadSlideshowImages.value.length) {
+      uploadMsg.value = "请至少选择一张图片";
+      pushToast("请至少选择一张图片", "info");
+      return;
+    }
+  } else if (!uploadPickedFile.value) {
+    uploadMsg.value = "请先选择视频文件";
+    pushToast("请先选择视频文件", "info");
+    return;
+  }
+
   uploadSubmitting.value = true;
   uploadMsg.value = "";
   uploadProgress.value = 0;
   try {
-    const { objectKey } = await uploadFileWithSts(file, OSS_STS_BIZ_WORK, (p) => {
-      uploadProgress.value = Math.max(0, Math.min(100, Math.round((p || 0) * 100)));
-    });
-    uploadProgress.value = 100;
-
-    const duration = uploadPickedDuration.value || (await readVideoDuration(file));
-    uploadMsg.value = "正在发布视频…";
-    await publishVideo({
+    const publishBodyBase = {
       title,
       description: String(uploadForm.value.description || "").trim(),
-      videoUrl: objectKey,
-      duration: Number(duration || 1),
       category: uploadForm.value.category,
       tags: uploadTagList.value.join(","),
       visibility: uploadForm.value.visibility,
       allowComment: Number(uploadForm.value.allowComment ? 1 : 0),
-    });
+    };
 
+    if (isSlideshow) {
+      const imgs = uploadSlideshowImages.value;
+      const audio = uploadSlideshowAudioFile.value;
+      const totalParts = imgs.length + (audio ? 1 : 0);
+      const objectKeys = [];
+      for (let i = 0; i < imgs.length; i++) {
+        uploadMsg.value = `正在上传图片 ${i + 1}/${imgs.length}…`;
+        const { objectKey } = await uploadFileWithSts(imgs[i], OSS_STS_BIZ_WORK, (p) => {
+          const base = (i + (p || 0)) / totalParts;
+          uploadProgress.value = Math.max(0, Math.min(68, Math.round(base * 68)));
+        });
+        objectKeys.push(objectKey);
+      }
+      let audioObjectKey;
+      if (audio) {
+        uploadMsg.value = "正在上传音频…";
+        const r = await uploadFileWithSts(audio, OSS_STS_BIZ_WORK, (p) => {
+          const base = (imgs.length + (p || 0)) / totalParts;
+          uploadProgress.value = Math.max(0, Math.min(68, Math.round(base * 68)));
+        });
+        audioObjectKey = r.objectKey;
+      }
+      uploadProgress.value = 70;
+      uploadMsg.value = "已提交合成任务，请稍候…";
+      const jobId = await mergePicturesToVideo({
+        objectKeys,
+        ...(audioObjectKey ? { audioObjectKey } : {}),
+      });
+      const merged = await pollMergePictureJob(jobId);
+      uploadProgress.value = 94;
+      uploadMsg.value = "正在发布视频…";
+      await publishVideo({
+        ...publishBodyBase,
+        videoUrl: merged.videoObjectKey,
+        duration: Number(merged.durationSeconds || 1),
+      });
+    } else {
+      const file = uploadPickedFile.value;
+      const { objectKey } = await uploadFileWithSts(file, OSS_STS_BIZ_WORK, (p) => {
+        uploadProgress.value = Math.max(0, Math.min(100, Math.round((p || 0) * 100)));
+      });
+      uploadProgress.value = 100;
+      const duration = uploadPickedDuration.value || (await readVideoDuration(file));
+      uploadMsg.value = "正在发布视频…";
+      await publishVideo({
+        ...publishBodyBase,
+        videoUrl: objectKey,
+        duration: Number(duration || 1),
+      });
+    }
+
+    uploadProgress.value = 100;
     uploadMsg.value = "上传成功，等待审核…";
     pushToast("上传成功，等待审核…", "success");
     pageHint.value = `已发布：${title}`;
     uploadModalOpen.value = false;
     uploadPickedFile.value = null;
     uploadPickedDuration.value = 0;
+    uploadMode.value = "video";
+    uploadSlideshowImages.value = [];
+    uploadSlideshowAudioFile.value = null;
     uploadForm.value = {
       title: "",
       description: "",
@@ -7242,6 +7645,7 @@ function onShortsFeedFgMediaError() {
 
 async function onShortsFeedFgLoadedMetadata(e) {
   const v = e.target;
+  const tokenOfEl = Number(v?.dataset?.playToken || 0);
   applyShortsLongPlaybackResumeIfNeeded(v);
   shortsFeedIsPortrait.value =
     v.videoWidth > 0 && v.videoHeight > 0 && v.videoHeight > v.videoWidth;
@@ -7258,6 +7662,14 @@ async function onShortsFeedFgLoadedMetadata(e) {
   shortsFeedMuted.value = v.muted;
   if (shortsFeedAutoplayPending.value) {
     try {
+      const inMainShorts =
+        activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed";
+      if (!inMainShorts && !profileFeedOpen.value) {
+        return;
+      }
+      if (tokenOfEl !== shortsFeedPlayToken) {
+        return;
+      }
       await v.play();
       await shortsFeedBgRef.value?.play().catch(() => {});
     } catch {
@@ -8037,8 +8449,14 @@ watch(
 );
 
 watch(shortsFeedIndex, () => {
+  shortsFeedPlayToken += 1;
   resetShortsFeedProgressUiForSwitch();
+  const tokenAtSwitch = shortsFeedPlayToken;
   nextTick(() => {
+    const inMainShorts =
+      activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed";
+    if (!inMainShorts && !profileFeedOpen.value) return;
+    if (tokenAtSwitch !== shortsFeedPlayToken) return;
     shortsFeedFgRef.value?.load();
     shortsFeedBgRef.value?.load();
     maybePrefetchHomeShortsForFeed();
@@ -8213,22 +8631,48 @@ async function submitLogin() {
     pushToast("登录成功", "success");
     const homeMenu = primaryMenus[0];
     activeMenuLabel.value = "首页";
-    await loadProfileUser();
-    const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
-    if (v) {
-      const ok = await restoreVideoDetailFromUrl(v);
-      if (!ok) {
-        clearVideoDetailFromAddressBar();
+
+    showLoginLoadingOverlay.value = true;
+    await nextTick();
+
+    const loadAfterLogin = async () => {
+      await loadProfileUser();
+      const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
+      if (v) {
+        const ok = await restoreVideoDetailFromUrl(v);
+        if (!ok) {
+          clearVideoDetailFromAddressBar();
+          await loadModuleCards(homeMenu);
+        }
+      } else {
         await loadModuleCards(homeMenu);
       }
-    } else {
-      await loadModuleCards(homeMenu);
-    }
+    };
+    let cubesAnimSettled = false;
+    let cubesFallbackTimer = null;
+    const cubesAnimDone = new Promise((resolve) => {
+      const finishCubes = () => {
+        if (cubesAnimSettled) return;
+        cubesAnimSettled = true;
+        if (cubesFallbackTimer != null) {
+          clearTimeout(cubesFallbackTimer);
+          cubesFallbackTimer = null;
+        }
+        resolve();
+        loginCubesAnimResolve = null;
+      };
+      loginCubesAnimResolve = finishCubes;
+      /** 动画事件异常时兜底，避免永久卡住（正常约 6s 内结束） */
+      cubesFallbackTimer = setTimeout(finishCubes, 16000);
+    });
+    /** 最后一格扫光结束才撤层；数据未好则多等接口，数据先好则等动画 */
+    await Promise.all([loadAfterLogin(), cubesAnimDone]);
   } catch (error) {
     authMessage.value = `登录失败：${error.message}`;
     pushToast(`登录失败：${error.message || "请检查账号信息"}`, "error");
   } finally {
     authLoading.value = false;
+    showLoginLoadingOverlay.value = false;
   }
 }
 
@@ -8434,9 +8878,16 @@ watch(
 );
 
 /** 离开聊天全屏页后仍保留 chatActiveConversationId 会导致 WS 新消息 Toast 被误判为「正在看该会话」；切走菜单时取消选中 */
-watch(activeMenuKey, (key) => {
+watch(activeMenuKey, (key, prevKey) => {
   if (key !== "chat") {
     chatActiveConversationId.value = null;
+  }
+  const prev = String(prevKey || "");
+  const next = String(key || "");
+  const switchingBetweenShortsTabs =
+    (prev === "shorts" || prev === "subscribed") && (next === "shorts" || next === "subscribed");
+  if (!switchingBetweenShortsTabs) {
+    pauseAllDomVideos();
   }
 });
 
@@ -9094,11 +9545,13 @@ onBeforeUnmount(() => {
               class="toast-notify-main"
               :class="{
                 'toast-notify-main--clickable':
+                  String(t.notify.notifyKind || '') === 'CHAT_NOTICE' ||
                   (t.notify.conversationId != null && String(t.notify.conversationId).trim() !== '') ||
                   (t.notify.videoId != null && t.notify.videoId !== '') ||
                   (t.notify.notificationId != null && t.notify.notificationId !== ''),
               }"
               :role="
+                String(t.notify.notifyKind || '') === 'CHAT_NOTICE' ||
                 (t.notify.conversationId != null && String(t.notify.conversationId).trim() !== '') ||
                 (t.notify.videoId != null && t.notify.videoId !== '') ||
                 (t.notify.notificationId != null && t.notify.notificationId !== '')
@@ -9106,6 +9559,7 @@ onBeforeUnmount(() => {
                   : undefined
               "
               :tabindex="
+                String(t.notify.notifyKind || '') === 'CHAT_NOTICE' ||
                 (t.notify.conversationId != null && String(t.notify.conversationId).trim() !== '') ||
                 (t.notify.videoId != null && t.notify.videoId !== '') ||
                 (t.notify.notificationId != null && t.notify.notificationId !== '')
@@ -9126,8 +9580,11 @@ onBeforeUnmount(() => {
                 <div class="toast-notify-title">{{ t.notify.title }}</div>
                 <div v-if="t.notify.content" class="toast-notify-body">{{ t.notify.content }}</div>
                 <div v-else class="toast-notify-body toast-notify-body--muted">（无正文预览）</div>
+                <span v-if="String(t.notify.notifyKind || '') === 'CHAT_NOTICE'" class="toast-notify-cta">
+                  点击查看说明 <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
+                </span>
                 <span
-                  v-if="t.notify.conversationId != null && String(t.notify.conversationId).trim() !== ''"
+                  v-else-if="t.notify.conversationId != null && String(t.notify.conversationId).trim() !== ''"
                   class="toast-notify-cta"
                 >
                   点击打开聊天 <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
@@ -9482,7 +9939,6 @@ onBeforeUnmount(() => {
                       >
                         <i class="ri-chat-3-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.commentCount) }}
                       </button>
-                      <span class="search-feed-stat" title="收藏"><i class="ri-star-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.favoriteCount) }}</span>
                     </div>
                     <div class="search-feed-card-dock" @click.stop>
                       <input
@@ -9525,7 +9981,7 @@ onBeforeUnmount(() => {
                           <button type="button" class="shorts-feed-tool-btn" title="全屏" @click="searchFeedListRequestFullscreen(card, $event)">
                             <i class="ri-fullscreen-line"></i>
                           </button>
-                          <button type="button" class="shorts-feed-tool-btn" title="转发" aria-label="转发" @click="onSearchFeedShareClick(card, $event)">
+                          <button type="button" class="shorts-feed-tool-btn" title="转发" aria-label="转发" @click="onSearchFeedForwardClick(card, $event)">
                             <i class="ri-share-forward-line"></i>
                           </button>
                           <button
@@ -9734,12 +10190,6 @@ onBeforeUnmount(() => {
                       </button>
                       <span class="shorts-feed-action-count">{{ searchExpandCard?.commentCount ?? 0 }}</span>
                     </div>
-                    <div class="shorts-feed-action-item">
-                      <button type="button" class="shorts-feed-action-btn" title="收藏" aria-label="收藏">
-                        <i class="ri-star-line"></i>
-                      </button>
-                      <span class="shorts-feed-action-count">{{ searchExpandCard?.favoriteCount ?? 0 }}</span>
-                    </div>
                     <div v-if="!searchExpandIsSelf" class="shorts-feed-action-item">
                       <button
                         type="button"
@@ -9795,7 +10245,7 @@ onBeforeUnmount(() => {
                       <button type="button" class="shorts-feed-tool-btn" title="全屏" @click="searchExpandRequestFullscreen">
                         <i class="ri-fullscreen-line"></i>
                       </button>
-                      <button type="button" class="shorts-feed-tool-btn" title="转发" aria-label="转发" @click="onSearchExpandShareClick">
+                      <button type="button" class="shorts-feed-tool-btn" title="转发" aria-label="转发" @click="onSearchExpandForwardClick">
                         <i class="ri-share-forward-line"></i>
                       </button>
                       <button
@@ -9842,6 +10292,7 @@ onBeforeUnmount(() => {
                 <div class="video-detail-comment-input">
                   <img :src="topbarAvatarSrc" alt="" class="video-detail-comment-avatar" @error="onTopbarAvatarError" />
                   <input
+                    ref="shortsPanelCommentInputRef"
                     v-model="shortsPanelCommentDraft"
                     type="text"
                     class="video-detail-comment-field"
@@ -9858,16 +10309,22 @@ onBeforeUnmount(() => {
                     maxlength="500"
                     @keyup.enter.prevent="submitShortsPanelComment"
                   />
-                  <button
-                    type="button"
-                    class="video-detail-comment-send"
-                    :disabled="
-                      !isAuthed || !activeCommentVideoAllowsComment || shortsPanelCommentSubmitting || !shortsPanelCommentDraft.trim()
-                    "
-                    @click="submitShortsPanelComment"
-                  >
-                    {{ shortsPanelCommentSubmitting ? "发送中…" : "发送" }}
-                  </button>
+                  <div class="video-detail-comment-input-actions">
+                    <ChatEmojiPicker
+                      :disabled="!isAuthed || !activeCommentVideoAllowsComment || shortsPanelCommentSubmitting"
+                      @pick="onShortsPanelCommentEmojiPick"
+                    />
+                    <button
+                      type="button"
+                      class="video-detail-comment-send"
+                      :disabled="
+                        !isAuthed || !activeCommentVideoAllowsComment || shortsPanelCommentSubmitting || !shortsPanelCommentDraft.trim()
+                      "
+                      @click="submitShortsPanelComment"
+                    >
+                      {{ shortsPanelCommentSubmitting ? "发送中…" : "发送" }}
+                    </button>
+                  </div>
                 </div>
                 <div class="shorts-feed-comments-panel-scroll">
                   <p v-if="shortsPanelCommentsLoading && !shortsPanelTopComments.length" class="video-detail-comments-empty">
@@ -10660,8 +11117,10 @@ onBeforeUnmount(() => {
                     }"
                   >
                     <video
+                      :key="shortsFeedCurrent?.id"
                       ref="shortsFeedBgRef"
                       class="short-video-bg"
+                      :data-play-token="shortsFeedPlayToken"
                       muted
                       playsinline
                       preload="metadata"
@@ -10671,6 +11130,7 @@ onBeforeUnmount(() => {
                       :key="shortsFeedCurrent?.id"
                       ref="shortsFeedFgRef"
                       class="short-video-fg"
+                      :data-play-token="shortsFeedPlayToken"
                       playsinline
                       preload="metadata"
                       :src="shortsFeedVideoSrc"
@@ -10806,17 +11266,6 @@ onBeforeUnmount(() => {
                         </button>
                         <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.commentCount ?? 0 }}</span>
                       </div>
-                      <div class="shorts-feed-action-item">
-                        <button
-                          type="button"
-                          class="shorts-feed-action-btn"
-                          title="收藏"
-                          aria-label="收藏"
-                        >
-                          <i class="ri-star-line"></i>
-                        </button>
-                        <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.favoriteCount ?? 0 }}</span>
-                      </div>
                       <div v-if="!shortsIsSelfCurrent" class="shorts-feed-action-item">
                         <button
                           type="button"
@@ -10856,7 +11305,7 @@ onBeforeUnmount(() => {
                         </div>
                       </div>
                       <div class="shorts-feed-action-item">
-                        <button type="button" class="shorts-feed-action-btn" title="分享" aria-label="分享">
+                        <button type="button" class="shorts-feed-action-btn" title="转发" aria-label="转发" @click.stop="onShortsForwardClick">
                           <i class="ri-share-forward-line"></i>
                         </button>
                         <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.shareCount ?? 0 }}</span>
@@ -11163,7 +11612,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section v-else-if="activeMenuKey === 'chat'" class="explore-chat-page">
-            <ChatWorkspace v-if="isAuthed" :self-user-id="currentUserId" />
+            <ChatWorkspace v-if="isAuthed" :self-user-id="currentUserId" @open-video="({ videoId }) => openVideoDetail({ id: videoId })" />
             <div v-else class="module-empty explore-chat-empty">
               <div class="module-empty-icon"><i class="ri-chat-3-line"></i></div>
               <h5>聊天</h5>
@@ -11468,7 +11917,7 @@ onBeforeUnmount(() => {
                   <button type="button" class="video-detail-action-pill" @click="onDetailDislikeClick">
                     <i class="ri-thumb-down-line"></i> 不感兴趣
                   </button>
-                  <button type="button" class="video-detail-action-pill" disabled>
+                  <button type="button" class="video-detail-action-pill" @click="openForwardVideoModal(videoDetail)">
                     <i class="ri-share-forward-line"></i> 分享
                   </button>
                 </div>
@@ -11502,6 +11951,7 @@ onBeforeUnmount(() => {
                 <div class="video-detail-comment-input">
                   <img :src="topbarAvatarSrc" alt="" class="video-detail-comment-avatar" @error="onTopbarAvatarError" />
                   <input
+                    ref="detailCommentInputRef"
                     v-model="detailCommentDraft"
                     type="text"
                     class="video-detail-comment-field"
@@ -11518,14 +11968,20 @@ onBeforeUnmount(() => {
                     maxlength="500"
                     @keyup.enter.prevent="submitDetailComment"
                   />
-                  <button
-                    type="button"
-                    class="video-detail-comment-send"
-                    :disabled="!isAuthed || !detailVideoAllowComment() || detailCommentSubmitting || !detailCommentDraft.trim()"
-                    @click="submitDetailComment"
-                  >
-                    {{ detailCommentSubmitting ? "发送中…" : "发送" }}
-                  </button>
+                  <div class="video-detail-comment-input-actions">
+                    <ChatEmojiPicker
+                      :disabled="!isAuthed || !detailVideoAllowComment() || detailCommentSubmitting"
+                      @pick="onDetailCommentEmojiPick"
+                    />
+                    <button
+                      type="button"
+                      class="video-detail-comment-send"
+                      :disabled="!isAuthed || !detailVideoAllowComment() || detailCommentSubmitting || !detailCommentDraft.trim()"
+                      @click="submitDetailComment"
+                    >
+                      {{ detailCommentSubmitting ? "发送中…" : "发送" }}
+                    </button>
+                  </div>
                 </div>
                 <p v-if="detailCommentsLoading && !detailTopComments.length" class="video-detail-comments-empty">加载评论中…</p>
                 <ul v-else class="video-detail-comments-mock">
@@ -11762,6 +12218,23 @@ onBeforeUnmount(() => {
         aria-hidden="true"
         @change="onUploadInputOrDrop"
       />
+      <input
+        ref="uploadSlideshowImagesInputRef"
+        type="file"
+        accept="image/*"
+        :multiple="true"
+        class="visually-hidden"
+        aria-hidden="true"
+        @change="onSlideshowImagesInputChange"
+      />
+      <input
+        ref="uploadSlideshowAudioInputRef"
+        type="file"
+        accept="audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg"
+        class="visually-hidden"
+        aria-hidden="true"
+        @change="onSlideshowAudioInputChange"
+      />
 
       <div
         v-if="selfVideoDeleteConfirmOpen"
@@ -11788,7 +12261,12 @@ onBeforeUnmount(() => {
         aria-modal="true"
         aria-label="上传视频"
       >
-        <form class="upload-modal" @submit.prevent="submitUploadVideo" @click.stop>
+        <form
+          class="upload-modal"
+          :class="{ 'upload-modal--slideshow-wide': uploadMode === 'slideshow' }"
+          @submit.prevent="submitUploadVideo"
+          @click.stop
+        >
           <div class="upload-modal-head">
             <h3>上传视频</h3>
             <button
@@ -11801,24 +12279,122 @@ onBeforeUnmount(() => {
               <i class="ri-close-line"></i>
             </button>
           </div>
+          <div class="upload-mode-tabs" role="tablist" aria-label="上传方式">
+            <button
+              type="button"
+              role="tab"
+              class="upload-mode-tab"
+              :class="{ 'upload-mode-tab--active': uploadMode === 'video' }"
+              :disabled="uploadSubmitting"
+              :aria-selected="uploadMode === 'video'"
+              @click="setUploadMode('video')"
+            >
+              视频文件
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="upload-mode-tab"
+              :class="{ 'upload-mode-tab--active': uploadMode === 'slideshow' }"
+              :disabled="uploadSubmitting"
+              :aria-selected="uploadMode === 'slideshow'"
+              @click="setUploadMode('slideshow')"
+            >
+              图片幻灯片
+            </button>
+          </div>
+          <div
+            class="upload-modal-main"
+            :class="{ 'upload-modal-main--split': uploadMode === 'slideshow' }"
+          >
           <div
             class="upload-modal-drop"
+            :class="{ 'upload-modal-drop--slide-col': uploadMode === 'slideshow' }"
             @dragover.prevent
-            @drop.prevent="onUploadInputOrDrop"
+            @drop.prevent="onUploadModalDrop"
           >
-            <div class="upload-modal-icon">
-              <i class="ri-upload-cloud-2-line"></i>
-            </div>
-            <p class="upload-modal-main-text">将要上传的视频文件拖放到此处</p>
-            <button type="button" class="upload-modal-select" :disabled="uploadSubmitting" @click="triggerUploadPick">
-              选择文件
-            </button>
-            <p v-if="uploadPickedFile" class="upload-picked-file">已选：{{ uploadPickedFile.name }}</p>
-            <p v-if="uploadPickedDuration" class="upload-progress-text">时长约 {{ uploadPickedDuration }} 秒</p>
-            <p v-if="uploadSubmitting" class="upload-progress-text">上传进度：{{ uploadProgress }}%</p>
+            <template v-if="uploadMode === 'video'">
+              <div class="upload-modal-icon">
+                <i class="ri-upload-cloud-2-line"></i>
+              </div>
+              <p class="upload-modal-main-text">将要上传的视频文件拖放到此处</p>
+              <button type="button" class="upload-modal-select" :disabled="uploadSubmitting" @click="triggerUploadPick">
+                选择文件
+              </button>
+              <p v-if="uploadPickedFile" class="upload-picked-file">已选：{{ uploadPickedFile.name }}</p>
+              <p v-if="uploadPickedDuration" class="upload-progress-text">时长约 {{ uploadPickedDuration }} 秒</p>
+            </template>
+            <template v-else>
+              <div class="upload-modal-icon">
+                <i class="ri-image-2-line"></i>
+              </div>
+              <p class="upload-modal-main-text">先按顺序添加图片（可拖入）；再选背景音乐，BGM 时长会与幻灯片总长对齐</p>
+              <div class="upload-slideshow-actions">
+                <button
+                  type="button"
+                  class="upload-modal-select"
+                  :disabled="uploadSubmitting"
+                  title="在文件选择框中可一次多选：Windows 用 Ctrl/Shift；Mac 用 Command/Shift"
+                  @click="triggerSlideshowImagesPick"
+                >
+                  添加图片（可多选）
+                </button>
+                <template v-if="uploadSlideshowImages.length">
+                  <button
+                    type="button"
+                    class="upload-modal-select upload-modal-select--ghost"
+                    :disabled="uploadSubmitting"
+                    @click="openSlideshowMusicPicker"
+                  >
+                    云端音乐（截取片段）
+                  </button>
+                  <button
+                    type="button"
+                    class="upload-modal-select upload-modal-select--ghost"
+                    :disabled="uploadSubmitting"
+                    @click="triggerSlideshowAudioPick"
+                  >
+                    本地上传音频
+                  </button>
+                </template>
+                <button
+                  v-if="uploadSlideshowImages.length"
+                  type="button"
+                  class="upload-modal-select upload-modal-select--ghost"
+                  :disabled="uploadSubmitting"
+                  @click="clearSlideshowImages"
+                >
+                  清空图片
+                </button>
+                <button
+                  v-if="uploadSlideshowAudioFile"
+                  type="button"
+                  class="upload-modal-select upload-modal-select--ghost"
+                  :disabled="uploadSubmitting"
+                  @click="clearSlideshowAudio"
+                >
+                  移除音频
+                </button>
+              </div>
+              <ul v-if="uploadSlideshowImages.length" class="upload-slideshow-list">
+                <li v-for="(f, idx) in uploadSlideshowImages" :key="`${idx}-${f.name}-${f.size}`" class="upload-slideshow-item">
+                  <span class="upload-slideshow-item-name">{{ idx + 1 }}. {{ f.name }}</span>
+                  <button type="button" class="upload-slideshow-remove" :disabled="uploadSubmitting" @click="removeSlideshowImage(idx)">
+                    移除
+                  </button>
+                </li>
+              </ul>
+              <p v-if="uploadSlideshowAudioFile" class="upload-slideshow-audio-line">音频：{{ uploadSlideshowAudioFile.name }}</p>
+            </template>
+            <p v-if="uploadSubmitting" class="upload-progress-text">
+              {{ uploadMode === "slideshow" ? "进度" : "上传进度" }}：{{ uploadProgress }}%
+            </p>
           </div>
 
-          <div class="upload-meta-grid">
+          <div
+            class="upload-meta-grid"
+            :class="{ 'upload-meta-grid--slide-col': uploadMode === 'slideshow' }"
+          >
             <label class="upload-field">
               <span>标题</span>
               <input v-model="uploadForm.title" type="text" maxlength="120" required placeholder="请输入视频标题" />
@@ -11881,6 +12457,7 @@ onBeforeUnmount(() => {
               <span>允许评论</span>
             </label>
           </div>
+          </div>
 
           <p v-if="uploadMsg" class="upload-modal-msg">{{ uploadMsg }}</p>
           <p class="upload-modal-foot">
@@ -11891,20 +12468,53 @@ onBeforeUnmount(() => {
               取消
             </button>
             <button type="submit" class="upload-action upload-action--primary" :disabled="uploadSubmitting">
-              {{ uploadSubmitting ? "发布中…" : "上传并发布" }}
+              {{
+                uploadSubmitting
+                  ? uploadMode === "slideshow"
+                    ? "处理中…"
+                    : "发布中…"
+                  : uploadMode === "slideshow"
+                    ? "生成并发布"
+                    : "上传并发布"
+              }}
             </button>
           </div>
         </form>
       </div>
     </div>
 
+    <SlideshowMusicPicker
+      :open="uploadMusicPickerOpen"
+      :target-segment-sec="slideshowBgmTargetSec"
+      @close="uploadMusicPickerOpen = false"
+      @picked="onSlideshowCloudMusicPicked"
+    />
     <MusicPlayerAudioHost />
     <MusicMiniPlayer :show="activeMenuKey !== 'music' && activeMenuKey !== 'chat'" />
     <ChatFloatingRail
       :authed="isAuthed"
       :chat-page-active="activeMenuKey === 'chat'"
       :narrow-peek="activeMenuKey === 'shorts' || activeMenuKey === 'subscribed'"
-      :suppress="searchExpandOpen || profileFeedOpen || shortPlayerOpen || showVideoDetail"
+      :suppress="chatRailSuppress"
     />
+    <ChatForwardVideoModal
+      v-model="forwardVideoOpen"
+      :self-user-id="currentUserId"
+      :video-id="forwardVideoCard?.id ?? null"
+      :video-title="forwardVideoCard?.title ?? ''"
+      :video-cover-url="forwardVideoCard?.coverUrl || forwardVideoCard?.cover || forwardVideoCard?.avatarUrl || ''"
+      @sent="() => refreshConversationList(true)"
+    />
+
+    <Teleport to="body">
+      <div
+        v-if="showLoginLoadingOverlay"
+        class="login-success-loading-overlay"
+        aria-busy="true"
+        aria-live="polite"
+      >
+        <LoginLoadingCubes @finished="onLoginCubesAnimFinished" />
+      </div>
+    </Teleport>
   </div>
 </template>

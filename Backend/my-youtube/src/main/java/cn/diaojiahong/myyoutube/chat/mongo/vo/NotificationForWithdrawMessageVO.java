@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.mongo.vo;
 
+import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
 import lombok.Data;
 
 @Data
@@ -14,4 +15,6 @@ public class NotificationForWithdrawMessageVO {
     private String senderNickname;
     // 群聊头像url
     private String avatarUrl;
+    // 撤回类型
+    private RecallTypeEnum recallType;
 }

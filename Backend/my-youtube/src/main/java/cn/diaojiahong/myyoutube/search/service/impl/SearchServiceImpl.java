@@ -56,7 +56,7 @@ public class SearchServiceImpl implements ISearchService {
     private final StringRedisTemplate redisTemplate;
     private final ElasticsearchClient elasticsearchClient;
     private final VideoLikeMapper videoLikeMapper;
-    private static final int OSS_EXPIRE_SECONDS = 3600 * 2;
+    private static final int OSS_EXPIRE_SECONDS = 3600 * 10;
 
     @Override
     public Result<PageResult<SearchVideoVO>> searchVideo(SearchVideoPageQuery pageQuery) {
@@ -88,7 +88,7 @@ public class SearchServiceImpl implements ISearchService {
                                                     .query(keyword)
                                                     .fields("title^5", "tagNames^4", "authorName^2", "description^3")
                                                     .fuzziness("AUTO")
-                                                    .minimumShouldMatch("50%")
+                                                    .minimumShouldMatch("40%")
                                             ));
                                         }
                                         return b;
@@ -119,7 +119,7 @@ public class SearchServiceImpl implements ISearchService {
                                     .query(keyword)
                                     .fields("title^5", "tagNames^4", "authorName^2", "description^3")
                                     .fuzziness("AUTO")
-                                    .minimumShouldMatch("50%")
+                                    .minimumShouldMatch("40%")
                             ));
                         }
                         return b;
@@ -180,7 +180,7 @@ public class SearchServiceImpl implements ISearchService {
                                                 .query(keyword)
                                                 .fields("nickname^5", "introduction^2")
                                                 .fuzziness("AUTO")
-                                                .minimumShouldMatch("50%")
+                                                .minimumShouldMatch("40%")
                                         ));
                                         if (numeric) {
                                             b.should(s -> s.wildcard(t -> t.field("idKeyword").value("*" + keyword + "*")));
@@ -321,7 +321,7 @@ public class SearchServiceImpl implements ISearchService {
                                                 .query(tagName)
                                                 .fields("title^2", "tagNames^6", "description^1")
                                                 .fuzziness("AUTO")
-                                                .minimumShouldMatch("70%")
+                                                .minimumShouldMatch("60%")
                                         ));
                                     }
                                     return b;

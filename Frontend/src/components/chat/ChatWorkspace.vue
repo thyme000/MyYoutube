@@ -25,6 +25,8 @@ const props = defineProps({
   selfUserId: { type: [String, Number], default: null },
 });
 
+const emit = defineEmits(["open-video"]);
+
 const activeRow = computed(() =>
   chatConversations.value.find((r) => String(r.conversationId) === String(chatActiveConversationId.value)),
 );
@@ -129,6 +131,10 @@ async function onJumpToSeqFromFind({ seq }) {
   jumpTargetSeq.value = Number(seq) || 0;
   jumpTargetNonce.value += 1;
 }
+
+function onOpenVideo(e) {
+  emit("open-video", e);
+}
 </script>
 
 <template>
@@ -142,6 +148,8 @@ async function onJumpToSeqFromFind({ seq }) {
           :conversation-name="activeRow?.conversationName || ''"
           :conversation-avatar="activeRow?.conversationAvatar || ''"
           :conversation-type="String(activeRow?.conversationType || '')"
+          :conversation-banned="!!(activeRow?.conversationBanned ?? activeRow?.conversatinoBanned)"
+          :self-banned="!!activeRow?.banned"
           :items="thread.items"
           :loading="thread.loadingInitial"
           :loading-history="thread.loadingHistory"
@@ -157,6 +165,7 @@ async function onJumpToSeqFromFind({ seq }) {
           @load-history="loadOlderHistory(chatActiveConversationId)"
           @withdraw="onWithdraw"
           @open-info="onOpenSessionInfo"
+          @open-video="onOpenVideo"
         />
         <div v-else class="chat-workspace__placeholder">
           <p>选择右侧会话开始聊天</p>

@@ -64,4 +64,11 @@ public class RabbitMqConstants {
     public static final String NOTIFY_GROUP_MEMBER_DELETED_ROUTING_KEY = "notify_group_member_deleted_routing_key";
     // 通知群成员会话已删除交换机
     public static final String NOTIFY_GROUP_MEMBER_DELETED_EXCHANGE = "notify_group_member_deleted_exchange";
+
+    // 合并图片为视频队列
+    public static final String MERGE_PICTURES_QUEUE = "merge_pictures_queue";
+    // 合并图片为视频路由键
+    public static final String MERGE_PICTURES_ROUTING_KEY = "merge_pictures_routing_key";
+    // 合并图片为视频交换机
+    public static final String MERGE_PICTURES_EXCHANGE = "merge_pictures_exchange";
 }

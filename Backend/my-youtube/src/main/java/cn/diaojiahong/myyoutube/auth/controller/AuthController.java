@@ -1,10 +1,10 @@
 package cn.diaojiahong.myyoutube.auth.controller;
 
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.auth.controller.domain.dto.CaptchaDTO;
-import cn.diaojiahong.myyoutube.auth.controller.domain.dto.ForgetPasswordDTO;
-import cn.diaojiahong.myyoutube.auth.controller.domain.dto.LoginRequestDTO;
-import cn.diaojiahong.myyoutube.auth.controller.domain.dto.RegisterRequestDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.CaptchaDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.ForgetPasswordDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.LoginRequestDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
 import cn.diaojiahong.myyoutube.auth.service.IAuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

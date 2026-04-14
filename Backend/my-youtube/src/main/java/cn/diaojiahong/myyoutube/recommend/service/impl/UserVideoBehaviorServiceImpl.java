@@ -42,8 +42,6 @@ public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorM
     private final IUserTagPreferenceService userTagPreferenceService;
     private final IVideoTagService videoTagService;
     private final StringRedisTemplate redisTemplate;
-    private final IUserFollowService userFollowService;
-    private final IVideoService videoService;
 
     @Transactional
     @Override

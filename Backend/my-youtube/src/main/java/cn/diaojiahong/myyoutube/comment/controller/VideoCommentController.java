@@ -60,6 +60,4 @@ public class VideoCommentController {
     public Result<PageResult<CommentVO>> getCommentList(@ModelAttribute CommentPageQuery commentPageQuery) {
         return videoCommentService.getCommentList(commentPageQuery);
     }
-
-
 }

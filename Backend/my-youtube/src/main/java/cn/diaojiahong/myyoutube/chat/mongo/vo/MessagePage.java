@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.chat.mongo.vo;
 
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.MessageStatusEnum;
+import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
 import lombok.Data;
 
@@ -29,4 +30,6 @@ public class MessagePage {
     private MessageStatusEnum status;
     // 消息创建时间
     private LocalDateTime createdAt;
+    // 撤回类型
+    private RecallTypeEnum recallType;
 }

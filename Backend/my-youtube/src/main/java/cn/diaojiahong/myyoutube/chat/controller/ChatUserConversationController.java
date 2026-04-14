@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.chat.controller;
 
 import cn.diaojiahong.myyoutube.chat.mongo.vo.UserConversationVO;
+import cn.diaojiahong.myyoutube.chat.mongo.vo.ValidUserConversationVO;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatUserConversationService;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -68,5 +69,17 @@ public class ChatUserConversationController {
     @PutMapping("/{conversationId}/read/announcement")
     public Result<Void> readAnnouncement(@PathVariable String conversationId) {
         return chatUserConversationService.readAnnouncement(conversationId);
+    }
+
+    /**
+     * 获取用户合法的聊天会话列表
+     * @param page
+     * @param pageSize
+     * @return
+     */
+    @Operation(summary = "获取用户合法的聊天会话列表")
+    @GetMapping("/valid")
+    public Result<PageResult<ValidUserConversationVO>> getValidConversations(@RequestParam Long page, @RequestParam Long pageSize) {
+        return chatUserConversationService.getValidConversations(page, pageSize);
     }
 }

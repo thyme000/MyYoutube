@@ -17,11 +17,9 @@ import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
 import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.mq.message.PictureToVideoMessage;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
-import cn.diaojiahong.myyoutube.video.domain.dto.RecordUserWatchTimeDTO;
-import cn.diaojiahong.myyoutube.video.domain.dto.UserShortsWatchRecords;
-import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
-import cn.diaojiahong.myyoutube.video.domain.dto.VideoPageQuery;
+import cn.diaojiahong.myyoutube.video.domain.dto.*;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
@@ -43,6 +41,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -70,8 +72,10 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     private final IUserFollowService userFollowService;
     private final VideoLikeMapper videoLikeMapper;
     private final VideoDocRepository videoDocRepository;
+    private final ObjectMapper objectMapper;
 
     private static final int SHORT_VIDEO_DURATION = 300;
+    private static final int MERGE_PICTURE_MAX_IMAGES = 50;
     private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
     @Transactional
@@ -651,6 +655,108 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             return Result.fail("修改失败");
         }
         return Result.success();
+    }
+
+    @Override
+    public Result<String> mergePictures(PictureToVideoDTO pictureForVideoDTO) {
+        if (pictureForVideoDTO == null || pictureForVideoDTO.getObjectKeys() == null
+                || pictureForVideoDTO.getObjectKeys().isEmpty()) {
+            return Result.fail("图片列表不能为空");
+        }
+        if (pictureForVideoDTO.getObjectKeys().size() > MERGE_PICTURE_MAX_IMAGES) {
+            return Result.fail("图片数量不能超过 " + MERGE_PICTURE_MAX_IMAGES + " 张");
+        }
+        Long userId = getUserId();
+        List<String> keys = pictureForVideoDTO.getObjectKeys().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(aliOssUtil::normalizeToObjectKey)
+                .collect(Collectors.toList());
+        if (keys.isEmpty()) {
+            return Result.fail("图片列表不能为空");
+        }
+        for (String k : keys) {
+            if (!objectKeyBelongsToUser(userId, k)) {
+                return Result.fail("存在无权使用的图片资源");
+            }
+        }
+        String audioKey = null;
+        if (StringUtils.hasText(pictureForVideoDTO.getAudioObjectKey())) {
+            audioKey = aliOssUtil.normalizeToObjectKey(pictureForVideoDTO.getAudioObjectKey().trim());
+            if (!objectKeyBelongsToUser(userId, audioKey)) {
+                return Result.fail("无权使用该音频资源");
+            }
+        }
+
+        String jobId = UUID.randomUUID().toString().replace("-", "");
+        MergePictureJobRedisPayload pending = MergePictureJobRedisPayload.builder()
+                .userId(userId)
+                .status(MergePictureJobStatusVO.STATUS_PENDING)
+                .build();
+        try {
+            redisTemplate.opsForValue().set(
+                    RedisConstants.MERGE_PICTURE_JOB + jobId,
+                    objectMapper.writeValueAsString(pending),
+                    RedisConstants.MERGE_PICTURE_JOB_EXPIRE_MINUTES,
+                    TimeUnit.MINUTES
+            );
+        } catch (JsonProcessingException e) {
+            log.warn("mergePictures 写入 Redis 失败", e);
+            return Result.fail("创建任务失败");
+        }
+
+        PictureToVideoMessage message = new PictureToVideoMessage(jobId, userId, keys, audioKey);
+        rabbitTemplate.convertAndSend(RabbitMqConstants.MERGE_PICTURES_EXCHANGE,
+                RabbitMqConstants.MERGE_PICTURES_ROUTING_KEY, message);
+        return Result.success(jobId);
+    }
+
+    @Override
+    public Result<MergePictureJobStatusVO> getMergePictureJobStatus(String jobId) {
+        if (!StringUtils.hasText(jobId)) {
+            return Result.fail("任务不存在");
+        }
+        Long userId = getUserId();
+        String json = redisTemplate.opsForValue().get(RedisConstants.MERGE_PICTURE_JOB + jobId.trim());
+        if (!StringUtils.hasText(json)) {
+            return Result.fail("任务不存在或已过期");
+        }
+        try {
+            MergePictureJobRedisPayload p = objectMapper.readValue(json, MergePictureJobRedisPayload.class);
+            if (p == null || p.getUserId() == null || !p.getUserId().equals(userId)) {
+                return Result.fail("无权查看该任务");
+            }
+            MergePictureJobStatusVO vo = MergePictureJobStatusVO.builder()
+                    .status(p.getStatus())
+                    .videoObjectKey(p.getVideoObjectKey())
+                    .errorMessage(p.getErrorMessage())
+                    .secondsPerImage(p.getSecondsPerImage())
+                    .durationSeconds(p.getDurationSeconds())
+                    .build();
+            return Result.success(vo);
+        } catch (JsonProcessingException e) {
+            log.warn("getMergePictureJobStatus 解析失败 jobId={}", jobId, e);
+            return Result.fail("任务状态异常");
+        }
+    }
+
+    /**
+     * 与 AliOssUtil目录规则一致：uploads/{biz}/{userId}/...
+     */
+    private boolean objectKeyBelongsToUser(Long userId, String objectKey) {
+        if (!StringUtils.hasText(objectKey)) {
+            return false;
+        }
+        String k = objectKey.startsWith("uploads/") ? objectKey.trim() : aliOssUtil.normalizeToObjectKey(objectKey);
+        if (!k.startsWith("uploads/")) {
+            return false;
+        }
+        String[] parts = k.split("/");
+        if (parts.length < 3) {
+            return false;
+        }
+        return parts[2].equals(String.valueOf(userId));
     }
 
     private static Long getUserId() {

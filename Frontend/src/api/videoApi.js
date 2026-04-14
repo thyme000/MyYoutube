@@ -131,12 +131,9 @@ export function normalizeVideoListVo(item, index) {
   const nick = pickAuthorNickname(item);
   const likeRaw = item.likeCount ?? item.likes ?? item.likeNum;
   const commentRaw = item.commentCount ?? item.comments ?? item.commentNum;
-  const favoriteRaw =
-    item.favoriteCount ?? item.collectCount ?? item.starCount ?? item.favorites ?? item.collects;
   const shareRaw = item.shareCount ?? item.shares ?? item.shareNum;
   let likeCount;
   let commentCount;
-  let favoriteCount;
   let shareCount;
   if (likeRaw != null && likeRaw !== "") {
     const n = Number(likeRaw);
@@ -149,12 +146,6 @@ export function normalizeVideoListVo(item, index) {
     commentCount = Number.isFinite(n) ? n : undefined;
   } else {
     commentCount = undefined;
-  }
-  if (favoriteRaw != null && favoriteRaw !== "") {
-    const n = Number(favoriteRaw);
-    favoriteCount = Number.isFinite(n) ? n : undefined;
-  } else {
-    favoriteCount = undefined;
   }
   if (shareRaw != null && shareRaw !== "") {
     const n = Number(shareRaw);
@@ -177,7 +168,6 @@ export function normalizeVideoListVo(item, index) {
     playCount,
     likeCount,
     commentCount,
-    favoriteCount,
     shareCount,
     videoUrl: item.videoUrl ?? "",
     coverUrl: cover,
@@ -378,6 +368,22 @@ export async function fetchOtherUserVideos(userId, query = {}) {
  */
 export async function publishVideo(body) {
   return httpRequest("/videos/publish", { method: "PUT", body });
+}
+
+/**
+ * POST /videos/picture/merge — 多图（+ 可选音频）OSS objectKey 合成幻灯片视频，返回 jobId。
+ * 轮询 getMergePictureJobStatus 至 status===DONE 后，将 videoObjectKey 作为 publishVideo 的 videoUrl，durationSeconds 填 duration。
+ */
+export async function mergePicturesToVideo(body) {
+  return httpRequest("/videos/picture/merge", { method: "POST", body });
+}
+
+/** GET /videos/picture/merge/status/{jobId} */
+export async function getMergePictureJobStatus(jobId) {
+  return httpRequest(
+    `/videos/picture/merge/status/${encodeURIComponent(jobId)}`,
+    { method: "GET" }
+  );
 }
 
 /** DELETE /videos/{videoId} 删除自己的视频 */

@@ -117,6 +117,18 @@ public class ChatConversationController {
     }
 
     /**
+     * 禁言或取消禁言会话成员
+     * @param conversationId 会话id
+     * @param banned 是否禁言
+     * @return
+     */
+    @Operation(summary = "禁言或取消禁言会话成员")
+    @PutMapping("/ban/{userId}/{conversationId}")
+    public Result<Void> banConversationMember(@PathVariable Long userId, @PathVariable String conversationId, @RequestParam Boolean banned) {
+        return chatConversationService.banConversationMember(userId, conversationId, banned);
+    }
+
+    /**
      * 发布/更新群公告（仅群主）；Body：{ "text": "..." }
      */
     @Operation(summary = "发布群公告")

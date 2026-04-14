@@ -106,5 +106,4 @@ public class VideoLikeController {
     public Result<Void> cancelLikeComment(@PathVariable Long commentId) {
         return videoLikeService.cancelLikeComment(commentId);
     }
-
 }

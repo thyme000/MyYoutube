@@ -9,6 +9,7 @@ import * as chatApi from "../../api/chatApi.js";
 import {
   toggleMuteRow,
   togglePinRow,
+  toggleConversationBanned,
   removeConversationLocal,
   refreshConversationList,
   upsertConversationRow,
@@ -37,6 +38,10 @@ const invitePickId = ref(/** @type {string|null} */ (null));
 const removeOpen = ref(false);
 const removePickIds = ref(/** @type {string[]} */ ([]));
 const removeSubmitting = ref(false);
+const removeBulkConfirmOpen = ref(false);
+
+const leaveConfirmOpen = ref(false);
+const leaveBusy = ref(false);
 
 const findRecordOpen = ref(false);
 
@@ -46,6 +51,7 @@ const renameDraft = ref("");
 const renameInputRef = ref(null);
 const avatarBusy = ref(false);
 const avatarInputRef = ref(null);
+const banBusy = ref(false);
 
 const annLoading = ref(false);
 const annText = ref("");
@@ -60,6 +66,10 @@ const isGroup = computed(
 );
 
 const isSingle = computed(() => !isGroup.value);
+
+const conversationBanned = computed(
+  () => Boolean(props.row?.conversationBanned ?? props.row?.conversatinoBanned)
+);
 
 const selfStr = computed(() =>
   props.selfUserId != null ? String(props.selfUserId) : ""
@@ -92,8 +102,26 @@ async function loadMembers() {
   membersLoading.value = true;
   membersError.value = "";
   try {
-    const list = await chatApi.getGroupMembers(id);
-    members.value = Array.isArray(list) ? list : [];
+    const data = await chatApi.getGroupMembers(id);
+    const list = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.members)
+        ? data.members
+        : Array.isArray(data?.list)
+          ? data.list
+          : [];
+    members.value = list;
+    const convBan = data?.conversationBanned ?? data?.conversatinoBanned;
+    if (convBan != null) {
+      const nextBan = Boolean(convBan);
+      const curBan = Boolean(props.row?.conversationBanned ?? props.row?.conversatinoBanned);
+      if (nextBan !== curBan) {
+        upsertConversationRow({
+          conversationId: id,
+          conversationBanned: nextBan,
+        });
+      }
+    }
   } catch (e) {
     members.value = [];
     membersError.value = e?.message || "加载成员失败";
@@ -179,6 +207,100 @@ async function onPinToggle() {
   }
 }
 
+async function onBanToggle() {
+  if (!isGroup.value || !isGroupOwner.value) return;
+  const id = String(props.row?.conversationId || "");
+  if (!id || banBusy.value) return;
+  const next = !conversationBanned.value;
+  banBusy.value = true;
+  try {
+    await toggleConversationBanned(props.row, next);
+    toast(next ? "已开启全员禁言" : "已解除全员禁言", "info");
+  } catch (e) {
+    toast(e?.message || "操作失败", "error");
+  } finally {
+    banBusy.value = false;
+  }
+}
+
+const memberMenuOpen = ref(false);
+const memberMenuX = ref(0);
+const memberMenuY = ref(0);
+const memberMenuUserId = ref(/** @type {string|null} */ (null));
+const memberMenuBusy = ref(false);
+
+function closeMemberMenu() {
+  memberMenuOpen.value = false;
+  memberMenuUserId.value = null;
+  memberMenuBusy.value = false;
+}
+
+function canShowMemberBan(m) {
+  if (!isGroupOwner.value) return false;
+  if (conversationBanned.value) return false;
+  const uid = m?.userId != null ? String(m.userId) : "";
+  if (!uid) return false;
+  if (selfStr.value && uid === selfStr.value) return false;
+  return !Boolean(m?.banned);
+}
+
+function onMemberContextMenu(m, ev) {
+  ev?.preventDefault?.();
+  if (!canShowMemberBan(m)) {
+    closeMemberMenu();
+    return;
+  }
+  memberMenuUserId.value = String(m.userId);
+  memberMenuX.value = Math.max(8, Math.min((ev?.clientX ?? 0) + 2, window.innerWidth - 160));
+  memberMenuY.value = Math.max(8, Math.min((ev?.clientY ?? 0) + 2, window.innerHeight - 80));
+  memberMenuOpen.value = true;
+}
+
+function onGlobalPointerDownForMemberMenu(ev) {
+  if (!memberMenuOpen.value) return;
+  const t = ev?.target;
+  if (t instanceof Element && t.closest(".chat-member-menu")) return;
+  closeMemberMenu();
+}
+
+function onGlobalKeyDownForMemberMenu(ev) {
+  if (ev?.key === "Escape") closeMemberMenu();
+}
+
+watch(
+  () => memberMenuOpen.value,
+  (on) => {
+    if (on) {
+      document.addEventListener("mousedown", onGlobalPointerDownForMemberMenu, true);
+      window.addEventListener("keydown", onGlobalKeyDownForMemberMenu);
+      window.addEventListener("scroll", closeMemberMenu, true);
+    } else {
+      document.removeEventListener("mousedown", onGlobalPointerDownForMemberMenu, true);
+      window.removeEventListener("keydown", onGlobalKeyDownForMemberMenu);
+      window.removeEventListener("scroll", closeMemberMenu, true);
+    }
+  }
+);
+
+async function onMemberBanClick() {
+  if (!memberMenuOpen.value || !memberMenuUserId.value) return;
+  const cid = String(props.row?.conversationId || "");
+  if (!cid || memberMenuBusy.value) return;
+  memberMenuBusy.value = true;
+  try {
+    await chatApi.banGroupMember(cid, memberMenuUserId.value, true);
+    const uid = memberMenuUserId.value;
+    members.value = (members.value || []).map((m) =>
+      String(m?.userId) === String(uid) ? { ...m, banned: true } : m
+    );
+    toast("已禁言该成员", "info");
+    closeMemberMenu();
+  } catch (e) {
+    toast(e?.message || "操作失败", "error");
+    memberMenuBusy.value = false;
+  }
+}
+
 function onSearchChatClick() {
   findRecordOpen.value = true;
 }
@@ -189,10 +311,6 @@ function onFindRecordPick({ seq }) {
   if (Number.isFinite(s) && s > 0) {
     emit("jump-to-seq", { seq: s });
   }
-}
-
-function onClearHistoryClick() {
-  toast("仅清空聊天记录暂未开放，可使用下方「删除/退出」移除会话", "info");
 }
 
 async function openInvite() {
@@ -250,14 +368,29 @@ function isRemovePicked(uid) {
   return removePickIds.value.includes(String(uid));
 }
 
-async function confirmRemoveMembers() {
+function openRemoveBulkConfirm() {
+  const cid = String(props.row?.conversationId || "");
+  const ids = removePickIds.value;
+  if (!cid || !ids.length) {
+    toast("请选择要移除的成员", "info");
+    return;
+  }
+  removeBulkConfirmOpen.value = true;
+}
+
+function closeRemoveBulkConfirm() {
+  if (removeSubmitting.value) return;
+  removeBulkConfirmOpen.value = false;
+}
+
+async function executeRemoveMembers() {
   const cid = String(props.row?.conversationId || "");
   const ids = [...removePickIds.value];
   if (!cid || !ids.length) {
     toast("请选择要移除的成员", "info");
     return;
   }
-  if (!window.confirm(`确定将已选的 ${ids.length} 位成员移出群聊？`)) return;
+  removeBulkConfirmOpen.value = false;
   removeSubmitting.value = true;
   const ok = [];
   const failMsgs = [];
@@ -466,24 +599,48 @@ async function confirmAnnPublish() {
   }
 }
 
-async function onLeaveOrDelete() {
+const leaveConfirmTitle = computed(() => {
+  if (isSingle.value) return "删除私聊会话";
+  if (isGroupOwner.value) return "解散群聊";
+  return "退出群聊";
+});
+
+const leaveConfirmMessage = computed(() => {
+  if (isSingle.value) {
+    return "确定删除该私聊会话？双方会话列表都会移除。";
+  }
+  if (isGroupOwner.value) {
+    return "确定解散该群？所有成员将移除此会话。";
+  }
+  return "确定退出该群？";
+});
+
+function openLeaveConfirm() {
   const id = String(props.row?.conversationId || "");
   if (!id) return;
-  const isG = isGroup.value;
-  const owner = isG && isGroupOwner.value;
+  leaveConfirmOpen.value = true;
+}
+
+function closeLeaveConfirm() {
+  if (leaveBusy.value) return;
+  leaveConfirmOpen.value = false;
+}
+
+async function submitLeaveConfirm() {
+  const id = String(props.row?.conversationId || "");
+  if (!id) return;
+  const owner = isGroup.value && isGroupOwner.value;
   const single = isSingle.value;
-  const msg = single
-    ? "确定删除该私聊会话？双方会话列表都会移除。"
-    : owner
-      ? "确定解散该群？所有成员将移除此会话。"
-      : "确定退出该群？";
-  if (!window.confirm(msg)) return;
+  leaveBusy.value = true;
   try {
     await removeConversationLocal(props.row);
     toast(single ? "已删除会话" : owner ? "已解散群聊" : "已退出群聊", "success");
+    leaveConfirmOpen.value = false;
     emit("close");
   } catch (e) {
     toast(e?.message || "操作失败", "error");
+  } finally {
+    leaveBusy.value = false;
   }
 }
 </script>
@@ -502,7 +659,12 @@ async function onLeaveOrDelete() {
         <p v-if="membersLoading" class="chat-session-detail__hint">加载成员…</p>
         <p v-else-if="membersError" class="chat-session-detail__err">{{ membersError }}</p>
         <div v-else class="chat-session-detail__members">
-          <div v-for="m in members" :key="String(m.userId)" class="chat-session-detail__member">
+          <div
+            v-for="m in members"
+            :key="String(m.userId)"
+            class="chat-session-detail__member"
+            @contextmenu="onMemberContextMenu(m, $event)"
+          >
             <img
               class="chat-session-detail__member-av"
               :src="sanitizeImageUrl(m.avatar) || DEFAULT_PROFILE_AVATAR_URL"
@@ -512,6 +674,9 @@ async function onLeaveOrDelete() {
             <span class="chat-session-detail__member-name" :title="String(m.userName || '')">{{
               displayNick(m)
             }}</span>
+            <span v-if="m.banned" class="chat-session-detail__owner-tag chat-session-detail__owner-tag--muted"
+              >禁言</span
+            >
             <span v-if="m.isGroupOwner" class="chat-session-detail__owner-tag">群主</span>
           </div>
           <div v-if="isGroup" class="chat-session-detail__member-actions">
@@ -604,6 +769,10 @@ async function onLeaveOrDelete() {
       </button>
 
       <section class="chat-session-detail__card chat-session-detail__toggles">
+        <label v-if="isGroup && isGroupOwner" class="chat-session-detail__toggle">
+          <span>全员禁言</span>
+          <input type="checkbox" :checked="conversationBanned" :disabled="banBusy" @change="onBanToggle" />
+        </label>
         <label class="chat-session-detail__toggle">
           <span>消息免打扰</span>
           <input type="checkbox" :checked="!!row.mute" @change="onMuteToggle" />
@@ -615,12 +784,29 @@ async function onLeaveOrDelete() {
       </section>
 
       <section class="chat-session-detail__danger">
-        <button type="button" class="chat-session-detail__danger-btn" @click="onClearHistoryClick">清空聊天记录</button>
-        <button type="button" class="chat-session-detail__danger-btn" @click="onLeaveOrDelete">
+        <button type="button" class="chat-session-detail__danger-btn" @click="openLeaveConfirm">
           {{ isSingle ? "删除会话" : isGroupOwner ? "解散群聊" : "退出群聊" }}
         </button>
       </section>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="memberMenuOpen"
+        class="chat-member-menu"
+        role="menu"
+        :style="{ left: `${memberMenuX}px`, top: `${memberMenuY}px` }"
+      >
+        <button
+          type="button"
+          class="chat-member-menu__btn"
+          :disabled="memberMenuBusy || conversationBanned"
+          @click="onMemberBanClick"
+        >
+          {{ memberMenuBusy ? "禁言中…" : "禁言" }}
+        </button>
+      </div>
+    </Teleport>
 
     <Teleport to="body">
       <div
@@ -710,9 +896,65 @@ async function onLeaveOrDelete() {
               type="button"
               class="chat-session-invite__btn chat-session-invite__btn--danger"
               :disabled="removeSubmitting || !removePickIds.length"
-              @click="confirmRemoveMembers"
+              @click="openRemoveBulkConfirm"
             >
               {{ removeSubmitting ? "移除中…" : "移除" }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="removeBulkConfirmOpen"
+        class="modal-overlay modal-overlay--light chat-session-invite-overlay"
+        role="presentation"
+        @click.self="closeRemoveBulkConfirm"
+      >
+        <div class="modal-card chat-session-invite" role="dialog" aria-modal="true" @click.stop>
+          <h3 class="chat-session-invite__title">移出成员</h3>
+          <p class="chat-session-invite__hint">
+            确定将已选的 {{ removePickIds.length }} 位成员移出群聊？移出后对方会话列表中将不再显示本群。
+          </p>
+          <div class="chat-session-invite__actions">
+            <button type="button" class="chat-session-invite__btn chat-session-invite__btn--ghost" @click="closeRemoveBulkConfirm">
+              取消
+            </button>
+            <button
+              type="button"
+              class="chat-session-invite__btn chat-session-invite__btn--danger"
+              :disabled="removeSubmitting"
+              @click="executeRemoveMembers"
+            >
+              {{ removeSubmitting ? "移除中…" : "确定移除" }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="leaveConfirmOpen"
+        class="modal-overlay modal-overlay--light chat-session-invite-overlay"
+        role="presentation"
+        @click.self="closeLeaveConfirm"
+      >
+        <div class="modal-card chat-session-invite" role="dialog" aria-modal="true" aria-labelledby="chat-leave-confirm-title" @click.stop>
+          <h3 id="chat-leave-confirm-title" class="chat-session-invite__title">{{ leaveConfirmTitle }}</h3>
+          <p class="chat-session-invite__hint">{{ leaveConfirmMessage }}</p>
+          <div class="chat-session-invite__actions">
+            <button type="button" class="chat-session-invite__btn chat-session-invite__btn--ghost" :disabled="leaveBusy" @click="closeLeaveConfirm">
+              取消
+            </button>
+            <button
+              type="button"
+              class="chat-session-invite__btn chat-session-invite__btn--danger"
+              :disabled="leaveBusy"
+              @click="submitLeaveConfirm"
+            >
+              {{ leaveBusy ? "处理中…" : "确定" }}
             </button>
           </div>
         </div>

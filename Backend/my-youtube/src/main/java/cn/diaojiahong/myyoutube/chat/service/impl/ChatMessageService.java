@@ -24,12 +24,15 @@ import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
+import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
+import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.BeanUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -60,13 +63,15 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private final AliOssUtil aliOssUtil;
     private final StringRedisTemplate redisTemplate;
     private final IUserFollowService userFollowService;
+    private final IVideoService videoService;
     public ChatMessageService(MongoTemplate mongoTemplate,
                               ChatConversationService chatConversationService,
                               RabbitTemplate rabbitTemplate,
                               IUserService userService,
                               AliOssUtil aliOssUtil,
                               StringRedisTemplate redisTemplate,
-                              IUserFollowService userFollowService) {
+                              IUserFollowService userFollowService,
+                              IVideoService videoService) {
         super(mongoTemplate, ChatMessageDoc.class);
         this.chatConversationService = chatConversationService;
         this.rabbitTemplate = rabbitTemplate;
@@ -74,6 +79,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         this.aliOssUtil = aliOssUtil;
         this.redisTemplate = redisTemplate;
         this.userFollowService = userFollowService;
+        this.videoService = videoService;
     }
 
     public Optional<ChatMessageDoc> findByIdempotent(Long senderId, String clientMsgId) {
@@ -170,7 +176,20 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         ChatMessageDoc chatMessageDoc = BeanUtil.toBean(chatMessageDTO, ChatMessageDoc.class);
         chatMessageDoc.setCreatedAt(LocalDateTime.now());
         chatMessageDoc.setStatus(MessageStatusEnum.SENT);
-        chatMessageDoc.setContent(chatMessageDTO.getContent());
+        if (chatMessageDoc.getContentType().isForwardVideo()) {
+            Long forwardVideoId = chatMessageDoc.getContent().getForwardVideoId();
+            Video video = videoService.getById(forwardVideoId);
+            if (video == null) {
+                throw new BizException(BizException.MESSAGE_ERROR, "视频不存在");
+            }
+            ChatContent chatContent = new ChatContent();
+            chatContent.setForwardVideoCoverObjectKey(video.getCoverUrl());
+            chatContent.setForwardVideoId(forwardVideoId);
+            chatContent.setForwardVideoTitle(video.getTitle());
+            chatMessageDoc.setContent(chatContent);
+        } else {
+            chatMessageDoc.setContent(chatMessageDTO.getContent());
+        }
         chatMessageDoc.setSeq(nextSeq(conversationId));
         mongoTemplate.save(chatMessageDoc, "chat_messages");
         if (chatConversationDoc.getType().equals(ConversationTypeEnum.SINGLE)) {
@@ -199,6 +218,8 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             chatConversationDoc.setLastMessagePreview("[媒体文件]");
         } else if (chatMessageDoc.getContentType().isText()) {
             chatConversationDoc.setLastMessagePreview(chatMessageDoc.getContent().getText());
+        } else if (chatMessageDoc.getContentType().isForwardVideo()) {
+            chatConversationDoc.setLastMessagePreview("[转发视频]");
         }
         if (chatConversationDoc.getType().equals(ConversationTypeEnum.GROUP)) {
             chatConversationDoc.setLastMessageSenderNickname(userService.getById(userId).getNickname());
@@ -244,7 +265,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             throw new BizException(BizException.MESSAGE_ERROR, "客户端幂等id不能为空");
         }
         Optional<ChatMessageDoc> existed =
-                findByIdempotent(Long.valueOf(userId), chatMessageWithdrawDTO.getClientMsgId());
+                findByIdempotent(chatMessageWithdrawDTO.getSenderId(), chatMessageWithdrawDTO.getClientMsgId());
         if (existed.isEmpty()) {
             throw new BizException(BizException.MESSAGE_ERROR, "消息不存在");
         }
@@ -264,15 +285,25 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         Criteria c = Criteria.where("conversationId").is(chatMessageDoc.getConversationId()).and("id").is(chatMessageDoc.getId());
         Update up = new Update().set("recalled", true).set("recalledAt", recallTime).set("status", MessageStatusEnum.WITHDRAWN);
         Long operatorId = Long.valueOf(userId);
+        // 必须先判断「本人撤自己」：群主也是 createdBy，否则会被误判为 ADMIN
+        RecallTypeEnum recallTypeForMq;
         if (chatMessageDoc.getSenderId() != null && chatMessageDoc.getSenderId().equals(operatorId)) {
-            // 本人撤回自己的消息：2 分钟窗口
-            if (chatMessageDoc.getCreatedAt().isBefore(recallTime.minusMinutes(2))) {
+            // 本人撤回自己发送的消息；群聊群主撤回自己的消息不受 2 分钟限制
+            boolean groupOwnerRecallOwn =
+                    ConversationTypeEnum.GROUP.equals(chatConversationDoc.getType())
+                            && createdBy != null
+                            && createdBy.equals(operatorId);
+            if (!groupOwnerRecallOwn && chatMessageDoc.getCreatedAt().isBefore(recallTime.minusMinutes(2))) {
                 throw new BizException(BizException.MESSAGE_ERROR, "消息已发送超过2分钟,不能撤回");
             }
             up.set("recallType", RecallTypeEnum.SENDER);
+            recallTypeForMq = RecallTypeEnum.SENDER;
         } else if (createdBy != null && createdBy.equals(operatorId)) {
-            // 群主撤回他人消息：管理撤回
+            // 群主撤回他人消息
             up.set("recallType", RecallTypeEnum.ADMIN);
+            recallTypeForMq = RecallTypeEnum.ADMIN;
+        } else {
+            throw new BizException(BizException.MESSAGE_ERROR, "无法确定撤回类型");
         }
         mongoTemplate.updateFirst(Query.query(c), up, ChatMessageDoc.class);
         // 构建ack
@@ -284,6 +315,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         ChatMessageMessage ch = ChatMessageMessage.builder().senderId(chatMessageDoc.getSenderId())
                 .seq(chatMessageDoc.getSeq()).conversationId(chatMessageDoc.getConversationId())
                 .messageId(chatMessageDoc.getId()).contentType(chatMessageDoc.getContentType())
+                .recallType(recallTypeForMq)
                 .serviceTime(recallTime).event("withdraw").build();
         rabbitTemplate.convertAndSend(RabbitMqConstants.MESSAGE_EXCHANGE, RabbitMqConstants.MESSAGE_ROUTING_KEY, ch);
         return Result.success(chatMessageAckDTO);
@@ -307,6 +339,11 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             case SYSTEM -> {
                 if (c.getSystemText() == null || c.getSystemText().isBlank()) {
                     throw new BizException(BizException.MESSAGE_ERROR, "系统消息内容不能为空");
+                }
+            }
+            case FORWARD_VIDEO -> {
+                if (c.getForwardVideoId() == null) {
+                    throw new BizException(BizException.MESSAGE_ERROR, "转发视频id不能为空");
                 }
             }
             default -> {
@@ -341,16 +378,21 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             vo.setSenderAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(doc.getSenderId()), OSS_EXPIRE));
             vo.setContentType(doc.getContentType());
             if (vo.getContentType() == ContentTypeEnum.FILE || vo.getContentType() == ContentTypeEnum.IMAGE) {
-                doc.getContent().setObjectKey(aliOssUtil.signGetUrl(doc.getContent().getObjectKey(), OSS_EXPIRE));
-                vo.setContent(doc.getContent());
-            } else {
-                vo.setContent(doc.getContent());
+                if (doc.getContent().getObjectKey() != null && !doc.getContent().getObjectKey().isBlank()) {
+                    doc.getContent().setObjectKey(aliOssUtil.signGetUrl(doc.getContent().getObjectKey(), OSS_EXPIRE));
+                }
+            } else if (vo.getContentType() == ContentTypeEnum.FORWARD_VIDEO) {
+                if (doc.getContent().getForwardVideoCoverObjectKey() != null && !doc.getContent().getForwardVideoCoverObjectKey().isBlank()) {
+                    doc.getContent().setForwardVideoCoverObjectKey(aliOssUtil.signGetUrl(doc.getContent().getForwardVideoCoverObjectKey(), OSS_EXPIRE));
+                }
             }
+            vo.setContent(doc.getContent());
             vo.setMessageId(doc.getId());
             vo.setClientMsgId(doc.getClientMsgId());
             vo.setSeq(doc.getSeq());
             vo.setStatus(doc.getStatus());
             vo.setCreatedAt(doc.getCreatedAt());
+            vo.setRecallType(doc.getRecallType());
             return vo;
         }).toList();
     }
@@ -489,15 +531,40 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             if (content != null
                     && (doc.getContentType() == ContentTypeEnum.FILE || doc.getContentType() == ContentTypeEnum.IMAGE)
                     && content.getObjectKey() != null) {
-                ChatContent copy = new ChatContent();
-                BeanUtils.copyProperties(content, copy);
-                copy.setObjectKey(aliOssUtil.signGetUrl(content.getObjectKey(), OSS_EXPIRE));
-                vo.setContent(copy);
+                content.setObjectKey(aliOssUtil.signGetUrl(content.getObjectKey(), OSS_EXPIRE));
+                vo.setContent(content);
+            } else if (content != null && doc.getContentType() == ContentTypeEnum.FORWARD_VIDEO) {
+                if (content.getForwardVideoCoverObjectKey() != null && !content.getForwardVideoCoverObjectKey().isBlank()) {
+                    content.setForwardVideoCoverObjectKey(aliOssUtil.signGetUrl(content.getForwardVideoCoverObjectKey(), OSS_EXPIRE));
+                }
+                vo.setContent(content);
             } else {
                 vo.setContent(content);
             }
             list.add(vo);
         }
         return Result.success(PageResult.of(total, pages, list));
+    }
+
+    @Transactional
+    public Result<ChatMessageAckDTO> forwardVideo(@Valid ChatMessageDTO chatMessageDTO) {
+        // 用户转发视频,需要更新视频的分享数
+        ChatContent content = chatMessageDTO.getContent();
+        Long forwardVideoId = content.getForwardVideoId();
+        if (forwardVideoId == null) {
+            return Result.fail("转发视频id不能为空");
+        }
+        Result<ChatMessageAckDTO> result = send(chatMessageDTO);
+        boolean success = videoService.lambdaUpdate().eq(Video::getId, forwardVideoId)
+                .eq(Video::getIsDelete, false)
+                .eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC)
+                .eq(Video::getStatus, VideoStatusEnum.PUBLISHED)
+                .setIncrBy(Video::getShareCount, 1)
+                .update();
+        if (!success) {
+            log.error("更新视频分享数失败,视频id:{}", forwardVideoId);
+            return Result.fail("转发视频失败!");
+        }
+        return result;
     }
 }

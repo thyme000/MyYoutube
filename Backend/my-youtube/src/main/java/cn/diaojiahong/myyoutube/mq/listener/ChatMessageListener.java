@@ -68,10 +68,10 @@ public class ChatMessageListener {
         Update up = new Update().set("lastPullAt", LocalDateTime.now());
         if (conversation.getType().equals(ConversationTypeEnum.GROUP)) {
             // 发送消息事件
-            up.inc("unreadCount");
             // 群聊 -> 通知除发送人之外的所有成员(不包括开启免打扰的用户)
             memberIds.remove(chatMessageMessage.getSenderId());
             if (chatMessageMessage.getEvent().equals(ChatEventType.SEND.getCode())) {
+                up.inc("unreadCount");
                 // 通知所有成员
                 NotificationForSendMessageVO json = getNotificationForSendVO(chatMessageMessage, user, conversation);
                 json.setAvatarUrl(aliOssUtil.signGetUrl(conversation.getAvatar(), 300));
@@ -157,6 +157,7 @@ public class ChatMessageListener {
         json.setSenderNickname(user.getNickname());
         json.setConversationId(conversation.getId());
         json.setSenderId(chatMessageMessage.getSenderId().toString());
+        json.setRecallType(chatMessageMessage.getRecallType());
         return json;
     }
 

@@ -61,7 +61,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     private final IUserFollowService userFollowService;
 
     // 24小时后过期
-    private static final int OSS_EXPIRE = 24;
+    private static final int OSS_EXPIRE = 24 * 60 * 60;
 
     @Override
     @Transactional

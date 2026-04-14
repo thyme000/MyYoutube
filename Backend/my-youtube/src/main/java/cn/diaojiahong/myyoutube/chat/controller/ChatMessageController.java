@@ -4,7 +4,6 @@ import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageWithdrawDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.MessageListPageQuery;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ack.ChatMessageAckDTO;
-import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.FindRecordVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePageVO;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatMessageService;
@@ -95,6 +94,17 @@ public class ChatMessageController {
     public Result<PageResult<FindRecordVO>> findRecord(@PathVariable String conversationId,  @RequestParam String keyword,
                                                        @RequestParam Integer pageNum, @RequestParam Integer pageSize) {
         return chatMessageService.findRecord(conversationId, keyword, pageNum, pageSize);
+    }
+
+    /**
+     * 用户转发视频
+     * @param chatMessageDTO
+     * @return
+     */
+    @Operation(summary = "用户转发视频")
+    @PutMapping("/forward/video")
+    public Result<ChatMessageAckDTO> forwardVideo(@Valid @RequestBody ChatMessageDTO chatMessageDTO) {
+        return chatMessageService.forwardVideo(chatMessageDTO);
     }
 }
 

@@ -28,6 +28,7 @@ public class OtherService implements IOtherService {
     private final AliOssProperties aliOssProperties;
     private static final String WORKDIR = "work";
     private static final String CHATDIR = "chat";
+    private static final String PICTUREDIR = "picture";
 
     @Override
     public OssStsVO issueUploadSts(String bizType) {
@@ -39,6 +40,8 @@ public class OtherService implements IOtherService {
             dir = "uploads/video/" + userId + "/";
         } else if (CHATDIR.equals(bizType)) {
             dir = "uploads/chat/" + userId + "/";
+        } else if (PICTUREDIR.equals(bizType)) {
+            dir = "uploads/picture/" + userId + "/";
         }
         String roleSessionName = "u-" + userId;
 

@@ -80,9 +80,21 @@ function sortConversationRows(rows) {
   });
 }
 
+let initChatInFlight = null;
+let lastInitChatAtMs = 0;
+let refreshConvInFlight = null;
+let refreshConvPendingReset = false;
+
 export async function initChatWhenAuthed() {
   if (!selfCtx?.userId) return;
-  await Promise.all([refreshConversationList(true), refreshTotalUnread()]);
+  const now = Date.now();
+  if (initChatInFlight) return initChatInFlight;
+  if (now - lastInitChatAtMs < 800) return;
+  lastInitChatAtMs = now;
+  initChatInFlight = Promise.all([refreshConversationList(true), refreshTotalUnread()]).finally(() => {
+    initChatInFlight = null;
+  });
+  return initChatInFlight;
 }
 
 export function resetChatWhenLogout() {
@@ -108,27 +120,50 @@ export async function refreshTotalUnread() {
 
 export async function refreshConversationList(reset = false) {
   if (!selfCtx?.userId) return;
+  if (refreshConvInFlight) {
+    if (reset) refreshConvPendingReset = true;
+    return refreshConvInFlight;
+  }
+  if (reset) refreshConvPendingReset = false;
   if (reset) {
     chatConversationsPage.value = 1;
   }
-  chatConversationsLoading.value = true;
-  chatConversationsError.value = "";
-  try {
-    const page = chatConversationsPage.value;
-    const data = await chatApi.listUserConversations(page, 30);
-    const list = data?.list ?? [];
-    const pages = Number(data?.pages) || 1;
-    chatConversationsPages.value = pages;
-    if (reset || page <= 1) {
-      chatConversations.value = sortConversationRows(list);
-    } else {
-      chatConversations.value = sortConversationRows([...chatConversations.value, ...list]);
+  refreshConvInFlight = (async () => {
+    chatConversationsLoading.value = true;
+    chatConversationsError.value = "";
+    try {
+      const page = chatConversationsPage.value;
+      const data = await chatApi.listUserConversations(page, 30);
+      const rawList = data?.list ?? [];
+      const list = (rawList || []).map((r) => {
+        if (!r || typeof r !== "object") return r;
+        const convBan = r.conversationBanned ?? r.conversatinoBanned;
+        if (convBan == null) return r;
+        return { ...r, conversationBanned: Boolean(convBan) };
+      });
+      const pages = Number(data?.pages) || 1;
+      chatConversationsPages.value = pages;
+      if (reset || page <= 1) {
+        chatConversations.value = sortConversationRows(list);
+      } else {
+        chatConversations.value = sortConversationRows([...chatConversations.value, ...list]);
+      }
+      await refreshTotalUnread();
+    } catch (e) {
+      chatConversationsError.value = e?.message || "加载会话失败";
+    } finally {
+      chatConversationsLoading.value = false;
     }
-    await refreshTotalUnread();
-  } catch (e) {
-    chatConversationsError.value = e?.message || "加载会话失败";
+  })();
+
+  try {
+    await refreshConvInFlight;
   } finally {
-    chatConversationsLoading.value = false;
+    refreshConvInFlight = null;
+    if (refreshConvPendingReset) {
+      refreshConvPendingReset = false;
+      await refreshConversationList(true);
+    }
   }
 }
 
@@ -173,6 +208,7 @@ function previewFromSendWs(o) {
   if (ct === "IMAGE") return "[图片]";
   if (ct === "FILE") return "[文件]";
   if (ct === "SYSTEM") return "[系统消息]";
+  if (ct === "FORWARD_VIDEO") return "[转发视频]";
   return "[消息]";
 }
 
@@ -185,7 +221,7 @@ function normalizeWsConversationId(v) {
 
 /**
  * @param {Record<string, unknown>} o
- * @returns {{ kind: 'send'|'withdraw'|'read'|'announcement', payload: any }|null}
+ * @returns {{ kind: 'send'|'withdraw'|'read'|'announcement'|'ban', payload: any }|null}
  */
 export function classifyChatWebSocketPayload(o) {
   if (!o || typeof o !== "object") return null;
@@ -200,6 +236,11 @@ export function classifyChatWebSocketPayload(o) {
   if (!conv) return null;
 
   const payload = { ...o, conversationId: conv };
+
+  // 会话禁言更新：{ conversationId, banned, type: 'conversation' | 'member' }
+  if ("banned" in o && o.banned != null && !("messageId" in o) && !("lastReadSequence" in o)) {
+    return { kind: "ban", payload };
+  }
 
   if (String(o.type || "") === "ANNOUNCEMENT_UPDATED") {
     return { kind: "announcement", payload };
@@ -219,12 +260,28 @@ export function classifyChatWebSocketPayload(o) {
 }
 
 /**
- * @returns {false | 'read' | 'withdraw' | 'send' | 'announcement'} 非 false 表示已消费，站点通知逻辑应跳过
+ * @returns {false | 'read' | 'withdraw' | 'send' | 'announcement' | 'ban'} 非 false 表示已消费，站点通知逻辑应跳过
  */
 export function tryIngestChatWebSocket(o) {
   const hit = classifyChatWebSocketPayload(o);
   if (!hit) return false;
   const selfId = selfCtx?.userId != null ? String(selfCtx.userId) : "";
+  if (hit.kind === "ban") {
+    const conv = String(hit.payload.conversationId || "");
+    const banned = Boolean(hit.payload.banned);
+    const t = String(hit.payload.type || "").toLowerCase();
+    if (conv && (t === "conversation" || t === "member")) {
+      if (t === "conversation") {
+        upsertConversationRow({ conversationId: conv, conversationBanned: banned });
+      } else {
+        // 后端按「被禁言的 userId」推送给目标用户，因此本地会话行 banned 可直接更新
+        upsertConversationRow({ conversationId: conv, banned });
+      }
+    } else {
+      void refreshConversationList(true);
+    }
+    return "ban";
+  }
   if (hit.kind === "announcement") {
     const conv = String(hit.payload.conversationId || "");
     const ver = Number(hit.payload.version);
@@ -250,9 +307,23 @@ export function tryIngestChatWebSocket(o) {
     const mid = String(hit.payload.messageId || "");
     if (conv && mid) {
       const st = getThread(conv);
+      const rtRaw = hit.payload.recallType;
+      let recallTypeNorm = "";
+      if (rtRaw != null && rtRaw !== "") {
+        if (typeof rtRaw === "string") recallTypeNorm = String(rtRaw).toUpperCase();
+        else if (typeof rtRaw === "object") {
+          const n = rtRaw?.name ?? rtRaw?.code;
+          if (n != null) recallTypeNorm = String(n).toUpperCase();
+        } else recallTypeNorm = String(rtRaw).toUpperCase();
+      }
       st.items = (st.items || []).map((m) =>
         String(m.messageId) === mid
-          ? { ...m, status: "WITHDRAWN", content: { ...(m.content || {}), text: "已撤回" } }
+          ? {
+              ...m,
+              status: "WITHDRAWN",
+              content: { ...(m.content || {}), text: "已撤回" },
+              ...(recallTypeNorm ? { recallType: recallTypeNorm } : {}),
+            }
           : m
       );
       upsertConversationRow({
@@ -452,15 +523,20 @@ export async function pullNewerForConversation(conversationId) {
 }
 
 let chatSignedUrlRefreshTimer = null;
+let lastChatSignedUrlRefreshAtMs = 0;
+const CHAT_SIGNED_URL_REFRESH_COOLDOWN_MS = 30000;
 
 /**
  * 预签名 OSS 过期后图片/头像会加载失败；节流刷新会话列表，并对当前会话拉最新一页合并 objectKey/头像（不整表替换，避免丢掉已加载更早历史）。
  * @param {string|null|undefined} conversationId 当前聊天会话 id；仅刷新侧栏时可不传
  */
 export function scheduleAfterChatMediaLoadError(conversationId) {
+  const now = Date.now();
+  if (now - lastChatSignedUrlRefreshAtMs < CHAT_SIGNED_URL_REFRESH_COOLDOWN_MS) return;
   if (chatSignedUrlRefreshTimer != null) return;
   chatSignedUrlRefreshTimer = window.setTimeout(async () => {
     chatSignedUrlRefreshTimer = null;
+    lastChatSignedUrlRefreshAtMs = Date.now();
     try {
       await refreshConversationList(true);
     } catch {
@@ -594,6 +670,7 @@ function previewForListRowFromMessage(m) {
   const ct = String(m?.contentType || "").toUpperCase();
   if (ct === "TEXT") return String(m?.content?.text || "").slice(0, 80);
   if (ct === "IMAGE") return "[图片]";
+  if (ct === "FORWARD_VIDEO") return "[转发视频]";
   const mimeLower = String(m?.content?.mimeType || "").toLowerCase();
   const fnLower = String(m?.content?.fileName || "").toLowerCase();
   const isVideoFile =
@@ -783,9 +860,12 @@ export async function withdrawMyMessage(conversationId, clientMsgId, messageSend
     clientMsgId: String(clientMsgId),
   });
   const st = getThread(id);
+  const selfStr = selfCtx?.userId != null ? String(selfCtx.userId) : "";
+  const senderStr = sid != null ? String(sid) : "";
+  const recallType = selfStr && senderStr && selfStr === senderStr ? "SENDER" : "ADMIN";
   st.items = st.items.map((m) =>
     m.clientMsgId === clientMsgId
-      ? { ...m, status: "WITHDRAWN", content: { ...(m.content || {}), text: "已撤回" } }
+      ? { ...m, status: "WITHDRAWN", content: { ...(m.content || {}), text: "已撤回" }, recallType }
       : m
   );
 }
@@ -794,6 +874,12 @@ export async function toggleMuteRow(row, mute) {
   const id = String(row.conversationId);
   await chatApi.setConversationMute(id, mute);
   upsertConversationRow({ conversationId: id, mute });
+}
+
+export async function toggleConversationBanned(row, banned) {
+  const id = String(row.conversationId);
+  await chatApi.banConversation(id, banned);
+  upsertConversationRow({ conversationId: id, conversationBanned: banned });
 }
 
 export async function togglePinRow(row, pin) {

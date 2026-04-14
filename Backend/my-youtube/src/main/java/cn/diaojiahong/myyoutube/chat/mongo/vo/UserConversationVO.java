@@ -33,6 +33,8 @@ public class UserConversationVO {
     private Integer unreadCount;
     // 是否被禁言
     private Boolean banned;
+    // 群是否开启全员禁言
+    private Boolean conversationBanned;
     //群聊创建人
     private Long createdBy;
     // 最新的群公告版本

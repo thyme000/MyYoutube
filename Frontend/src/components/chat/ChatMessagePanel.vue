@@ -10,6 +10,8 @@ import {
   ensureMessageSeqLoaded,
 } from "../../stores/chatStore.js";
 import { toast } from "../../utils/toast.js";
+import ChatEmojiPicker from "./ChatEmojiPicker.vue";
+import { annotateChatMessagesWithTime } from "../../utils/chatTime.js";
 
 /** 聊天附件单文件上限（1 GiB，与常见「1G」表述一致） */
 const CHAT_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024;
@@ -20,6 +22,10 @@ const props = defineProps({
   /** 会话头像（侧栏与消息头展示，OSS 签名 URL） */
   conversationAvatar: { type: String, default: "" },
   conversationType: { type: String, default: "" },
+  /** 群聊：是否开启全员禁言（由群主在会话信息面板切换） */
+  conversationBanned: { type: Boolean, default: false },
+  /** 群聊：当前用户是否被单独禁言（来自会话行 banned 字段） */
+  selfBanned: { type: Boolean, default: false },
   items: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   loadingHistory: { type: Boolean, default: false },
@@ -37,7 +43,7 @@ const props = defineProps({
   announcementUnread: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["send", "load-history", "withdraw", "open-info"]);
+const emit = defineEmits(["send", "load-history", "withdraw", "open-info", "open-video"]);
 
 function headAvatarSrc() {
   const u = sanitizeImageUrl(props.conversationAvatar);
@@ -58,6 +64,7 @@ function onOpenInfo() {
 }
 
 const inputText = ref("");
+const inputTextRef = ref(null);
 const listRef = ref(null);
 const sending = ref(false);
 const fileInputRef = ref(null);
@@ -248,9 +255,25 @@ function isWithdrawn(m) {
   return st === "WITHDRAWN" || st === "WITHDRAW";
 }
 
-/** 居中系统提示：“昵称” 撤回了一条消息 */
+/** 后端 RecallTypeEnum：JSON 可能为 "ADMIN" / { name: "ADMIN" } */
+function normalizeRecallType(v) {
+  if (v == null || v === "") return "";
+  if (typeof v === "string") return String(v).toUpperCase();
+  if (typeof v === "object") {
+    const n = v?.name ?? v?.code;
+    if (n != null) return String(n).toUpperCase();
+  }
+  return String(v).toUpperCase();
+}
+
+/** 居中系统提示：本人撤回 vs 群主撤回成员消息 */
 function withdrawNoticeText(m) {
+  const rt = normalizeRecallType(m?.recallType);
   const nick = (isSelf(m) ? "我" : String(m?.senderNickName || "").trim() || "对方").trim();
+  // 群主撤自己的消息应为 SENDER；若历史数据误为 ADMIN 且展示为「我」，仍按本人撤回展示
+  if (rt === "ADMIN" && !isSelf(m)) {
+    return `群主撤回了「${nick}」的一条消息`;
+  }
   return `\u201c${nick}\u201d 撤回了一条消息`;
 }
 
@@ -261,11 +284,19 @@ function bubbleText(m) {
   const ct = String(m.contentType || "").toUpperCase();
   if (ct === "TEXT") return c.text || "";
   if (ct === "SYSTEM") return c.systemText || c.text || "[系统]";
+  if (ct === "FORWARD_VIDEO") return "[转发视频]";
   if (ct === "IMAGE") return "";
   if (messageMediaKind(m) === "video") return "";
   if (isChatGenericFile(m)) return "";
   if (ct === "FILE") return c.fileName || c.objectKey || "[文件]";
   return c.text || "[消息]";
+}
+
+function onForwardVideoClick(m) {
+  const c = m?.content || {};
+  const vid = c.forwardVideoId ?? c.forwardVideoID ?? c.videoId;
+  if (vid == null || vid === "") return;
+  emit("open-video", { videoId: String(vid) });
 }
 
 function avatarOf(m) {
@@ -404,11 +435,26 @@ watch(
   }
 );
 
-const canSend = computed(() => inputText.value.trim().length > 0 && !sending.value);
-
 const isSingleChat = computed(() => String(props.conversationType || "").toUpperCase() === "SINGLE");
 
 const isGroupChat = computed(() => String(props.conversationType || "").toUpperCase() === "GROUP");
+
+const sendDisabledByBan = computed(
+  () =>
+    isGroupChat.value &&
+    (props.selfBanned || (props.conversationBanned && !props.isGroupOwner))
+);
+
+const canSend = computed(
+  () => inputText.value.trim().length > 0 && !sending.value && !sendDisabledByBan.value
+);
+
+const banPlaceholder = computed(() => {
+  if (!isGroupChat.value) return "";
+  if (props.selfBanned) return "你已被群主禁言";
+  if (props.conversationBanned && !props.isGroupOwner) return "本群已开启全员禁言";
+  return "";
+});
 
 /** 私聊下对方已读游标内，己方消息里最大的 seq（仅一条展示「已读」） */
 const latestReadSelfSeq = computed(() => {
@@ -425,6 +471,8 @@ const latestReadSelfSeq = computed(() => {
   }
   return max;
 });
+
+const timeAnnotatedItems = computed(() => annotateChatMessagesWithTime(props.items, Date.now()));
 
 function showReadForMessage(m) {
   if (!isSingleChat.value || !isSelf(m)) return false;
@@ -498,7 +546,11 @@ onUnmounted(() => {
 });
 
 async function onSend() {
-  if (!canSend.value || !props.conversationId) return;
+  if (!props.conversationId) return;
+  if (sendDisabledByBan.value) {
+    return;
+  }
+  if (!canSend.value) return;
   const t = inputText.value.trim();
   sending.value = true;
   try {
@@ -540,8 +592,30 @@ function triggerFilePick() {
     toast("请先选择会话", "info");
     return;
   }
+  if (sendDisabledByBan.value) {
+    return;
+  }
   if (fileUploading.value) return;
   fileInputRef.value?.click();
+}
+
+function onEmojiPick(glyph) {
+  const g = String(glyph || "");
+  if (!g) return;
+  const el = inputTextRef.value;
+  if (el instanceof HTMLTextAreaElement) {
+    const start = typeof el.selectionStart === "number" ? el.selectionStart : inputText.value.length;
+    const end = typeof el.selectionEnd === "number" ? el.selectionEnd : start;
+    const v = inputText.value;
+    inputText.value = `${v.slice(0, start)}${g}${v.slice(end)}`;
+    nextTick(() => {
+      const pos = start + g.length;
+      el.selectionStart = el.selectionEnd = pos;
+      el.focus();
+    });
+  } else {
+    inputText.value += g;
+  }
 }
 
 async function onChatFileChange(ev) {
@@ -587,7 +661,20 @@ async function onChatFileChange(ev) {
       >
         <img :src="headAvatarSrc()" alt="" @error="onHeadAvatarError" />
       </button>
-      <h2 class="chat-msg-panel__title">{{ conversationName || "聊天" }}</h2>
+      <div class="chat-msg-panel__title-wrap">
+        <h2 class="chat-msg-panel__title">{{ conversationName || "聊天" }}</h2>
+        <Transition name="chat-ban-fade">
+          <span
+            v-if="isGroupChat && conversationBanned"
+            class="chat-msg-panel__ban-badge"
+            aria-label="全员禁言中"
+            title="全员禁言中"
+          >
+            <i class="ri-volume-mute-line" aria-hidden="true"></i>
+            禁言中
+          </span>
+        </Transition>
+      </div>
     </header>
     <button
       v-if="isGroupChat && announcementUnread"
@@ -602,7 +689,10 @@ async function onChatFileChange(ev) {
     <p v-if="error" class="chat-msg-panel__err">{{ error }}</p>
     <div ref="listRef" class="chat-msg-panel__list" @scroll.passive="onScroll">
       <div v-if="loadingHistory" class="chat-msg-panel__hist">加载更早消息…</div>
-      <template v-for="m in items" :key="m.clientMsgId || m.messageId">
+      <template v-for="m in timeAnnotatedItems" :key="m.clientMsgId || m.messageId">
+        <div v-if="m._showTime && m._timeText" class="chat-msg-time" role="note">
+          {{ m._timeText }}
+        </div>
         <div
           v-if="isWithdrawn(m)"
           class="chat-msg-recall"
@@ -621,7 +711,6 @@ async function onChatFileChange(ev) {
             <div class="chat-msg-meta">
               <span class="chat-msg-meta__nick">{{ isSelf(m) ? "我" : m.senderNickName || "对方" }}</span>
               <span v-if="isSending(m)" class="chat-msg-meta__st">发送中…</span>
-              <span v-else-if="isSendFailed(m)" class="chat-msg-meta__st chat-msg-meta__st--fail">发送失败</span>
             </div>
             <img class="chat-msg-row__av" :src="avatarOf(m)" alt="" @error="onMsgRowAvatarError" />
           </div>
@@ -629,17 +718,6 @@ async function onChatFileChange(ev) {
             <div class="chat-msg-main" :class="{ 'chat-msg-main--self': isSelf(m) }">
               <div class="chat-msg-bubble-wrap">
                 <div class="chat-msg-bubble-line" :class="{ 'chat-msg-bubble-line--self': isSelf(m) }">
-                  <button
-                    v-if="isSelf(m) && isSendFailed(m)"
-                    type="button"
-                    class="chat-msg-fail-retry"
-                    :disabled="!!retrySendBusy[String(m.clientMsgId || '')]"
-                    :title="m._sendError ? `点击重发（${m._sendError}）` : '点击重发'"
-                    :aria-label="m._sendError ? `发送失败，${m._sendError}，点击重发` : '发送失败，点击重发'"
-                    @click="onRetrySend(m)"
-                  >
-                    <i class="ri-error-warning-fill" aria-hidden="true"></i>
-                  </button>
                   <div
                     class="chat-msg-bubble-stack"
                     :class="{ 'chat-msg-bubble-stack--self': isSelf(m) }"
@@ -682,6 +760,34 @@ async function onChatFileChange(ev) {
                       @error="onBubbleImageError"
                     />
                   </div>
+                  <button
+                    v-else-if="String(m.contentType || '').toUpperCase() === 'FORWARD_VIDEO'"
+                    type="button"
+                    class="chat-msg-fwd-card"
+                    :class="{ 'chat-msg-fwd-card--self': isSelf(m), 'chat-msg-fwd-card--no-cover': !m.content?.forwardVideoCoverObjectKey }"
+                    @click="onForwardVideoClick(m)"
+                  >
+                    <div class="chat-msg-fwd-card__media">
+                      <img
+                        v-if="m.content?.forwardVideoCoverObjectKey"
+                        class="chat-msg-fwd-card__cover"
+                        :src="sanitizeImageUrl(m.content.forwardVideoCoverObjectKey)"
+                        alt=""
+                        draggable="false"
+                        @error="onBubbleImageError"
+                        @load="onChatMediaLayout"
+                      />
+                      <span class="chat-msg-fwd-card__play" aria-hidden="true">
+                        <i class="ri-play-fill"></i>
+                      </span>
+                      <span class="chat-msg-fwd-card__tag" aria-hidden="true">转发</span>
+                      <div v-if="m.content?.forwardVideoTitle" class="chat-msg-fwd-card__info">
+                        <span class="chat-msg-fwd-card__title" :title="String(m.content.forwardVideoTitle || '')">{{
+                          String(m.content.forwardVideoTitle || '')
+                        }}</span>
+                      </div>
+                    </div>
+                  </button>
                   <div
                     v-else-if="messageMediaKind(m) === 'video'"
                     class="chat-msg-bubble chat-msg-bubble--video chat-msg-bubble--media-tappable"
@@ -701,6 +807,9 @@ async function onChatFileChange(ev) {
                       @loadedmetadata="onChatMediaLayout"
                       @error="onBubbleVideoError"
                     />
+                    <span class="chat-msg-media-play" aria-hidden="true">
+                      <i class="ri-play-fill"></i>
+                    </span>
                   </div>
                   <button
                     v-else-if="isChatGenericFile(m)"
@@ -721,6 +830,17 @@ async function onChatFileChange(ev) {
                     {{ bubbleText(m) }}
                   </div>
                   </div>
+                  <button
+                    v-if="isSelf(m) && isSendFailed(m)"
+                    type="button"
+                    class="chat-msg-fail-retry"
+                    :disabled="!!retrySendBusy[String(m.clientMsgId || '')]"
+                    :title="m._sendError ? `点击重发（${m._sendError}）` : '点击重发'"
+                    :aria-label="m._sendError ? `发送失败，${m._sendError}，点击重发` : '发送失败，点击重发'"
+                    @click="onRetrySend(m)"
+                  >
+                    <i class="ri-error-warning-fill" aria-hidden="true"></i>
+                  </button>
                 </div>
                 <div v-if="showReadForMessage(m)" class="chat-msg-read chat-msg-read--under-bubble">已读</div>
               </div>
@@ -738,21 +858,26 @@ async function onChatFileChange(ev) {
         :disabled="fileUploading"
         @change="onChatFileChange"
       />
-      <button
-        type="button"
-        class="chat-msg-attach"
-        :disabled="!conversationId || fileUploading"
-        title="上传文件"
-        aria-label="上传文件"
-        @click="triggerFilePick"
-      >
-        <i class="ri-folder-line" aria-hidden="true"></i>
-      </button>
+      <div class="chat-msg-foot-tools">
+        <button
+          type="button"
+          class="chat-msg-attach"
+          :disabled="!conversationId || fileUploading || sendDisabledByBan"
+          title="上传文件"
+          aria-label="上传文件"
+          @click="triggerFilePick"
+        >
+          <i class="ri-folder-line" aria-hidden="true"></i>
+        </button>
+        <ChatEmojiPicker :disabled="!conversationId || fileUploading || sendDisabledByBan" @pick="onEmojiPick" />
+      </div>
       <textarea
+        ref="inputTextRef"
         v-model="inputText"
         class="chat-msg-input"
         rows="2"
-        placeholder="输入消息，Enter 发送（Shift+Enter 换行）"
+        :disabled="!conversationId || sendDisabledByBan"
+        :placeholder="sendDisabledByBan ? banPlaceholder : '输入消息，Enter 发送（Shift+Enter 换行）'"
         @keydown.enter.exact.prevent="onSend"
       />
       <button type="button" class="chat-msg-send" :disabled="!canSend" @click="onSend">发送</button>

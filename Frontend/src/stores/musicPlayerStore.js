@@ -32,6 +32,9 @@ export const volumePct = ref(100);
 export const volumeBeforeMute = ref(100);
 export const gradientSeed = ref(0.42);
 
+/** 音乐歌词页全屏（Teleport 到 body）时为 true；供 App 隐藏会话悬浮条等，避免 z-index 叠在全屏层之上 */
+export const musicLyricsFullscreen = ref(false);
+
 export const playSrc = computed(() => remoteAudioUrl.value || undefined);
 export const currentQueueIndex = computed(() =>
   playQueue.value.findIndex((q) => q.key === currentQueueKey.value),

@@ -14,6 +14,7 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
+import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import com.google.gson.GsonBuilder;
@@ -29,11 +30,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 @Slf4j
 @Service
@@ -73,6 +70,26 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             // 刚创建的群聊将使用前端默认头像为会话头像url
         }
         boolean isSingle = createConversationDTO.getType() == ConversationTypeEnum.SINGLE;
+        // 判断是否和需要创建的用户已经有会话了 -> 已有则返回提示
+        if (isSingle) {
+            if (memberIds == null || memberIds.size() != 1) {
+                return Result.fail("私聊请选择一位对方用户");
+            }
+            Long peerId = memberIds.get(0);
+            if (peerId == null || peerId.equals(userId)) {
+                return Result.fail("不能与自己发起私聊");
+            }
+            Query dup = new Query(
+                    Criteria.where("type").is(ConversationTypeEnum.SINGLE)
+                            .andOperator(
+                                    Criteria.where("memberIds").size(2),
+                                    Criteria.where("memberIds").all(userId, peerId)
+                            )
+            );
+            if (mongoTemplate.exists(dup, ChatConversationDoc.class)) {
+                return Result.fail("与该用户已有私聊会话");
+            }
+        }
         memberIds.add(userId);
         // 创建聊天会话表
         ChatConversationDoc chatConversationDoc = new ChatConversationDoc();
@@ -219,8 +236,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
                 Update update = new Update().set("deleted", true);
                 mongoTemplate.updateMulti(new Query(c), update, ChatUserConversationDoc.class);
                 // 通知群成员会话已删除
+                memberIds.remove(userId);
+                GroupDeletedMessage message = new GroupDeletedMessage(conversationId, memberIds);
                 rabbitTemplate.convertAndSend(RabbitMqConstants.NOTIFY_GROUP_MEMBER_DELETED_EXCHANGE,
-                        RabbitMqConstants.NOTIFY_GROUP_MEMBER_DELETED_ROUTING_KEY, conversationId);
+                        RabbitMqConstants.NOTIFY_GROUP_MEMBER_DELETED_ROUTING_KEY, message);
             } else {
                 // 非创建人 -> 退出群
                 c.and("userId").is(userId);
@@ -331,6 +350,17 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         // 开启或关闭全员禁言
         chatConversationDoc.setBanned(banned);
         save(chatConversationDoc);
+        // 发送通知给所有群成员
+        List<Long> memberIds = chatConversationDoc.getMemberIds();
+        memberIds.remove(getUserId());
+        Map<String, Object> data = new HashMap<>(2);
+        data.put("banned", banned);
+        data.put("type", "conversation");
+        data.put("conversationId", conversationId);
+        String json = new GsonBuilder().create().toJson(data);
+        for (Long memberId : memberIds) {
+            notifyWebSocketHandler.sendToUser(memberId, json);
+        }
         return Result.success(null);
     }
 
@@ -347,5 +377,31 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         }
         return Result.success(new AnnouncementPublishVO(conversationId, chatConversationDoc.getAnnouncementVersion(),
                 chatConversationDoc.getAnnouncement()));
+    }
+
+    public Result<Void> banConversationMember(Long userId, String conversationId, Boolean banned) {
+        // 判断是否有权限
+        ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
+        if (!chatConversationDoc.getMemberIds().contains(getUserId())) {
+            return Result.fail("你不是该群的成员");
+        }
+        if (!chatConversationDoc.getCreatedBy().equals(getUserId())) {
+            throw new IllegalArgumentException("不是创建人");
+        }
+        if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
+            throw new IllegalArgumentException("私聊不能禁言成员");
+        }
+        // 禁言或取消禁言会话成员
+        Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(userId);
+        mongoTemplate.updateFirst(Query.query(c),
+                new Update().set("banned", banned), "chat_user_conversation");
+        // 发送通知给对方
+        Map<String, Object> data = new HashMap<>(2);
+        data.put("banned", banned);
+        data.put("type", "member");
+        data.put("conversationId", conversationId);
+        String json = new GsonBuilder().create().toJson(data);
+        notifyWebSocketHandler.sendToUser(userId, json);
+        return Result.success(null);
     }
 }

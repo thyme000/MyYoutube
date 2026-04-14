@@ -6,10 +6,10 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.CaptchaUtils;
 import cn.diaojiahong.myyoutube.common.utils.PasswordEncoder;
 import cn.diaojiahong.myyoutube.common.utils.RegexUtils;
-import cn.diaojiahong.myyoutube.auth.controller.domain.dto.CaptchaDTO;
-import cn.diaojiahong.myyoutube.auth.controller.domain.dto.ForgetPasswordDTO;
-import cn.diaojiahong.myyoutube.auth.controller.domain.dto.LoginRequestDTO;
-import cn.diaojiahong.myyoutube.auth.controller.domain.dto.RegisterRequestDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.CaptchaDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.ForgetPasswordDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.LoginRequestDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
 import cn.diaojiahong.myyoutube.auth.service.IAuthService;
 import cn.diaojiahong.myyoutube.mq.message.UserDocMessage;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
@@ -98,13 +98,26 @@ public class AuthServiceImpl implements IAuthService {
             return Result.fail("手机号格式错误!");
         }
 
+        String username = registerRequestDTO.getUsername().trim();
+        String phone = registerRequestDTO.getPhone().trim();
+        String email = registerRequestDTO.getEmail().trim();
+
         // 用户名唯一性校验
-        User existUser = userService.lambdaQuery()
-                .eq(User::getUsername, registerRequestDTO.getUsername())
-                .one();
-        if (existUser != null) {
+        if (userService.lambdaQuery().eq(User::getUsername, username).exists()) {
             return Result.fail("用户名已存在!");
         }
+        // 手机号唯一性校验
+        if (userService.lambdaQuery().eq(User::getPhone, phone).exists()) {
+            return Result.fail("手机号已被注册!");
+        }
+        // 邮箱唯一性校验
+        if (userService.lambdaQuery().eq(User::getEmail, email).exists()) {
+            return Result.fail("邮箱已被注册!");
+        }
+
+        registerRequestDTO.setUsername(username);
+        registerRequestDTO.setPhone(phone);
+        registerRequestDTO.setEmail(email);
 
         // 构建用户对象并加密密码
         User user = BeanUtil.toBean(registerRequestDTO, User.class);

@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.UserConversationVO;
+import cn.diaojiahong.myyoutube.chat.mongo.vo.ValidUserConversationVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -36,7 +37,7 @@ import java.util.stream.Collectors;
 @Service
 public class ChatUserConversationService extends BaseMongoService<ChatUserConversationDoc> {
 
-    private static final Long OSS_EXPIRE_TIME = 3600 * 2L;
+    private static final Long OSS_EXPIRE_TIME = 3600 * 10L;
     private final AliOssUtil aliOssUtil;
     private final IUserService userService;
 
@@ -116,6 +117,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                     vo.setLastMessageSenderNickname(isSingle ? null : conversationDoc.getLastMessageSenderNickname());
                     vo.setIsLastMessageRecall(conversationDoc.getIsLastMessageRecall());
                     vo.setBanned(c.getBanned());
+                    vo.setConversationBanned(conversationDoc.getBanned());
                     vo.setPin(c.getPin());
                     vo.setMute(c.getMute());
                     vo.setLastReadSeq(c.getLastReadSeq());
@@ -169,5 +171,52 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         Update update = new Update().set("lastSeenAnnouncementVersion", chatConversationDoc.getAnnouncementVersion());
         mongoTemplate.updateFirst(Query.query(c), update, ChatUserConversationDoc.class);
         return Result.success();
+    }
+
+    public Result<PageResult<ValidUserConversationVO>> getValidConversations(Long page, Long pageSize) {
+        // 置顶优先,其次按最后活跃时间来排序
+        Long userId = getUserId();
+        Query query = Query.query(
+                Criteria.where("userId").is(userId)
+                        .and("deleted").is(false)
+                        .and("banned").is(false));
+        query.with(Sort.by(
+                Sort.Order.desc("pin"),
+                Sort.Order.desc("lastPullAt")
+        ));
+        Pageable pageable = PageRequest.of(
+                page.intValue() - 1,
+                pageSize.intValue());
+        Page<ChatUserConversationDoc> p = this.page(query, pageable);
+        List<ChatUserConversationDoc> content = p.getContent();
+        if (content.isEmpty()) {
+            return Result.success(PageResult.of(0, 0, List.of()));
+        }
+        List<String> list = new java.util.ArrayList<>(content.stream()
+                .map(ChatUserConversationDoc::getConversationId).toList());
+        // 排除掉全员禁言的群聊,但群主不排除
+        Criteria c = Criteria.where("id").in(list).and("banned").is(true).and("createdBy").ne(userId);
+        Query qu = Query.query(c);
+        List<ChatConversationDoc> removeConversation = mongoTemplate.find(qu, ChatConversationDoc.class);
+        List<String> removeList = removeConversation.stream().map(ChatConversationDoc::getId).toList();
+        list.removeAll(removeList);
+        // 查询合法的会话文档
+        qu = Query.query(Criteria.where("id").in(list));
+        List<ChatConversationDoc> chatConversationDocList = mongoTemplate.find(qu, ChatConversationDoc.class);
+        // 转map
+        Map<String, ChatConversationDoc> collect = chatConversationDocList.stream()
+                .collect(Collectors.toMap(ChatConversationDoc::getId, Function.identity()));
+        // 转vo
+        List<ValidUserConversationVO> voList = content.stream()
+                .map(v -> {
+                    ValidUserConversationVO vo = new ValidUserConversationVO();
+                    vo.setConversationId(v.getConversationId());
+                    vo.setConversationName(collect.get(v.getConversationId()).getName());
+                    vo.setConversationType(collect.get(v.getConversationId()).getType());
+                    vo.setConversationAvatar(aliOssUtil.signGetUrl(collect.get(v.getConversationId()).getAvatar(), 60 * 5));
+                    return vo;
+                })
+                .toList();
+        return Result.success(PageResult.of(p.getTotalElements(), p.getTotalPages(), voList));
     }
 }
