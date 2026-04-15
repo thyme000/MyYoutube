@@ -53,6 +53,8 @@ public final class FFmpegUtil {
         public Duration commandTimeout = Duration.ofSeconds(30);
         /** ffmpeg 输出 jpg 质量（1 最好，31 最差） */
         public int jpegQuality = 2;
+        public int frameMaxWidth = 640;
+        public int ffmpegThreads = 1;
         /** 默认封面本地路径（失败回退，可为空） */
         public Path fallbackCoverPath;
         /** 默认封面 URL（适配 OSS 场景；未设置时使用 {@link #DEFAULT_FALLBACK_COVER_URL}） */
@@ -231,11 +233,14 @@ public final class FFmpegUtil {
 
     private static boolean extractFrame(Path videoPath, double second, Path frameOut, Options options) {
         String sec = String.format(Locale.US, "%.3f", second);
+        String maxW = String.valueOf(Math.max(64, options.frameMaxWidth));
         List<String> cmd = List.of(
                 options.ffmpegCommand,
                 "-y",
                 "-ss", sec,
                 "-i", videoPath.toString(),
+                "-threads", String.valueOf(Math.max(1, options.ffmpegThreads)),
+                "-vf", "scale=min(iw\\," + maxW + "):-2",
                 "-frames:v", "1",
                 "-q:v", String.valueOf(options.jpegQuality),
                 frameOut.toString()

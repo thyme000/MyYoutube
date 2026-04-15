@@ -67,6 +67,10 @@ public class VideoCoverListener {
 
                 // 2) 生成封面
                 FFmpegUtil.Options opt = new FFmpegUtil.Options();
+                opt.sampleCount = 5;
+                opt.jpegQuality = 4;
+                opt.frameMaxWidth = 640;
+                opt.ffmpegThreads = 1;
                 FFmpegUtil.Result result = FFmpegUtil.generateBestCover(
                         tempPath,
                         taskDir,
