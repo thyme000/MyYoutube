@@ -314,7 +314,6 @@ public class SearchServiceImpl implements ISearchService {
                 .withQuery(q -> q.functionScore(fs -> fs
                         .query(inner -> inner.bool(b -> {
                                     b.must(m -> m.term(t -> t.field("status").value("published")));
-                                    b.mustNot(m -> m.term(t -> t.field("authorId").value(userId)));
                                     b.must(m -> m.term(t -> t.field("visibility").value("public")));
                                     if (!tagName.isEmpty()) {
                                         b.must(m -> m.multiMatch(mm -> mm
