@@ -1,8 +1,8 @@
 <script setup>
 import { ref, watch, nextTick, computed, onMounted, onUnmounted } from "vue";
 import { sanitizeImageUrl, DEFAULT_PROFILE_AVATAR_URL } from "../../utils/userProfile.js";
-import { OSS_STS_BIZ_CHAT } from "../../api/otherApi.js";
-import { uploadFileWithSts } from "../../utils/ossStsUpload.js";
+import { OSS_BIZ_CHAT } from "../../api/otherApi.js";
+import { uploadFileWithPresign } from "../../utils/presignUpload.js";
 import {
   sendChatMediaMessage,
   retryFailedChatMessage,
@@ -629,7 +629,7 @@ async function onChatFileChange(ev) {
   }
   fileUploading.value = true;
   try {
-    const uploaded = await uploadFileWithSts(file, OSS_STS_BIZ_CHAT);
+    const uploaded = await uploadFileWithPresign(file, OSS_BIZ_CHAT);
     const isImage = String(file.type || "").toLowerCase().startsWith("image/");
     const contentType = isImage ? "IMAGE" : "FILE";
     await sendChatMediaMessage(props.conversationId, {

@@ -1,13 +1,9 @@
 import { httpRequest } from "./http";
 
 /** 与后端 OtherService：视频等业务 work，聊天附件 chat */
-export const OSS_STS_BIZ_WORK = "work";
-export const OSS_STS_BIZ_CHAT = "chat";
+export const OSS_BIZ_WORK = "work";
+export const OSS_BIZ_CHAT = "chat";
 
-/**
- * 获取 OSS STS 临时凭证
- * GET /oss/sts?bizType=work|chat
- */
 function tryParseJson(raw) {
   if (typeof raw !== "string") return raw;
   const text = raw.trim();
@@ -28,24 +24,19 @@ function normalizeWrappedPayload(raw) {
   return parsed;
 }
 
-export async function getOssSts(bizType) {
-  const bt = String(bizType || "").trim() || OSS_STS_BIZ_WORK;
-  const candidates = ["/oss/sts"];
-  let lastRaw = null;
-  for (const path of candidates) {
-    try {
-      const raw = await httpRequest(path, { method: "GET", query: { bizType: bt } });
-      lastRaw = raw;
-      const data = normalizeWrappedPayload(raw);
-      if (data && typeof data === "object") {
-        return data;
-      }
-    } catch (e) {
-      lastRaw = e;
-    }
+/**
+ * 获取前端直传预签名 PUT URL
+ * GET /oss/presign?bizType=work|chat&filename=xxx
+ */
+export async function getOssPresign(bizType, filename) {
+  const bt = String(bizType || "").trim() || OSS_BIZ_WORK;
+  const raw = await httpRequest("/oss/presign", {
+    method: "GET",
+    query: { bizType: bt, filename: String(filename || "") },
+  });
+  const data = normalizeWrappedPayload(raw);
+  if (data && data.url && data.objectKey) {
+    return data;
   }
-  throw new Error(
-    `获取 STS 失败：已尝试 ${candidates.join("、")}。请检查 Nginx 反代或后端跨域配置。`,
-  );
+  throw new Error("获取上传预签名失败：请检查 Nginx 反代或后端是否正常。");
 }
-
