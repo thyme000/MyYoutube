@@ -29,7 +29,7 @@ public class VideoCoverListener {
     private final S3StorageUtil storageUtil;
     private final IVideoService videoService;
     private static final String OUTPUT_DIR = "src\\main\\resources\\temp";
-    private static final String PREFIX_OSS = "video-cover";
+    private static final String PREFIX_STORAGE = "video-cover";
 
     /**
      * 生成视频封面
@@ -50,7 +50,7 @@ public class VideoCoverListener {
         Path taskDir = null;
 
         try {
-            if (msg.getVideoOssObjectKey() == null || msg.getVideoOssObjectKey().isBlank()) {
+            if (msg.getVideoObjectKey() == null || msg.getVideoObjectKey().isBlank()) {
                 url = FFmpegUtil.DEFAULT_FALLBACK_COVER_URL;
             } else {
                 String taskId = java.util.UUID.randomUUID().toString().replace("-", "");
@@ -62,7 +62,7 @@ public class VideoCoverListener {
 
                 // 1) 下载视频到本地
                 tempPath = DownLoadMP4ToTemp.downloadToFixedDir(
-                        storageUtil.signGetUrl(msg.getVideoOssObjectKey(), 3600 * 2),
+                        storageUtil.signGetUrl(msg.getVideoObjectKey(), 3600 * 2),
                         taskDir, ".mp4");
 
                 // 2) 生成封面
@@ -82,7 +82,7 @@ public class VideoCoverListener {
                 if (result.selectedCoverPath() != null) {
                     byte[] bytes = Files.readAllBytes(result.selectedCoverPath());
                     String fileName = result.selectedCoverPath().getFileName().toString();
-                    url = storageUtil.uploadForObjectKey(bytes, fileName, msg.getUserId(), PREFIX_OSS);
+                    url = storageUtil.uploadForObjectKey(bytes, fileName, msg.getUserId(), PREFIX_STORAGE);
                 } else {
                     url = (result.selectedCoverUrl() != null && !result.selectedCoverUrl().isBlank())
                             ? result.selectedCoverUrl()

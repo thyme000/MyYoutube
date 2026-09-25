@@ -55,7 +55,7 @@ import java.util.regex.Pattern;
 @Service
 public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
 
-    private static final Long OSS_EXPIRE = 3600L * 10;
+    private static final Long STORAGE_EXPIRE = 3600L * 10;
 
     private final ChatConversationService chatConversationService;
     private final RabbitTemplate rabbitTemplate;
@@ -375,15 +375,15 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             MessagePage vo = new MessagePage();
             vo.setSenderId(doc.getSenderId());
             vo.setSenderNickName(authorNicknames.get(doc.getSenderId()));
-            vo.setSenderAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(doc.getSenderId()), OSS_EXPIRE));
+            vo.setSenderAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(doc.getSenderId()), STORAGE_EXPIRE));
             vo.setContentType(doc.getContentType());
             if (vo.getContentType() == ContentTypeEnum.FILE || vo.getContentType() == ContentTypeEnum.IMAGE) {
                 if (doc.getContent().getObjectKey() != null && !doc.getContent().getObjectKey().isBlank()) {
-                    doc.getContent().setObjectKey(storageUtil.signGetUrl(doc.getContent().getObjectKey(), OSS_EXPIRE));
+                    doc.getContent().setObjectKey(storageUtil.signGetUrl(doc.getContent().getObjectKey(), STORAGE_EXPIRE));
                 }
             } else if (vo.getContentType() == ContentTypeEnum.FORWARD_VIDEO) {
                 if (doc.getContent().getForwardVideoCoverObjectKey() != null && !doc.getContent().getForwardVideoCoverObjectKey().isBlank()) {
-                    doc.getContent().setForwardVideoCoverObjectKey(storageUtil.signGetUrl(doc.getContent().getForwardVideoCoverObjectKey(), OSS_EXPIRE));
+                    doc.getContent().setForwardVideoCoverObjectKey(storageUtil.signGetUrl(doc.getContent().getForwardVideoCoverObjectKey(), STORAGE_EXPIRE));
                 }
             }
             vo.setContent(doc.getContent());
@@ -526,16 +526,16 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             vo.setContentType(doc.getContentType());
             vo.setCreatedAt(doc.getCreatedAt());
             vo.setSenderNickname(nickMap.get(doc.getSenderId()));
-            vo.setSenderAvatarUrl(storageUtil.signGetUrl(avMap.get(doc.getSenderId()), OSS_EXPIRE));
+            vo.setSenderAvatarUrl(storageUtil.signGetUrl(avMap.get(doc.getSenderId()), STORAGE_EXPIRE));
             ChatContent content = doc.getContent();
             if (content != null
                     && (doc.getContentType() == ContentTypeEnum.FILE || doc.getContentType() == ContentTypeEnum.IMAGE)
                     && content.getObjectKey() != null) {
-                content.setObjectKey(storageUtil.signGetUrl(content.getObjectKey(), OSS_EXPIRE));
+                content.setObjectKey(storageUtil.signGetUrl(content.getObjectKey(), STORAGE_EXPIRE));
                 vo.setContent(content);
             } else if (content != null && doc.getContentType() == ContentTypeEnum.FORWARD_VIDEO) {
                 if (content.getForwardVideoCoverObjectKey() != null && !content.getForwardVideoCoverObjectKey().isBlank()) {
-                    content.setForwardVideoCoverObjectKey(storageUtil.signGetUrl(content.getForwardVideoCoverObjectKey(), OSS_EXPIRE));
+                    content.setForwardVideoCoverObjectKey(storageUtil.signGetUrl(content.getForwardVideoCoverObjectKey(), STORAGE_EXPIRE));
                 }
                 vo.setContent(content);
             } else {

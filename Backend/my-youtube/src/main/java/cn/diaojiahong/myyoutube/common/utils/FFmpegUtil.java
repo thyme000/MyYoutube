@@ -34,7 +34,7 @@ public final class FFmpegUtil {
     private FFmpegUtil() {
     }
 
-    /** OSS 默认视频封面（抽帧失败时可直接回退该 URL） */
+    /** 默认视频封面（抽帧失败时可直接回退该 URL） */
     public static final String DEFAULT_FALLBACK_COVER_URL =
             "https://thyme.oss-ap-southeast-1.aliyuncs.com/default-video-cover/%E9%BB%98%E8%AE%A4%E8%A7%86%E9%A2%91%E5%B0%81%E9%9D%A2.jpg";
 
@@ -57,7 +57,7 @@ public final class FFmpegUtil {
         public int ffmpegThreads = 1;
         /** 默认封面本地路径（失败回退，可为空） */
         public Path fallbackCoverPath;
-        /** 默认封面 URL（适配 OSS 场景；未设置时使用 {@link #DEFAULT_FALLBACK_COVER_URL}） */
+        /** 默认封面 URL（未设置时使用 {@link #DEFAULT_FALLBACK_COVER_URL}） */
         public String fallbackCoverUrl = DEFAULT_FALLBACK_COVER_URL;
     }
 

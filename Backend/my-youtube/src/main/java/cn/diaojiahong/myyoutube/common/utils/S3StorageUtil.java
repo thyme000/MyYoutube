@@ -196,7 +196,7 @@ public class S3StorageUtil {
             log.info("文件上传到 objectKey: {}", objectKey);
         } catch (S3Exception e) {
             log.warn("S3 上传失败 objectKey={} code={}", objectKey, e.statusCode());
-            throw new BizException(BizException.OSS_ERROR, "对象存储上传失败: " + e.getMessage());
+            throw new BizException(BizException.STORAGE_ERROR, "对象存储上传失败: " + e.getMessage());
         }
     }
 

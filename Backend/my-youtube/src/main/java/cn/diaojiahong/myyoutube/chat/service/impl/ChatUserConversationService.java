@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
 @Service
 public class ChatUserConversationService extends BaseMongoService<ChatUserConversationDoc> {
 
-    private static final Long OSS_EXPIRE_TIME = 3600 * 10L;
+    private static final Long STORAGE_EXPIRE_TIME = 3600 * 10L;
     private final S3StorageUtil storageUtil;
     private final IUserService userService;
 
@@ -104,11 +104,11 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                         // 需要展示的是对方的头像和昵称
                         conversationDoc.getMemberIds().remove(getUserId());
                         User user = userService.getById(conversationDoc.getMemberIds().get(0));
-                        vo.setConversationAvatar(storageUtil.signGetUrl(user.getAvatarUrl(), OSS_EXPIRE_TIME));
+                        vo.setConversationAvatar(storageUtil.signGetUrl(user.getAvatarUrl(), STORAGE_EXPIRE_TIME));
                         vo.setConversationName(user.getNickname());
                     } else {
                         // 需要展示的是群聊名称
-                        vo.setConversationAvatar(storageUtil.signGetUrl(conversationDoc.getAvatar(), OSS_EXPIRE_TIME));
+                        vo.setConversationAvatar(storageUtil.signGetUrl(conversationDoc.getAvatar(), STORAGE_EXPIRE_TIME));
                         vo.setConversationName(conversationDoc.getName() == null ? conversationDoc.getId() : conversationDoc.getName());
                     }
                     vo.setConversationType(conversationDoc.getType());

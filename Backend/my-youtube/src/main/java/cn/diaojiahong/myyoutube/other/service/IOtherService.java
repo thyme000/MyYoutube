@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.other.service;
 
-import cn.diaojiahong.myyoutube.other.domain.vo.OssPresignVO;
+import cn.diaojiahong.myyoutube.other.domain.vo.StoragePresignVO;
 
 public interface IOtherService {
-    OssPresignVO presignUpload(String bizType, String filename);
+    StoragePresignVO presignUpload(String bizType, String filename);
 }

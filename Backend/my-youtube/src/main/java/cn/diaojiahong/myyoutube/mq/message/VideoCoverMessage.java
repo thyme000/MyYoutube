@@ -11,5 +11,5 @@ import lombok.Data;
 public class VideoCoverMessage {
     private Long userId;
     private Long videoId;
-    private String videoOssObjectKey;
+    private String videoObjectKey;
 }

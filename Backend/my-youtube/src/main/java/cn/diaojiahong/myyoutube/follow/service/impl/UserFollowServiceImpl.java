@@ -41,7 +41,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     private final S3StorageUtil storageUtil;
     private final UserDocRepository userDocRepository;
 
-    private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
+    private static final long STORAGE_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
     @Override
     @Transactional
@@ -222,7 +222,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         return orderedList.stream().map(u -> {
             UserRelationshipVO vo = new UserRelationshipVO();
             vo.setNickname(u.getNickname());
-            vo.setAvatarUrl(storageUtil.signGetUrl(u.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+            vo.setAvatarUrl(storageUtil.signGetUrl(u.getAvatarUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
             vo.setIntroduction(u.getIntroduction());
             vo.setUserId(u.getId());
             return vo;

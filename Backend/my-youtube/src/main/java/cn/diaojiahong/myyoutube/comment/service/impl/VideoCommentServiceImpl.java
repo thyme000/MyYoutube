@@ -51,7 +51,7 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
     private final IVideoService videoService;
     private final StringRedisTemplate redisTemplate;
     private final RabbitTemplate rabbitTemplate;
-    private final static int OSS_EXPIRE = 60 * 20;
+    private final static int STORAGE_EXPIRE = 60 * 20;
 
     @Transactional
     @Override
@@ -203,7 +203,7 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
             return Result.success(PageResult.of(page.getTotal(), page.getPages(), commentVOList));
         }
         commentVOList.forEach(commentVO -> commentVO.setNickname(nicknames.get(commentVO.getUserId())));
-        commentVOList.forEach(commentVO -> commentVO.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(commentVO.getUserId()), OSS_EXPIRE)));
+        commentVOList.forEach(commentVO -> commentVO.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(commentVO.getUserId()), STORAGE_EXPIRE)));
 
         // 填充回复用户的昵称
         List<Long> replyUserIds = commentVOList.stream().map(CommentVO::getReplyUserId).toList();

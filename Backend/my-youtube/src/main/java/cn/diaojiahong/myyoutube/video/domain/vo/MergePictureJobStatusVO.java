@@ -19,7 +19,7 @@ public class MergePictureJobStatusVO {
     public static final String STATUS_FAIL = "FAIL";
 
     private String status;
-    /** 成功时 OSS objectKey，用于 publishVideo 的 videoUrl */
+    /** 成功时的 objectKey，用于 publishVideo 的 videoUrl */
     private String videoObjectKey;
     private String errorMessage;
     /** 每张展示时长（秒），满足总时长 ≥6 且默认约 2 秒/张 */

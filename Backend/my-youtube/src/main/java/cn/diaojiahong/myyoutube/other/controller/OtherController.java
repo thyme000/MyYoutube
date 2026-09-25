@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.other.controller;
 
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.other.domain.vo.OssPresignVO;
+import cn.diaojiahong.myyoutube.other.domain.vo.StoragePresignVO;
 import cn.diaojiahong.myyoutube.other.service.IOtherService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -19,9 +19,9 @@ public class OtherController {
     /**
      * 获取前端直传预签名 PUT URL
      */
-    @GetMapping("/oss/presign")
+    @GetMapping("/storage/presign")
     @Operation(summary = "获取上传预签名URL")
-    public Result<OssPresignVO> presignUpload(@RequestParam String bizType,
+    public Result<StoragePresignVO> presignUpload(@RequestParam String bizType,
                                               @RequestParam(required = false) String filename) {
         return Result.success(otherService.presignUpload(bizType, filename));
     }

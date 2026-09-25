@@ -38,7 +38,7 @@ import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
 @RequiredArgsConstructor
 public class MergePictureToVideoListener {
 
-    private static final long OSS_SIGN_SECONDS = 3600L * 2;
+    private static final long STORAGE_SIGN_SECONDS = 3600L * 2;
     private static final String FFMPEG = "ffmpeg";
 
     private final S3StorageUtil storageUtil;
@@ -82,7 +82,7 @@ public class MergePictureToVideoListener {
             List<Path> imagePaths = new ArrayList<>();
             for (int i = 0; i < msg.getObjectKeys().size(); i++) {
                 String key = msg.getObjectKeys().get(i);
-                String url = storageUtil.signGetUrl(key, OSS_SIGN_SECONDS);
+                String url = storageUtil.signGetUrl(key, STORAGE_SIGN_SECONDS);
                 String ext = suffixFromObjectKey(key);
                 Path img = DownLoadMP4ToTemp.downloadToFixedDir(url, workDir, ext);
                 imagePaths.add(img);
@@ -90,7 +90,7 @@ public class MergePictureToVideoListener {
 
             Path audioPath = null;
             if (StringUtils.hasText(msg.getAudioObjectKey())) {
-                String aurl = storageUtil.signGetUrl(msg.getAudioObjectKey().trim(), OSS_SIGN_SECONDS);
+                String aurl = storageUtil.signGetUrl(msg.getAudioObjectKey().trim(), STORAGE_SIGN_SECONDS);
                 String aext = suffixFromObjectKey(msg.getAudioObjectKey());
                 audioPath = DownLoadMP4ToTemp.downloadToFixedDir(aurl, workDir, aext);
             }
@@ -167,7 +167,7 @@ public class MergePictureToVideoListener {
     }
 
     /**
-     * 合成成功后删除 OSS 上的源图与源音频；不会去删成片 objectKey。
+     * 合成成功后删除对象存储上的源图与源音频；不会去删成片 objectKey。
      */
     private void deleteMergeSourceObjects(PictureToVideoMessage msg, String mergedVideoObjectKey) {
         Set<String> keys = new LinkedHashSet<>();

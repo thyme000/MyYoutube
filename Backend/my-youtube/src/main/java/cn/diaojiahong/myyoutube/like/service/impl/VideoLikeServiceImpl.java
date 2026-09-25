@@ -61,7 +61,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     private final IUserFollowService userFollowService;
 
     // 24小时后过期
-    private static final int OSS_EXPIRE = 24 * 60 * 60;
+    private static final int STORAGE_EXPIRE = 24 * 60 * 60;
 
     @Override
     @Transactional
@@ -180,12 +180,12 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         Map<Long, String> authorAvatarUrls = userService.getAuthorAvatarUrls(authorIds);
         voList.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
-            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), STORAGE_EXPIRE));
         });
         // 填充视频封面url和视频url
         voList.forEach(vo -> {
-            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), OSS_EXPIRE));
-            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
+            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), STORAGE_EXPIRE));
+            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), STORAGE_EXPIRE));
         });
         // 填充是否关注作者
         List<Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);

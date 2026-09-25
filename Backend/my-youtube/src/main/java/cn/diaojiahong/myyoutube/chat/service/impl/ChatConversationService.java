@@ -152,13 +152,13 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         if (!chatConversationDoc.getCreatedBy().equals(userId)) {
             throw new IllegalArgumentException("不是创建人");
         }
-        // 上传文件到OSS
+        // 上传文件到对象存储
         String avatarUrl = null;
         try {
             byte[] bytes = avatar.getBytes();
             avatarUrl = storageUtil.upload(bytes, avatar.getOriginalFilename(), userId, BIZ_PREFIX);
         } catch (IOException e) {
-            log.error("上传文件到OSS失败，avatar: {}", avatar.getOriginalFilename(), e);
+            log.error("上传文件到对象存储失败，avatar: {}", avatar.getOriginalFilename(), e);
         }
         // 更新会话头像url
         chatConversationDoc.setAvatar(avatarUrl);

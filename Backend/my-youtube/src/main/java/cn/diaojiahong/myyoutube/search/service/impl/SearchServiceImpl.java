@@ -56,7 +56,7 @@ public class SearchServiceImpl implements ISearchService {
     private final StringRedisTemplate redisTemplate;
     private final ElasticsearchClient elasticsearchClient;
     private final VideoLikeMapper videoLikeMapper;
-    private static final int OSS_EXPIRE_SECONDS = 3600 * 10;
+    private static final int STORAGE_EXPIRE_SECONDS = 3600 * 10;
 
     @Override
     public Result<PageResult<SearchVideoVO>> searchVideo(SearchVideoPageQuery pageQuery) {
@@ -211,7 +211,7 @@ public class SearchServiceImpl implements ISearchService {
             return Result.success(PageResult.of(0, 0, result));
         }
         result.forEach(vo -> {
-            vo.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(vo.getId()), OSS_EXPIRE_SECONDS));
+            vo.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(vo.getId()), STORAGE_EXPIRE_SECONDS));
         });
 
         loadForHotSearch(userId, keyword);
@@ -378,12 +378,12 @@ public class SearchServiceImpl implements ISearchService {
         }
         result.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
-            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE_SECONDS));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), STORAGE_EXPIRE_SECONDS));
         });
         // 视频url,封面url
         result.forEach(re -> {
-            re.setVideoUrl(storageUtil.signGetUrl(re.getVideoUrl(), OSS_EXPIRE_SECONDS));
-            re.setCoverUrl(storageUtil.signGetUrl(re.getCoverUrl(), OSS_EXPIRE_SECONDS));
+            re.setVideoUrl(storageUtil.signGetUrl(re.getVideoUrl(), STORAGE_EXPIRE_SECONDS));
+            re.setCoverUrl(storageUtil.signGetUrl(re.getCoverUrl(), STORAGE_EXPIRE_SECONDS));
         });
         // 判断是否点过赞
         List<Long> likedIds = isLike(getUserId(), videos.stream().map(Video::getId).collect(Collectors.toList()));

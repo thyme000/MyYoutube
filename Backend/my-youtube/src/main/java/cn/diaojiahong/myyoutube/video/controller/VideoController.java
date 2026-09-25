@@ -211,7 +211,7 @@ public class VideoController {
      * @param pictureForVideoDTO
      * @return
      */
-    @Operation(summary = "提交多图（+可选音频 OSS key）合成视频任务，返回 jobId；完成后用状态接口取 objectKey 再走发布视频")
+    @Operation(summary = "提交多图（+可选音频 objectKey）合成视频任务，返回 jobId；完成后用状态接口取 objectKey 再走发布视频")
     @PostMapping("/picture/merge")
     public Result<String> mergePictures(@RequestBody PictureToVideoDTO pictureForVideoDTO) {
         return videoService.mergePictures(pictureForVideoDTO);
