@@ -1,84 +1,43 @@
 package cn.diaojiahong.myyoutube.other.service.impl;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.properties.AliOssProperties;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.other.domain.vo.OssStsVO;
+import cn.diaojiahong.myyoutube.other.domain.vo.OssPresignVO;
 import cn.diaojiahong.myyoutube.other.service.IOtherService;
-import com.aliyuncs.DefaultAcsClient;
-import com.aliyuncs.auth.sts.AssumeRoleRequest;
-import com.aliyuncs.auth.sts.AssumeRoleResponse;
-import com.aliyuncs.exceptions.ClientException;
-import com.aliyuncs.profile.DefaultProfile;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class OtherService implements IOtherService {
 
-    @Value("${my-youtube.sts.role-arn}")
-    private String roleArn;
-    @Value("${my-youtube.sts.access-key-id}")
-    private String accessKeyId;
-    @Value("${my-youtube.sts.access-key-secret}")
-    private String accessKeySecret;
+    private static final Map<String, String> BIZ_DIRS = Map.of(
+            "work", "video",
+            "chat", "chat",
+            "picture", "picture"
+    );
+    private static final long PRESIGN_EXPIRE_SECONDS = 30 * 60;
 
-    private final AliOssProperties aliOssProperties;
-    private static final String WORKDIR = "work";
-    private static final String CHATDIR = "chat";
-    private static final String PICTUREDIR = "picture";
+    private final S3StorageUtil storageUtil;
 
     @Override
-    public OssStsVO issueUploadSts(String bizType) {
-
+    public OssPresignVO presignUpload(String bizType, String filename) {
+        String biz = BIZ_DIRS.get(bizType);
+        if (biz == null) {
+            throw new BizException(BizException.OSS_ERROR, "不支持的 bizType: " + bizType);
+        }
         Long userId = Long.valueOf(UserContext.getUserId());
 
-        String dir = null;
-        if (WORKDIR.equals(bizType)) {
-            dir = "uploads/video/" + userId + "/";
-        } else if (CHATDIR.equals(bizType)) {
-            dir = "uploads/chat/" + userId + "/";
-        } else if (PICTUREDIR.equals(bizType)) {
-            dir = "uploads/picture/" + userId + "/";
-        }
-        String roleSessionName = "u-" + userId;
+        String objectKey = storageUtil.buildUniqueObjectKey(userId, biz, filename);
+        String url = storageUtil.presignPutUrl(objectKey, PRESIGN_EXPIRE_SECONDS);
 
-        String policy = String.format(
-                "{\"Version\":\"1\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"oss:PutObject\",\"oss:AbortMultipartUpload\",\"oss:ListParts\",\"oss:CompleteMultipartUpload\"],\"Resource\":[\"acs:oss:*:*:%s/%s*\"]}]}",
-                aliOssProperties.getBucketName(),
-                dir
-        );
-
-
-        DefaultProfile profile = DefaultProfile.getProfile(
-                "ap-southeast-1",
-                accessKeyId,
-                accessKeySecret
-        );
-        DefaultAcsClient client = new DefaultAcsClient(profile);
-        AssumeRoleRequest request = new AssumeRoleRequest();
-        request.setSysMethod(com.aliyuncs.http.MethodType.POST);
-        request.setRoleArn(roleArn);
-        request.setRoleSessionName(roleSessionName);
-        request.setDurationSeconds(3600L); // 1小时有效期
-        request.setPolicy(policy);
-        AssumeRoleResponse response = null;
-        try {
-            response = client.getAcsResponse(request);
-        } catch (ClientException e) {
-            throw new BizException(BizException.OSS_ERROR, e.getMessage());
-        }
-        OssStsVO vo = new OssStsVO();
-        vo.setAccessKeyId(response.getCredentials().getAccessKeyId());
-        vo.setAccessKeySecret(response.getCredentials().getAccessKeySecret());
-        vo.setSecurityToken(response.getCredentials().getSecurityToken());
-        vo.setExpiration(response.getCredentials().getExpiration());
-        vo.setRegion("ap-southeast-1");
-        vo.setBucket(aliOssProperties.getBucketName());
-        vo.setEndpoint(aliOssProperties.getEndpoint());
-        vo.setDir(dir);
+        OssPresignVO vo = new OssPresignVO();
+        vo.setUrl(url);
+        vo.setObjectKey(objectKey);
+        vo.setExpireSeconds(PRESIGN_EXPIRE_SECONDS);
         return vo;
     }
 }
