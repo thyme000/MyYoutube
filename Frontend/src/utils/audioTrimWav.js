@@ -1,5 +1,5 @@
 /**
- * 从 URL 拉取音频 → decode → 截取 [startSec, endSec) → 导出 16bit PCM WAV（供幻灯片等上传 OSS）
+ * 从 URL 拉取音频 → decode → 截取 [startSec, endSec) → 导出 16bit PCM WAV（供幻灯片等上传对象存储）
  */
 
 function writeString(view, offset, str) {

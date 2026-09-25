@@ -1,8 +1,8 @@
 import { httpRequest } from "./http";
 
 /** 与后端 OtherService：视频等业务 work，聊天附件 chat */
-export const OSS_BIZ_WORK = "work";
-export const OSS_BIZ_CHAT = "chat";
+export const STORAGE_BIZ_WORK = "work";
+export const STORAGE_BIZ_CHAT = "chat";
 
 function tryParseJson(raw) {
   if (typeof raw !== "string") return raw;
@@ -26,11 +26,11 @@ function normalizeWrappedPayload(raw) {
 
 /**
  * 获取前端直传预签名 PUT URL
- * GET /oss/presign?bizType=work|chat&filename=xxx
+ * GET /storage/presign?bizType=work|chat&filename=xxx
  */
-export async function getOssPresign(bizType, filename) {
-  const bt = String(bizType || "").trim() || OSS_BIZ_WORK;
-  const raw = await httpRequest("/oss/presign", {
+export async function getStoragePresign(bizType, filename) {
+  const bt = String(bizType || "").trim() || STORAGE_BIZ_WORK;
+  const raw = await httpRequest("/storage/presign", {
     method: "GET",
     query: { bizType: bt, filename: String(filename || "") },
   });

@@ -4,7 +4,7 @@
 import { ref, computed } from "vue";
 import * as chatApi from "../api/chatApi.js";
 import { safeSnowflakeId, parseDigitSnowflakeId } from "../utils/snowflakeId.js";
-import { toOssObjectKeyOrPath } from "../utils/chatMediaKey.js";
+import { toObjectKeyOrPath } from "../utils/chatMediaKey.js";
 import { navigateToChat } from "../utils/chatNavigator.js";
 import { playSendSound } from "../utils/uiSounds.js";
 
@@ -527,7 +527,7 @@ let lastChatSignedUrlRefreshAtMs = 0;
 const CHAT_SIGNED_URL_REFRESH_COOLDOWN_MS = 30000;
 
 /**
- * 预签名 OSS 过期后图片/头像会加载失败；节流刷新会话列表，并对当前会话拉最新一页合并 objectKey/头像（不整表替换，避免丢掉已加载更早历史）。
+ * 预签名过期后图片/头像会加载失败；节流刷新会话列表，并对当前会话拉最新一页合并 objectKey/头像（不整表替换，避免丢掉已加载更早历史）。
  * @param {string|null|undefined} conversationId 当前聊天会话 id；仅刷新侧栏时可不传
  */
 export function scheduleAfterChatMediaLoadError(conversationId) {
@@ -918,7 +918,7 @@ export async function startSingleChat(peerUserId, hint = {}) {
   }
   const name = hint.name || `用户 ${peer}`;
   const rawAvatar = hint.avatar || "static/cat.jpg";
-  const avatar = toOssObjectKeyOrPath(rawAvatar) || rawAvatar;
+  const avatar = toObjectKeyOrPath(rawAvatar) || rawAvatar;
   const vo = await chatApi.createConversation({
     type: "SINGLE",
     memberIds: [peer],
@@ -954,7 +954,7 @@ export async function startGroupChat(memberUserIds, hint = {}) {
   }
   const name = (hint.name && String(hint.name).trim()) || "群聊";
   const rawAvatar = hint.avatar || "static/cat.jpg";
-  const avatar = toOssObjectKeyOrPath(rawAvatar) || rawAvatar;
+  const avatar = toObjectKeyOrPath(rawAvatar) || rawAvatar;
   const vo = await chatApi.createConversation({
     type: "GROUP",
     memberIds: ids,

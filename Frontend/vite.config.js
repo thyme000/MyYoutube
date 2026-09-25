@@ -43,7 +43,7 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
-      "/oss": {
+      "/storage": {
         target: "http://localhost:8080",
         changeOrigin: true,
       },

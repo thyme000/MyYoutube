@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch, nextTick, computed, onMounted, onUnmounted } from "vue";
 import { sanitizeImageUrl, DEFAULT_PROFILE_AVATAR_URL } from "../../utils/userProfile.js";
-import { OSS_BIZ_CHAT } from "../../api/otherApi.js";
+import { STORAGE_BIZ_CHAT } from "../../api/otherApi.js";
 import { uploadFileWithPresign } from "../../utils/presignUpload.js";
 import {
   sendChatMediaMessage,
@@ -19,7 +19,7 @@ const CHAT_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024;
 const props = defineProps({
   conversationId: { type: String, default: null },
   conversationName: { type: String, default: "" },
-  /** 会话头像（侧栏与消息头展示，OSS 签名 URL） */
+  /** 会话头像（侧栏与消息头展示，对象存储签名 URL） */
   conversationAvatar: { type: String, default: "" },
   conversationType: { type: String, default: "" },
   /** 群聊：是否开启全员禁言（由群主在会话信息面板切换） */
@@ -629,7 +629,7 @@ async function onChatFileChange(ev) {
   }
   fileUploading.value = true;
   try {
-    const uploaded = await uploadFileWithPresign(file, OSS_BIZ_CHAT);
+    const uploaded = await uploadFileWithPresign(file, STORAGE_BIZ_CHAT);
     const isImage = String(file.type || "").toLowerCase().startsWith("image/");
     const contentType = isImage ? "IMAGE" : "FILE";
     await sendChatMediaMessage(props.conversationId, {

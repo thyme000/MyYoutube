@@ -1,8 +1,8 @@
 /**
- * 聊天相关：头像等字段后端存 OSS objectKey。
+ * 聊天相关：头像等字段后端存对象存储 objectKey。
  * 若为完整 http(s) URL，则取 pathname（去掉前导 /）作为 objectKey；已是 key 则原样返回（仅去掉前导 /）。
  */
-export function toOssObjectKeyOrPath(input) {
+export function toObjectKeyOrPath(input) {
   const s = String(input ?? "").trim();
   if (!s) return "";
   if (/^https?:\/\//i.test(s)) {

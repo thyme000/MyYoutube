@@ -1,7 +1,7 @@
 /**
- * 预签名 PUT 直传 MinIO（视频 work、聊天 chat，与后端 /oss/presign 一致）。
+ * 预签名 PUT 直传 RustFS（视频 work、聊天 chat，与后端 /storage/presign 一致）。
  */
-import { getOssPresign } from "../api/otherApi.js";
+import { getStoragePresign } from "../api/otherApi.js";
 
 /**
  * @param {File} file
@@ -9,7 +9,7 @@ import { getOssPresign } from "../api/otherApi.js";
  * @param {(p: number) => void} [onProgress] 0~1
  */
 export async function uploadFileWithPresign(file, bizType, onProgress) {
-  const presign = await getOssPresign(bizType, file?.name);
+  const presign = await getStoragePresign(bizType, file?.name);
   await putFile(presign.url, file, onProgress);
   return {
     objectKey: presign.objectKey,

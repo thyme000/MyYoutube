@@ -41,7 +41,7 @@ import {
 } from "./api/searchApi";
 import { fetchCommentPage, publishComment as publishCommentApi, deleteComment as deleteCommentApi } from "./api/commentApi";
 import { reportVideoBehavior } from "./api/behaviorApi";
-import { OSS_BIZ_WORK } from "./api/otherApi";
+import { STORAGE_BIZ_WORK } from "./api/otherApi";
 import { uploadFileWithPresign } from "./utils/presignUpload.js";
 import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
 import {
@@ -1595,7 +1595,7 @@ const notifyTotal = ref(0);
 const notifyErrorMsg = ref("");
 const NOTIFY_PAGE_SIZE = 15;
 const uploadModalOpen = ref(false);
-/** 上传弹窗：整段视频 或 多图幻灯片（OSS 合成后再 publishVideo） */
+/** 上传弹窗：整段视频 或 多图幻灯片（对象存储合成后再 publishVideo） */
 const uploadMode = ref("video");
 const MAX_SLIDESHOW_IMAGES = 50;
 const MERGE_POLL_INTERVAL_MS = 2000;
@@ -3069,7 +3069,7 @@ async function loadSubscribedFollowVideos({ reset = false } = {}) {
     }
     followVideoHasMore.value = list.length >= pageSize && (pages <= 0 || pageNo < pages);
     if (list.length && !playable.length) {
-      pushToast("接口返回了视频但未解析到播放地址，请检查 OSS 签名或 videoUrl 字段", "info");
+      pushToast("接口返回了视频但未解析到播放地址，请检查对象存储签名或 videoUrl 字段", "info");
     }
   } catch (e) {
     if (seq !== followFeedLoadSeq) return;
@@ -6890,7 +6890,7 @@ async function submitUploadVideo() {
       const objectKeys = [];
       for (let i = 0; i < imgs.length; i++) {
         uploadMsg.value = `正在上传图片 ${i + 1}/${imgs.length}…`;
-        const { objectKey } = await uploadFileWithPresign(imgs[i], OSS_BIZ_WORK, (p) => {
+        const { objectKey } = await uploadFileWithPresign(imgs[i], STORAGE_BIZ_WORK, (p) => {
           const base = (i + (p || 0)) / totalParts;
           uploadProgress.value = Math.max(0, Math.min(68, Math.round(base * 68)));
         });
@@ -6899,7 +6899,7 @@ async function submitUploadVideo() {
       let audioObjectKey;
       if (audio) {
         uploadMsg.value = "正在上传音频…";
-        const r = await uploadFileWithPresign(audio, OSS_BIZ_WORK, (p) => {
+        const r = await uploadFileWithPresign(audio, STORAGE_BIZ_WORK, (p) => {
           const base = (imgs.length + (p || 0)) / totalParts;
           uploadProgress.value = Math.max(0, Math.min(68, Math.round(base * 68)));
         });
@@ -6921,7 +6921,7 @@ async function submitUploadVideo() {
       });
     } else {
       const file = uploadPickedFile.value;
-      const { objectKey } = await uploadFileWithPresign(file, OSS_BIZ_WORK, (p) => {
+      const { objectKey } = await uploadFileWithPresign(file, STORAGE_BIZ_WORK, (p) => {
         uploadProgress.value = Math.max(0, Math.min(100, Math.round((p || 0) * 100)));
       });
       uploadProgress.value = 100;

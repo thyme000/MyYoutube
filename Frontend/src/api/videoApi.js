@@ -371,7 +371,7 @@ export async function publishVideo(body) {
 }
 
 /**
- * POST /videos/picture/merge — 多图（+ 可选音频）OSS objectKey 合成幻灯片视频，返回 jobId。
+ * POST /videos/picture/merge — 多图（+ 可选音频 objectKey）合成幻灯片视频，返回 jobId。
  * 轮询 getMergePictureJobStatus 至 status===DONE 后，将 videoObjectKey 作为 publishVideo 的 videoUrl，durationSeconds 填 duration。
  */
 export async function mergePicturesToVideo(body) {
