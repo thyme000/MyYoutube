@@ -1,0 +1,47 @@
+# ===== IDE / 编辑器 =====
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.classpath
+.project
+*.sublime-*
+
+# ===== ZCode 工作区 =====
+.zcode/
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 日志 =====
+*.log
+logs/
+
+# ===== Java / Maven (Backend) =====
+target/
+*.class
+HELP.md
+.factorypath
+.springBeans
+.sts4-cache
+.apt_generated
+Backend/**/.mvn/wrapper/maven-wrapper.jar
+
+# ===== 前端构建产物 =====
+node_modules/
+dist/
+.vite/
+*.local
+Frontend/nginx-1.29.6/*_temp/
+
+# ===== 敏感配置 =====
+.env
+!.env.example
+**/application-local.yml
+
+# ==== 项目文档(后续重构完毕后添加) =====
+README.md
