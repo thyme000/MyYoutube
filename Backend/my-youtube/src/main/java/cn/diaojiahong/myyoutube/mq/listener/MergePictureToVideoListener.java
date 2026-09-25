@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.DownLoadMP4ToTemp;
 import cn.diaojiahong.myyoutube.common.utils.FFmpegUtil;
 import cn.diaojiahong.myyoutube.mq.message.PictureToVideoMessage;
@@ -41,7 +41,7 @@ public class MergePictureToVideoListener {
     private static final long OSS_SIGN_SECONDS = 3600L * 2;
     private static final String FFMPEG = "ffmpeg";
 
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
@@ -82,7 +82,7 @@ public class MergePictureToVideoListener {
             List<Path> imagePaths = new ArrayList<>();
             for (int i = 0; i < msg.getObjectKeys().size(); i++) {
                 String key = msg.getObjectKeys().get(i);
-                String url = aliOssUtil.signGetUrl(key, OSS_SIGN_SECONDS);
+                String url = storageUtil.signGetUrl(key, OSS_SIGN_SECONDS);
                 String ext = suffixFromObjectKey(key);
                 Path img = DownLoadMP4ToTemp.downloadToFixedDir(url, workDir, ext);
                 imagePaths.add(img);
@@ -90,7 +90,7 @@ public class MergePictureToVideoListener {
 
             Path audioPath = null;
             if (StringUtils.hasText(msg.getAudioObjectKey())) {
-                String aurl = aliOssUtil.signGetUrl(msg.getAudioObjectKey().trim(), OSS_SIGN_SECONDS);
+                String aurl = storageUtil.signGetUrl(msg.getAudioObjectKey().trim(), OSS_SIGN_SECONDS);
                 String aext = suffixFromObjectKey(msg.getAudioObjectKey());
                 audioPath = DownLoadMP4ToTemp.downloadToFixedDir(aurl, workDir, aext);
             }
@@ -106,7 +106,7 @@ public class MergePictureToVideoListener {
             );
 
             byte[] mp4 = Files.readAllBytes(output);
-            String objectKey = aliOssUtil.uploadForObjectKey(
+            String objectKey = storageUtil.uploadForObjectKey(
                     mp4,
                     "slideshow-" + msg.getJobId() + ".mp4",
                     msg.getUserId(),
@@ -173,18 +173,18 @@ public class MergePictureToVideoListener {
         Set<String> keys = new LinkedHashSet<>();
         for (String k : msg.getObjectKeys()) {
             if (StringUtils.hasText(k)) {
-                keys.add(aliOssUtil.normalizeToObjectKey(k.trim()));
+                keys.add(storageUtil.normalizeToObjectKey(k.trim()));
             }
         }
         if (StringUtils.hasText(msg.getAudioObjectKey())) {
-            keys.add(aliOssUtil.normalizeToObjectKey(msg.getAudioObjectKey().trim()));
+            keys.add(storageUtil.normalizeToObjectKey(msg.getAudioObjectKey().trim()));
         }
         if (StringUtils.hasText(mergedVideoObjectKey)) {
-            keys.remove(aliOssUtil.normalizeToObjectKey(mergedVideoObjectKey));
+            keys.remove(storageUtil.normalizeToObjectKey(mergedVideoObjectKey));
         }
         for (String key : keys) {
             if (StringUtils.hasText(key)) {
-                aliOssUtil.deleteObjectQuietly(key);
+                storageUtil.deleteObjectQuietly(key);
             }
         }
     }

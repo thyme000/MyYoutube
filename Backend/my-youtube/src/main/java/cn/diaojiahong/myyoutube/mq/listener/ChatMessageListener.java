@@ -9,7 +9,7 @@ import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForReadMessageVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForSendMessageVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForWithdrawMessageVO;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
@@ -43,7 +43,7 @@ public class ChatMessageListener {
     private final IUserService userService;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
     private final ChatConversationService chatConversationService;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final MongoTemplate mongoTemplate;
 
     @RabbitListener(bindings = @QueueBinding(
@@ -72,7 +72,7 @@ public class ChatMessageListener {
                 up.inc("unreadCount");
                 // 通知所有成员
                 NotificationForSendMessageVO json = getNotificationForSendVO(chatMessageMessage, user, conversation);
-                json.setAvatarUrl(aliOssUtil.signGetUrl(conversation.getAvatar(), 300));
+                json.setAvatarUrl(storageUtil.signGetUrl(conversation.getAvatar(), 300));
                 String jsonVO = new GsonBuilder().create().toJson(json);
                 // 通知所有成员(不包括开启免打扰的用户)
                 for (Long memberId : memberIds) {
@@ -88,7 +88,7 @@ public class ChatMessageListener {
                 // 撤销消息事件
                 // 通知所有成员
                 NotificationForWithdrawMessageVO json = getNotificationForWithdrawVO(chatMessageMessage, user, conversation);
-                json.setAvatarUrl(aliOssUtil.signGetUrl(conversation.getAvatar(), 300));
+                json.setAvatarUrl(storageUtil.signGetUrl(conversation.getAvatar(), 300));
                 String jsonVO = new GsonBuilder().create().toJson(json);
                 // 通知所有成员(不包括开启免打扰的用户)
                 for (Long memberId : memberIds) {
@@ -121,12 +121,12 @@ public class ChatMessageListener {
                 up.inc("unreadCount");
                 // 获取发送人头像url
                 NotificationForSendMessageVO json = getNotificationForSendVO(chatMessageMessage, user, conversation);
-                json.setAvatarUrl(aliOssUtil.signGetUrl(user.getAvatarUrl(), 300));
+                json.setAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), 300));
                 notifyWebSocketHandler.sendToUser(receiverId, new GsonBuilder().create().toJson(json));
             } else if (chatMessageMessage.getEvent().equals(ChatEventType.WITHDRAW.getCode())){
                 // 撤回消息事件
                 NotificationForWithdrawMessageVO json = getNotificationForWithdrawVO(chatMessageMessage, user, conversation);
-                json.setAvatarUrl(aliOssUtil.signGetUrl(user.getAvatarUrl(), 300));
+                json.setAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), 300));
                 notifyWebSocketHandler.sendToUser(receiverId, new GsonBuilder().create().toJson(json));
             }
         }

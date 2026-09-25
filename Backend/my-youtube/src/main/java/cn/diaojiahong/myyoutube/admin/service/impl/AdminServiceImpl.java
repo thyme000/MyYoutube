@@ -16,7 +16,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
@@ -51,7 +51,7 @@ public class AdminServiceImpl implements IAdminService {
     private final VideoDocRepository videoDocRepository;
     private final UserDocRepository userDocRepository;
     private final IVideoCommentService videoCommentService;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final ICommentReportService commentReportService;
 
     @Transactional
@@ -165,14 +165,14 @@ public class AdminServiceImpl implements IAdminService {
             vo.setVideoId(video.getId());
             vo.setTitle(video.getTitle());
             vo.setDescription(video.getDescription());
-            vo.setCoverUrl(aliOssUtil.signGetUrl(video.getCoverUrl(), 60 * 10));
-            vo.setVideoUrl(aliOssUtil.signGetUrl(video.getVideoUrl(), 60 * 10));
+            vo.setCoverUrl(storageUtil.signGetUrl(video.getCoverUrl(), 60 * 10));
+            vo.setVideoUrl(storageUtil.signGetUrl(video.getVideoUrl(), 60 * 10));
             vo.setVideoType(video.getVideoType());
             vo.setVideoCategory(video.getCategory());
             vo.setCreateTime(video.getCreateTime());
             vo.setAuthorId(video.getAuthorId());
             vo.setAuthorNickname(authorNicknames.get(video.getAuthorId()));
-            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(video.getAuthorId()), 60 * 10));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(video.getAuthorId()), 60 * 10));
             voList.add(vo);
         });
         return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));

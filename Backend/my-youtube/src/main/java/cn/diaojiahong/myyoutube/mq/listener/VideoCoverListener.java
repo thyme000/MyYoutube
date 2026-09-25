@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.DownLoadMP4ToTemp;
 import cn.diaojiahong.myyoutube.common.utils.FFmpegUtil;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
@@ -26,7 +26,7 @@ import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
 @RequiredArgsConstructor
 public class VideoCoverListener {
 
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final IVideoService videoService;
     private static final String OUTPUT_DIR = "src\\main\\resources\\temp";
     private static final String PREFIX_OSS = "video-cover";
@@ -62,7 +62,7 @@ public class VideoCoverListener {
 
                 // 1) 下载视频到本地
                 tempPath = DownLoadMP4ToTemp.downloadToFixedDir(
-                        aliOssUtil.signGetUrl(msg.getVideoOssObjectKey(), 3600 * 2),
+                        storageUtil.signGetUrl(msg.getVideoOssObjectKey(), 3600 * 2),
                         taskDir, ".mp4");
 
                 // 2) 生成封面
@@ -82,7 +82,7 @@ public class VideoCoverListener {
                 if (result.selectedCoverPath() != null) {
                     byte[] bytes = Files.readAllBytes(result.selectedCoverPath());
                     String fileName = result.selectedCoverPath().getFileName().toString();
-                    url = aliOssUtil.uploadForObjectKey(bytes, fileName, msg.getUserId(), PREFIX_OSS);
+                    url = storageUtil.uploadForObjectKey(bytes, fileName, msg.getUserId(), PREFIX_OSS);
                 } else {
                     url = (result.selectedCoverUrl() != null && !result.selectedCoverUrl().isBlank())
                             ? result.selectedCoverUrl()
@@ -115,7 +115,7 @@ public class VideoCoverListener {
         }
 
         videoService.lambdaUpdate()
-                .set(Video::getCoverUrl, aliOssUtil.normalizeToObjectKey(url))
+                .set(Video::getCoverUrl, storageUtil.normalizeToObjectKey(url))
                 .eq(Video::getId, msg.getVideoId())
                 .update();
     }

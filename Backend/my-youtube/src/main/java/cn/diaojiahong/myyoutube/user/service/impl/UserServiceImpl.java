@@ -5,7 +5,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
@@ -55,7 +55,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
 
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private static final Long OSS_EXPIRE = 3600 * 24L;// 24小时过期时间
     private final StringRedisTemplate redisTemplate;
     private final VideoMapper videoMapper;
@@ -71,8 +71,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return Result.fail("用户不存在");
         }
 
-        user.setAvatarUrl(aliOssUtil.signGetUrl(user.getAvatarUrl(), OSS_EXPIRE));
-        user.setBgImage(aliOssUtil.signGetUrl(user.getBgImage(), OSS_EXPIRE));
+        user.setAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), OSS_EXPIRE));
+        user.setBgImage(storageUtil.signGetUrl(user.getBgImage(), OSS_EXPIRE));
 
         return Result.success(BeanUtil.toBean(user, UserVO.class));
     }
@@ -98,7 +98,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         } catch (IOException e) {
             log.error("更新头像或背景图片失败...", e);
         }
-        return aliOssUtil.uploadForObjectKey(bytes, file.getOriginalFilename(),
+        return storageUtil.uploadForObjectKey(bytes, file.getOriginalFilename(),
                 getUserId(), bizPrefix);
     }
 
@@ -248,8 +248,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
         // 转换视频封面url和视频url
         longHistoryVideoVOs.forEach(vo -> {
-            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_EXPIRE));
-            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
+            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), OSS_EXPIRE));
+            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
         });
 
         List<Long> authorIds = longHistoryVideoVOs
@@ -264,7 +264,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 填充作者昵称和头像url
         longHistoryVideoVOs.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
-            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE));
         });
 
         // 获取用户长视频观看时长记录
@@ -352,8 +352,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
         // 转换视频封面url和视频url
         shortsVOs.forEach(vo -> {
-            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_EXPIRE));
-            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
+            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), OSS_EXPIRE));
+            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
         });
 
         List<Long> authorIds = shortsVOs
@@ -368,7 +368,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 填充作者昵称和头像url
         shortsVOs.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
-            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE));
         });
 
         // 获取用户关注状态
@@ -410,8 +410,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         Long userId = getUserId();
         User userInfo = getById(userId);
 
-        userInfo.setAvatarUrl(aliOssUtil.signGetUrl(userInfo.getAvatarUrl(), OSS_EXPIRE));
-        userInfo.setBgImage(aliOssUtil.signGetUrl(userInfo.getBgImage(), OSS_EXPIRE));
+        userInfo.setAvatarUrl(storageUtil.signGetUrl(userInfo.getAvatarUrl(), OSS_EXPIRE));
+        userInfo.setBgImage(storageUtil.signGetUrl(userInfo.getBgImage(), OSS_EXPIRE));
 
         return Result.success(BeanUtil.toBean(userInfo, UserVO.class));
     }

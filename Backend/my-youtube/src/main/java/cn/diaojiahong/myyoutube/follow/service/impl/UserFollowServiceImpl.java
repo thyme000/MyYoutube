@@ -4,7 +4,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
 import cn.diaojiahong.myyoutube.follow.domain.vo.UserRelationshipVO;
@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
 public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFollow> implements IUserFollowService {
 
     private final IUserService userService;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final UserDocRepository userDocRepository;
 
     private static final long OSS_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
@@ -222,7 +222,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         return orderedList.stream().map(u -> {
             UserRelationshipVO vo = new UserRelationshipVO();
             vo.setNickname(u.getNickname());
-            vo.setAvatarUrl(aliOssUtil.signGetUrl(u.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+            vo.setAvatarUrl(storageUtil.signGetUrl(u.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
             vo.setIntroduction(u.getIntroduction());
             vo.setUserId(u.getId());
             return vo;

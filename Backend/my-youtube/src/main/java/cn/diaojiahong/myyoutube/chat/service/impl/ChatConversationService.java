@@ -11,7 +11,7 @@ import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
@@ -40,20 +40,20 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
 
     private final IUserFollowService userFollowService;
     private final IUserService userService;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final RabbitTemplate rabbitTemplate;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
 
     public ChatConversationService(MongoTemplate mongoTemplate,
                                    IUserFollowService userFollowService,
                                    IUserService userService,
-                                   AliOssUtil aliOssUtil,
+                                   S3StorageUtil storageUtil,
                                    RabbitTemplate rabbitTemplate,
                                    NotifyWebSocketHandler notifyWebSocketHandler) {
         super(mongoTemplate, ChatConversationDoc.class);
         this.userFollowService = userFollowService;
         this.userService = userService;
-        this.aliOssUtil = aliOssUtil;
+        this.storageUtil = storageUtil;
         this.rabbitTemplate = rabbitTemplate;
         this.notifyWebSocketHandler = notifyWebSocketHandler;
     }
@@ -156,7 +156,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         String avatarUrl = null;
         try {
             byte[] bytes = avatar.getBytes();
-            avatarUrl = aliOssUtil.upload(bytes, avatar.getOriginalFilename(), userId, BIZ_PREFIX);
+            avatarUrl = storageUtil.upload(bytes, avatar.getOriginalFilename(), userId, BIZ_PREFIX);
         } catch (IOException e) {
             log.error("上传文件到OSS失败，avatar: {}", avatar.getOriginalFilename(), e);
         }
@@ -333,7 +333,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         for (Long userId : chatConversationDoc.getMemberIds()) {
             User user = userService.getById(userId);
             conversationMembersVOs.add(new ConversationMembersVO(user.getId(),
-                    user.getNickname(), aliOssUtil.signGetUrl(user.getAvatarUrl(), 600),
+                    user.getNickname(), storageUtil.signGetUrl(user.getAvatarUrl(), 600),
                     userId.equals(chatConversationDoc.getCreatedBy())));
         }
         return Result.success(conversationMembersVOs);

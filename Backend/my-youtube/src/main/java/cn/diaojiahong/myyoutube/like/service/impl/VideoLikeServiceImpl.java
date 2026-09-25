@@ -8,7 +8,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.like.domain.constants.VideoLikeConstants;
@@ -54,7 +54,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     private final IVideoService videoService;
     private final StringRedisTemplate redisTemplate;
     private final IUserService userService;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final VideoLikeMapper videoLikeMapper;
     private final IVideoCommentService videoCommentService;
     private final RabbitTemplate rabbitTemplate;
@@ -180,12 +180,12 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         Map<Long, String> authorAvatarUrls = userService.getAuthorAvatarUrls(authorIds);
         voList.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
-            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE));
         });
         // 填充视频封面url和视频url
         voList.forEach(vo -> {
-            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_EXPIRE));
-            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
+            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), OSS_EXPIRE));
+            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), OSS_EXPIRE));
         });
         // 填充是否关注作者
         List<Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);

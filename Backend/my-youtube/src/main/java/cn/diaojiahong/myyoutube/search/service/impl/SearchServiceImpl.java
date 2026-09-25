@@ -4,7 +4,7 @@ import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
@@ -52,7 +52,7 @@ public class SearchServiceImpl implements ISearchService {
     private final IUserFollowService userFollowService;
     private final VideoMapper videoMapper;
     private final IUserService userService;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final StringRedisTemplate redisTemplate;
     private final ElasticsearchClient elasticsearchClient;
     private final VideoLikeMapper videoLikeMapper;
@@ -211,7 +211,7 @@ public class SearchServiceImpl implements ISearchService {
             return Result.success(PageResult.of(0, 0, result));
         }
         result.forEach(vo -> {
-            vo.setAvatarUrl(aliOssUtil.signGetUrl(avatarUrls.get(vo.getId()), OSS_EXPIRE_SECONDS));
+            vo.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(vo.getId()), OSS_EXPIRE_SECONDS));
         });
 
         loadForHotSearch(userId, keyword);
@@ -378,12 +378,12 @@ public class SearchServiceImpl implements ISearchService {
         }
         result.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
-            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE_SECONDS));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_EXPIRE_SECONDS));
         });
         // 视频url,封面url
         result.forEach(re -> {
-            re.setVideoUrl(aliOssUtil.signGetUrl(re.getVideoUrl(), OSS_EXPIRE_SECONDS));
-            re.setCoverUrl(aliOssUtil.signGetUrl(re.getCoverUrl(), OSS_EXPIRE_SECONDS));
+            re.setVideoUrl(storageUtil.signGetUrl(re.getVideoUrl(), OSS_EXPIRE_SECONDS));
+            re.setCoverUrl(storageUtil.signGetUrl(re.getCoverUrl(), OSS_EXPIRE_SECONDS));
         });
         // 判断是否点过赞
         List<Long> likedIds = isLike(getUserId(), videos.stream().map(Video::getId).collect(Collectors.toList()));

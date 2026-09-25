@@ -18,7 +18,7 @@ import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
@@ -60,7 +60,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private final ChatConversationService chatConversationService;
     private final RabbitTemplate rabbitTemplate;
     private final IUserService userService;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final StringRedisTemplate redisTemplate;
     private final IUserFollowService userFollowService;
     private final IVideoService videoService;
@@ -68,7 +68,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                               ChatConversationService chatConversationService,
                               RabbitTemplate rabbitTemplate,
                               IUserService userService,
-                              AliOssUtil aliOssUtil,
+                              S3StorageUtil storageUtil,
                               StringRedisTemplate redisTemplate,
                               IUserFollowService userFollowService,
                               IVideoService videoService) {
@@ -76,7 +76,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         this.chatConversationService = chatConversationService;
         this.rabbitTemplate = rabbitTemplate;
         this.userService = userService;
-        this.aliOssUtil = aliOssUtil;
+        this.storageUtil = storageUtil;
         this.redisTemplate = redisTemplate;
         this.userFollowService = userFollowService;
         this.videoService = videoService;
@@ -375,15 +375,15 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             MessagePage vo = new MessagePage();
             vo.setSenderId(doc.getSenderId());
             vo.setSenderNickName(authorNicknames.get(doc.getSenderId()));
-            vo.setSenderAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(doc.getSenderId()), OSS_EXPIRE));
+            vo.setSenderAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(doc.getSenderId()), OSS_EXPIRE));
             vo.setContentType(doc.getContentType());
             if (vo.getContentType() == ContentTypeEnum.FILE || vo.getContentType() == ContentTypeEnum.IMAGE) {
                 if (doc.getContent().getObjectKey() != null && !doc.getContent().getObjectKey().isBlank()) {
-                    doc.getContent().setObjectKey(aliOssUtil.signGetUrl(doc.getContent().getObjectKey(), OSS_EXPIRE));
+                    doc.getContent().setObjectKey(storageUtil.signGetUrl(doc.getContent().getObjectKey(), OSS_EXPIRE));
                 }
             } else if (vo.getContentType() == ContentTypeEnum.FORWARD_VIDEO) {
                 if (doc.getContent().getForwardVideoCoverObjectKey() != null && !doc.getContent().getForwardVideoCoverObjectKey().isBlank()) {
-                    doc.getContent().setForwardVideoCoverObjectKey(aliOssUtil.signGetUrl(doc.getContent().getForwardVideoCoverObjectKey(), OSS_EXPIRE));
+                    doc.getContent().setForwardVideoCoverObjectKey(storageUtil.signGetUrl(doc.getContent().getForwardVideoCoverObjectKey(), OSS_EXPIRE));
                 }
             }
             vo.setContent(doc.getContent());
@@ -526,16 +526,16 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             vo.setContentType(doc.getContentType());
             vo.setCreatedAt(doc.getCreatedAt());
             vo.setSenderNickname(nickMap.get(doc.getSenderId()));
-            vo.setSenderAvatarUrl(aliOssUtil.signGetUrl(avMap.get(doc.getSenderId()), OSS_EXPIRE));
+            vo.setSenderAvatarUrl(storageUtil.signGetUrl(avMap.get(doc.getSenderId()), OSS_EXPIRE));
             ChatContent content = doc.getContent();
             if (content != null
                     && (doc.getContentType() == ContentTypeEnum.FILE || doc.getContentType() == ContentTypeEnum.IMAGE)
                     && content.getObjectKey() != null) {
-                content.setObjectKey(aliOssUtil.signGetUrl(content.getObjectKey(), OSS_EXPIRE));
+                content.setObjectKey(storageUtil.signGetUrl(content.getObjectKey(), OSS_EXPIRE));
                 vo.setContent(content);
             } else if (content != null && doc.getContentType() == ContentTypeEnum.FORWARD_VIDEO) {
                 if (content.getForwardVideoCoverObjectKey() != null && !content.getForwardVideoCoverObjectKey().isBlank()) {
-                    content.setForwardVideoCoverObjectKey(aliOssUtil.signGetUrl(content.getForwardVideoCoverObjectKey(), OSS_EXPIRE));
+                    content.setForwardVideoCoverObjectKey(storageUtil.signGetUrl(content.getForwardVideoCoverObjectKey(), OSS_EXPIRE));
                 }
                 vo.setContent(content);
             } else {

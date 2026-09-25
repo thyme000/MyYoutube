@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
 import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
@@ -34,7 +34,7 @@ public class ChatConversationListener {
     private final ChatConversationService chatConversationService;
     private final IUserNotificationService userNotificationService;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
 
     @RabbitListener(bindings = @QueueBinding(
             value = @Queue(name = NOTIFY_GROUP_MEMBER_DELETED_QUEUE, durable = "true"),
@@ -67,7 +67,7 @@ public class ChatConversationListener {
             ChatNotificationForJson json = new ChatNotificationForJson();
             json.setType(NotificationTypeEnum.CHAT_NOTICE.getCode());
             json.setContent("群:" + conversation.getName() + "已解散");
-            json.setConversationAvatarUrl(aliOssUtil.signGetUrl(conversation.getAvatar(), 300));
+            json.setConversationAvatarUrl(storageUtil.signGetUrl(conversation.getAvatar(), 300));
             json.setConversationName(conversation.getName());
             json.setConversationId(conversationId);
             notifyWebSocketHandler.sendToUser(memberId, new GsonBuilder().create().toJson(json));

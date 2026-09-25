@@ -11,7 +11,7 @@ import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
@@ -47,7 +47,7 @@ import java.util.Objects;
 public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, VideoComment> implements IVideoCommentService {
 
     private final IUserService userService;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final IVideoService videoService;
     private final StringRedisTemplate redisTemplate;
     private final RabbitTemplate rabbitTemplate;
@@ -203,7 +203,7 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
             return Result.success(PageResult.of(page.getTotal(), page.getPages(), commentVOList));
         }
         commentVOList.forEach(commentVO -> commentVO.setNickname(nicknames.get(commentVO.getUserId())));
-        commentVOList.forEach(commentVO -> commentVO.setAvatarUrl(aliOssUtil.signGetUrl(avatarUrls.get(commentVO.getUserId()), OSS_EXPIRE)));
+        commentVOList.forEach(commentVO -> commentVO.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(commentVO.getUserId()), OSS_EXPIRE)));
 
         // 填充回复用户的昵称
         List<Long> replyUserIds = commentVOList.stream().map(CommentVO::getReplyUserId).toList();

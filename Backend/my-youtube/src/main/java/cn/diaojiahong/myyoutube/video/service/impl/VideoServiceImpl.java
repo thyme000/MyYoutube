@@ -6,7 +6,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
@@ -65,7 +65,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
     private final IUserService userService;
     private final RabbitTemplate rabbitTemplate;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final IVideoTagService videoTagService;
     private final IRecommendService recommendService;
     private final StringRedisTemplate redisTemplate;
@@ -88,7 +88,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         Long userId = getUserId();
 
         Video video = BeanUtil.toBean(videoDTO, Video.class);
-        video.setVideoUrl(aliOssUtil.normalizeToObjectKey(video.getVideoUrl()));
+        video.setVideoUrl(storageUtil.normalizeToObjectKey(video.getVideoUrl()));
 
         video.setAuthorId(userId);
 
@@ -211,7 +211,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                         .map(VideoListVO::getAuthorId)
                         .collect(Collectors.toList()));
         list.forEach(vo ->
-                vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(map.getOrDefault(vo.getAuthorId(), null),
+                vo.setAuthorAvatarUrl(storageUtil.signGetUrl(map.getOrDefault(vo.getAuthorId(), null),
                         OSS_READ_SIGN_EXPIRE_SECONDS)));
     }
 
@@ -228,8 +228,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
 
         VideoDetailVO detailVo = VideoVoConverter.toDetailVo(video);
-        detailVo.setVideoUrl(aliOssUtil.signGetUrl(detailVo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
-        detailVo.setCoverUrl(aliOssUtil.signGetUrl(detailVo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+        detailVo.setVideoUrl(storageUtil.signGetUrl(detailVo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+        detailVo.setCoverUrl(storageUtil.signGetUrl(detailVo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
 
         // 查看历史播放记录,看是否有播放记录,如果有完成续播功能
         String playTimeStr = (String) redisTemplate.opsForHash().get(RedisConstants.USER_PLAYBACK_RESUME + userId, videoId.toString());
@@ -242,7 +242,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 获取作者的信息
         User author = userService.getById(video.getAuthorId());
         detailVo.setAuthorFanCount(author.getFans());
-        detailVo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(author.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+        detailVo.setAuthorAvatarUrl(storageUtil.signGetUrl(author.getAvatarUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         detailVo.setAuthorNickname(author.getNickname());
 
         return Result.success(detailVo);
@@ -333,7 +333,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             return;
         }
         for (VideoListVO vo : list) {
-            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 
@@ -378,7 +378,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             // 填充
             voList.forEach(vo -> vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId())));
             voList.forEach(vo -> {
-                vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_READ_SIGN_EXPIRE_SECONDS));
+                vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), OSS_READ_SIGN_EXPIRE_SECONDS));
             });
             // 签名封面url
             signListCoverUrlsForShortsVO(voList);
@@ -531,15 +531,15 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 填充作者头像url
         Map<Long, String> idToAvatar = userService.getAuthorAvatarUrls(videoIds);
         for (FollowVideoVO vo : voList) {
-            vo.setAuthorAvatarUrl(aliOssUtil.signGetUrl(idToAvatar.get(vo.getAuthorId()), OSS_READ_SIGN_EXPIRE_SECONDS));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(idToAvatar.get(vo.getAuthorId()), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
         // 签名视频封面url
         for (FollowVideoVO vo : voList) {
-            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
         // 签名视频url
         for (FollowVideoVO vo : voList) {
-            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
 
         // 获取点赞状态
@@ -671,7 +671,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
-                .map(aliOssUtil::normalizeToObjectKey)
+                .map(storageUtil::normalizeToObjectKey)
                 .collect(Collectors.toList());
         if (keys.isEmpty()) {
             return Result.fail("图片列表不能为空");
@@ -683,7 +683,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
         String audioKey = null;
         if (StringUtils.hasText(pictureForVideoDTO.getAudioObjectKey())) {
-            audioKey = aliOssUtil.normalizeToObjectKey(pictureForVideoDTO.getAudioObjectKey().trim());
+            audioKey = storageUtil.normalizeToObjectKey(pictureForVideoDTO.getAudioObjectKey().trim());
             if (!objectKeyBelongsToUser(userId, audioKey)) {
                 return Result.fail("无权使用该音频资源");
             }
@@ -742,13 +742,13 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     }
 
     /**
-     * 与 AliOssUtil目录规则一致：uploads/{biz}/{userId}/...
+     * 与 S3StorageUtil目录规则一致：uploads/{biz}/{userId}/...
      */
     private boolean objectKeyBelongsToUser(Long userId, String objectKey) {
         if (!StringUtils.hasText(objectKey)) {
             return false;
         }
-        String k = objectKey.startsWith("uploads/") ? objectKey.trim() : aliOssUtil.normalizeToObjectKey(objectKey);
+        String k = objectKey.startsWith("uploads/") ? objectKey.trim() : storageUtil.normalizeToObjectKey(objectKey);
         if (!k.startsWith("uploads/")) {
             return false;
         }
@@ -802,7 +802,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             return;
         }
         for (VideoListVO vo : list) {
-            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 
@@ -811,7 +811,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             return;
         }
         for (ShortsVO vo : list) {
-            vo.setCoverUrl(aliOssUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 
@@ -820,7 +820,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             return;
         }
         for (ShortsVO vo : list) {
-            vo.setVideoUrl(aliOssUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
+            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), OSS_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 

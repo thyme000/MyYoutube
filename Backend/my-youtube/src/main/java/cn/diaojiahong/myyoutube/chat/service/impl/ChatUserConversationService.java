@@ -9,7 +9,7 @@ import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
@@ -38,14 +38,14 @@ import java.util.stream.Collectors;
 public class ChatUserConversationService extends BaseMongoService<ChatUserConversationDoc> {
 
     private static final Long OSS_EXPIRE_TIME = 3600 * 10L;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final IUserService userService;
 
     public ChatUserConversationService(MongoTemplate mongoTemplate,
-                                       AliOssUtil aliOssUtil,
+                                       S3StorageUtil storageUtil,
                                        IUserService userService) {
         super(mongoTemplate, ChatUserConversationDoc.class);
-        this.aliOssUtil = aliOssUtil;
+        this.storageUtil = storageUtil;
         this.userService = userService;
     }
 
@@ -104,11 +104,11 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                         // 需要展示的是对方的头像和昵称
                         conversationDoc.getMemberIds().remove(getUserId());
                         User user = userService.getById(conversationDoc.getMemberIds().get(0));
-                        vo.setConversationAvatar(aliOssUtil.signGetUrl(user.getAvatarUrl(), OSS_EXPIRE_TIME));
+                        vo.setConversationAvatar(storageUtil.signGetUrl(user.getAvatarUrl(), OSS_EXPIRE_TIME));
                         vo.setConversationName(user.getNickname());
                     } else {
                         // 需要展示的是群聊名称
-                        vo.setConversationAvatar(aliOssUtil.signGetUrl(conversationDoc.getAvatar(), OSS_EXPIRE_TIME));
+                        vo.setConversationAvatar(storageUtil.signGetUrl(conversationDoc.getAvatar(), OSS_EXPIRE_TIME));
                         vo.setConversationName(conversationDoc.getName() == null ? conversationDoc.getId() : conversationDoc.getName());
                     }
                     vo.setConversationType(conversationDoc.getType());
@@ -213,7 +213,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                     vo.setConversationId(v.getConversationId());
                     vo.setConversationName(collect.get(v.getConversationId()).getName());
                     vo.setConversationType(collect.get(v.getConversationId()).getType());
-                    vo.setConversationAvatar(aliOssUtil.signGetUrl(collect.get(v.getConversationId()).getAvatar(), 60 * 5));
+                    vo.setConversationAvatar(storageUtil.signGetUrl(collect.get(v.getConversationId()).getAvatar(), 60 * 5));
                     return vo;
                 })
                 .toList();

@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
@@ -31,7 +31,7 @@ public class PublishCommentListener {
     private final IUserNotificationService userNotificationService;
     private final IUserService userService;
     private final IVideoCommentService videoCommentService;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
 
     @RabbitListener(bindings = @QueueBinding(
@@ -62,7 +62,7 @@ public class PublishCommentListener {
         NotificationForJson json = new NotificationForJson();
         json.setId(userNotification.getId());
         json.setSenderNickname(user.getNickname());
-        json.setSenderAvatarUrl(aliOssUtil.signGetUrl(user.getAvatarUrl(), 300));
+        json.setSenderAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), 300));
         json.setContent(message.getContent());
         if (Boolean.TRUE.equals(message.getIsVideoComment())) {
             json.setType(NotificationTypeEnum.VIDEO_COMMENT.getCode());

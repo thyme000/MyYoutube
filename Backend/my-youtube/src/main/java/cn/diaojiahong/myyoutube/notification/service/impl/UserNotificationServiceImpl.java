@@ -7,7 +7,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.AliOssUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
@@ -39,7 +39,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
 
     private final IUserService userService;
     private final IVideoCommentService videoCommentService;
-    private final AliOssUtil aliOssUtil;
+    private final S3StorageUtil storageUtil;
 
     @Override
     public Result<PageResult<NotificationVO>> getNotificationList(PageQuery pageQuery) {
@@ -87,7 +87,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
         List<Long> senderAvatarIds = senderIds;
         Map<Long, String> avatarUrls = userService.getAuthorAvatarUrls(senderAvatarIds);
         result.forEach(r -> {
-            r.setSenderAvatarUrl(aliOssUtil.signGetUrl(avatarUrls.getOrDefault(r.getSenderId(), ""), 300));
+            r.setSenderAvatarUrl(storageUtil.signGetUrl(avatarUrls.getOrDefault(r.getSenderId(), ""), 300));
         });
 
         return Result.success(PageResult.of(page.getTotal(), page.getPages(), result));
