@@ -13,7 +13,7 @@ import cn.diaojiahong.myyoutube.chat.mongo.vo.FindRecordVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePage;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePageVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
-import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -32,7 +32,7 @@ import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -58,7 +58,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private static final Long STORAGE_EXPIRE = 3600L * 10;
 
     private final ChatConversationService chatConversationService;
-    private final RabbitTemplate rabbitTemplate;
+    private final RocketMQTemplate rocketMQTemplate;
     private final IUserService userService;
     private final S3StorageUtil storageUtil;
     private final StringRedisTemplate redisTemplate;
@@ -66,7 +66,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private final IVideoService videoService;
     public ChatMessageService(MongoTemplate mongoTemplate,
                               ChatConversationService chatConversationService,
-                              RabbitTemplate rabbitTemplate,
+                              RocketMQTemplate rocketMQTemplate,
                               IUserService userService,
                               S3StorageUtil storageUtil,
                               StringRedisTemplate redisTemplate,
@@ -74,7 +74,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                               IVideoService videoService) {
         super(mongoTemplate, ChatMessageDoc.class);
         this.chatConversationService = chatConversationService;
-        this.rabbitTemplate = rabbitTemplate;
+        this.rocketMQTemplate = rocketMQTemplate;
         this.userService = userService;
         this.storageUtil = storageUtil;
         this.redisTemplate = redisTemplate;
@@ -225,7 +225,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             chatConversationDoc.setLastMessageSenderNickname(userService.getById(userId).getNickname());
         }
         mongoTemplate.save(chatConversationDoc, "chat_conversations");
-        rabbitTemplate.convertAndSend(RabbitMqConstants.MESSAGE_EXCHANGE, RabbitMqConstants.MESSAGE_ROUTING_KEY, ch);
+        rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
         return Result.success(chatMessageAckDTO);
     }
 
@@ -317,7 +317,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                 .messageId(chatMessageDoc.getId()).contentType(chatMessageDoc.getContentType())
                 .recallType(recallTypeForMq)
                 .serviceTime(recallTime).event("withdraw").build();
-        rabbitTemplate.convertAndSend(RabbitMqConstants.MESSAGE_EXCHANGE, RabbitMqConstants.MESSAGE_ROUTING_KEY, ch);
+        rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
         return Result.success(chatMessageAckDTO);
     }
 
@@ -474,8 +474,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         // 发送Mq消息
         ReadMessageMessage vo = ReadMessageMessage.builder()
                 .lastReadSeq(lastReadSeq).receiverId(receiverId.toString()).conversationId(conversationId).build();
-        rabbitTemplate.convertAndSend(RabbitMqConstants.READ_MESSAGE_EXCHANGE,
-                RabbitMqConstants.READ_MESSAGE_ROUTING_KEY, vo);
+        rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_READ, vo);
         return Result.success();
     }
 

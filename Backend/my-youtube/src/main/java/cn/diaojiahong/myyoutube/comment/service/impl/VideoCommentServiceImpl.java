@@ -7,7 +7,7 @@ import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
 import cn.diaojiahong.myyoutube.comment.domain.vo.CommentVO;
 import cn.diaojiahong.myyoutube.comment.mapper.VideoCommentMapper;
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
-import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -23,7 +23,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
@@ -50,7 +50,7 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
     private final S3StorageUtil storageUtil;
     private final IVideoService videoService;
     private final StringRedisTemplate redisTemplate;
-    private final RabbitTemplate rabbitTemplate;
+    private final RocketMQTemplate rocketMQTemplate;
     private final static int STORAGE_EXPIRE = 60 * 20;
 
     @Transactional
@@ -130,8 +130,7 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
             }
         }
         if (isSend) {
-            rabbitTemplate.convertAndSend(RabbitMqConstants.PUBLISH_COMMENT_EXCHANGE,
-                    RabbitMqConstants.PUBLISH_COMMENT_ROUTING_KEY, message);
+            rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_PUBLISH, message);
         }
 
         return Result.success();

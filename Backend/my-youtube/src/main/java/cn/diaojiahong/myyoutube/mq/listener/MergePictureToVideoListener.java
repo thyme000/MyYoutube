@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.DownLoadMP4ToTemp;
@@ -11,11 +12,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.ExchangeTypes;
-import org.springframework.amqp.rabbit.annotation.Exchange;
-import org.springframework.amqp.rabbit.annotation.Queue;
-import org.springframework.amqp.rabbit.annotation.QueueBinding;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
+import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -31,12 +29,15 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
-
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class MergePictureToVideoListener {
+@RocketMQMessageListener(
+        topic = MqConstants.TOPIC_MERGE_PICTURES,
+        consumerGroup = "merge_pictures_group",
+        consumeThreadNumber = 1, // 限制并发数为 1，避免 ffmpeg 资源竞争
+        maxReconsumeTimes = 3)
+public class MergePictureToVideoListener implements RocketMQListener<PictureToVideoMessage> {
 
     private static final long STORAGE_SIGN_SECONDS = 3600L * 2;
     private static final String FFMPEG = "ffmpeg";
@@ -45,15 +46,8 @@ public class MergePictureToVideoListener {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(
-            bindings = @QueueBinding(
-                    value = @Queue(name = MERGE_PICTURES_QUEUE, durable = "true"),
-                    exchange = @Exchange(name = MERGE_PICTURES_EXCHANGE, type = ExchangeTypes.TOPIC),
-                    key = MERGE_PICTURES_ROUTING_KEY
-            ),
-            concurrency = "1" // 限制并发数为 1，避免资源竞争
-    )
-    public void mergePicturesToVideo(PictureToVideoMessage msg) {
+    @Override
+    public void onMessage(PictureToVideoMessage msg) {
         if (msg == null || !StringUtils.hasText(msg.getJobId()) || msg.getUserId() == null
                 || msg.getObjectKeys() == null || msg.getObjectKeys().isEmpty()) {
             log.warn("MergePictureToVideoListener 收到无效消息: {}", msg);

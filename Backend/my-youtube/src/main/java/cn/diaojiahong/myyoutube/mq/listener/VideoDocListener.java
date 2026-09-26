@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.mq.message.VideoDocMessage;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
@@ -7,34 +8,29 @@ import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.ExchangeTypes;
-import org.springframework.amqp.rabbit.annotation.Exchange;
-import org.springframework.amqp.rabbit.annotation.Queue;
-import org.springframework.amqp.rabbit.annotation.QueueBinding;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
+import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.List;
 
-import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
-
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class VideoDocListener {
+@RocketMQMessageListener(
+        topic = MqConstants.TOPIC_ES_DOCUMENT,
+        consumerGroup = "es_document_video_group",
+        selectorExpression = MqConstants.TAG_ES_VIDEO,
+        maxReconsumeTimes = 3)
+public class VideoDocListener implements RocketMQListener<VideoDocMessage> {
 
     private final VideoDocRepository videoDocRepository;
     private final IUserService userService;
 
-
-    @RabbitListener(bindings = @QueueBinding(
-            value = @Queue(name = UPDATE_VIDEO_DOCUMENT_QUEUE, durable = "true"),
-            exchange = @Exchange(name = UPDATE_VIDEO_DOCUMENT_EXCHANGE, type = ExchangeTypes.TOPIC),
-            key = UPDATE_VIDEO_DOCUMENT_ROUTING_KEY
-    ))
-    public void updateVideoDocument(VideoDocMessage message) {
+    @Override
+    public void onMessage(VideoDocMessage message) {
         Video video = message.getVideo();
         List<Long> tagIds = message.getTagIds();
         List<String> list = null;

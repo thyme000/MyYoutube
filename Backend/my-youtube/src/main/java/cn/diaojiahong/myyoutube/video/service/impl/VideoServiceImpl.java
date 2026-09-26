@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service.impl;
 
-import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
@@ -29,17 +29,20 @@ import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.data.redis.core.DefaultTypedTuple;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -64,7 +67,7 @@ import static cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum.SHORT_VI
 public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements IVideoService {
 
     private final IUserService userService;
-    private final RabbitTemplate rabbitTemplate;
+    private final RocketMQTemplate rocketMQTemplate;
     private final S3StorageUtil storageUtil;
     private final IVideoTagService videoTagService;
     private final IRecommendService recommendService;
@@ -108,21 +111,29 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
         video.setCreateTime(LocalDateTime.now());
         video.setStatus(REVIEW);
-        save(video);
+        // 预分配雪花id, 事务消息回查时按它判断入库结果
+        video.setId(IdWorker.getId());
 
-        // 异步保存到标签表中
-        videoTagService.saveTagsAsync(video.getTags(), video.getId(), video);
-
-        // 发送消息给RabbitMQ,用于自动生成视频封面
-        rabbitTemplate.convertAndSend(RabbitMqConstants.VIDEO_COVER_EXCHANGE,
-                RabbitMqConstants.VIDEO_COVER_ROUTING_KEY,
-                VideoCoverMessage.builder()
-                        .videoId(video.getId())
-                        .userId(userId)
-                        .videoObjectKey(videoDTO.getVideoUrl())
-                        .build());
+        // 事务消息: half 消息先发出, 本地事务入库成功才提交, 保证"视频入库"与"封面任务"原子性
+        VideoCoverMessage coverMsg = VideoCoverMessage.builder()
+                .videoId(video.getId())
+                .userId(userId)
+                .videoObjectKey(videoDTO.getVideoUrl())
+                .build();
+        Message<VideoCoverMessage> message = MessageBuilder.withPayload(coverMsg)
+                .setHeader("videoId", video.getId().toString())
+                .build();
+        rocketMQTemplate.sendMessageInTransaction(MqConstants.TOPIC_VIDEO_COVER, message, video);
 
         return Result.success(video.getId() + "/" + "视频发布成功,等待审核中....");
+    }
+
+    @Transactional
+    @Override
+    public void persistNewVideo(Video video) {
+        save(video);
+        // 异步保存到标签表中
+        videoTagService.saveTagsAsync(video.getTags(), video.getId(), video);
     }
 
     @Override
@@ -339,10 +350,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
     @Override
     public Result<String> generateVideoCover(VideoCoverMessage videoCoverMessage) {
-        // 发送消息给rabbitMQ,异步去获取视频封面
-        rabbitTemplate.convertAndSend(RabbitMqConstants.VIDEO_COVER_EXCHANGE,
-                RabbitMqConstants.VIDEO_COVER_ROUTING_KEY, videoCoverMessage);
-        log.info("发送视频封面消息到 rabbitMQ, 视频id: {}", videoCoverMessage.getVideoId());
+        // 异步生成视频封面
+        rocketMQTemplate.syncSend(MqConstants.TOPIC_VIDEO_COVER, videoCoverMessage);
+        log.info("发送视频封面消息, 视频id: {}", videoCoverMessage.getVideoId());
         return Result.success("发布成功");
     }
 
@@ -707,8 +717,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
 
         PictureToVideoMessage message = new PictureToVideoMessage(jobId, userId, keys, audioKey);
-        rabbitTemplate.convertAndSend(RabbitMqConstants.MERGE_PICTURES_EXCHANGE,
-                RabbitMqConstants.MERGE_PICTURES_ROUTING_KEY, message);
+        rocketMQTemplate.syncSend(MqConstants.TOPIC_MERGE_PICTURES, message);
         return Result.success(jobId);
     }
 

@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.recommend.service.impl;
 
-import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.mq.message.VideoDocMessage;
 import cn.diaojiahong.myyoutube.recommend.domain.po.VideoTag;
@@ -12,7 +12,7 @@ import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
@@ -33,7 +33,7 @@ import java.util.List;
 public class VideoTagServiceImpl extends ServiceImpl<VideoTagMapper, VideoTag> implements IVideoTagService {
 
     private final ITagService tagService;
-    private final RabbitTemplate rabbitTemplate;
+    private final RocketMQTemplate rocketMQTemplate;
 
     @Async
     @Override
@@ -52,10 +52,9 @@ public class VideoTagServiceImpl extends ServiceImpl<VideoTagMapper, VideoTag> i
         // 批量插入
         saveBatch(tagIds.stream().map(tagId -> new VideoTag().setVideoId(videoId).setTagId(tagId)).toList());
 
-        // 发送消息给RabbitMQ,用于更新视频文档
-        rabbitTemplate.convertAndSend(
-                RabbitMqConstants.UPDATE_VIDEO_DOCUMENT_EXCHANGE,
-                RabbitMqConstants.UPDATE_VIDEO_DOCUMENT_ROUTING_KEY,
-                VideoDocMessage.builder().video(video).tagIds(tagIds).build());
+        // 延迟同步 ES 视频文档, 短时间多次变更天然合并
+        rocketMQTemplate.syncSendDelayTimeSeconds(
+                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_VIDEO,
+                VideoDocMessage.builder().video(video).tagIds(tagIds).build(), 5);
     }
 }

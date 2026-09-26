@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
@@ -14,32 +15,28 @@ import cn.diaojiahong.myyoutube.user.service.IUserService;
 import com.google.gson.GsonBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.ExchangeTypes;
-import org.springframework.amqp.rabbit.annotation.Exchange;
-import org.springframework.amqp.rabbit.annotation.Queue;
-import org.springframework.amqp.rabbit.annotation.QueueBinding;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
+import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.stereotype.Component;
-
-
-import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class PublishCommentListener {
+@RocketMQMessageListener(
+        topic = MqConstants.TOPIC_COMMENT_ACTION,
+        consumerGroup = "comment_publish_group",
+        selectorExpression = MqConstants.TAG_PUBLISH,
+        maxReconsumeTimes = 3)
+public class PublishCommentListener implements RocketMQListener<CommentMessage> {
+
     private final IUserNotificationService userNotificationService;
     private final IUserService userService;
     private final IVideoCommentService videoCommentService;
     private final S3StorageUtil storageUtil;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
 
-    @RabbitListener(bindings = @QueueBinding(
-            value = @Queue(name = PUBLISH_COMMENT_QUEUE, durable = "true"),
-            exchange = @Exchange(name = PUBLISH_COMMENT_EXCHANGE, type = ExchangeTypes.TOPIC),
-            key = PUBLISH_COMMENT_ROUTING_KEY
-    ))
-    public void handlePublishComment(CommentMessage message) {
+    @Override
+    public void onMessage(CommentMessage message) {
         log.info("收到发布评论消息: {}", message);
         // 保存到数据库
         UserNotification userNotification = new UserNotification();

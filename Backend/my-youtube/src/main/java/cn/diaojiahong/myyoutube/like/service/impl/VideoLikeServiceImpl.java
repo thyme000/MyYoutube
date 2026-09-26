@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.like.service.impl;
 
 import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
-import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
@@ -26,7 +26,7 @@ import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,7 +57,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     private final S3StorageUtil storageUtil;
     private final VideoLikeMapper videoLikeMapper;
     private final IVideoCommentService videoCommentService;
-    private final RabbitTemplate rabbitTemplate;
+    private final RocketMQTemplate rocketMQTemplate;
     private final IUserFollowService userFollowService;
 
     // 24小时后过期
@@ -232,8 +232,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
             // 发送点赞通知(MQ)
             LikeCommentMessage lc = LikeCommentMessage
                     .builder().senderId(userId).commentId(commentId).build();
-            rabbitTemplate.convertAndSend(RabbitMqConstants.LIKE_COMMENT_EXCHANGE,
-                    RabbitMqConstants.LIKE_COMMENT_ROUTING_KEY, lc);
+            rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_LIKE, lc);
         }
 
         return Result.success();
@@ -255,8 +254,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         if (!Objects.equals(comment.getUserId(), userId)) {
             LikeCommentMessage lc = LikeCommentMessage
                     .builder().senderId(userId).commentId(commentId).build();
-            rabbitTemplate.convertAndSend(RabbitMqConstants.UNLIKE_COMMENT_EXCHANGE,
-                    RabbitMqConstants.UNLIKE_COMMENT_ROUTING_KEY, lc);
+            rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_UNLIKE, lc);
         }
 
         return Result.success();

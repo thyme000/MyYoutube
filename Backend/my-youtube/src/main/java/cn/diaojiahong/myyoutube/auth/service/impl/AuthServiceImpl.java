@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.auth.service.impl;
 
-import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.CaptchaUtils;
@@ -11,13 +11,13 @@ import cn.diaojiahong.myyoutube.auth.domain.dto.ForgetPasswordDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.LoginRequestDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
 import cn.diaojiahong.myyoutube.auth.service.IAuthService;
-import cn.diaojiahong.myyoutube.mq.message.UserDocMessage;
+import cn.diaojiahong.myyoutube.mq.message.UserDocSyncMessage;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.hutool.core.bean.BeanUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -33,7 +33,7 @@ public class AuthServiceImpl implements IAuthService {
 
     private final IUserService userService;
     private final StringRedisTemplate redisTemplate;
-    private final RabbitTemplate rabbitTemplate;
+    private final RocketMQTemplate rocketMQTemplate;
 
     @Override
     public Result<String> login(LoginRequestDTO loginRequestDTO) {
@@ -135,11 +135,10 @@ public class AuthServiceImpl implements IAuthService {
         user.setIntroduction("");
         userService.save(user);
 
-        // 发送RabbitMQ消息,用于更新用户文档
-        rabbitTemplate.convertAndSend(
-                RabbitMqConstants.UPDATE_USER_DOCUMENT_EXCHANGE,
-                RabbitMqConstants.UPDATE_USER_DOCUMENT_ROUTING_KEY,
-                UserDocMessage.builder().user(user).build());
+        // 发送消息,用于创建/更新用户ES文档
+        rocketMQTemplate.syncSend(
+                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
+                new UserDocSyncMessage(user.getId()));
 
         log.info("用户 [{}] 注册成功", registerRequestDTO.getUsername());
         return Result.success();

@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
@@ -13,35 +14,30 @@ import com.google.gson.GsonBuilder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.ExchangeTypes;
-import org.springframework.amqp.rabbit.annotation.Exchange;
-import org.springframework.amqp.rabbit.annotation.Queue;
-import org.springframework.amqp.rabbit.annotation.QueueBinding;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
+import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
-
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ChatConversationListener {
+@RocketMQMessageListener(
+        topic = MqConstants.TOPIC_CHAT_GROUP_DELETED,
+        consumerGroup = "chat_group_deleted_group",
+        maxReconsumeTimes = 3)
+public class ChatConversationListener implements RocketMQListener<GroupDeletedMessage> {
 
     private final ChatConversationService chatConversationService;
     private final IUserNotificationService userNotificationService;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
     private final S3StorageUtil storageUtil;
 
-    @RabbitListener(bindings = @QueueBinding(
-            value = @Queue(name = NOTIFY_GROUP_MEMBER_DELETED_QUEUE, durable = "true"),
-            exchange = @Exchange(name = NOTIFY_GROUP_MEMBER_DELETED_EXCHANGE, type = ExchangeTypes.TOPIC),
-            key = NOTIFY_GROUP_MEMBER_DELETED_ROUTING_KEY
-    ))
-    public void handleNotifyGroupMemberDeleted(GroupDeletedMessage message) {
+    @Override
+    public void onMessage(GroupDeletedMessage message) {
         log.info("收到通知群成员删除消息: {}", message);
         String conversationId = message.getConversationId();
         List<Long> memberIds = message.getUserIds();

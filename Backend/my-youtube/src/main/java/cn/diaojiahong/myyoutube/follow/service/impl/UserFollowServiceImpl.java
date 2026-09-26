@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.follow.service.impl;
 
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -10,13 +11,15 @@ import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
 import cn.diaojiahong.myyoutube.follow.domain.vo.UserRelationshipVO;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
-import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
+import cn.diaojiahong.myyoutube.mq.message.UserDocSyncMessage;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,7 +42,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     private final IUserService userService;
     private final S3StorageUtil storageUtil;
-    private final UserDocRepository userDocRepository;
+    private final RocketMQTemplate rocketMQTemplate;
 
     private static final long STORAGE_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
@@ -58,19 +61,16 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
             userService.lambdaUpdate().eq(User::getId, authorId).setIncrBy(User::getFans, 1).update();
             userService.lambdaUpdate().eq(User::getId, userId).setIncrBy(User::getAttentionCount, 1).update();
         }
-        // 修改es中的用户文档 -> 被关注者粉丝数加一
-        userDocRepository.findById(authorId).ifPresent(
-                u -> {
-                    u.setFans(u.getFans() + 1);
-                    userDocRepository.save(u);
-                }
-        );
+        // 延迟同步 ES 用户文档, 短时间多次变更天然合并(消费端以 MySQL 为准)
+        rocketMQTemplate.syncSendDelayTimeSeconds(
+                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
+                new UserDocSyncMessage(authorId), 5);
         return Result.success();
     }
 
     private Long getUserId() {
         String userId = UserContext.getUserId();
-        if (userId == null || userId.isEmpty()) {
+        if (userId == null) {
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
         return Long.valueOf(userId);
@@ -87,13 +87,10 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
             userService.lambdaUpdate().eq(User::getId, authorId).setDecrBy(User::getFans, 1).gt(User::getFans, 0).update();
             userService.lambdaUpdate().eq(User::getId, userId).setDecrBy(User::getAttentionCount, 1).gt(User::getAttentionCount, 0).update();
         }
-        // 更新es中的用户文档
-        userDocRepository.findById(authorId).ifPresent(
-                u -> {
-                    u.setFans(u.getFans() - 1);
-                    userDocRepository.save(u);
-                }
-        );
+        // 延迟同步 ES 用户文档
+        rocketMQTemplate.syncSendDelayTimeSeconds(
+                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
+                new UserDocSyncMessage(authorId), 5);
         return Result.success();
     }
 
@@ -184,13 +181,10 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
             userService.lambdaUpdate().eq(User::getId, userId).setDecrBy(User::getFans, 1).gt(User::getFans, 0).update();
             userService.lambdaUpdate().eq(User::getId, followerId).setDecrBy(User::getAttentionCount, 1).gt(User::getAttentionCount, 0).update();
         }
-        // 更新es用户文档
-        userDocRepository.findById(userId).ifPresent(
-                u -> {
-                    u.setFans(u.getFans() - 1);
-                    userDocRepository.save(u);
-                }
-        );
+        // 延迟同步 ES 用户文档
+        rocketMQTemplate.syncSendDelayTimeSeconds(
+                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
+                new UserDocSyncMessage(userId), 5);
         return Result.success();
     }
 

@@ -1,42 +1,37 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
 import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.ExchangeTypes;
-import org.springframework.amqp.rabbit.annotation.Exchange;
-import org.springframework.amqp.rabbit.annotation.Queue;
-import org.springframework.amqp.rabbit.annotation.QueueBinding;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
+import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.stereotype.Component;
-
-import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class LikeCommentListener {
+@RocketMQMessageListener(
+        topic = MqConstants.TOPIC_COMMENT_ACTION,
+        consumerGroup = "comment_like_group",
+        selectorExpression = MqConstants.TAG_LIKE,
+        maxReconsumeTimes = 3)
+public class LikeCommentListener implements RocketMQListener<LikeCommentMessage> {
 
     private final IVideoCommentService videoCommentService;
     private final IUserNotificationService userNotificationService;
 
     /**
      * 推送点赞评论通知
-     * @param lc
      */
-    @RabbitListener(bindings = @QueueBinding(
-            value = @Queue(name = LIKE_COMMENT_QUEUE, durable = "true"),
-            exchange = @Exchange(name = LIKE_COMMENT_EXCHANGE, type = ExchangeTypes.TOPIC),
-            key = LIKE_COMMENT_ROUTING_KEY
-    ))
-    public void handleLikeComment(LikeCommentMessage lc) {
+    @Override
+    public void onMessage(LikeCommentMessage lc) {
         log.info("handleLikeCommentMessage: {}", lc);
 
         VideoComment one = videoCommentService.lambdaQuery()
@@ -55,19 +50,5 @@ public class LikeCommentListener {
         userNotification.setReceiverId(likedUserId);
         userNotification.setRefId(lc.getCommentId());
         userNotificationService.save(userNotification);
-    }
-
-    @RabbitListener(bindings = @QueueBinding(
-            value = @Queue(name = UNLIKE_COMMENT_QUEUE, durable = "true"),
-            exchange = @Exchange(name = UNLIKE_COMMENT_EXCHANGE, type = ExchangeTypes.TOPIC),
-            key = UNLIKE_COMMENT_ROUTING_KEY
-    ))
-    public void handleUnlikeComment(LikeCommentMessage lc) {
-        log.info("handleUnlikeCommentMessage: {}", lc);
-        // 删除原来的点赞评论通知
-        userNotificationService.remove(new LambdaQueryWrapper<UserNotification>()
-                .eq(UserNotification::getType, NotificationTypeEnum.COMMENT_LIKE.getCode())
-                .eq(UserNotification::getSenderId, lc.getSenderId())
-                .eq(UserNotification::getRefId, lc.getCommentId()));
     }
 }

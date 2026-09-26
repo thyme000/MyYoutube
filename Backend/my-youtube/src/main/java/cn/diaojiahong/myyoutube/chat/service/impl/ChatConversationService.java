@@ -8,7 +8,7 @@ import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationMembersVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
-import cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
@@ -19,7 +19,7 @@ import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import com.google.gson.GsonBuilder;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -41,20 +41,20 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     private final IUserFollowService userFollowService;
     private final IUserService userService;
     private final S3StorageUtil storageUtil;
-    private final RabbitTemplate rabbitTemplate;
+    private final RocketMQTemplate rocketMQTemplate;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
 
     public ChatConversationService(MongoTemplate mongoTemplate,
                                    IUserFollowService userFollowService,
                                    IUserService userService,
                                    S3StorageUtil storageUtil,
-                                   RabbitTemplate rabbitTemplate,
+                                   RocketMQTemplate rocketMQTemplate,
                                    NotifyWebSocketHandler notifyWebSocketHandler) {
         super(mongoTemplate, ChatConversationDoc.class);
         this.userFollowService = userFollowService;
         this.userService = userService;
         this.storageUtil = storageUtil;
-        this.rabbitTemplate = rabbitTemplate;
+        this.rocketMQTemplate = rocketMQTemplate;
         this.notifyWebSocketHandler = notifyWebSocketHandler;
     }
 
@@ -238,8 +238,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
                 // 通知群成员会话已删除
                 memberIds.remove(userId);
                 GroupDeletedMessage message = new GroupDeletedMessage(conversationId, memberIds);
-                rabbitTemplate.convertAndSend(RabbitMqConstants.NOTIFY_GROUP_MEMBER_DELETED_EXCHANGE,
-                        RabbitMqConstants.NOTIFY_GROUP_MEMBER_DELETED_ROUTING_KEY, message);
+                rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_GROUP_DELETED, message);
             } else {
                 // 非创建人 -> 退出群
                 c.and("userId").is(userId);

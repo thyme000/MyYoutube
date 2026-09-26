@@ -1,28 +1,23 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatEventType;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
-import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForReadMessageVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForSendMessageVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForWithdrawMessageVO;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
-import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import com.google.gson.GsonBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.ExchangeTypes;
-import org.springframework.amqp.rabbit.annotation.Exchange;
-import org.springframework.amqp.rabbit.annotation.Queue;
-import org.springframework.amqp.rabbit.annotation.QueueBinding;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
+import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -33,12 +28,14 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
-
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ChatMessageListener {
+@RocketMQMessageListener(
+        topic = MqConstants.TOPIC_CHAT_MESSAGE,
+        consumerGroup = "chat_message_group",
+        maxReconsumeTimes = 3)
+public class ChatMessageListener implements RocketMQListener<ChatMessageMessage> {
 
     private final IUserService userService;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
@@ -46,12 +43,8 @@ public class ChatMessageListener {
     private final S3StorageUtil storageUtil;
     private final MongoTemplate mongoTemplate;
 
-    @RabbitListener(bindings = @QueueBinding(
-            value = @Queue(name = MESSAGE_QUEUE, durable = "true"),
-            exchange = @Exchange(name = MESSAGE_EXCHANGE, type = ExchangeTypes.TOPIC),
-            key = MESSAGE_ROUTING_KEY
-    ))
-    public void sendOrWithdrawMessage(ChatMessageMessage chatMessageMessage) {
+    @Override
+    public void onMessage(ChatMessageMessage chatMessageMessage) {
         log.info("收到消息: {}", chatMessageMessage);
         // 判断是否是群聊
         Optional<ChatConversationDoc> opt =
@@ -135,42 +128,24 @@ public class ChatMessageListener {
         mongoTemplate.updateMulti(Query.query(c), up, ChatUserConversationDoc.class);
     }
 
-    @RabbitListener(bindings = @QueueBinding(
-            value = @Queue(name = READ_MESSAGE_QUEUE, durable = "true"),
-            exchange = @Exchange(name = READ_MESSAGE_EXCHANGE, type = ExchangeTypes.TOPIC),
-            key = READ_MESSAGE_ROUTING_KEY
-    ))
-    public void readMessage(ReadMessageMessage readMessageMessage) {
-        // 通知对方,自己最后已读的序列
-        NotificationForReadMessageVO json = new NotificationForReadMessageVO();
-        json.setConversationId(readMessageMessage.getConversationId());
-        json.setLastReadSequence(readMessageMessage.getLastReadSeq());
-        notifyWebSocketHandler.sendToUser(Long.parseLong(readMessageMessage.getReceiverId()), new GsonBuilder().create().toJson(json));
-    }
-
-    private NotificationForWithdrawMessageVO getNotificationForWithdrawVO(
-            ChatMessageMessage chatMessageMessage, User user, ChatConversationDoc conversation) {
-        NotificationForWithdrawMessageVO json = new NotificationForWithdrawMessageVO();
-        json.setMessageId(chatMessageMessage.getMessageId());
+    private NotificationForSendMessageVO getNotificationForSendVO(ChatMessageMessage message, User user, ChatConversationDoc conversation) {
+        NotificationForSendMessageVO json = new NotificationForSendMessageVO();
+        json.setConversationId(message.getConversationId());
+        json.setMessageId(message.getMessageId());
+        json.setContentType(message.getContentType());
+        json.setContent(message.getContent());
+        json.setSenderId(String.valueOf(message.getSenderId()));
         json.setSenderNickname(user.getNickname());
-        json.setConversationId(conversation.getId());
-        json.setSenderId(chatMessageMessage.getSenderId().toString());
-        json.setRecallType(chatMessageMessage.getRecallType());
         return json;
     }
 
-    private NotificationForSendMessageVO getNotificationForSendVO(
-            ChatMessageMessage chatMessageMessage, User user, ChatConversationDoc conversation) {
-        NotificationForSendMessageVO json = new NotificationForSendMessageVO();
-        json.setMessageId(chatMessageMessage.getMessageId());
+    private NotificationForWithdrawMessageVO getNotificationForWithdrawVO(ChatMessageMessage message, User user, ChatConversationDoc conversation) {
+        NotificationForWithdrawMessageVO json = new NotificationForWithdrawMessageVO();
+        json.setConversationId(message.getConversationId());
+        json.setMessageId(message.getMessageId());
+        json.setSenderId(String.valueOf(message.getSenderId()));
         json.setSenderNickname(user.getNickname());
-        json.setConversationId(conversation.getId());
-        json.setSenderId(chatMessageMessage.getSenderId().toString());
-        if (chatMessageMessage.getContentType().equals(ContentTypeEnum.TEXT)) {
-            // 只有文本消息通知时才需要内容字段
-            json.setContent(chatMessageMessage.getContent());
-        }
-        json.setContentType(chatMessageMessage.getContentType());
+        json.setRecallType(message.getRecallType());
         return json;
     }
 }

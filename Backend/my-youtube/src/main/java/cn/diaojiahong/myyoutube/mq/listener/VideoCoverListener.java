@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.DownLoadMP4ToTemp;
 import cn.diaojiahong.myyoutube.common.utils.FFmpegUtil;
@@ -8,39 +9,34 @@ import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.ExchangeTypes;
-import org.springframework.amqp.rabbit.annotation.Exchange;
-import org.springframework.amqp.rabbit.annotation.Queue;
-import org.springframework.amqp.rabbit.annotation.QueueBinding;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
+import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import static cn.diaojiahong.myyoutube.common.constants.RabbitMqConstants.*;
-
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class VideoCoverListener {
+@RocketMQMessageListener(
+        topic = MqConstants.TOPIC_VIDEO_COVER,
+        consumerGroup = "video_cover_group",
+        maxReconsumeTimes = 3)
+public class VideoCoverListener implements RocketMQListener<VideoCoverMessage> {
 
     private final S3StorageUtil storageUtil;
     private final IVideoService videoService;
-    private static final String OUTPUT_DIR = "src\\main\\resources\\temp";
+    // 系统临时目录, JVM 已按平台适配, 不再用项目内相对路径
+    private static final Path OUTPUT_DIR = Path.of(System.getProperty("java.io.tmpdir"), "my-youtube", "video-cover");
     private static final String PREFIX_STORAGE = "video-cover";
 
     /**
      * 生成视频封面
-     * @param msg
      */
-    @RabbitListener(bindings = @QueueBinding(
-            value = @Queue(name = VIDEO_COVER_QUEUE, durable = "true"),
-            exchange = @Exchange(name = VIDEO_COVER_EXCHANGE, type = ExchangeTypes.TOPIC),
-            key = VIDEO_COVER_ROUTING_KEY
-    ))
-    public void handleCoverGenerate(VideoCoverMessage msg) {
+    @Override
+    public void onMessage(VideoCoverMessage msg) {
         if (msg.getVideoId() == null) {
             throw new IllegalArgumentException("视频id不能为空");
         }
@@ -56,7 +52,7 @@ public class VideoCoverListener {
                 String taskId = java.util.UUID.randomUUID().toString().replace("-", "");
                 String day = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
 
-                Path baseDir = Path.of(OUTPUT_DIR).resolve(day);
+                Path baseDir = OUTPUT_DIR.resolve(day);
                 taskDir = baseDir.resolve(taskId);
                 Files.createDirectories(taskDir);
 

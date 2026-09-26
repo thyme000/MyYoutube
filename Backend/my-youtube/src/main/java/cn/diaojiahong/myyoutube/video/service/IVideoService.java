@@ -21,6 +21,11 @@ public interface IVideoService extends IService<Video> {
 
     Result<String> publishVideo(VideoDTO videoDTO);
 
+    /**
+     * 事务消息的本地事务: 视频入库 + 标签异步保存
+     */
+    void persistNewVideo(Video video);
+
     Result<PageResult<VideoListVO>> getVideoList(VideoPageQuery pageQuery);
 
     Result<VideoDetailVO> getVideoDetail(Long videoId);
