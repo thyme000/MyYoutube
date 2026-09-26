@@ -1,4 +1,4 @@
--- MyYoutube MySQL 建表脚本 (由实体类推导, MySQL 8.0)
+-- MyYoutube MySQL 建表脚本
 -- 主键两种风格: BIGINT 自增(AUTO) / 雪花ID(ASSIGN_ID, 应用生成, 不用 AUTO_INCREMENT)
 
 CREATE DATABASE IF NOT EXISTS my_youtube DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS `user` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_username` (`username`)
 ) ENGINE=InnoDB COMMENT='用户';
+
+-- 初始用户 thyme, 密码明文: password (BCrypt)
+INSERT INTO `user` (`id`, `username`, `password`, `nickname`)
+VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'thyme');
 
 -- 视频信息表
 CREATE TABLE IF NOT EXISTS `video` (
