@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS `user` (
 -- 初始用户 thyme, 密码明文: password (BCrypt)
 INSERT INTO `user` (`id`, `username`, `password`, `nickname`)
 VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'thyme');
+INSERT INTO `user` (`id`, `username`, `password`, `nickname`)
+VALUES (2, 'test', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'test');
 
 -- 视频信息表
 CREATE TABLE IF NOT EXISTS `video` (

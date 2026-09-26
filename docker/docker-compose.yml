@@ -46,13 +46,26 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-root}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-mongo123456}
+    # 事务要求副本集: 单节点 rs0 模式, keyFile 为开启 auth 的副本集必需。
+    # keyfile 经命名卷中转: macOS bind mount 不允许容器内 chown, 命名卷允许;
+    # 入口先拷 keyfile 设权限, 再交给官方 entrypoint 启动 mongod
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        cp /src/keyfile /keys/keyfile
+        chmod 400 /keys/keyfile
+        chown 999:999 /keys/keyfile
+        exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /keys/keyfile
     ports:
       - "27017:27017"
     volumes:
       - mongo-data:/data/db
+      - ./mongo/keyfile:/src/keyfile:ro
+      - mongo-config:/keys
     # MONGODB_URI 需带 authSource=admin, 写法见 .env
+    # 健康检查顺带完成 rs.initiate(仅未初始化时), 换机器/清卷后自动生效
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD-SHELL", "mongosh -u $$MONGO_INITDB_ROOT_USERNAME -p $$MONGO_INITDB_ROOT_PASSWORD --quiet --eval 'try { rs.status().ok == 1 } catch (e) { rs.initiate({_id:\"rs0\", members:[{_id:0, host:\"localhost:27017\"}]}).ok }'"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -135,6 +148,7 @@ volumes:
   mysql-data:
   redis-data:
   mongo-data:
+  mongo-config:
   es-data:
   rustfs-data:
   rocketmq-namesrv-logs:
