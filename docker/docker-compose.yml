@@ -57,23 +57,44 @@ services:
       timeout: 5s
       retries: 10
 
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: myyoutube-rabbitmq
+  rocketmq-nameserver:
+    image: apache/rocketmq:5.5.0
+    container_name: myyoutube-rocketmq-nameserver
     restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    command: sh mqnamesrv
     ports:
-      - "5672:5672"     # AMQP, 应用端连接
-      - "15672:15672"   # 管理台 http://localhost:15672
+      - "9876:9876"
     volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
+      - rocketmq-namesrv-logs:/home/rocketmq/logs
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.5.0
+    container_name: myyoutube-rocketmq-broker
+    restart: unless-stopped
+    command: sh mqbroker -c /home/rocketmq/broker.conf
+    depends_on:
+      - rocketmq-nameserver
+    environment:
+      # Docker Desktop 虚拟机内存配额有限, 默认 8g 堆会 OOM
+      JAVA_OPT_EXT: "-Xms2g -Xmx2g -Xmn1g"
+    ports:
+      - "10911:10911"
+      - "10909:10909"
+    volumes:
+      - ../docker/rocketmq/broker.conf:/home/rocketmq/broker.conf
+      - rocketmq-broker-logs:/home/rocketmq/logs
+      - rocketmq-broker-store:/home/rocketmq/store
+
+  rocketmq-dashboard:
+    image: apacherocketmq/rocketmq-dashboard:latest
+    container_name: myyoutube-rocketmq-dashboard
+    restart: unless-stopped
+    depends_on:
+      - rocketmq-broker
+    environment:
+      JAVA_OPTS: "-Drocketmq.namesrv.addr=rocketmq-nameserver:9876"
+    ports:
+      - "8180:8080"   # 控制台 http://localhost:8180
 
   elasticsearch:
     build: es-ik
@@ -114,6 +135,8 @@ volumes:
   mysql-data:
   redis-data:
   mongo-data:
-  rabbitmq-data:
   es-data:
   rustfs-data:
+  rocketmq-namesrv-logs:
+  rocketmq-broker-logs:
+  rocketmq-broker-store:
