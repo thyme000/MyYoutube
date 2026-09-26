@@ -1,0 +1,46 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: my-youtube-gateway
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+    gateway:
+      server:
+        webflux:
+          # json-to-grpc 过滤器依赖 grpc 类库, 本项目用不到, 关闭
+          filter:
+            json-to-grpc:
+              enabled: false
+          routes:
+            # ---- 业务服务路由(拆一个启用一个, order 越小越优先) ----
+            # /user-tag-preference 必须排在 /user 之前, 否则被 /user 前缀吃掉
+            # - id: user-service
+            #   uri: lb://my-youtube-user-service
+            #   predicates: [ "Path=/user/**,/user-tag-preference/**,/login,/register,/captcha,/forget-password,/storage/**" ]
+            #   order: 10
+            # - id: video-service
+            #   uri: lb://my-youtube-video-service
+            #   predicates: [ "Path=/videos/**,/like/**,/comment/**,/follow/**,/notification/**,/behavior/**,/tag/**,/video-tag/**" ]
+            #   order: 20
+            # - id: chat-service
+            #   uri: lb://my-youtube-chat-service
+            #   predicates: [ "Path=/chat/**,/emoji/**" ]
+            #   order: 30
+            # - id: search-service
+            #   uri: lb://my-youtube-search-service
+            #   predicates: [ "Path=/search/**" ]
+            #   order: 40
+            # - id: admin-service
+            #   uri: lb://my-youtube-admin-service
+            #   predicates: [ "Path=/admin/**" ]
+            #   order: 50
+
+            # ---- 过渡路由: 未拆完的路径全部回落到旧单体(开发期以 SERVER_PORT=8090 运行) ----
+            - id: legacy-monolith
+              uri: ${LEGACY_URI:http://localhost:8090}
+              predicates: [ "Path=/**" ]
+              order: 100
