@@ -94,10 +94,10 @@ import {
 import { parseDigitSnowflakeId, safeSnowflakeId } from "./utils/snowflakeId.js";
 /** 短视频无接口数据时的本地 fallback（static 目录下四个 mp4） */
 import appIco from "../static/狗.png?url";
-import MusicLyricsAppleView from "./components/MusicLyricsAppleView.vue";
+import MusicView from "./views/MusicView.vue";
 import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
 import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
-import ChatWorkspace from "./components/chat/ChatWorkspace.vue";
+import ChatView from "./views/ChatView.vue";
 import ChatFloatingRail from "./components/chat/ChatFloatingRail.vue";
 import ChatEmojiPicker from "./components/chat/ChatEmojiPicker.vue";
 import ChatForwardVideoModal from "./components/chat/ChatForwardVideoModal.vue";
@@ -11564,22 +11564,17 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
-          <section v-else-if="activeMenuKey === 'music'" class="explore-music-apple">
-            <MusicLyricsAppleView />
+          <section v-else-if="activeMenuKey === 'music'">
+            <MusicView />
           </section>
 
           <section v-else-if="activeMenuKey === 'chat'" class="explore-chat-page">
-            <ChatWorkspace
-              v-if="isAuthed"
+            <ChatView
+              :authed="isAuthed"
               :self-user-id="currentUserId"
               @open-video="({ videoId }) => openVideoDetail({ id: videoId })"
               @open-user="({ userId }) => openOtherUserProfile(userId)"
             />
-            <div v-else class="module-empty explore-chat-empty">
-              <div class="module-empty-icon"><i class="ri-chat-3-line"></i></div>
-              <h5>聊天</h5>
-              <p>请先登录后使用会话与消息功能。</p>
-            </div>
           </section>
 
           <section v-else-if="activeMenuKey === 'home'" class="home-mixed-feed">

@@ -67,7 +67,8 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
-      "/chat": {
+      // 带尾斜杠: 裸 /chat 是聊天页的 SPA 路由, 不应转发给后端
+      "/chat/": {
         target: "http://localhost:8080",
         changeOrigin: true,
       },
