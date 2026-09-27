@@ -4,7 +4,7 @@ import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
 import { useAuthStore } from "./stores/authStore";
-import { useSearchStore } from "./stores/searchStore";
+import { useSearchStore, SEARCH_PAGE_SIZE, SEARCH_UI } from "./stores/searchStore";
 import { useHistoryStore } from "./stores/historyStore";
 import { useLikedStore, LIKED_PAGE_SIZE } from "./stores/likedStore";
 import { useHomeStore } from "./stores/homeStore";
@@ -146,6 +146,8 @@ const router = useRouter();
 const pageHint = ref(`欢迎来到 THYME。请选择左侧模块查看内容。API 基础地址：${getApiBaseUrl()}`);
 /** 搜索域状态在 pinia searchStore，同名解构保持既有引用零改动；拆 SearchView 时随之搬出 */
 const searchStore = useSearchStore();
+// 列表加载后由 store 通知 App 挂自动播放观察器（依赖本组件的 DOM 引用）
+searchStore.registerLoadedHook(setupSearchVideoAutoplay);
 const {
   searchKeyword,
   searchActive,
@@ -203,16 +205,7 @@ const searchExpandPlayerRef = ref(null);
 const searchExpandBlurRef = ref(null);
 const searchExpandStageRef = ref(null);
 
-/** 搜索页文案（与产品约定一致） */
-const SEARCH_UI = {
-  placeholder: "搜索视频标题、用户昵称、标签或ID",
-  promptTitle: "猜你想搜",
-  hotTitle: "热搜榜",
-  emptyKeyword: "输入关键词开始搜索",
-  noResult: "没有找到相关内容，换个关键词试试",
-  promptError: "提示加载失败，请稍后重试",
-  searchError: "搜索失败，请检查网络后重试",
-};
+/** 搜索页文案与分页常量已移至 stores/searchStore.js */
 
 let searchSuggestBlurTimer = null;
 let searchPromptDebounceTimer = null;
@@ -767,8 +760,6 @@ watch(searchActive, (v) => {
   }
 });
 
-const SEARCH_PAGE_SIZE = 10;
-
 function dedupeStringsMax10(arr) {
   const seen = new Set();
   const out = [];
@@ -864,169 +855,32 @@ function setupSearchVideoAutoplay() {
   });
 }
 
-async function loadSearchHotIfNeeded() {
-  if (searchHotRows.value.length || searchHotLoading.value) return;
-  searchHotLoading.value = true;
-  try {
-    const raw = await fetchSearchHot();
-    searchHotRows.value = Array.isArray(raw) ? raw.slice(0, 7) : [];
-  } catch {
-    searchHotRows.value = [];
-  } finally {
-    searchHotLoading.value = false;
-  }
+function loadSearchHotIfNeeded() {
+  return searchStore.loadHotIfNeeded();
 }
 
-async function loadSearchVideoPage({ reset }) {
-  const kw = searchSubmittedKeyword.value.trim();
-  if (!kw) return;
-  if (reset) {
-    searchVideoPageNo.value = 1;
-    searchVideoRows.value = [];
-  }
-  const nextPage = reset ? 1 : searchVideoPageNo.value + 1;
-  const maxP = searchVideoPages.value || 0;
-  if (!reset && maxP > 0 && nextPage > maxP) return;
-  if (!reset && searchVideoLoadingMore.value) return;
-  if (searchVideoLoading.value || searchVideoLoadingMore.value) return;
-  if (reset) searchVideoLoading.value = true;
-  else searchVideoLoadingMore.value = true;
-  try {
-    const res = await fetchSearchVideo({
-      keyword: kw,
-      sort: searchVideoSort.value,
-      pageNo: nextPage,
-      pageSize: SEARCH_PAGE_SIZE,
-    });
-    const list = res.list || [];
-    if (reset) {
-      searchVideoRows.value = list;
-    } else {
-      searchVideoRows.value = [...searchVideoRows.value, ...list];
-    }
-    searchVideoPageNo.value = nextPage;
-    searchVideoPages.value = res.pages ?? 0;
-    searchResultError.value = "";
-    nextTick(() => setupSearchVideoAutoplay());
-  } catch {
-    searchResultError.value = SEARCH_UI.searchError;
-    pushToast(SEARCH_UI.searchError, "error");
-    if (reset) searchVideoRows.value = [];
-  } finally {
-    searchVideoLoading.value = false;
-    searchVideoLoadingMore.value = false;
-  }
+function loadSearchVideoPage({ reset }) {
+  return searchStore.loadVideoPage({ reset });
 }
 
-async function loadSearchUserStrip({ reset }) {
-  const kw = searchSubmittedKeyword.value.trim();
-  if (!kw || !reset) return;
-  try {
-    const res = await fetchSearchUser({ keyword: kw, pageNo: 1, pageSize: 8 });
-    searchAllUserStrip.value = res.list || [];
-  } catch {
-    searchAllUserStrip.value = [];
-  }
+function loadSearchUserStrip({ reset }) {
+  return searchStore.loadUserStrip({ reset });
 }
 
-async function loadSearchUserPage({ reset }) {
-  const kw = searchSubmittedKeyword.value.trim();
-  if (!kw) return;
-  if (reset) {
-    searchUserPageNo.value = 1;
-    searchUserRows.value = [];
-  }
-  const nextPage = reset ? 1 : searchUserPageNo.value + 1;
-  const maxP = searchUserPages.value || 0;
-  if (!reset && maxP > 0 && nextPage > maxP) return;
-  if (searchUserLoading.value || searchUserLoadingMore.value) return;
-  if (reset) searchUserLoading.value = true;
-  else searchUserLoadingMore.value = true;
-  try {
-    const res = await fetchSearchUser({
-      keyword: kw,
-      pageNo: nextPage,
-      pageSize: SEARCH_PAGE_SIZE,
-    });
-    const list = res.list || [];
-    if (reset) searchUserRows.value = list;
-    else searchUserRows.value = [...searchUserRows.value, ...list];
-    searchUserPageNo.value = nextPage;
-    searchUserPages.value = res.pages ?? 0;
-    searchResultError.value = "";
-  } catch {
-    searchResultError.value = SEARCH_UI.searchError;
-    pushToast(SEARCH_UI.searchError, "error");
-    if (reset) searchUserRows.value = [];
-  } finally {
-    searchUserLoading.value = false;
-    searchUserLoadingMore.value = false;
-  }
+function loadSearchUserPage({ reset }) {
+  return searchStore.loadUserPage({ reset });
 }
 
-async function loadSearchTagPage({ reset }) {
-  const kw = searchSubmittedKeyword.value.trim();
-  if (!kw) return;
-  if (reset) {
-    searchTagPageNo.value = 1;
-    searchTagRows.value = [];
-  }
-  const nextPage = reset ? 1 : searchTagPageNo.value + 1;
-  const maxP = searchTagPages.value || 0;
-  if (!reset && maxP > 0 && nextPage > maxP) return;
-  if (searchTagLoading.value || searchTagLoadingMore.value) return;
-  if (reset) searchTagLoading.value = true;
-  else searchTagLoadingMore.value = true;
-  try {
-    const res = await fetchSearchTag({
-      keyword: kw,
-      pageNo: nextPage,
-      pageSize: SEARCH_PAGE_SIZE,
-    });
-    const list = res.list || [];
-    if (reset) searchTagRows.value = list;
-    else searchTagRows.value = [...searchTagRows.value, ...list];
-    searchTagPageNo.value = nextPage;
-    searchTagPages.value = res.pages ?? 0;
-    searchResultError.value = "";
-    nextTick(() => setupSearchVideoAutoplay());
-  } catch {
-    searchResultError.value = SEARCH_UI.searchError;
-    pushToast(SEARCH_UI.searchError, "error");
-    if (reset) searchTagRows.value = [];
-  } finally {
-    searchTagLoading.value = false;
-    searchTagLoadingMore.value = false;
-  }
+function loadSearchTagPage({ reset }) {
+  return searchStore.loadTagPage({ reset });
 }
 
-async function loadSearchTabResults({ reset }) {
-  const kw = searchSubmittedKeyword.value.trim();
-  if (!kw) return;
-  searchResultError.value = "";
-  const tab = searchTab.value;
-  if (tab === "all") {
-    await loadSearchUserStrip({ reset: true });
-    await loadSearchVideoPage({ reset: true });
-    return;
-  }
-  if (tab === "video") {
-    await loadSearchVideoPage({ reset: true });
-    return;
-  }
-  if (tab === "user") {
-    await loadSearchUserPage({ reset: true });
-    return;
-  }
-  if (tab === "tag") {
-    await loadSearchTagPage({ reset: true });
-  }
+function loadSearchTabResults({ reset }) {
+  return searchStore.loadTabResults({ reset });
 }
 
 function selectSearchTab(key) {
-  if (searchTab.value === key) return;
-  searchTab.value = key;
-  void loadSearchTabResults({ reset: true });
+  searchStore.selectTab(key);
 }
 
 function onSearchInputFocus() {
