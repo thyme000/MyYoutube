@@ -7,6 +7,8 @@ import { useAuthStore } from "./stores/authStore";
 import { useSearchStore } from "./stores/searchStore";
 import { useHistoryStore } from "./stores/historyStore";
 import { useLikedStore, LIKED_PAGE_SIZE } from "./stores/likedStore";
+import { useHomeStore } from "./stores/homeStore";
+import { useShortsStore } from "./stores/shortsStore";
 import { getApiBaseUrl, getAuthExpiredEventName, getToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
@@ -1459,17 +1461,9 @@ function formatSearchRelTime(card) {
 
 const sidebarCollapsed = ref(false);
 const exploreExpanded = ref(true);
-const loading = ref(false);
-const cards = ref([]);
+const { loading, cards, homeShortsRows, homeShortsPageNo, homeShortsPages, homeShortsLoadingMore, homeLongPageNo, homeLongPages, homeLongLoadingMore, homeCategoryKey, homeSortKey } = storeToRefs(useHomeStore());
 const viewportWidth = ref(typeof window !== "undefined" ? window.innerWidth : 1440);
-const homeShortsRows = ref([]);
-const homeShortsPageNo = ref(1);
-const homeShortsPages = ref(0);
-const homeShortsLoadingMore = ref(false);
 const homeShortsStripRef = ref(null);
-const homeLongPageNo = ref(1);
-const homeLongPages = ref(0);
-const homeLongLoadingMore = ref(false);
 const homeLongHasMore = computed(() => homeLongPageNo.value < (homeLongPages.value || 0));
 const homeLongLoadLock = ref(false);
 /** 离开首页或打开个人中心前保存，回到首页时可无请求恢复，减少列表跳动 */
@@ -1574,8 +1568,6 @@ const profileEditSaving = ref(false);
 const showStudio = ref(false);
 /** 进入创作中心时 pushState，便于浏览器后退与「返回」同步 */
 const studioHistoryPushed = ref(false);
-const homeCategoryKey = ref("all");
-const homeSortKey = ref("RECOMMENDED");
 const homeSortOptions = [
   { value: "RECOMMENDED", label: "推荐优先" },
   { value: "LATEST", label: "最新发布" },
@@ -1652,8 +1644,45 @@ const videoDetail = ref(null);
 const detailLoading = ref(false);
 /** 详情页：仅当加载超过阈值才显示加载层，避免闪一下 */
 const detailVideoBuffering = ref(false);
-/** 短视频流：同上，切换很快时不打扰 */
-const shortsFeedVideoBuffering = ref(false);
+/** 短视频播放器域状态在 pinia shortsStore（含历史/赞过/主页/关注共用的全屏队列），同名解构零引用改动 */
+const {
+  feedScope,
+  profileFeedQueue,
+  likedFeedQueue,
+  followFeedQueue,
+  followSubscribedFilterAuthorId,
+  followAuthorFeedQueue,
+  followAuthorVideoPageNo,
+  followAuthorVideoHasMore,
+  followAuthorLoadingMore,
+  followVideoPageNo,
+  followVideoHasMore,
+  followVideoLoadingMore,
+  profileFeedOpen,
+  shortsFeedIndex,
+  shortsFeedIsPortrait,
+  shortsFeedDuration,
+  shortsFeedCurrentTime,
+  shortsFeedVolume,
+  shortsFeedMuted,
+  shortsFeedPaused,
+  shortsFeedAutoplayPending,
+  shortsFeedVideoBuffering,
+  shortsCommentPanelOpen,
+  shortsPanelTopComments,
+  shortsPanelCommentsLoading,
+  shortsPanelCommentsPageNo,
+  shortsPanelCommentsPages,
+  shortsPanelCommentDraft,
+  shortsPanelCommentSubmitting,
+  shortsPanelReplyTarget,
+  shortsPanelThreadByRootId,
+  shortsPanelExpandedRoots,
+  shortsLikeBusy,
+  shortsPlaybackAccSec,
+  shortsLastTimeSec,
+  shortsAccVideoId,
+} = storeToRefs(useShortsStore());
 const DETAIL_BUFFERING_UI_DELAY_MS = 280;
 const SHORTS_BUFFERING_UI_DELAY_MS = 320;
 let detailBufferingUITimer = null;
@@ -1743,33 +1772,12 @@ const shortPlayerTitle = ref("");
 const shortPlayerIsPortrait = ref(false);
 const shortFgVideoRef = ref(null);
 const shortBgVideoRef = ref(null);
-/** 短视频模块内嵌 feed（默认沉浸播放，非弹窗） */
-const shortsFeedIndex = ref(0);
+/** 短视频模块内嵌 feed（默认沉浸播放，非弹窗）：DOM 引用与播放令牌留在本地 */
 const shortsFeedFgRef = ref(null);
 const shortsFeedBgRef = ref(null);
 const shortsFeedCenterRef = ref(null);
-const shortsFeedIsPortrait = ref(false);
-const shortsFeedDuration = ref(0);
-const shortsFeedCurrentTime = ref(0);
-const shortsFeedVolume = ref(0.85);
-const shortsFeedMuted = ref(false);
-/** 暂停时在画面中央显示三角形播放图标 */
-const shortsFeedPaused = ref(true);
-/** 切换视频后自动播放（含进入短视频页） */
-const shortsFeedAutoplayPending = ref(false);
 let shortsFeedPlayToken = 0;
-/** 短视频流右侧评论侧栏（与详情共用 /comment API） */
-const shortsCommentPanelOpen = ref(false);
-const shortsPanelTopComments = ref([]);
-const shortsPanelCommentsLoading = ref(false);
-const shortsPanelCommentsPageNo = ref(1);
-const shortsPanelCommentsPages = ref(0);
-const shortsPanelCommentDraft = ref("");
 const shortsPanelCommentInputRef = ref(null);
-const shortsPanelCommentSubmitting = ref(false);
-const shortsPanelReplyTarget = ref(null);
-const shortsPanelThreadByRootId = ref({});
-const shortsPanelExpandedRoots = ref({});
 const {
   historyLongRows,
   historyLongLoading,
@@ -1803,10 +1811,6 @@ let detailPlaybackResumeInFlight = false;
 let detailPlaybackResumeLastSentAtMs = 0;
 let detailPlaybackResumeTickCount = 0;
 let detailPlaybackResumeAppliedVideoId = "";
-/** 短视频流：顺播累计秒数 + 当前条 id */
-const shortsPlaybackAccSec = ref(0);
-const shortsLastTimeSec = ref(null);
-const shortsAccVideoId = ref("");
 let shortsLongResumeInFlight = false;
 let shortsLongResumeLastSentAtMs = 0;
 let shortsLongResumeTickCount = 0;
@@ -1848,20 +1852,6 @@ function clearCapturedProfileReturnContext() {
 const profileWorksRows = ref([]);
 const profileWorksLoading = ref(false);
 const profileWorksFilter = ref("ALL");
-const feedScope = ref("shorts");
-const profileFeedQueue = ref([]);
-const likedFeedQueue = ref([]);
-const followFeedQueue = ref([]);
-/** 关注页：选中某位作者时，右侧仅播该作者短视频（GET /videos/{userId}/list） */
-const followSubscribedFilterAuthorId = ref(null);
-const followAuthorFeedQueue = ref([]);
-const followAuthorVideoPageNo = ref(1);
-const followAuthorVideoHasMore = ref(false);
-const followAuthorLoadingMore = ref(false);
-const followVideoPageNo = ref(1);
-const followVideoHasMore = ref(true);
-const followVideoLoadingMore = ref(false);
-const profileFeedOpen = ref(false);
 
 /** 仅音乐歌词「全屏」时隐藏右侧会话条；普通音乐页仍显示 */
 const chatRailSuppress = computed(
@@ -1886,8 +1876,6 @@ const {
 const detailSessionLiked = ref(false);
 const detailLikeBusy = ref(false);
 const detailFollowBusy = ref(false);
-/** 短视频流点赞：切换条时重置 */
-const shortsLikeBusy = ref(false);
 let lastShortsLikeAt = 0;
 let lastDetailLikeAt = 0;
 /** 仅当「当前短视频 id」变化时同步爱心 UI，避免 patch 列表导致 watch 反复把已取消赞设回 true */
