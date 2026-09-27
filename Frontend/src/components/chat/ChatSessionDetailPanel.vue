@@ -84,7 +84,7 @@ const isGroupOwner = computed(() => {
 const convName = computed(() => String(props.row?.conversationName || "").trim() || "未命名会话");
 
 /** 可移除：非群主（后端 isGroupOwner） */
-const membersRemovable = computed(() => members.value.filter((m) => !Boolean(m?.isGroupOwner)));
+const membersRemovable = computed(() => members.value.filter((m) => !m?.isGroupOwner));
 
 function displayNick(m) {
   const n = String(m?.userName || m?.user_name || "").trim();
@@ -247,7 +247,7 @@ function canShowMemberBan(m) {
   const uid = m?.userId != null ? String(m.userId) : "";
   if (!uid) return false;
   if (selfStr.value && uid === selfStr.value) return false;
-  return !Boolean(m?.banned);
+  return !m?.banned;
 }
 
 function onMemberContextMenu(m, ev) {

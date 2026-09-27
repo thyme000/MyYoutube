@@ -73,7 +73,7 @@ export async function trimUrlToWavFile(url, startSec, endSec, fileName) {
     decoded = await ctx.decodeAudioData(ab.slice(0));
   } catch (e) {
     await ctx.close().catch(() => {});
-    throw new Error(e?.message || "无法解码音频（格式不支持或数据不完整）");
+    throw new Error(e?.message || "无法解码音频（格式不支持或数据不完整）", { cause: e });
   }
 
   const rate = decoded.sampleRate;
