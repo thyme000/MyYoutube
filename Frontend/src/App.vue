@@ -1,5 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { menuKeyForPath, menuPathFor } from "./router";
 import { clearToken, getApiBaseUrl, getAuthExpiredEventName, getToken, setToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
@@ -132,6 +134,8 @@ const exploreMenus = [
 
 const activeMenuKey = ref("home");
 const activeMenuLabel = ref("首页");
+const route = useRoute();
+const router = useRouter();
 const pageHint = ref(`欢迎来到 THYME。请选择左侧模块查看内容。API 基础地址：${getApiBaseUrl()}`);
 const searchKeyword = ref("");
 const searchInputRef = ref(null);
@@ -3817,6 +3821,18 @@ function applyMenuKeyIfKnown(key) {
   activeMenuLabel.value = menu.label;
 }
 
+/** 浏览器前进/后退、刷新：以 URL 为准同步菜单状态 */
+watch(
+  () => route.path,
+  (p) => {
+    const key = menuKeyForPath(p);
+    if (key) {
+      applyMenuKeyIfKnown(key);
+    }
+  },
+  { immediate: true }
+);
+
 function captureProfileReturnContext() {
   if (showVideoDetail.value && videoDetail.value?.id != null) {
     return {
@@ -4896,10 +4912,8 @@ function openHomeShortVideoInFeed(card, index) {
   activeMenuKey.value = "shorts";
   const shortsMenu = primaryMenus.find((m) => m.key === "shorts");
   activeMenuLabel.value = shortsMenu?.label ?? "短视频";
-  try {
-    history.pushState({ myyoutubeMenu: "shorts" }, "", window.location.href);
-  } catch {
-    /* ignore */
+  if (route.path !== "/shorts") {
+    void router.push("/shorts");
   }
 
   nextTick(() => {
@@ -5372,12 +5386,9 @@ async function setActiveMenu(menu) {
   mediaPreviewOpen.value = false;
   activeMenuKey.value = menu.key;
   activeMenuLabel.value = menu.label;
-  if (menu.key !== "home") {
-    try {
-      history.pushState({ myyoutubeMenu: menu.key }, "", window.location.href);
-    } catch {
-      /* ignore */
-    }
+  const targetPath = menuPathFor(menu.key);
+  if (route.path !== targetPath) {
+    void router.push(targetPath);
   }
   if (menu.key === "shorts") {
     shortsFeedPlayToken += 1;
@@ -8933,7 +8944,7 @@ onMounted(async () => {
       await loadStudioVideos();
       return;
     }
-    const menuKey = state?.activeMenuKey || homeMenu.key;
+    const menuKey = menuKeyForPath(route.path) || state?.activeMenuKey || homeMenu.key;
     const allMenus = [...primaryMenus, ...exploreMenus];
     const menu = allMenus.find((m) => m.key === menuKey) || homeMenu;
     homeCategoryKey.value = state?.homeCategoryKey || "all";
