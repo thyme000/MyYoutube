@@ -45,6 +45,8 @@ Frontend/nginx-1.29.6/*_temp/
 
 # ==== 项目文档(后续重构完毕后添加) =====
 README.md
+# 前端构建/依赖说明需要保留
+!Frontend/README.md
 
 # nginx
 Frontend/nginx-1.29.6/
