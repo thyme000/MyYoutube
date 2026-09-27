@@ -17,6 +17,7 @@
   "license": "ISC",
   "dependencies": {
     "gradflow-vue": "^0.1.3",
+    "pinia": "^4.0.3",
     "remixicon": "^4.9.1",
     "vue": "^3.5.30",
     "vue-router": "^5.3.1"

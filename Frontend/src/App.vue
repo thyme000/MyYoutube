@@ -1,8 +1,10 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
-import { clearToken, getApiBaseUrl, getAuthExpiredEventName, getToken, setToken } from "./api/http";
+import { useAuthStore } from "./stores/authStore";
+import { getApiBaseUrl, getAuthExpiredEventName, getToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
   forgotPasswordApi,
@@ -1484,7 +1486,8 @@ function onLoginCubesAnimFinished() {
 }
 const authMessage = ref("");
 const activeAuthTab = ref("login");
-const token = ref(getToken());
+const authStore = useAuthStore();
+const { token } = storeToRefs(authStore);
 let activeMenuSwitchSeq = 0;
 
 const loginForm = ref({
@@ -8552,8 +8555,7 @@ async function submitLogin() {
       password: loginForm.value.password,
       captcha: loginForm.value.captcha.trim(),
     });
-    setToken(responseToken);
-    token.value = getToken();
+    authStore.signIn(responseToken);
     void refreshNotifyUnreadCount();
     authMessage.value = "登录成功。";
     pushToast("登录成功", "success");
@@ -8633,8 +8635,7 @@ async function submitRegister() {
 
 function logout() {
   void flushShortsHistoryQueue();
-  clearToken();
-  token.value = "";
+  authStore.signOut();
   shortsHistoryQueue = [];
   shortsHistoryQueueSet.clear();
   shortsHistorySeenSet.clear();
@@ -8695,8 +8696,7 @@ function loadUiStateFromSession() {
 
 function onAuthExpired(event) {
   const msg = event?.detail?.reason || "登录状态已过期，请重新登录。";
-  clearToken();
-  token.value = "";
+  authStore.signOut();
   hideDetailBufferingOverlay();
   showVideoDetail.value = false;
   showProfileCenter.value = false;
