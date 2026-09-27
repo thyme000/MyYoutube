@@ -51,7 +51,8 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
-      "/like": {
+      // 带尾斜杠: 裸 /liked 是"赞过的视频"页的 SPA 路由, 不应转发给后端
+      "/like/": {
         target: "http://localhost:8080",
         changeOrigin: true,
       },

@@ -101,6 +101,8 @@ import { parseDigitSnowflakeId, safeSnowflakeId } from "./utils/snowflakeId.js";
 import appIco from "../static/狗.png?url";
 import MusicView from "./views/MusicView.vue";
 import SearchView from "./views/SearchView.vue";
+import HistoryView from "./views/HistoryView.vue";
+import LikedView from "./views/LikedView.vue";
 import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
 import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
 import ChatView from "./views/ChatView.vue";
@@ -150,48 +152,6 @@ const searchStore = useSearchStore();
 // 列表加载后由 store 通知 App 挂自动播放观察器（依赖本组件的 DOM 引用）
 searchStore.registerLoadedHook(setupSearchVideoAutoplay);
 
-/** 过渡桥接: SearchView 依赖的交互函数仍在本组件, 拆分完成前经 provide 注入 */
-provide("searchBridge", {
-  selectSearchTab,
-  onSearchTagNavigate,
-  toggleSearchUserFollow,
-  onSearchUserRowActivate,
-  searchUserRowIsSelf,
-  searchUserRowIsFollowed,
-  onAuthorAvatarClick,
-  resolveVideoUrl,
-  cardAuthorAvatar,
-  cardAuthorLabel,
-  parseSearchTagsArray,
-  formatSearchRelTime,
-  formatShortsTime,
-  formatHomeShortStat,
-  searchFeedBindMainVideo,
-  searchFeedBindMediaWrap,
-  searchFeedListMuted,
-  searchFeedListVolValue,
-  searchFeedListScrubMax,
-  searchFeedListScrubDisplay,
-  searchFeedListDurationReady,
-  searchFeedListCurrent,
-  searchFeedListDuration,
-  searchFeedListShowPaused,
-  onSearchFeedListScrubInput,
-  searchFeedListToggleMute,
-  onSearchFeedListVolumeInput,
-  searchFeedListRequestPip,
-  searchFeedListRequestFullscreen,
-  searchFeedListTogglePlay,
-  onSearchFeedListTimeUpdate,
-  onSearchFeedListLoadedMetadata,
-  onSearchFeedListSeeked,
-  onSearchFeedListVideoPlay,
-  onSearchFeedListVideoPause,
-  onSearchFeedMainVideoClick,
-  onSearchFeedLikeClick,
-  onSearchFeedForwardClick,
-  openSearchListCommentPanel,
-});
 const {
   searchKeyword,
   searchActive,
@@ -248,561 +208,6 @@ const contentScrollRef = ref(null);
 const searchExpandPlayerRef = ref(null);
 const searchExpandBlurRef = ref(null);
 const searchExpandStageRef = ref(null);
-
-/** 搜索页文案与分页常量已移至 stores/searchStore.js */
-
-let searchSuggestBlurTimer = null;
-let searchPromptDebounceTimer = null;
-let searchVideoObserver = null;
-let searchScrollLoadTimer = null;
-
-/** 搜索列表进度条：节流 timeupdate，避免每帧整表重绘卡死 */
-const searchFeedProgressThrottleTs = new Map();
-let lastSearchExpandLikeAt = 0;
-let searchExpandEscapeHandler = null;
-/** 搜索全屏长视频：续播上报节流（与详情页长视频一致，写入 PUT /videos/playback/resume） */
-let searchExpandResumeTickCount = 0;
-let searchExpandResumeInFlight = false;
-let searchExpandResumeLastSentAtMs = 0;
-
-function searchExpandVideoUrl() {
-  const card = searchExpandCard.value;
-  if (!card) return "";
-  return resolveVideoUrl(card);
-}
-
-function openSearchExpand(card, index) {
-  searchListCommentOpen.value = false;
-  searchListCommentCard.value = null;
-  searchExpandResumeTickCount = 0;
-  searchExpandResumeInFlight = false;
-  searchExpandResumeLastSentAtMs = 0;
-  searchExpandCard.value = card;
-  searchExpandIndex.value = index;
-  searchExpandOpen.value = true;
-  teardownSearchVideoObserver();
-  if (searchExpandEscapeHandler) {
-    window.removeEventListener("keydown", searchExpandEscapeHandler);
-    searchExpandEscapeHandler = null;
-  }
-  searchExpandEscapeHandler = (e) => {
-    if (e.key === "Escape") closeSearchExpand();
-  };
-  window.addEventListener("keydown", searchExpandEscapeHandler);
-  nextTick(() => {
-    document.querySelectorAll(".search-feed-slide .search-feed-video").forEach((v) => {
-      try {
-        v.pause();
-      } catch {
-        /* ignore */
-      }
-    });
-    const main = searchExpandPlayerRef.value;
-    const blur = searchExpandBlurRef.value;
-    searchExpandCurrentTime.value = 0;
-    searchExpandDuration.value = 0;
-    searchExpandPaused.value = true;
-    searchExpandIsPortrait.value = true;
-    if (main) {
-      try {
-        main.volume = searchExpandVolume.value;
-        main.muted = searchExpandMuted.value;
-      } catch {
-        /* ignore */
-      }
-    }
-    if (blur) blur.play().catch(() => {});
-    if (main) main.play().catch(() => {});
-  });
-}
-
-function onSearchExpandFgPlay() {
-  searchExpandPaused.value = false;
-  searchExpandBlurRef.value?.play?.().catch(() => {});
-  /** 搜索列表内预览不写入历史；仅在全屏放大且实际开始播放时上报短视频观看（PUT /videos/shorts/play） */
-  if (searchActive.value) {
-    const card = searchExpandCard.value;
-    if (card) {
-      enqueueShortsHistoryByVideoId(card.id, card);
-    }
-  }
-}
-
-function onSearchExpandFgPause() {
-  if (searchExpandAutoplayPending.value) {
-    return;
-  }
-  searchExpandPaused.value = true;
-  try {
-    searchExpandBlurRef.value?.pause?.();
-  } catch {
-    /* ignore */
-  }
-  if (isLongSearchExpandVideo()) {
-    void flushSearchExpandPlaybackResume("pause");
-  }
-}
-
-function isLongSearchExpandVideo() {
-  return isLongVideoItem(searchExpandCard.value);
-}
-
-function getSearchExpandCurrentPlayTimeMs() {
-  const el = searchExpandPlayerRef.value;
-  if (!el) return 0;
-  const ms = Math.floor((Number(el.currentTime || 0) || 0) * 1000);
-  return ms > 0 ? ms : 0;
-}
-
-function getSearchExpandPlaybackPayload(playTimeMs) {
-  const userId = currentUserId.value;
-  const videoId = searchExpandCard.value?.id;
-  if (!userId || userId === "" || !videoId) return null;
-  if (!Number.isFinite(Number(playTimeMs))) return null;
-  return {
-    videoId,
-    playTime: playTimeMs,
-    userId,
-  };
-}
-
-function flushSearchExpandPlaybackResume(reason) {
-  if (!isLongSearchExpandVideo()) return Promise.resolve();
-  const player = searchExpandPlayerRef.value;
-  if (!player) return Promise.resolve();
-
-  if (reason !== "pause" && player.paused) {
-    return Promise.resolve();
-  }
-
-  const playTimeMs = getSearchExpandCurrentPlayTimeMs();
-  if (
-    reason !== "pause" &&
-    reason !== "switch" &&
-    reason !== "leave" &&
-    reason !== "unload" &&
-    playTimeMs <= 0
-  ) {
-    return Promise.resolve();
-  }
-
-  const payload = getSearchExpandPlaybackPayload(playTimeMs);
-  if (!payload) return Promise.resolve();
-
-  const now = Date.now();
-  if (reason === "tick" && now - searchExpandResumeLastSentAtMs < 8_000) {
-    return Promise.resolve();
-  }
-  if (searchExpandResumeInFlight) {
-    return Promise.resolve();
-  }
-  searchExpandResumeInFlight = true;
-  searchExpandResumeLastSentAtMs = now;
-
-  const keepalive = reason === "unload" || reason === "leave";
-  return sendPlaybackResumePut(payload, { keepalive }).finally(() => {
-    searchExpandResumeInFlight = false;
-  });
-}
-
-function closeSearchExpand() {
-  if (searchExpandEscapeHandler) {
-    window.removeEventListener("keydown", searchExpandEscapeHandler);
-    searchExpandEscapeHandler = null;
-  }
-  searchExpandCommentOpen.value = false;
-  void flushSearchExpandPlaybackResume("leave");
-  searchExpandResumeTickCount = 0;
-  searchExpandOpen.value = false;
-  searchExpandCard.value = null;
-  try {
-    searchExpandPlayerRef.value?.pause?.();
-  } catch {
-    /* ignore */
-  }
-  try {
-    searchExpandBlurRef.value?.pause?.();
-  } catch {
-    /* ignore */
-  }
-  void flushShortsHistoryQueue();
-  nextTick(() => {
-    if (searchActive.value) setupSearchVideoAutoplay();
-  });
-}
-
-function toggleSearchExpandPlay() {
-  const v = searchExpandPlayerRef.value;
-  if (!v) return;
-  if (v.paused) v.play().catch(() => {});
-  else v.pause();
-}
-
-function onSearchExpandVideoTimeUpdate(e) {
-  const v = e.target;
-  searchExpandCurrentTime.value = Number(v.currentTime) || 0;
-  if (!searchExpandAutoplayPending.value) {
-    searchExpandPaused.value = v.paused;
-  }
-  const blur = searchExpandBlurRef.value;
-  if (blur && v && Math.abs(blur.currentTime - v.currentTime) > 0.2) {
-    blur.currentTime = v.currentTime;
-  }
-  if (isLongSearchExpandVideo() && v && !v.paused) {
-    searchExpandResumeTickCount += 1;
-    if (searchExpandResumeTickCount >= 30) {
-      searchExpandResumeTickCount = 0;
-      void flushSearchExpandPlaybackResume("tick");
-    }
-  }
-}
-
-function onSearchExpandFgSeeked(e) {
-  const fg = e.target;
-  const blur = searchExpandBlurRef.value;
-  if (blur && fg) {
-    blur.currentTime = fg.currentTime;
-  }
-}
-
-function onSearchExpandVideoLoadedMetadata(e) {
-  const v = e.target;
-  searchExpandIsPortrait.value =
-    v.videoWidth > 0 && v.videoHeight > 0 && v.videoHeight > v.videoWidth;
-  searchExpandDuration.value = readVideoDurationFromVideoEl(v);
-}
-
-function onSearchExpandScrubInput(e) {
-  const v = searchExpandPlayerRef.value;
-  if (!v) return;
-  const t = Number(e.target.value);
-  if (!Number.isFinite(t)) return;
-  v.currentTime = t;
-  searchExpandCurrentTime.value = t;
-}
-
-async function searchExpandRequestPip() {
-  const v = searchExpandPlayerRef.value;
-  if (!v) return;
-  try {
-    if (document.pictureInPictureElement === v) {
-      await document.exitPictureInPicture();
-    } else if (v.requestPictureInPicture) {
-      await v.requestPictureInPicture();
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-async function searchExpandRequestFullscreen() {
-  const el = searchExpandStageRef.value;
-  if (!el) return;
-  try {
-    if (document.fullscreenElement === el) {
-      await document.exitFullscreen();
-    } else {
-      await el.requestFullscreen();
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-function searchExpandToggleMute() {
-  const v = searchExpandPlayerRef.value;
-  if (!v) return;
-  v.muted = !v.muted;
-  searchExpandMuted.value = v.muted;
-}
-
-function onSearchExpandVolumeInput(e) {
-  const v = searchExpandPlayerRef.value;
-  if (!v) return;
-  const vol = Number(e.target.value);
-  v.volume = vol;
-  v.muted = vol === 0;
-  searchExpandVolume.value = vol;
-  searchExpandMuted.value = v.muted;
-}
-
-function syncSearchExpandPlayerAfterSwitch() {
-  const main = searchExpandPlayerRef.value;
-  const blur = searchExpandBlurRef.value;
-  searchExpandAutoplayPending.value = true;
-  try {
-    main?.load?.();
-    blur?.load?.();
-  } catch {
-    /* ignore */
-  }
-  searchExpandCurrentTime.value = 0;
-  searchExpandDuration.value = 0;
-  searchExpandIsPortrait.value = true;
-  nextTick(() => {
-    try {
-      main.volume = searchExpandVolume.value;
-      main.muted = searchExpandMuted.value;
-    } catch {
-      /* ignore */
-    }
-    blur?.play?.().catch(() => {});
-    const p = main?.play?.();
-    if (p && typeof p.then === "function") {
-      p.then(
-        () => {
-          searchExpandAutoplayPending.value = false;
-        },
-        () => {
-          searchExpandAutoplayPending.value = false;
-          searchExpandPaused.value = true;
-        }
-      );
-    } else {
-      searchExpandAutoplayPending.value = false;
-    }
-  });
-}
-
-function searchExpandPrev() {
-  const list = searchFeedVideoList.value;
-  const i = searchExpandIndex.value;
-  if (i <= 0 || !list.length) return;
-  void flushSearchExpandPlaybackResume("switch");
-  searchExpandResumeTickCount = 0;
-  searchExpandCard.value = list[i - 1];
-  searchExpandIndex.value = i - 1;
-  searchExpandCommentOpen.value = false;
-  nextTick(() => syncSearchExpandPlayerAfterSwitch());
-}
-
-function searchExpandNext() {
-  const list = searchFeedVideoList.value;
-  const i = searchExpandIndex.value;
-  if (!list.length || i >= list.length - 1) return;
-  void flushSearchExpandPlaybackResume("switch");
-  searchExpandResumeTickCount = 0;
-  searchExpandCard.value = list[i + 1];
-  searchExpandIndex.value = i + 1;
-  searchExpandCommentOpen.value = false;
-  nextTick(() => syncSearchExpandPlayerAfterSwitch());
-}
-
-async function onSearchExpandLikeClick() {
-  const cur = searchExpandCard.value;
-  if (!cur?.id) return;
-  if (!isAuthed.value) {
-    pushToast("请先登录后再点赞", "info");
-    return;
-  }
-  const t = Date.now();
-  if (t - lastSearchExpandLikeAt < 300) return;
-  lastSearchExpandLikeAt = t;
-  if (searchExpandLikeBusy.value) return;
-  const vid = parseVideoIdForApi(cur.id);
-  if (vid == null) return;
-  searchExpandLikeBusy.value = true;
-  try {
-    const wasLiked = Boolean(cur.isLike);
-    if (wasLiked) {
-      await cancelLikeVideoApi(vid);
-      patchFeedVideoById(cur.id, { isLike: false, likeCount: Math.max(0, Number(cur.likeCount ?? 0) - 1) });
-    } else {
-      await likeVideoApi(vid);
-      patchFeedVideoById(cur.id, {
-        isLike: true,
-        likeCount: Number(cur.likeCount ?? 0) + 1,
-      });
-    }
-    const raw = await fetchVideoDetail(vid);
-    const merged = normalizeVideoDetail(raw);
-    if (merged && merged.likeCount != null) {
-      patchFeedVideoById(cur.id, { likeCount: merged.likeCount });
-    }
-    void reportBehaviorSilently(cur.id, "LIKE", Number(searchExpandCurrentTime.value || 0) * 1000);
-  } catch (error) {
-    pushToast(error.message || "点赞失败", "error");
-  } finally {
-    searchExpandLikeBusy.value = false;
-  }
-}
-
-async function onSearchExpandDislikeClick() {
-  const cur = searchExpandCard.value;
-  if (!cur?.id) return;
-  if (!isAuthed.value) {
-    pushToast("请先登录", "info");
-    return;
-  }
-  const vid = parseVideoIdForApi(cur.id);
-  if (vid == null) return;
-  try {
-    await dislikeVideoApi(vid);
-    void reportBehaviorSilently(cur.id, "DISLIKE", Number(searchExpandCurrentTime.value || 0) * 1000);
-    pushToast("已标记为不感兴趣", "success");
-  } catch (error) {
-    pushToast(error.message || "操作失败", "error");
-  }
-}
-
-async function toggleSearchExpandFollow() {
-  const c = searchExpandCard.value;
-  if (!c?.authorId) return;
-  if (!isAuthed.value) {
-    pushToast("请先登录后再关注", "info");
-    return;
-  }
-  const aid = String(c.authorId);
-  if (currentUserId.value != null && aid === String(currentUserId.value)) {
-    return;
-  }
-  const key = aid;
-  const currently = Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)
-    ? followStateOverrideByAuthorId.value[key]
-    : Boolean(c.isFollow);
-  try {
-    if (currently) {
-      await unfollowAuthor(aid);
-      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: false };
-      patchIsFollowForAuthor(aid, false);
-      pushToast("已取消关注", "success");
-    } else {
-      await followAuthor(aid);
-      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: true };
-      patchIsFollowForAuthor(aid, true);
-      pushToast("关注成功", "success");
-    }
-  } catch (e) {
-    pushToast(e?.message || "操作失败", "error");
-  }
-}
-
-function searchUserRowIsSelf(u) {
-  if (!u?.id || currentUserId.value == null) return false;
-  return String(u.id) === String(currentUserId.value);
-}
-
-function searchUserRowIsFollowed(u) {
-  if (!u?.id) return false;
-  const key = String(u.id);
-  if (Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)) {
-    return followStateOverrideByAuthorId.value[key];
-  }
-  return Boolean(u.isFollow);
-}
-
-async function toggleSearchUserFollow(u) {
-  if (!u?.id) return;
-  if (!isAuthed.value) {
-    pushToast("请先登录后再关注", "info");
-    return;
-  }
-  const aid = String(u.id);
-  if (currentUserId.value != null && aid === String(currentUserId.value)) {
-    return;
-  }
-  const key = aid;
-  const currently = Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)
-    ? followStateOverrideByAuthorId.value[key]
-    : Boolean(u.isFollow);
-  try {
-    if (currently) {
-      await unfollowAuthor(aid);
-      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: false };
-      patchIsFollowForAuthor(aid, false);
-      pushToast("已取消关注", "success");
-    } else {
-      await followAuthor(aid);
-      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: true };
-      patchIsFollowForAuthor(aid, true);
-      pushToast("关注成功", "success");
-    }
-  } catch (e) {
-    pushToast(e?.message || "操作失败", "error");
-  }
-}
-
-async function onSearchExpandShareClick() {
-  const cur = searchExpandCard.value;
-  const url = typeof window !== "undefined" ? window.location.href : "";
-  try {
-    if (navigator.share && cur?.title) {
-      await navigator.share({ title: cur.title, url });
-    } else if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(url);
-      pushToast("链接已复制", "success");
-    } else {
-      pushToast(url || "无法分享", "info");
-    }
-  } catch {
-    /* 用户取消或不可用 */
-  }
-}
-
-const forwardVideoOpen = ref(false);
-const forwardVideoCard = ref(null);
-
-const commentReportOpen = ref(false);
-const commentReportTarget = ref(null);
-
-function isBlockedComment(comment) {
-  const stRaw = comment?.status ?? comment?.commentStatus ?? comment?.comment_status;
-  const st = String(stRaw ?? "").trim().toUpperCase();
-  if (st === "BLOCKED" || st === "BANNED") return true;
-  if (stRaw === 2 || stRaw === "2") return true;
-  const text = String(comment?.content || "");
-  return text.includes("评论违规") || text.includes("已被处理");
-}
-
-function openForwardVideoModal(card) {
-  if (!isAuthed.value) {
-    pushToast("请先登录后使用转发", "info");
-    return;
-  }
-  if (!card?.id) {
-    pushToast("缺少视频信息", "error");
-    return;
-  }
-  forwardVideoCard.value = card;
-  forwardVideoOpen.value = true;
-}
-
-function openCommentReportModal(comment) {
-  if (!isAuthed.value) {
-    pushToast("请先登录后再举报", "info");
-    return;
-  }
-  if (!comment?.id) {
-    pushToast("缺少评论信息", "error");
-    return;
-  }
-  if (currentUserId.value != null && String(comment.userId) === String(currentUserId.value)) {
-    pushToast("不能举报自己的评论", "info");
-    return;
-  }
-  if (isBlockedComment(comment)) {
-    pushToast("该评论已被处理，无法举报", "info");
-    return;
-  }
-  commentReportTarget.value = comment;
-  commentReportOpen.value = true;
-}
-
-function onSearchExpandForwardClick() {
-  openForwardVideoModal(searchExpandCard.value);
-}
-
-function onShortsForwardClick() {
-  openForwardVideoModal(shortsFeedCurrent.value);
-}
-
-watch(searchActive, (v) => {
-  if (!v && searchExpandOpen.value) closeSearchExpand();
-  if (!v && searchScrollLoadTimer) {
-    clearTimeout(searchScrollLoadTimer);
-    searchScrollLoadTimer = null;
-  }
-});
 
 function dedupeStringsMax10(arr) {
   const seen = new Set();
@@ -8756,6 +8161,631 @@ watch(
   { immediate: true }
 );
 
+/** 过渡桥接: SearchView 依赖的交互函数仍在本组件, 拆分完成前经 provide 注入 */
+provide("searchBridge", {
+  selectSearchTab,
+  onSearchTagNavigate,
+  toggleSearchUserFollow,
+  onSearchUserRowActivate,
+  searchUserRowIsSelf,
+  searchUserRowIsFollowed,
+  onAuthorAvatarClick,
+  resolveVideoUrl,
+  cardAuthorAvatar,
+  cardAuthorLabel,
+  parseSearchTagsArray,
+  formatSearchRelTime,
+  formatShortsTime,
+  formatHomeShortStat,
+  searchFeedBindMainVideo,
+  searchFeedBindMediaWrap,
+  searchFeedListMuted,
+  searchFeedListVolValue,
+  searchFeedListScrubMax,
+  searchFeedListScrubDisplay,
+  searchFeedListDurationReady,
+  searchFeedListCurrent,
+  searchFeedListDuration,
+  searchFeedListShowPaused,
+  onSearchFeedListScrubInput,
+  searchFeedListToggleMute,
+  onSearchFeedListVolumeInput,
+  searchFeedListRequestPip,
+  searchFeedListRequestFullscreen,
+  searchFeedListTogglePlay,
+  onSearchFeedListTimeUpdate,
+  onSearchFeedListLoadedMetadata,
+  onSearchFeedListSeeked,
+  onSearchFeedListVideoPlay,
+  onSearchFeedListVideoPause,
+  onSearchFeedMainVideoClick,
+  onSearchFeedLikeClick,
+  onSearchFeedForwardClick,
+  openSearchListCommentPanel,
+});
+
+/** 过渡桥接: HistoryView/LikedView 依赖的卡片/翻页/悬停预览函数与预览源仍在本组件 */
+provide("cardsBridge", {
+  cardAuthorAvatar,
+  cardAuthorLabel,
+  cardCoverSrc,
+  onAuthorAvatarClick,
+  onCardHoverEnter,
+  onCardHoverLeave,
+  isCardPreviewPlaying,
+  activePreviewVideoUrl,
+  videoCardPlayable,
+  resolveVideoUrl,
+  formatWorkLikeText,
+  formatHomeShortStat,
+  onHistoryLongCardClick,
+  onHistoryLongPrevPage,
+  onHistoryLongNextPage,
+  toggleHistoryLongExpanded,
+  onHistoryShortCardClick,
+  onHistoryShortPrevPage,
+  onHistoryShortNextPage,
+  toggleHistoryShortExpanded,
+  onLikedWorkClick,
+  loadLikedPage,
+});
+
+/** 搜索页文案与分页常量已移至 stores/searchStore.js */
+
+let searchSuggestBlurTimer = null;
+let searchPromptDebounceTimer = null;
+let searchVideoObserver = null;
+let searchScrollLoadTimer = null;
+
+/** 搜索列表进度条：节流 timeupdate，避免每帧整表重绘卡死 */
+const searchFeedProgressThrottleTs = new Map();
+let lastSearchExpandLikeAt = 0;
+let searchExpandEscapeHandler = null;
+/** 搜索全屏长视频：续播上报节流（与详情页长视频一致，写入 PUT /videos/playback/resume） */
+let searchExpandResumeTickCount = 0;
+let searchExpandResumeInFlight = false;
+let searchExpandResumeLastSentAtMs = 0;
+
+function searchExpandVideoUrl() {
+  const card = searchExpandCard.value;
+  if (!card) return "";
+  return resolveVideoUrl(card);
+}
+
+function openSearchExpand(card, index) {
+  searchListCommentOpen.value = false;
+  searchListCommentCard.value = null;
+  searchExpandResumeTickCount = 0;
+  searchExpandResumeInFlight = false;
+  searchExpandResumeLastSentAtMs = 0;
+  searchExpandCard.value = card;
+  searchExpandIndex.value = index;
+  searchExpandOpen.value = true;
+  teardownSearchVideoObserver();
+  if (searchExpandEscapeHandler) {
+    window.removeEventListener("keydown", searchExpandEscapeHandler);
+    searchExpandEscapeHandler = null;
+  }
+  searchExpandEscapeHandler = (e) => {
+    if (e.key === "Escape") closeSearchExpand();
+  };
+  window.addEventListener("keydown", searchExpandEscapeHandler);
+  nextTick(() => {
+    document.querySelectorAll(".search-feed-slide .search-feed-video").forEach((v) => {
+      try {
+        v.pause();
+      } catch {
+        /* ignore */
+      }
+    });
+    const main = searchExpandPlayerRef.value;
+    const blur = searchExpandBlurRef.value;
+    searchExpandCurrentTime.value = 0;
+    searchExpandDuration.value = 0;
+    searchExpandPaused.value = true;
+    searchExpandIsPortrait.value = true;
+    if (main) {
+      try {
+        main.volume = searchExpandVolume.value;
+        main.muted = searchExpandMuted.value;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (blur) blur.play().catch(() => {});
+    if (main) main.play().catch(() => {});
+  });
+}
+
+function onSearchExpandFgPlay() {
+  searchExpandPaused.value = false;
+  searchExpandBlurRef.value?.play?.().catch(() => {});
+  /** 搜索列表内预览不写入历史；仅在全屏放大且实际开始播放时上报短视频观看（PUT /videos/shorts/play） */
+  if (searchActive.value) {
+    const card = searchExpandCard.value;
+    if (card) {
+      enqueueShortsHistoryByVideoId(card.id, card);
+    }
+  }
+}
+
+function onSearchExpandFgPause() {
+  if (searchExpandAutoplayPending.value) {
+    return;
+  }
+  searchExpandPaused.value = true;
+  try {
+    searchExpandBlurRef.value?.pause?.();
+  } catch {
+    /* ignore */
+  }
+  if (isLongSearchExpandVideo()) {
+    void flushSearchExpandPlaybackResume("pause");
+  }
+}
+
+function isLongSearchExpandVideo() {
+  return isLongVideoItem(searchExpandCard.value);
+}
+
+function getSearchExpandCurrentPlayTimeMs() {
+  const el = searchExpandPlayerRef.value;
+  if (!el) return 0;
+  const ms = Math.floor((Number(el.currentTime || 0) || 0) * 1000);
+  return ms > 0 ? ms : 0;
+}
+
+function getSearchExpandPlaybackPayload(playTimeMs) {
+  const userId = currentUserId.value;
+  const videoId = searchExpandCard.value?.id;
+  if (!userId || userId === "" || !videoId) return null;
+  if (!Number.isFinite(Number(playTimeMs))) return null;
+  return {
+    videoId,
+    playTime: playTimeMs,
+    userId,
+  };
+}
+
+function flushSearchExpandPlaybackResume(reason) {
+  if (!isLongSearchExpandVideo()) return Promise.resolve();
+  const player = searchExpandPlayerRef.value;
+  if (!player) return Promise.resolve();
+
+  if (reason !== "pause" && player.paused) {
+    return Promise.resolve();
+  }
+
+  const playTimeMs = getSearchExpandCurrentPlayTimeMs();
+  if (
+    reason !== "pause" &&
+    reason !== "switch" &&
+    reason !== "leave" &&
+    reason !== "unload" &&
+    playTimeMs <= 0
+  ) {
+    return Promise.resolve();
+  }
+
+  const payload = getSearchExpandPlaybackPayload(playTimeMs);
+  if (!payload) return Promise.resolve();
+
+  const now = Date.now();
+  if (reason === "tick" && now - searchExpandResumeLastSentAtMs < 8_000) {
+    return Promise.resolve();
+  }
+  if (searchExpandResumeInFlight) {
+    return Promise.resolve();
+  }
+  searchExpandResumeInFlight = true;
+  searchExpandResumeLastSentAtMs = now;
+
+  const keepalive = reason === "unload" || reason === "leave";
+  return sendPlaybackResumePut(payload, { keepalive }).finally(() => {
+    searchExpandResumeInFlight = false;
+  });
+}
+
+function closeSearchExpand() {
+  if (searchExpandEscapeHandler) {
+    window.removeEventListener("keydown", searchExpandEscapeHandler);
+    searchExpandEscapeHandler = null;
+  }
+  searchExpandCommentOpen.value = false;
+  void flushSearchExpandPlaybackResume("leave");
+  searchExpandResumeTickCount = 0;
+  searchExpandOpen.value = false;
+  searchExpandCard.value = null;
+  try {
+    searchExpandPlayerRef.value?.pause?.();
+  } catch {
+    /* ignore */
+  }
+  try {
+    searchExpandBlurRef.value?.pause?.();
+  } catch {
+    /* ignore */
+  }
+  void flushShortsHistoryQueue();
+  nextTick(() => {
+    if (searchActive.value) setupSearchVideoAutoplay();
+  });
+}
+
+function toggleSearchExpandPlay() {
+  const v = searchExpandPlayerRef.value;
+  if (!v) return;
+  if (v.paused) v.play().catch(() => {});
+  else v.pause();
+}
+
+function onSearchExpandVideoTimeUpdate(e) {
+  const v = e.target;
+  searchExpandCurrentTime.value = Number(v.currentTime) || 0;
+  if (!searchExpandAutoplayPending.value) {
+    searchExpandPaused.value = v.paused;
+  }
+  const blur = searchExpandBlurRef.value;
+  if (blur && v && Math.abs(blur.currentTime - v.currentTime) > 0.2) {
+    blur.currentTime = v.currentTime;
+  }
+  if (isLongSearchExpandVideo() && v && !v.paused) {
+    searchExpandResumeTickCount += 1;
+    if (searchExpandResumeTickCount >= 30) {
+      searchExpandResumeTickCount = 0;
+      void flushSearchExpandPlaybackResume("tick");
+    }
+  }
+}
+
+function onSearchExpandFgSeeked(e) {
+  const fg = e.target;
+  const blur = searchExpandBlurRef.value;
+  if (blur && fg) {
+    blur.currentTime = fg.currentTime;
+  }
+}
+
+function onSearchExpandVideoLoadedMetadata(e) {
+  const v = e.target;
+  searchExpandIsPortrait.value =
+    v.videoWidth > 0 && v.videoHeight > 0 && v.videoHeight > v.videoWidth;
+  searchExpandDuration.value = readVideoDurationFromVideoEl(v);
+}
+
+function onSearchExpandScrubInput(e) {
+  const v = searchExpandPlayerRef.value;
+  if (!v) return;
+  const t = Number(e.target.value);
+  if (!Number.isFinite(t)) return;
+  v.currentTime = t;
+  searchExpandCurrentTime.value = t;
+}
+
+async function searchExpandRequestPip() {
+  const v = searchExpandPlayerRef.value;
+  if (!v) return;
+  try {
+    if (document.pictureInPictureElement === v) {
+      await document.exitPictureInPicture();
+    } else if (v.requestPictureInPicture) {
+      await v.requestPictureInPicture();
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function searchExpandRequestFullscreen() {
+  const el = searchExpandStageRef.value;
+  if (!el) return;
+  try {
+    if (document.fullscreenElement === el) {
+      await document.exitFullscreen();
+    } else {
+      await el.requestFullscreen();
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function searchExpandToggleMute() {
+  const v = searchExpandPlayerRef.value;
+  if (!v) return;
+  v.muted = !v.muted;
+  searchExpandMuted.value = v.muted;
+}
+
+function onSearchExpandVolumeInput(e) {
+  const v = searchExpandPlayerRef.value;
+  if (!v) return;
+  const vol = Number(e.target.value);
+  v.volume = vol;
+  v.muted = vol === 0;
+  searchExpandVolume.value = vol;
+  searchExpandMuted.value = v.muted;
+}
+
+function syncSearchExpandPlayerAfterSwitch() {
+  const main = searchExpandPlayerRef.value;
+  const blur = searchExpandBlurRef.value;
+  searchExpandAutoplayPending.value = true;
+  try {
+    main?.load?.();
+    blur?.load?.();
+  } catch {
+    /* ignore */
+  }
+  searchExpandCurrentTime.value = 0;
+  searchExpandDuration.value = 0;
+  searchExpandIsPortrait.value = true;
+  nextTick(() => {
+    try {
+      main.volume = searchExpandVolume.value;
+      main.muted = searchExpandMuted.value;
+    } catch {
+      /* ignore */
+    }
+    blur?.play?.().catch(() => {});
+    const p = main?.play?.();
+    if (p && typeof p.then === "function") {
+      p.then(
+        () => {
+          searchExpandAutoplayPending.value = false;
+        },
+        () => {
+          searchExpandAutoplayPending.value = false;
+          searchExpandPaused.value = true;
+        }
+      );
+    } else {
+      searchExpandAutoplayPending.value = false;
+    }
+  });
+}
+
+function searchExpandPrev() {
+  const list = searchFeedVideoList.value;
+  const i = searchExpandIndex.value;
+  if (i <= 0 || !list.length) return;
+  void flushSearchExpandPlaybackResume("switch");
+  searchExpandResumeTickCount = 0;
+  searchExpandCard.value = list[i - 1];
+  searchExpandIndex.value = i - 1;
+  searchExpandCommentOpen.value = false;
+  nextTick(() => syncSearchExpandPlayerAfterSwitch());
+}
+
+function searchExpandNext() {
+  const list = searchFeedVideoList.value;
+  const i = searchExpandIndex.value;
+  if (!list.length || i >= list.length - 1) return;
+  void flushSearchExpandPlaybackResume("switch");
+  searchExpandResumeTickCount = 0;
+  searchExpandCard.value = list[i + 1];
+  searchExpandIndex.value = i + 1;
+  searchExpandCommentOpen.value = false;
+  nextTick(() => syncSearchExpandPlayerAfterSwitch());
+}
+
+async function onSearchExpandLikeClick() {
+  const cur = searchExpandCard.value;
+  if (!cur?.id) return;
+  if (!isAuthed.value) {
+    pushToast("请先登录后再点赞", "info");
+    return;
+  }
+  const t = Date.now();
+  if (t - lastSearchExpandLikeAt < 300) return;
+  lastSearchExpandLikeAt = t;
+  if (searchExpandLikeBusy.value) return;
+  const vid = parseVideoIdForApi(cur.id);
+  if (vid == null) return;
+  searchExpandLikeBusy.value = true;
+  try {
+    const wasLiked = Boolean(cur.isLike);
+    if (wasLiked) {
+      await cancelLikeVideoApi(vid);
+      patchFeedVideoById(cur.id, { isLike: false, likeCount: Math.max(0, Number(cur.likeCount ?? 0) - 1) });
+    } else {
+      await likeVideoApi(vid);
+      patchFeedVideoById(cur.id, {
+        isLike: true,
+        likeCount: Number(cur.likeCount ?? 0) + 1,
+      });
+    }
+    const raw = await fetchVideoDetail(vid);
+    const merged = normalizeVideoDetail(raw);
+    if (merged && merged.likeCount != null) {
+      patchFeedVideoById(cur.id, { likeCount: merged.likeCount });
+    }
+    void reportBehaviorSilently(cur.id, "LIKE", Number(searchExpandCurrentTime.value || 0) * 1000);
+  } catch (error) {
+    pushToast(error.message || "点赞失败", "error");
+  } finally {
+    searchExpandLikeBusy.value = false;
+  }
+}
+
+async function onSearchExpandDislikeClick() {
+  const cur = searchExpandCard.value;
+  if (!cur?.id) return;
+  if (!isAuthed.value) {
+    pushToast("请先登录", "info");
+    return;
+  }
+  const vid = parseVideoIdForApi(cur.id);
+  if (vid == null) return;
+  try {
+    await dislikeVideoApi(vid);
+    void reportBehaviorSilently(cur.id, "DISLIKE", Number(searchExpandCurrentTime.value || 0) * 1000);
+    pushToast("已标记为不感兴趣", "success");
+  } catch (error) {
+    pushToast(error.message || "操作失败", "error");
+  }
+}
+
+async function toggleSearchExpandFollow() {
+  const c = searchExpandCard.value;
+  if (!c?.authorId) return;
+  if (!isAuthed.value) {
+    pushToast("请先登录后再关注", "info");
+    return;
+  }
+  const aid = String(c.authorId);
+  if (currentUserId.value != null && aid === String(currentUserId.value)) {
+    return;
+  }
+  const key = aid;
+  const currently = Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)
+    ? followStateOverrideByAuthorId.value[key]
+    : Boolean(c.isFollow);
+  try {
+    if (currently) {
+      await unfollowAuthor(aid);
+      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: false };
+      patchIsFollowForAuthor(aid, false);
+      pushToast("已取消关注", "success");
+    } else {
+      await followAuthor(aid);
+      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: true };
+      patchIsFollowForAuthor(aid, true);
+      pushToast("关注成功", "success");
+    }
+  } catch (e) {
+    pushToast(e?.message || "操作失败", "error");
+  }
+}
+
+function searchUserRowIsSelf(u) {
+  if (!u?.id || currentUserId.value == null) return false;
+  return String(u.id) === String(currentUserId.value);
+}
+
+function searchUserRowIsFollowed(u) {
+  if (!u?.id) return false;
+  const key = String(u.id);
+  if (Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)) {
+    return followStateOverrideByAuthorId.value[key];
+  }
+  return Boolean(u.isFollow);
+}
+
+async function toggleSearchUserFollow(u) {
+  if (!u?.id) return;
+  if (!isAuthed.value) {
+    pushToast("请先登录后再关注", "info");
+    return;
+  }
+  const aid = String(u.id);
+  if (currentUserId.value != null && aid === String(currentUserId.value)) {
+    return;
+  }
+  const key = aid;
+  const currently = Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)
+    ? followStateOverrideByAuthorId.value[key]
+    : Boolean(u.isFollow);
+  try {
+    if (currently) {
+      await unfollowAuthor(aid);
+      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: false };
+      patchIsFollowForAuthor(aid, false);
+      pushToast("已取消关注", "success");
+    } else {
+      await followAuthor(aid);
+      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: true };
+      patchIsFollowForAuthor(aid, true);
+      pushToast("关注成功", "success");
+    }
+  } catch (e) {
+    pushToast(e?.message || "操作失败", "error");
+  }
+}
+
+async function onSearchExpandShareClick() {
+  const cur = searchExpandCard.value;
+  const url = typeof window !== "undefined" ? window.location.href : "";
+  try {
+    if (navigator.share && cur?.title) {
+      await navigator.share({ title: cur.title, url });
+    } else if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+      pushToast("链接已复制", "success");
+    } else {
+      pushToast(url || "无法分享", "info");
+    }
+  } catch {
+    /* 用户取消或不可用 */
+  }
+}
+
+const forwardVideoOpen = ref(false);
+const forwardVideoCard = ref(null);
+
+const commentReportOpen = ref(false);
+const commentReportTarget = ref(null);
+
+function isBlockedComment(comment) {
+  const stRaw = comment?.status ?? comment?.commentStatus ?? comment?.comment_status;
+  const st = String(stRaw ?? "").trim().toUpperCase();
+  if (st === "BLOCKED" || st === "BANNED") return true;
+  if (stRaw === 2 || stRaw === "2") return true;
+  const text = String(comment?.content || "");
+  return text.includes("评论违规") || text.includes("已被处理");
+}
+
+function openForwardVideoModal(card) {
+  if (!isAuthed.value) {
+    pushToast("请先登录后使用转发", "info");
+    return;
+  }
+  if (!card?.id) {
+    pushToast("缺少视频信息", "error");
+    return;
+  }
+  forwardVideoCard.value = card;
+  forwardVideoOpen.value = true;
+}
+
+function openCommentReportModal(comment) {
+  if (!isAuthed.value) {
+    pushToast("请先登录后再举报", "info");
+    return;
+  }
+  if (!comment?.id) {
+    pushToast("缺少评论信息", "error");
+    return;
+  }
+  if (currentUserId.value != null && String(comment.userId) === String(currentUserId.value)) {
+    pushToast("不能举报自己的评论", "info");
+    return;
+  }
+  if (isBlockedComment(comment)) {
+    pushToast("该评论已被处理，无法举报", "info");
+    return;
+  }
+  commentReportTarget.value = comment;
+  commentReportOpen.value = true;
+}
+
+function onSearchExpandForwardClick() {
+  openForwardVideoModal(searchExpandCard.value);
+}
+
+function onShortsForwardClick() {
+  openForwardVideoModal(shortsFeedCurrent.value);
+}
+
+watch(searchActive, (v) => {
+  if (!v && searchExpandOpen.value) closeSearchExpand();
+  if (!v && searchScrollLoadTimer) {
+    clearTimeout(searchScrollLoadTimer);
+    searchScrollLoadTimer = null;
+  }
+});
+
+
 onMounted(async () => {
   registerGlobalToast(pushToast);
   registerChatNavigator(async (conversationId) => {
@@ -10979,233 +11009,9 @@ onBeforeUnmount(() => {
         </div>
 
         <template v-if="!showProfileCenter && activeMenuKey !== 'shorts' && activeMenuKey !== 'subscribed'">
-          <section v-if="activeMenuKey === 'history'" class="history-shorts-page">
-            <div class="history-shorts-head">
-              <h3><i class="ri-history-line"></i> 历史播放记录</h3>
-            </div>
+          <HistoryView v-if="activeMenuKey === 'history'" />
 
-            <section class="history-section">
-              <div class="history-section-head">
-                <h4>长视频历史记录</h4>
-                <div class="history-pager">
-                  <button type="button" class="history-layout-btn" :disabled="historyLongPageNo <= 1" @click="onHistoryLongPrevPage">
-                    上一页
-                  </button>
-                  <span>{{ historyLongPageNo }} / {{ Math.max(1, historyLongPages || 1) }}</span>
-                  <button
-                    type="button"
-                    class="history-layout-btn"
-                    :disabled="historyLongPageNo >= (historyLongPages || 1)"
-                    @click="onHistoryLongNextPage"
-                  >
-                    下一页
-                  </button>
-                </div>
-              </div>
-              <div v-if="historyLongLoading" class="shorts-feed-loading">正在加载长视频历史记录…</div>
-              <div v-else-if="!historyLongRows.length" class="shorts-feed-empty">暂无长视频历史记录</div>
-              <div
-                v-else
-                class="home-shorts-strip history-shorts-strip"
-                :class="{
-                  'history-shorts-strip--expanded history-shorts-strip--long-grid': historyLongExpanded,
-                }"
-              >
-                <article
-                  v-for="(card, index) in historyLongRows"
-                  :key="`history-long-${card.id}-${index}`"
-                  class="video-card history-long-card"
-                  :class="{ 'video-card--playable': videoCardPlayable(card) }"
-                  @click="onHistoryLongCardClick(card, index)"
-                  @mouseenter="onCardHoverEnter(card, 'history-long')"
-                  @mouseleave="onCardHoverLeave(card, 'history-long')"
-                >
-                  <video
-                    v-if="isCardPreviewPlaying(card, 'history-long')"
-                    class="video-cover video-cover--preview"
-                    :src="activePreviewVideoUrl"
-                    muted
-                    autoplay
-                    loop
-                    playsinline
-                    preload="metadata"
-                  ></video>
-                  <img v-else class="video-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
-                  <div class="video-info">
-                    <img
-                      class="video-card-author-avatar"
-                      :src="cardAuthorAvatar(card, index)"
-                      alt=""
-                      role="button"
-                      title="查看作者主页"
-                      @click.stop="onAuthorAvatarClick($event, card.authorId)"
-                      @error="(e) => (e.target.src = profileAvatar)"
-                    />
-                    <div class="video-info-text">
-                      <strong>{{ card.title }}</strong>
-                      <span>{{ cardAuthorLabel(card) }} · {{ card.viewsText || "—" }}</span>
-                    </div>
-                  </div>
-                </article>
-              </div>
-              <div class="history-section-foot">
-                <button type="button" class="history-expand-btn" @click="toggleHistoryLongExpanded">
-                  <i class="ri-arrow-down-s-line"></i>{{ historyLongExpanded ? "收起" : "展开" }}
-                </button>
-              </div>
-            </section>
-
-            <section class="history-section">
-              <div class="history-section-head">
-                <h4>短视频历史记录</h4>
-                <div class="history-pager">
-                  <button type="button" class="history-layout-btn" :disabled="historyShortPageNo <= 1" @click="onHistoryShortPrevPage">
-                    上一页
-                  </button>
-                  <span>{{ historyShortPageNo }} / {{ Math.max(1, historyShortPages || 1) }}</span>
-                  <button
-                    type="button"
-                    class="history-layout-btn"
-                    :disabled="historyShortPageNo >= (historyShortPages || 1)"
-                    @click="onHistoryShortNextPage"
-                  >
-                    下一页
-                  </button>
-                </div>
-              </div>
-              <div v-if="historyShortLoading" class="shorts-feed-loading">正在加载短视频历史记录…</div>
-              <div v-else-if="!historyShortRows.length" class="shorts-feed-empty">暂无短视频历史记录</div>
-              <div
-                v-else
-                class="home-shorts-strip history-shorts-strip"
-                :class="{
-                  'history-shorts-strip--expanded history-shorts-strip--short-grid': historyShortExpanded,
-                }"
-              >
-                <article
-                  v-for="(card, index) in historyShortRows"
-                  :key="`history-short-${card.id}-${index}`"
-                  class="home-short-card"
-                  @click="onHistoryShortCardClick(card, index)"
-                  @mouseenter="onCardHoverEnter(card, 'history-short')"
-                  @mouseleave="onCardHoverLeave(card, 'history-short')"
-                >
-                  <div class="home-short-media">
-                    <video
-                      v-if="isCardPreviewPlaying(card, 'history-short')"
-                      class="home-short-cover home-short-cover--video video-cover--preview"
-                      :src="activePreviewVideoUrl"
-                      muted
-                      autoplay
-                      loop
-                      playsinline
-                      preload="metadata"
-                    ></video>
-                    <img v-else class="home-short-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
-                  </div>
-                  <div class="home-short-card-footer">
-                    <div class="home-short-card-main">
-                      <p class="home-short-title">{{ card.title }}</p>
-                      <span class="home-short-author">{{ cardAuthorLabel(card) }}</span>
-                    </div>
-                    <div class="home-short-stats">
-                      <span class="home-short-stat" title="播放量">
-                        <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.playCount) }}
-                      </span>
-                    </div>
-                  </div>
-                </article>
-              </div>
-              <div class="history-section-foot">
-                <button type="button" class="history-expand-btn" @click="toggleHistoryShortExpanded">
-                  <i class="ri-arrow-down-s-line"></i>{{ historyShortExpanded ? "收起" : "展开" }}
-                </button>
-              </div>
-            </section>
-          </section>
-
-          <section v-else-if="activeMenuKey === 'liked'" class="liked-videos-page profile-works-section">
-            <div class="profile-works-title">
-              <h4><i class="ri-thumb-up-line"></i> 赞过的视频</h4>
-              <div class="profile-works-toolbar">
-                <span v-if="isAuthed">共 {{ likedTotal }} 条</span>
-                <span v-else class="liked-login-hint">登录后可查看</span>
-              </div>
-            </div>
-            <p v-if="!isAuthed" class="profile-api-hint">请先登录后查看「赞过的视频」。</p>
-            <div v-else-if="likedLoading" class="liked-loading-block">
-              <p class="profile-api-hint profile-api-hint--loading">正在加载…</p>
-              <div class="works-grid works-grid-profile works-grid-profile--skeleton">
-                <article v-for="n in 6" :key="`liked-skeleton-${n}`" class="work-card work-card--skeleton">
-                  <div class="work-thumb"></div>
-                  <div class="work-meta">
-                    <p class="work-title"></p>
-                  </div>
-                </article>
-              </div>
-            </div>
-            <div v-else class="works-grid works-grid-profile">
-              <article
-                v-for="item in likedDisplay"
-                :key="`liked-${item.id}`"
-                class="work-card"
-                :class="{ 'work-card--playable': resolveVideoUrl(item) }"
-                @click="onLikedWorkClick(item)"
-                @mouseenter="onCardHoverEnter(item, 'liked-work')"
-                @mouseleave="onCardHoverLeave(item, 'liked-work')"
-              >
-                <div class="work-thumb">
-                  <video
-                    v-if="isCardPreviewPlaying(item, 'liked-work')"
-                    class="work-preview-video"
-                    :src="activePreviewVideoUrl"
-                    muted
-                    autoplay
-                    loop
-                    playsinline
-                    preload="metadata"
-                  ></video>
-                  <img v-else :src="item.image" :alt="item.title" />
-                  <span class="work-like work-like--bottom-left work-like--liked-list">
-                    <i class="ri-heart-fill" aria-hidden="true"></i> {{ item.likes }}
-                  </span>
-                </div>
-                <div class="work-meta">
-                  <img
-                    class="work-author-avatar"
-                    :src="item.authorAvatarUrl || profileAvatar"
-                    alt=""
-                    role="button"
-                    title="查看作者主页"
-                    @click.stop="onAuthorAvatarClick($event, item.authorId)"
-                  />
-                  <div class="work-meta-main">
-                    <div class="work-title-row">
-                      <p class="work-title">{{ item.title }}</p>
-                      <span class="work-play-stat" title="播放量">
-                        <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(item.playCount) }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            </div>
-            <div v-if="isAuthed && !likedLoading && likedDisplay.length && likedHasMore" class="liked-load-more-wrap">
-              <button
-                type="button"
-                class="history-layout-btn"
-                :disabled="likedLoadingMore"
-                @click="loadLikedPage({ reset: false })"
-              >
-                {{ likedLoadingMore ? "加载中…" : "加载更多" }}
-              </button>
-            </div>
-            <div v-if="isAuthed && !likedLoading && !likedDisplay.length" class="profile-works-empty">
-              <div class="profile-works-empty-icon"><i class="ri-thumb-up-line"></i></div>
-              <h5>暂无赞过的视频</h5>
-              <p>去短视频或首页给喜欢的内容点个赞吧～</p>
-            </div>
-          </section>
+          <LikedView v-else-if="activeMenuKey === 'liked'" />
 
           <section v-else-if="activeMenuKey === 'music'">
             <MusicView />
