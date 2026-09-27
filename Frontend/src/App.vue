@@ -5,6 +5,8 @@ import { useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
 import { useAuthStore } from "./stores/authStore";
 import { useSearchStore } from "./stores/searchStore";
+import { useHistoryStore } from "./stores/historyStore";
+import { useLikedStore, LIKED_PAGE_SIZE } from "./stores/likedStore";
 import { getApiBaseUrl, getAuthExpiredEventName, getToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
@@ -1768,16 +1770,18 @@ const shortsPanelCommentSubmitting = ref(false);
 const shortsPanelReplyTarget = ref(null);
 const shortsPanelThreadByRootId = ref({});
 const shortsPanelExpandedRoots = ref({});
-const historyLongRows = ref([]);
-const historyLongLoading = ref(false);
-const historyLongPageNo = ref(1);
-const historyLongPages = ref(0);
-const historyLongExpanded = ref(false);
-const historyShortRows = ref([]);
-const historyShortLoading = ref(false);
-const historyShortPageNo = ref(1);
-const historyShortPages = ref(0);
-const historyShortExpanded = ref(false);
+const {
+  historyLongRows,
+  historyLongLoading,
+  historyLongPageNo,
+  historyLongPages,
+  historyLongExpanded,
+  historyShortRows,
+  historyShortLoading,
+  historyShortPageNo,
+  historyShortPages,
+  historyShortExpanded,
+} = storeToRefs(useHistoryStore());
 const SHORTS_HISTORY_BATCH_SIZE = 10;
 let shortsHistoryQueue = [];
 const shortsHistoryQueueSet = new Set();
@@ -1869,14 +1873,15 @@ const chatRailSuppress = computed(
     musicLyricsFullscreen.value,
 );
 
-/** 赞过的视频列表（GET /like/{userId}/list） */
-const likedRows = ref([]);
-const likedPageNo = ref(1);
-const likedPages = ref(0);
-const likedTotal = ref(0);
-const likedLoading = ref(false);
-const likedLoadingMore = ref(false);
-const LIKED_PAGE_SIZE = 12;
+/** 赞过的视频列表（GET /like/{userId}/list），状态在 pinia likedStore */
+const {
+  likedRows,
+  likedPageNo,
+  likedPages,
+  likedTotal,
+  likedLoading,
+  likedLoadingMore,
+} = storeToRefs(useLikedStore());
 /** 详情页点赞：无 isLiked 时用本地切换（与后端幂等配合） */
 const detailSessionLiked = ref(false);
 const detailLikeBusy = ref(false);
