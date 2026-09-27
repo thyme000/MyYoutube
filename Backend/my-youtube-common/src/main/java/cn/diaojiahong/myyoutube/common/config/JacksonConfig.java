@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.config;
+package cn.diaojiahong.myyoutube.common.config;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;

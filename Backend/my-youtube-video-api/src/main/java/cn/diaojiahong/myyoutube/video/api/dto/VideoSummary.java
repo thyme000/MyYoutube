@@ -1,11 +1,11 @@
-package cn.diaojiahong.myyoutube.user.port.dto;
+package cn.diaojiahong.myyoutube.video.api.dto;
 
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
 /**
- * 视频摘要, 跨模块传输用, 字段与 Video 对齐
+ * 视频摘要, 跨服务传输用, 字段与 Video 对齐
  */
 @Data
 public class VideoSummary {

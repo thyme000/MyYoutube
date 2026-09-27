@@ -29,7 +29,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/captcha",
-                        "/forget-password"
+                        "/forget-password",
+                        "/internal/**"   // 服务间内部接口, 不经网关暴露
                 );
     }
 }

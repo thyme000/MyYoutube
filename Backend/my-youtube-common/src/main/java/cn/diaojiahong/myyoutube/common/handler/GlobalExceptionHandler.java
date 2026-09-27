@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.handler;
+package cn.diaojiahong.myyoutube.common.handler;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.Result;

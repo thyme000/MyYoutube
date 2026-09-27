@@ -4,8 +4,8 @@ import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
 import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
-import cn.diaojiahong.myyoutube.user.port.UserVideoPort;
-import cn.diaojiahong.myyoutube.user.port.dto.VideoSummary;
+import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
+import cn.diaojiahong.myyoutube.video.api.dto.VideoSummary;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
@@ -50,7 +50,7 @@ public class UserVideoPortImpl implements UserVideoPort {
     }
 
     @Override
-    public Map<Long, Boolean> likedMap(Long userId, Collection<String> videoIds) {
+    public Map<Long, Boolean> likedMap(Long userId, Set<String> videoIds) {
         return new LambdaQueryChainWrapper<>(videoLikeMapper)
                 .eq(VideoLike::getUserId, userId)
                 .eq(VideoLike::getIsLiked, true)

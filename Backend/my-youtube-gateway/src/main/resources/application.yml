@@ -17,11 +17,10 @@ spring:
               enabled: false
           routes:
             # ---- 业务服务路由(拆一个启用一个, order 越小越优先) ----
-            # /user-tag-preference 必须排在 /user 之前, 否则被 /user 前缀吃掉
-            # - id: user-service
-            #   uri: lb://my-youtube-user-service
-            #   predicates: [ "Path=/user/**,/user-tag-preference/**,/login,/register,/captcha,/forget-password,/storage/**" ]
-            #   order: 10
+            - id: user-service
+              uri: lb://my-youtube-user-service
+              predicates: [ "Path=/user/**,/login,/register,/captcha,/forget-password,/storage/**" ]
+              order: 10
             # - id: video-service
             #   uri: lb://my-youtube-video-service
             #   predicates: [ "Path=/videos/**,/like/**,/comment/**,/follow/**,/notification/**,/behavior/**,/tag/**,/video-tag/**" ]

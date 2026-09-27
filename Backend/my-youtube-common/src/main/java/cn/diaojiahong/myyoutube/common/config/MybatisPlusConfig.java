@@ -1,4 +1,6 @@
-package cn.diaojiahong.myyoutube.config;
+package cn.diaojiahong.myyoutube.common.config;
+
+import org.mybatis.spring.annotation.MapperScan;
 
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -10,6 +12,7 @@ import org.springframework.context.annotation.Configuration;
  * MyBatis-Plus：分页插件（lambdaQuery().page()、XML 中传入 Page 参数均需此插件才会 LIMIT + COUNT）。
  */
 @Configuration
+@MapperScan("cn.diaojiahong.myyoutube.*.mapper")
 public class MybatisPlusConfig {
 
     @Bean

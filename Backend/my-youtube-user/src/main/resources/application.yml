@@ -1,0 +1,41 @@
+spring:
+  config:
+    import: optional:classpath:application-local.yml
+  application:
+    name: my-youtube-user-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 阶段二过渡: 先与旧单体共用 my_youtube 库, 第 5 步统一拆 schema 到 user_db
+    url: jdbc:mysql://${DATASOURCE_HOST:localhost}:3306/my_youtube?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DATASOURCE_USERNAME}
+    password: ${DATASOURCE_PASSWORD}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 3000ms
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESERVER:localhost:9876}
+  producer:
+    group: myyoutube_user_producer
+    send-message-timeout: 3000
+
+server:
+  port: ${SERVER_PORT:8081}
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: cn.diaojiahong.myyoutube
+
+# 过渡期: video 服务尚未独立注册, Feign 直连旧单体; 第 3 步后删除此配置走 Nacos 负载均衡
+my-youtube:
+  video-service:
+    url: ${VIDEO_SERVICE_URL:http://localhost:8090}

@@ -7,12 +7,14 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserLongHistoryVideoVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserShortsVideoVO;
-import cn.diaojiahong.myyoutube.user.port.UserSearchPort;
-import cn.diaojiahong.myyoutube.user.port.UserVideoPort;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
+import cn.diaojiahong.myyoutube.mq.message.UserDocSyncMessage;
+import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.mapper.UserMapper;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
@@ -48,7 +50,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private static final Long STORAGE_EXPIRE = 3600 * 24L;// 24小时过期时间
     private final StringRedisTemplate redisTemplate;
     private final UserVideoPort userVideoPort;
-    private final UserSearchPort userSearchPort;
+    private final RocketMQTemplate rocketMQTemplate;
 
     @Override
     public Result<UserVO> getUserInfo(Long userId) {
@@ -117,8 +119,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (!success) {
             return Result.fail("服务器繁忙,请稍后再试～");
         }
-        // 同步 ES 文档: 视频文档作者昵称 + 用户文档
-        userSearchPort.onUserProfileChanged(user);
+        // 同步 ES 文档: 发消息, 由 search 侧以 MySQL 为准重建
+        rocketMQTemplate.syncSend(MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
+                new UserDocSyncMessage(user.getId()));
 
         log.info("用户{},更新用户资料成功...", id);
         return Result.success("修改成功");
