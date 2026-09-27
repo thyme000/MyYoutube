@@ -4,6 +4,7 @@ import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
 import { useAuthStore } from "./stores/authStore";
+import { useSearchStore } from "./stores/searchStore";
 import { getApiBaseUrl, getAuthExpiredEventName, getToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
@@ -139,8 +140,64 @@ const activeMenuLabel = ref("首页");
 const route = useRoute();
 const router = useRouter();
 const pageHint = ref(`欢迎来到 THYME。请选择左侧模块查看内容。API 基础地址：${getApiBaseUrl()}`);
-const searchKeyword = ref("");
+/** 搜索域状态在 pinia searchStore，同名解构保持既有引用零改动；拆 SearchView 时随之搬出 */
+const searchStore = useSearchStore();
+const {
+  searchKeyword,
+  searchActive,
+  searchTab,
+  searchSubmittedKeyword,
+  searchInputFocused,
+  searchDropdownOpen,
+  searchPromptRows,
+  searchHotRows,
+  searchPromptLoading,
+  searchHotLoading,
+  searchVideoRows,
+  searchVideoPageNo,
+  searchVideoPages,
+  searchVideoLoading,
+  searchVideoLoadingMore,
+  searchVideoSort,
+  searchUserRows,
+  searchUserPageNo,
+  searchUserPages,
+  searchUserLoading,
+  searchUserLoadingMore,
+  searchTagRows,
+  searchTagPageNo,
+  searchTagPages,
+  searchTagLoading,
+  searchTagLoadingMore,
+  searchAllUserStrip,
+  searchResultError,
+  searchExpandOpen,
+  searchExpandCard,
+  searchExpandIndex,
+  searchExpandCommentOpen,
+  searchListCommentOpen,
+  searchListCommentCard,
+  searchFeedProgressMap,
+  searchFeedLikeBusyId,
+  searchFeedPausedMap,
+  searchFeedListPrefs,
+  searchFeedMainVideoById,
+  searchFeedMediaWrapById,
+  searchExpandCurrentTime,
+  searchExpandDuration,
+  searchExpandPaused,
+  searchExpandAutoplayPending,
+  searchExpandMuted,
+  searchExpandVolume,
+  searchExpandLikeBusy,
+  searchExpandIsPortrait,
+} = storeToRefs(searchStore);
 const searchInputRef = ref(null);
+const searchFeedScrollRef = ref(null);
+const contentScrollRef = ref(null);
+const searchExpandPlayerRef = ref(null);
+const searchExpandBlurRef = ref(null);
+const searchExpandStageRef = ref(null);
 
 /** 搜索页文案（与产品约定一致） */
 const SEARCH_UI = {
@@ -153,69 +210,13 @@ const SEARCH_UI = {
   searchError: "搜索失败，请检查网络后重试",
 };
 
-const searchActive = ref(false);
-const searchTab = ref("all");
-const searchSubmittedKeyword = ref("");
-const searchInputFocused = ref(false);
-const searchDropdownOpen = ref(false);
 let searchSuggestBlurTimer = null;
-const searchPromptRows = ref([]);
-const searchHotRows = ref([]);
-const searchPromptLoading = ref(false);
-const searchHotLoading = ref(false);
 let searchPromptDebounceTimer = null;
-const searchVideoRows = ref([]);
-const searchVideoPageNo = ref(1);
-const searchVideoPages = ref(0);
-const searchVideoLoading = ref(false);
-const searchVideoLoadingMore = ref(false);
-const searchVideoSort = ref("relevance");
-const searchUserRows = ref([]);
-const searchUserPageNo = ref(1);
-const searchUserPages = ref(0);
-const searchUserLoading = ref(false);
-const searchUserLoadingMore = ref(false);
-const searchTagRows = ref([]);
-const searchTagPageNo = ref(1);
-const searchTagPages = ref(0);
-const searchTagLoading = ref(false);
-const searchTagLoadingMore = ref(false);
-const searchAllUserStrip = ref([]);
-const searchResultError = ref("");
-const searchFeedScrollRef = ref(null);
-const contentScrollRef = ref(null);
 let searchVideoObserver = null;
+let searchScrollLoadTimer = null;
 
-/** 搜索流：放大层播放（不跳转详情） */
-const searchExpandOpen = ref(false);
-const searchExpandCard = ref(null);
-const searchExpandIndex = ref(0);
-const searchExpandPlayerRef = ref(null);
-const searchExpandBlurRef = ref(null);
-const searchExpandStageRef = ref(null);
-const searchExpandCommentOpen = ref(false);
-/** 搜索列表内打开评论（未进全屏放大层） */
-const searchListCommentOpen = ref(false);
-const searchListCommentCard = ref(null);
-/** 搜索列表每条视频的播放进度（仅列表内预览） */
-const searchFeedProgressMap = ref({});
-const searchFeedLikeBusyId = ref(null);
-const searchFeedPausedMap = ref({});
-const searchFeedListPrefs = ref({});
-const searchFeedMainVideoById = ref({});
-const searchFeedMediaWrapById = ref({});
 /** 搜索列表进度条：节流 timeupdate，避免每帧整表重绘卡死 */
 const searchFeedProgressThrottleTs = new Map();
-let searchScrollLoadTimer = null;
-const searchExpandCurrentTime = ref(0);
-const searchExpandDuration = ref(0);
-const searchExpandPaused = ref(true);
-/** 切换全屏搜索视频过程中忽略 pause / timeupdate，避免中央播放钮闪动 */
-const searchExpandAutoplayPending = ref(false);
-const searchExpandMuted = ref(false);
-const searchExpandVolume = ref(0.85);
-const searchExpandLikeBusy = ref(false);
-const searchExpandIsPortrait = ref(true);
 let lastSearchExpandLikeAt = 0;
 let searchExpandEscapeHandler = null;
 /** 搜索全屏长视频：续播上报节流（与详情页长视频一致，写入 PUT /videos/playback/resume） */
