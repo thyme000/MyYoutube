@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.mongo.po;
 
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum;
 import lombok.Data;
 
 /**

@@ -11,8 +11,8 @@ import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
-import cn.diaojiahong.myyoutube.user.domain.po.User;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import com.google.gson.GsonBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,7 +37,7 @@ import java.util.Optional;
         maxReconsumeTimes = 3)
 public class ChatMessageListener implements RocketMQListener<ChatMessageMessage> {
 
-    private final IUserService userService;
+    private final UserPort userPort;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
     private final ChatConversationService chatConversationService;
     private final S3StorageUtil storageUtil;
@@ -55,7 +55,7 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
         }
         ChatConversationDoc conversation = opt.get();
         List<Long> memberIds = conversation.getMemberIds();
-        User user = userService.getById(chatMessageMessage.getSenderId());
+        UserSummary user = userPort.getUser(chatMessageMessage.getSenderId());
         Update up = new Update().set("lastPullAt", LocalDateTime.now());
         if (conversation.getType().equals(ConversationTypeEnum.GROUP)) {
             // 发送消息事件
@@ -128,7 +128,7 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
         mongoTemplate.updateMulti(Query.query(c), up, ChatUserConversationDoc.class);
     }
 
-    private NotificationForSendMessageVO getNotificationForSendVO(ChatMessageMessage message, User user, ChatConversationDoc conversation) {
+    private NotificationForSendMessageVO getNotificationForSendVO(ChatMessageMessage message, UserSummary user, ChatConversationDoc conversation) {
         NotificationForSendMessageVO json = new NotificationForSendMessageVO();
         json.setConversationId(message.getConversationId());
         json.setMessageId(message.getMessageId());
@@ -139,7 +139,7 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
         return json;
     }
 
-    private NotificationForWithdrawMessageVO getNotificationForWithdrawVO(ChatMessageMessage message, User user, ChatConversationDoc conversation) {
+    private NotificationForWithdrawMessageVO getNotificationForWithdrawVO(ChatMessageMessage message, UserSummary user, ChatConversationDoc conversation) {
         NotificationForWithdrawMessageVO json = new NotificationForWithdrawMessageVO();
         json.setConversationId(message.getConversationId());
         json.setMessageId(message.getMessageId());

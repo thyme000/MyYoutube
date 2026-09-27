@@ -6,10 +6,9 @@ import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
-import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
-import cn.diaojiahong.myyoutube.notification.domain.enums.RefTypeEnum;
-import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
-import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
+import cn.diaojiahong.myyoutube.video.api.NotificationPort;
+import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.RefTypeEnum;
 import com.google.gson.GsonBuilder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +31,7 @@ import java.util.Optional;
 public class ChatConversationListener implements RocketMQListener<GroupDeletedMessage> {
 
     private final ChatConversationService chatConversationService;
-    private final IUserNotificationService userNotificationService;
+    private final NotificationPort notificationPort;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
     private final S3StorageUtil storageUtil;
 
@@ -50,15 +49,11 @@ public class ChatConversationListener implements RocketMQListener<GroupDeletedMe
             return;
         }
         ChatConversationDoc conversation = opt.get();
-        List<UserNotification> userNotifications = new ArrayList<>();
         for (Long memberId : memberIds) {
-            UserNotification userNotification = new UserNotification();
-            userNotification.setReceiverId(memberId);
-            userNotification.setType(NotificationTypeEnum.CHAT_NOTICE.getCode());
-            userNotification.setContent("群:" + conversation.getName() + "已解散");
-            userNotification.setRefType(RefTypeEnum.CHAT.getCode());
-            userNotification.setExtraJson(conversationId);
-            userNotifications.add(userNotification);
+            notificationPort.createNotification(new NotificationPort.NotificationCreate(
+                    memberId, null, NotificationTypeEnum.CHAT_NOTICE.getCode(),
+                    "群:" + conversation.getName() + "已解散",
+                    RefTypeEnum.CHAT.getCode(), null, conversationId));
             // 通知用户
             ChatNotificationForJson json = new ChatNotificationForJson();
             json.setType(NotificationTypeEnum.CHAT_NOTICE.getCode());
@@ -68,7 +63,6 @@ public class ChatConversationListener implements RocketMQListener<GroupDeletedMe
             json.setConversationId(conversationId);
             notifyWebSocketHandler.sendToUser(memberId, new GsonBuilder().create().toJson(json));
         }
-        userNotificationService.saveBatch(userNotifications);
     }
 
     @Data

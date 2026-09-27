@@ -2,8 +2,8 @@ package cn.diaojiahong.myyoutube.admin.domain.dto;
 
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum;
 import lombok.Data;
 
 @Data

@@ -13,10 +13,10 @@ import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
-import cn.diaojiahong.myyoutube.user.domain.po.User;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
+import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import com.google.gson.GsonBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -38,21 +38,21 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
 
     private static final String BIZ_PREFIX = "chat";
 
-    private final IUserFollowService userFollowService;
-    private final IUserService userService;
+    private final FollowPort followPort;
+    private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final RocketMQTemplate rocketMQTemplate;
     private final NotifyWebSocketHandler notifyWebSocketHandler;
 
     public ChatConversationService(MongoTemplate mongoTemplate,
-                                   IUserFollowService userFollowService,
-                                   IUserService userService,
+                                   FollowPort followPort,
+                                   UserPort userPort,
                                    S3StorageUtil storageUtil,
                                    RocketMQTemplate rocketMQTemplate,
                                    NotifyWebSocketHandler notifyWebSocketHandler) {
         super(mongoTemplate, ChatConversationDoc.class);
-        this.userFollowService = userFollowService;
-        this.userService = userService;
+        this.followPort = followPort;
+        this.userPort = userPort;
         this.storageUtil = storageUtil;
         this.rocketMQTemplate = rocketMQTemplate;
         this.notifyWebSocketHandler = notifyWebSocketHandler;
@@ -64,7 +64,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         // 判断是否是互关用户 -> 不是互关用户则返回错误
         List<Long> memberIds = createConversationDTO.getMemberIds();
         if (createConversationDTO.getType() == ConversationTypeEnum.GROUP) {
-            if (!userFollowService.interrelated(userId, memberIds)) {
+            if (!followPort.interrelated(new FollowPort.InterrelatedQuery(userId, memberIds))) {
                 return Result.fail("不是互关用户");
             }
             // 刚创建的群聊将使用前端默认头像为会话头像url
@@ -286,7 +286,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     public Result<Void> inviteConversationMember(String conversationId, Long invitedUserId) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         Long userId = getUserId();
-        User user = userService.getById(invitedUserId);
+        UserSummary user = userPort.getUser(invitedUserId);
         if (user == null) {
             throw new IllegalArgumentException("用户不存在");
         }
@@ -298,7 +298,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             return Result.fail("你不是该群的成员");
         }
         // 判断是否是互关关系
-        if (!userFollowService.interrelated(userId, List.of(invitedUserId))) {
+        if (!followPort.interrelated(new FollowPort.InterrelatedQuery(userId, List.of(invitedUserId)))) {
             return Result.fail("不是互关用户,无法邀请对方");
         }
         // 邀请会话成员
@@ -330,7 +330,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         }
         List<ConversationMembersVO> conversationMembersVOs = new ArrayList<>();
         for (Long userId : chatConversationDoc.getMemberIds()) {
-            User user = userService.getById(userId);
+            UserSummary user = userPort.getUser(userId);
             conversationMembersVOs.add(new ConversationMembersVO(user.getId(),
                     user.getNickname(), storageUtil.signGetUrl(user.getAvatarUrl(), 600),
                     userId.equals(chatConversationDoc.getCreatedBy())));

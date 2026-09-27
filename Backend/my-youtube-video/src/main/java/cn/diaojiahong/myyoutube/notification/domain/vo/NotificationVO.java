@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.notification.domain.vo;
 
-import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import lombok.Data;
 
 import java.time.LocalDateTime;

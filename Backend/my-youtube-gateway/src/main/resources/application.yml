@@ -25,14 +25,14 @@ spring:
               uri: lb://my-youtube-video-service
               predicates: [ "Path=/videos/**,/like/**,/comment/**,/follow/**,/notification/**,/behavior/**,/tag/**,/video-tag/**,/user-tag-preference/**" ]
               order: 20
-            # - id: chat-service
-            #   uri: lb://my-youtube-chat-service
-            #   predicates: [ "Path=/chat/**,/emoji/**" ]
-            #   order: 30
-            # - id: search-service
-            #   uri: lb://my-youtube-search-service
-            #   predicates: [ "Path=/search/**" ]
-            #   order: 40
+            - id: chat-service
+              uri: lb:ws://my-youtube-chat-service
+              predicates: [ "Path=/chat/**,/emoji/**" ]
+              order: 30
+            - id: search-service
+              uri: lb://my-youtube-search-service
+              predicates: [ "Path=/search/**" ]
+              order: 40
             # - id: admin-service
             #   uri: lb://my-youtube-admin-service
             #   predicates: [ "Path=/admin/**" ]

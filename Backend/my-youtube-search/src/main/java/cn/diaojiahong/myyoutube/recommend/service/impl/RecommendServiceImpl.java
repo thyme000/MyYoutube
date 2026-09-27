@@ -2,11 +2,10 @@ package cn.diaojiahong.myyoutube.recommend.service.impl;
 
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
-import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
+import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
-import cn.diaojiahong.myyoutube.recommend.domain.po.UserTagPreference;
 import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
-import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
+import cn.diaojiahong.myyoutube.video.api.PreferencePort;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
@@ -29,10 +28,10 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class RecommendServiceImpl implements IRecommendService {
 
-    private final IUserTagPreferenceService userTagPreferenceService;
+    private final PreferencePort preferencePort;
     private final ElasticsearchOperations elasticsearchOperations;
     private final StringRedisTemplate redisTemplate;
-    private final IUserFollowService userFollowService;
+    private final FollowPort followPort;
 
     /**
      * 推荐视频
@@ -48,12 +47,7 @@ public class RecommendServiceImpl implements IRecommendService {
                                 String videoType, int page, int size) {
 
         // 获取用户偏好信息 (对分数取降序(top20))
-        List<UserTagPreference> preferences = userTagPreferenceService
-                .lambdaQuery()
-                .eq(UserTagPreference::getUserId, userId)
-                .orderByDesc(UserTagPreference::getScore)
-                .last("LIMIT 20")
-                .list();
+        List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
 
         // 构造ES查询
         NativeQuery query;
@@ -72,7 +66,7 @@ public class RecommendServiceImpl implements IRecommendService {
         }
 
         // 查询用户的关注列表
-        List<Long> followIds = userFollowService.getFollowIds(userId);
+        List<Long> followIds = followPort.getFollowIds(userId);
         List<FunctionScore> followFunctions = followIds.stream().map(fid -> FunctionScore.of(f -> f
                 .filter(fq -> fq.term(t -> t.field("authorId").value(fid)))
                 // 提高被关注作者的视频权重
@@ -183,12 +177,7 @@ public class RecommendServiceImpl implements IRecommendService {
             return List.of();
         }
 
-        List<UserTagPreference> preferences = userTagPreferenceService
-                .lambdaQuery()
-                .eq(UserTagPreference::getUserId, userId)
-                .orderByDesc(UserTagPreference::getScore)
-                .last("LIMIT 20")
-                .list();
+        List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
 
         Pageable pageable = PageRequest.of(page - 1, size);
 

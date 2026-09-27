@@ -2,6 +2,8 @@ package cn.diaojiahong.myyoutube.user.api.dto;
 
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 /**
  * 用户摘要, 跨服务传输用, 字段与 User 对齐
  */
@@ -16,4 +18,5 @@ public class UserSummary {
     private Long attentionCount;
     private Long likeCount;
     private Long videoCount;
+    private LocalDateTime createTime;
 }

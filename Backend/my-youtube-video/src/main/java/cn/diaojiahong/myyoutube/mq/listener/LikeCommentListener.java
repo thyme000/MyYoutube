@@ -5,7 +5,7 @@ import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
-import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
 import lombok.RequiredArgsConstructor;

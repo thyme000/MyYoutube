@@ -7,9 +7,7 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
-import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
-import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
+import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
@@ -18,9 +16,10 @@ import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchUserVO;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
 import cn.diaojiahong.myyoutube.search.service.ISearchService;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
-import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
+import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
+import cn.diaojiahong.myyoutube.video.api.dto.VideoSummary;
 import cn.hutool.core.bean.BeanUtil;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
@@ -49,13 +48,12 @@ import java.util.stream.Collectors;
 public class SearchServiceImpl implements ISearchService {
 
     private final ElasticsearchOperations elasticsearchOperations;
-    private final IUserFollowService userFollowService;
-    private final VideoMapper videoMapper;
-    private final IUserService userService;
+    private final FollowPort followPort;
+    private final UserVideoPort userVideoPort;
+    private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final StringRedisTemplate redisTemplate;
     private final ElasticsearchClient elasticsearchClient;
-    private final VideoLikeMapper videoLikeMapper;
     private static final int STORAGE_EXPIRE_SECONDS = 3600 * 10;
 
     @Override
@@ -143,7 +141,7 @@ public class SearchServiceImpl implements ISearchService {
         String keyword = pageQuery.getKeyword() == null ? "" : pageQuery.getKeyword().trim();
 
         // 查询用户的关注列表
-        List<Long> followIds = userFollowService.getFollowIds(userId);
+        List<Long> followIds = followPort.getFollowIds(userId);
         List<FunctionScore> followFunctions = followIds.stream().map(fid -> FunctionScore.of(f -> f
                 .filter(fq -> fq.term(t -> t.field("id").value(fid)))
                 .weight(5.0)
@@ -206,7 +204,7 @@ public class SearchServiceImpl implements ISearchService {
         // 转换为VO
         List<SearchUserVO> result = BeanUtil.copyToList(list, SearchUserVO.class);
         // 填充头像url
-        Map<Long, String> avatarUrls = userService.getAuthorAvatarUrls(result.stream().map(SearchUserVO::getId).collect(Collectors.toList()));
+        Map<Long, String> avatarUrls = userPort.getAvatars(result.stream().map(SearchUserVO::getId).collect(Collectors.toList()));
         if (avatarUrls == null || avatarUrls.isEmpty()) {
             return Result.success(PageResult.of(0, 0, result));
         }
@@ -368,11 +366,11 @@ public class SearchServiceImpl implements ISearchService {
         if (list.isEmpty()) {
             return Result.success(PageResult.of(0, 0, Collections.emptyList()));
         }
-        List<Video> videos = videoMapper.selectOrderedListByList(list);
+        List<VideoSummary> videos = userVideoPort.listByIdsOrdered(new HashSet<>(list));
         List<SearchVideoVO> result = BeanUtil.copyToList(videos, SearchVideoVO.class);
         // 填充用户昵称和头像url
-        Map<Long, String> authorNicknames = userService.getAuthorNicknames(videos.stream().map(Video::getAuthorId).collect(Collectors.toList()));
-        Map<Long, String> authorAvatarUrls = userService.getAuthorAvatarUrls(videos.stream().map(Video::getAuthorId).collect(Collectors.toList()));
+        Map<Long, String> authorNicknames = userPort.getNicknames(videos.stream().map(VideoSummary::getAuthorId).collect(Collectors.toList()));
+        Map<Long, String> authorAvatarUrls = userPort.getAvatars(videos.stream().map(VideoSummary::getAuthorId).collect(Collectors.toList()));
         if (authorNicknames == null || authorAvatarUrls == null) {
             return Result.success(PageResult.of(0, 0, result));
         }
@@ -386,7 +384,7 @@ public class SearchServiceImpl implements ISearchService {
             re.setCoverUrl(storageUtil.signGetUrl(re.getCoverUrl(), STORAGE_EXPIRE_SECONDS));
         });
         // 判断是否点过赞
-        List<Long> likedIds = isLike(getUserId(), videos.stream().map(Video::getId).collect(Collectors.toList()));
+        List<Long> likedIds = isLike(getUserId(), videos.stream().map(VideoSummary::getId).collect(Collectors.toList()));
         if (likedIds != null && !likedIds.isEmpty()) {
             Map<Long, Boolean> isLikes = likedIds.stream().collect(Collectors.toMap(id -> id, id -> true));
             result.forEach(vo -> {
@@ -394,7 +392,7 @@ public class SearchServiceImpl implements ISearchService {
             });
         }
         // 填充是否关注
-        List<Long> followIds = userFollowService.getFollowIds(getUserId());
+        List<Long> followIds = followPort.getFollowIds(Long.valueOf(getUserId()));
         if (followIds!=null && !followIds.isEmpty()) {
             Map<Long, Boolean> isFollows = followIds.stream().collect(Collectors.toMap(id -> id, id -> true));
             result.forEach(vo -> {
@@ -411,19 +409,13 @@ public class SearchServiceImpl implements ISearchService {
         if (videoIds == null || videoIds.isEmpty()) {
             return Collections.emptyList();
         }
-        List<VideoLike> list = new LambdaQueryChainWrapper<>(videoLikeMapper)
-                .eq(VideoLike::getIsLiked, 1)
-                .eq(VideoLike::getUserId, userId)
-                .in(VideoLike::getVideoId, videoIds).list();
-        if (list == null || list.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return list.stream().map(VideoLike::getVideoId).toList();
+        Map<Long, Boolean> likedMap = userVideoPort.likedMap(userId, new HashSet<>(videoIds.stream().map(String::valueOf).toList()));
+        return likedMap.entrySet().stream().filter(Map.Entry::getValue).map(Map.Entry::getKey).toList();
     }
 
     private List<FunctionScore> getFunction(Long userId) {
         // 查询用户的关注列表
-        List<Long> followIds = userFollowService.getFollowIds(userId);
+        List<Long> followIds = followPort.getFollowIds(userId);
         List<FunctionScore> followFunctions = followIds.stream().map(fid -> FunctionScore.of(f -> f
                 .filter(fq -> fq.term(t -> t.field("authorId").value(fid)))
                 // 提高被关注作者的视频权重

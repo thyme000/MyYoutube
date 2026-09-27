@@ -11,9 +11,8 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.user.domain.po.User;
-import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.Document;
 import org.springframework.data.domain.Page;
@@ -39,14 +38,14 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
 
     private static final Long STORAGE_EXPIRE_TIME = 3600 * 10L;
     private final S3StorageUtil storageUtil;
-    private final IUserService userService;
+    private final UserPort userPort;
 
     public ChatUserConversationService(MongoTemplate mongoTemplate,
                                        S3StorageUtil storageUtil,
-                                       IUserService userService) {
+                                       UserPort userPort) {
         super(mongoTemplate, ChatUserConversationDoc.class);
         this.storageUtil = storageUtil;
-        this.userService = userService;
+        this.userPort = userPort;
     }
 
     private Long getUserId() {
@@ -103,7 +102,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                     if (isSingle) {
                         // 需要展示的是对方的头像和昵称
                         conversationDoc.getMemberIds().remove(getUserId());
-                        User user = userService.getById(conversationDoc.getMemberIds().get(0));
+                        UserSummary user = userPort.getUser(conversationDoc.getMemberIds().get(0));
                         vo.setConversationAvatar(storageUtil.signGetUrl(user.getAvatarUrl(), STORAGE_EXPIRE_TIME));
                         vo.setConversationName(user.getNickname());
                     } else {

@@ -22,7 +22,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -39,8 +39,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static cn.diaojiahong.myyoutube.common.exception.BizException.USER_ERROR;
-import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.BANNED;
-import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.PUBLISHED;
+import static cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum.BANNED;
+import static cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum.PUBLISHED;
 
 @Service
 @RequiredArgsConstructor

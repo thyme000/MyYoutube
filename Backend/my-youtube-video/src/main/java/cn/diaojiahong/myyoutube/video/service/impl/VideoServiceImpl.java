@@ -22,8 +22,8 @@ import cn.diaojiahong.myyoutube.mq.message.PictureToVideoMessage;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.*;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.domain.vo.*;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
@@ -54,9 +54,9 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import static cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum.*;
-import static cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum.LONG_VIDEO;
-import static cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum.SHORT_VIDEO;
+import static cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum.*;
+import static cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum.LONG_VIDEO;
+import static cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum.SHORT_VIDEO;
 
 /**
  * 视频信息表 服务实现类

@@ -20,14 +20,11 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
+import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
-import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.service.IVideoService;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.video.api.VideoInternalPort;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import jakarta.validation.Valid;
@@ -59,27 +56,27 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
 
     private final ChatConversationService chatConversationService;
     private final RocketMQTemplate rocketMQTemplate;
-    private final IUserService userService;
+    private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final StringRedisTemplate redisTemplate;
-    private final IUserFollowService userFollowService;
-    private final IVideoService videoService;
+    private final FollowPort followPort;
+    private final VideoInternalPort videoInternalPort;
     public ChatMessageService(MongoTemplate mongoTemplate,
                               ChatConversationService chatConversationService,
                               RocketMQTemplate rocketMQTemplate,
-                              IUserService userService,
+                              UserPort userPort,
                               S3StorageUtil storageUtil,
                               StringRedisTemplate redisTemplate,
-                              IUserFollowService userFollowService,
-                              IVideoService videoService) {
+                              FollowPort followPort,
+                              VideoInternalPort videoInternalPort) {
         super(mongoTemplate, ChatMessageDoc.class);
         this.chatConversationService = chatConversationService;
         this.rocketMQTemplate = rocketMQTemplate;
-        this.userService = userService;
+        this.userPort = userPort;
         this.storageUtil = storageUtil;
         this.redisTemplate = redisTemplate;
-        this.userFollowService = userFollowService;
-        this.videoService = videoService;
+        this.followPort = followPort;
+        this.videoInternalPort = videoInternalPort;
     }
 
     public Optional<ChatMessageDoc> findByIdempotent(Long senderId, String clientMsgId) {
@@ -162,7 +159,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         boolean isInterrelated = false;
         if (chatConversationDoc.getType().equals(ConversationTypeEnum.SINGLE)) {
             chatConversationDoc.getMemberIds().remove(chatMessageDTO.getSenderId());
-            isInterrelated = userFollowService.interrelated(Long.valueOf(userId), chatConversationDoc.getMemberIds());
+            isInterrelated = followPort.interrelated(new FollowPort.InterrelatedQuery(Long.valueOf(userId), chatConversationDoc.getMemberIds()));
             // 私聊,判断是否是互关关系
             if (!isInterrelated) {
                 // 不是互关关系的私聊,每天只能给对方发送10条消息
@@ -178,7 +175,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         chatMessageDoc.setStatus(MessageStatusEnum.SENT);
         if (chatMessageDoc.getContentType().isForwardVideo()) {
             Long forwardVideoId = chatMessageDoc.getContent().getForwardVideoId();
-            Video video = videoService.getById(forwardVideoId);
+            VideoInternalPort.ForwardVideoInfo video = videoInternalPort.getForwardVideo(forwardVideoId);
             if (video == null) {
                 throw new BizException(BizException.MESSAGE_ERROR, "视频不存在");
             }
@@ -222,7 +219,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             chatConversationDoc.setLastMessagePreview("[转发视频]");
         }
         if (chatConversationDoc.getType().equals(ConversationTypeEnum.GROUP)) {
-            chatConversationDoc.setLastMessageSenderNickname(userService.getById(userId).getNickname());
+            chatConversationDoc.setLastMessageSenderNickname(userPort.getUser(Long.valueOf(userId)).getNickname());
         }
         mongoTemplate.save(chatConversationDoc, "chat_conversations");
         rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
@@ -360,8 +357,8 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             throw new BizException(BizException.USER_ERROR, "不是会话成员");
         }
         // 用户信息
-        Map<Long, String> authorNicknames = userService.getAuthorNicknames(memberIds);
-        Map<Long, String> authorAvatarUrls = userService.getAuthorAvatarUrls(memberIds);
+        Map<Long, String> authorNicknames = userPort.getNicknames(memberIds);
+        Map<Long, String> authorAvatarUrls = userPort.getAvatars(memberIds);
         // 分页查询
         Page<ChatMessageDoc> page = pageByConversation(conversationId, messageListPageQuery.getSeq(), messageListPageQuery.getSize());
         List<MessagePage> result = getMessagePageVOS(page, authorNicknames, authorAvatarUrls);
@@ -405,8 +402,8 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             throw new BizException(BizException.USER_ERROR, "不是会话成员");
         }
         // 用户信息
-        Map<Long, String> authorNicknames = userService.getAuthorNicknames(memberIds);
-        Map<Long, String> authorAvatarUrls = userService.getAuthorAvatarUrls(memberIds);
+        Map<Long, String> authorNicknames = userPort.getNicknames(memberIds);
+        Map<Long, String> authorAvatarUrls = userPort.getAvatars(memberIds);
         // 分页查询
         Page<ChatMessageDoc> page = syncPageByConversation(conversationId, messageListPageQuery.getSeq(), messageListPageQuery.getSize());
         List<MessagePage> result = getMessagePageVOS(page, authorNicknames, authorAvatarUrls);
@@ -516,8 +513,8 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         Query q = Query.query(c)
                 .with(PageRequest.of(pn - 1, ps, Sort.by(Sort.Direction.DESC, "seq")));
         List<ChatMessageDoc> docs = mongoTemplate.find(q, ChatMessageDoc.class);
-        Map<Long, String> nickMap = userService.getAuthorNicknames(memberIds);
-        Map<Long, String> avMap = userService.getAuthorAvatarUrls(memberIds);
+        Map<Long, String> nickMap = userPort.getNicknames(memberIds);
+        Map<Long, String> avMap = userPort.getAvatars(memberIds);
         List<FindRecordVO> list = new ArrayList<>(docs.size());
         for (ChatMessageDoc doc : docs) {
             FindRecordVO vo = new FindRecordVO();
@@ -554,12 +551,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             return Result.fail("转发视频id不能为空");
         }
         Result<ChatMessageAckDTO> result = send(chatMessageDTO);
-        boolean success = videoService.lambdaUpdate().eq(Video::getId, forwardVideoId)
-                .eq(Video::getIsDelete, false)
-                .eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC)
-                .eq(Video::getStatus, VideoStatusEnum.PUBLISHED)
-                .setIncrBy(Video::getShareCount, 1)
-                .update();
+        boolean success = videoInternalPort.incrementShareCount(forwardVideoId);
         if (!success) {
             log.error("更新视频分享数失败,视频id:{}", forwardVideoId);
             return Result.fail("转发视频失败!");

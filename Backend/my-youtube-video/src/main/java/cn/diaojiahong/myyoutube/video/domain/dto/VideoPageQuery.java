@@ -3,8 +3,8 @@ package cn.diaojiahong.myyoutube.video.domain.dto;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import lombok.Data;
 
 import java.time.LocalDateTime;

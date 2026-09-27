@@ -16,5 +16,11 @@
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-openfeign</artifactId>
 		</dependency>
+		<!-- 迁移的枚举携带 @EnumValue 注解 -->
+		<dependency>
+			<groupId>com.baomidou</groupId>
+			<artifactId>mybatis-plus-annotation</artifactId>
+			<version>3.5.11</version>
+		</dependency>
 	</dependencies>
 </project>

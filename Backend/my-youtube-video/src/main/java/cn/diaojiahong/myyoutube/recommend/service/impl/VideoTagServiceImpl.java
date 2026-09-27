@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.recommend.service.impl;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
-import cn.diaojiahong.myyoutube.mq.message.VideoDocMessage;
+import cn.diaojiahong.myyoutube.video.api.message.VideoDocMessage;
 import cn.diaojiahong.myyoutube.recommend.domain.po.VideoTag;
 import cn.diaojiahong.myyoutube.recommend.mapper.VideoTagMapper;
 import cn.diaojiahong.myyoutube.recommend.service.ITagService;
@@ -55,6 +55,15 @@ public class VideoTagServiceImpl extends ServiceImpl<VideoTagMapper, VideoTag> i
         // 延迟同步 ES 视频文档, 短时间多次变更天然合并
         rocketMQTemplate.syncSendDelayTimeSeconds(
                 MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_VIDEO,
-                VideoDocMessage.builder().video(video).tagIds(tagIds).build(), 5);
+                VideoDocMessage.builder()
+                        .videoId(video.getId()).title(video.getTitle()).description(video.getDescription())
+                        .coverUrl(video.getCoverUrl()).tags(video.getTags())
+                        .categoryCode(video.getCategory() != null ? video.getCategory().getCode() : null)
+                        .videoType(video.getVideoType())
+                        .statusCode(video.getStatus() != null ? video.getStatus().getCode() : null)
+                        .visibilityCode(video.getVisibility() != null ? video.getVisibility().getCode() : null)
+                        .authorId(video.getAuthorId()).playCount(video.getPlayCount()).likeCount(video.getLikeCount())
+                        .createTime(video.getCreateTime()).tagIds(tagIds)
+                        .build(), 5);
     }
 }

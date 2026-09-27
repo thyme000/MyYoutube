@@ -6,8 +6,8 @@ import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
-import cn.diaojiahong.myyoutube.user.domain.po.User;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -27,7 +27,7 @@ import java.util.List;
         maxReconsumeTimes = 3)
 public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> {
 
-    private final IUserService userService;
+    private final UserPort userPort;
     private final UserDocRepository userDocRepository;
     private final VideoDocRepository videoDocRepository;
 
@@ -36,7 +36,7 @@ public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> 
      */
     @Override
     public void onMessage(UserDocSyncMessage message) {
-        User user = userService.getById(message.getUserId());
+        UserSummary user = userPort.getUser(message.getUserId());
         if (user == null) {
             log.warn("同步用户文档失败, 用户不存在: {}", message.getUserId());
             return;

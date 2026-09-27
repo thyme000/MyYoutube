@@ -9,7 +9,7 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.domain.vo.NotificationVO;
 import cn.diaojiahong.myyoutube.notification.mapper.UserNotificationMapper;

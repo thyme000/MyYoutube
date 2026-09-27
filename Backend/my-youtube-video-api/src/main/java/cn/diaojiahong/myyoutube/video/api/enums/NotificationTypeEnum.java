@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.notification.domain.enums;
+package cn.diaojiahong.myyoutube.video.api.enums;
 import com.baomidou.mybatisplus.annotation.EnumValue;
 import lombok.Getter;
 

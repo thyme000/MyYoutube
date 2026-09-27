@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
-import cn.diaojiahong.myyoutube.notification.domain.enums.NotificationTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;

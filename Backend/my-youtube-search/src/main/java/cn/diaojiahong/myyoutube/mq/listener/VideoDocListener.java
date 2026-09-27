@@ -1,11 +1,10 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.mq.message.VideoDocMessage;
+import cn.diaojiahong.myyoutube.video.api.message.VideoDocMessage;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
-import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -27,35 +26,35 @@ import java.util.List;
 public class VideoDocListener implements RocketMQListener<VideoDocMessage> {
 
     private final VideoDocRepository videoDocRepository;
-    private final IUserService userService;
+    private final UserPort userPort;
 
     @Override
     public void onMessage(VideoDocMessage message) {
-        Video video = message.getVideo();
         List<Long> tagIds = message.getTagIds();
         List<String> list = null;
-        if (video.getTags() != null) {
-            list = Arrays.stream(video.getTags().split(",")).toList();
+        if (message.getTags() != null) {
+            list = Arrays.stream(message.getTags().split(",")).toList();
         }
 
         VideoDoc doc = new VideoDoc();
-        doc.setId(video.getId());
-        doc.setTitle(video.getTitle());
-        doc.setCategory(video.getCategory().getCode());
-        doc.setVideoType(video.getVideoType());
-        doc.setStatus(video.getStatus().getCode());
-        doc.setDescription(video.getDescription());
+        doc.setId(message.getVideoId());
+        doc.setTitle(message.getTitle());
+        doc.setCategory(message.getCategoryCode());
+        doc.setVideoType(message.getVideoType());
+        doc.setStatus(message.getStatusCode());
+        doc.setDescription(message.getDescription());
         doc.setTagIds(tagIds);
-        doc.setAuthorId(video.getAuthorId());
-        doc.setPlayCount(video.getPlayCount() != null ? video.getPlayCount() : 0L);
-        doc.setLikeCount(video.getLikeCount() != null ? video.getLikeCount() : 0L);
-        doc.setCreateTime(video.getCreateTime());
-        doc.setVisibility(video.getVisibility().getCode());
+        doc.setAuthorId(message.getAuthorId());
+        doc.setPlayCount(message.getPlayCount() != null ? message.getPlayCount() : 0L);
+        doc.setLikeCount(message.getLikeCount() != null ? message.getLikeCount() : 0L);
+        doc.setCreateTime(message.getCreateTime());
+        doc.setVisibility(message.getVisibilityCode());
         doc.setTagNames(list);
-        doc.setAuthorName(userService.getById(video.getAuthorId() == null ? null : video.getAuthorId()).getNickname());
+        var author = userPort.getUser(message.getAuthorId());
+        doc.setAuthorName(author != null && author.getNickname() != null ? author.getNickname() : "");
         List<String> suggest = new java.util.ArrayList<>(List.of(
-                video.getTitle(),
-                video.getDescription(),
+                message.getTitle(),
+                message.getDescription(),
                 doc.getAuthorName() == null ? "" : doc.getAuthorName()
         ));
         if (list != null && !list.isEmpty()) {
