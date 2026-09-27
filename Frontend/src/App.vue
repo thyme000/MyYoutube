@@ -220,7 +220,7 @@ let searchExpandResumeLastSentAtMs = 0;
 function searchExpandVideoUrl() {
   const card = searchExpandCard.value;
   if (!card) return "";
-  return resolveVideoUrlWithFallback(card, String(card.id || card.title || searchExpandIndex.value));
+  return resolveVideoUrl(card);
 }
 
 function openSearchExpand(card, index) {
@@ -1799,20 +1799,6 @@ let shortsLongResumeInFlight = false;
 let shortsLongResumeLastSentAtMs = 0;
 let shortsLongResumeTickCount = 0;
 let shortsLongResumeAppliedVideoId = "";
-const feedCoverPool = [
-  "https://images.unsplash.com/photo-1516117172878-fd2c41f4a759?auto=format&fit=crop&w=1200&q=80",
-  "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=80",
-  "https://images.unsplash.com/photo-1489515217757-5fd1be406fef?auto=format&fit=crop&w=1200&q=80",
-  "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=1200&q=80",
-];
-
-/** 演示用：横版 / 竖版样片（竖版播放时两侧模糊填充） */
-const DEMO_VIDEO_LANDSCAPE =
-  "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
-const DEMO_VIDEO_PORTRAIT =
-  "https://assets.mixkit.co/videos/preview/mixkit-tree-with-yellow-flowers-1173-large.mp4";
-/** 无本地静态片源时，用在线演示 MP4 作占位（已移除 static 下四个本地文件） */
-const FALLBACK_DEMO_VIDEO_POOL = [DEMO_VIDEO_LANDSCAPE, DEMO_VIDEO_PORTRAIT];
 const UI_STATE_STORAGE_KEY = "myyoutube_ui_state_v1";
 /** 进个人主页时把返回快照写入 sessionStorage，避免内存 ref 丢失导致后退无法恢复短视频流 */
 const PROFILE_RETURN_CTX_STORAGE_KEY = "myyoutube_profile_return_ctx_v1";
@@ -1845,16 +1831,6 @@ function readPersistedProfileReturnContext() {
 function clearCapturedProfileReturnContext() {
   profileReturnContextRef.value = null;
   persistProfileReturnContext(null);
-}
-
-function pickFallbackVideoUrl(seed = "") {
-  const s = String(seed || "");
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) {
-    hash = (hash * 31 + s.charCodeAt(i)) | 0;
-  }
-  const idx = Math.abs(hash || Math.floor(Math.random() * 9973)) % FALLBACK_DEMO_VIDEO_POOL.length;
-  return FALLBACK_DEMO_VIDEO_POOL[idx] || DEMO_VIDEO_LANDSCAPE;
 }
 
 const profileWorksRows = ref([]);
@@ -2849,31 +2825,6 @@ const mediaPreviewSrc = computed(() =>
   (mediaPreviewType.value === "avatar" ? profileDisplayAvatar.value : profileDisplayBg.value)
 );
 
-function hashStringToIndex(str, mod) {
-  let h = 0;
-  const s = String(str ?? "");
-  for (let i = 0; i < s.length; i++) {
-    h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  }
-  return mod ? h % mod : h;
-}
-
-function buildMockOtherProfile(userId) {
-  const id = safeSnowflakeId(userId);
-  const idx = hashStringToIndex(id, feedCoverPool.length);
-  return normalizeUserProfile({
-    id,
-    nickName: `用户 ${id}`,
-    avatarUrl: feedCoverPool[idx],
-    bgImage: feedCoverPool[(idx + 1) % feedCoverPool.length],
-    fans: 1200,
-    likeCount: 3500,
-    videoCount: 8,
-    attentionCount: 88,
-    introduction: "这是他人主页的示例数据（后端 /user/profile/{id} 未就绪时自动展示）。",
-  });
-}
-
 const followingRows = ref([]);
 const followingPageNo = ref(1);
 const followingLoading = ref(false);
@@ -3204,48 +3155,6 @@ function maybePrefetchFollowFeed() {
   }
 }
 
-function getShortsLocalFallbackCards() {
-  const urls = [
-    DEMO_VIDEO_PORTRAIT,
-    DEMO_VIDEO_LANDSCAPE,
-    DEMO_VIDEO_PORTRAIT,
-    DEMO_VIDEO_LANDSCAPE,
-  ];
-  return urls.map((url, index) => ({
-    id: `local-short-${index + 1}`,
-    title: `本地视频 ${index + 1}`,
-    author: "THYME",
-    viewsText: "本地",
-    playCount: 1200 + index * 100,
-    likeCount: 30 + index * 5,
-    videoUrl: url,
-    coverUrl: feedCoverPool[index % feedCoverPool.length],
-    avatarUrl: feedCoverPool[index % feedCoverPool.length],
-    authorAvatarUrl: feedCoverPool[(index + 2) % feedCoverPool.length],
-    authorId: 100,
-    videoType: "SHORT_VIDEO",
-  }));
-}
-
-function getMockCards(moduleLabel, moduleKey) {
-  return Array.from({ length: 8 }).map((_, index) => ({
-    id: `${moduleKey}-${index + 1}`,
-    title: `${moduleLabel} 示例内容 ${index + 1}`,
-    author: `THYME频道示例 ${index + 1}`,
-    viewsText: "1.2万次观看",
-    videoUrl: pickFallbackVideoUrl(`${moduleKey}-${index + 1}`),
-    coverUrl: feedCoverPool[index % feedCoverPool.length],
-    avatarUrl: feedCoverPool[index % feedCoverPool.length],
-    authorAvatarUrl: feedCoverPool[(index + 1) % feedCoverPool.length],
-    authorId: 10001 + index,
-    videoType: index % 3 === 0 ? "SHORT_VIDEO" : "LONG_VIDEO",
-  }));
-}
-
-function getCardCover(index) {
-  return feedCoverPool[index % feedCoverPool.length];
-}
-
 /** 仅当 id 为纯数字字符串时可用于 /videos/detail/{id}，全程用字符串避免精度丢失 */
 function parseVideoIdForApi(id) {
   return parseDigitSnowflakeId(id);
@@ -3337,14 +3246,12 @@ async function reportBehaviorSilently(videoIdLike, event, watchDurationMs = 0) {
 
 function buildDetailFromCard(card) {
   const vid = parseVideoIdForApi(card?.id);
-  const fallbackVideoUrl = pickFallbackVideoUrl(card?.id ?? card?.title ?? "");
-  const fallbackCover = feedCoverPool[Math.floor(Math.random() * feedCoverPool.length)] || profileBanner;
   return normalizeVideoDetail({
     id: vid ?? (card?.id != null ? String(card.id) : ""),
     title: card?.title ?? "未命名视频",
     description: card?.description ?? "",
-    coverUrl: card?.coverUrl || card?.avatarUrl || fallbackCover,
-    videoUrl: resolveVideoUrl(card) || fallbackVideoUrl,
+    coverUrl: card?.coverUrl || card?.avatarUrl || profileBanner,
+    videoUrl: resolveVideoUrl(card) || "",
     videoType: card?.videoType ?? "LONG_VIDEO",
     playCount: card?.playCount ?? 0,
     likeCount: card?.likeCount ?? 0,
@@ -3376,23 +3283,6 @@ function shouldRecordShortsWatchHistory(item) {
   return item != null && !isLongVideoItem(item);
 }
 
-function genMockSidebarList(tab) {
-  const n = 8;
-  const base = hashStringToIndex(String(videoDetail.value?.authorId ?? "1"), 100000);
-  return Array.from({ length: n }).map((_, i) => ({
-    id: `mock-side-${tab}-${base}-${i}`,
-    title: `推荐内容 ${i + 1}`,
-    author: videoDetail.value?.authorNickname ?? "示例频道",
-    viewsText: `${(i + 1) * 1200} 次播放`,
-    videoUrl: i % 2 === 0 ? DEMO_VIDEO_PORTRAIT : DEMO_VIDEO_LANDSCAPE,
-    coverUrl: feedCoverPool[(base + i) % feedCoverPool.length],
-    avatarUrl: feedCoverPool[(base + i) % feedCoverPool.length],
-    authorAvatarUrl: profileAvatar,
-    authorId: videoDetail.value?.authorId ?? null,
-    videoType: tab === "short" ? "SHORT_VIDEO" : "LONG_VIDEO",
-  }));
-}
-
 function cardAuthorAvatar(card, index) {
   const raw = card?.authorAvatarUrl ?? card?.avatarUrl ?? "";
   const trimmed = String(raw).trim();
@@ -3404,7 +3294,7 @@ function cardAuthorAvatar(card, index) {
 }
 
 function cardCoverSrc(card, index) {
-  return card?.coverUrl || card?.avatarUrl || getCardCover(index);
+  return card?.coverUrl || card?.avatarUrl || profileBanner;
 }
 
 /** 列表/侧栏与详情同一套昵称：优先接口 authorNickname，否则用已拼好的 author */
@@ -4088,11 +3978,8 @@ async function openVideoDetail(card, { skipRemoteDetail = false } = {}) {
         ) {
           d.authorNickname = listNick;
         }
-        if (!d.videoUrl) {
-          d.videoUrl = pickFallbackVideoUrl(d.id || card?.id || card?.title || "");
-        }
         if (!d.coverUrl) {
-          d.coverUrl = card?.coverUrl || card?.avatarUrl || feedCoverPool[Math.floor(Math.random() * feedCoverPool.length)];
+          d.coverUrl = card?.coverUrl || card?.avatarUrl || "";
         }
       }
       videoDetail.value = d;
@@ -4769,7 +4656,7 @@ async function loadDetailSidebar(reset) {
   }
   const authorId = videoDetail.value.authorId;
   if (authorId == null) {
-    detailSidebarList.value = genMockSidebarList(detailSidebarTab.value);
+    detailSidebarList.value = [];
     detailSidebarHasMore.value = false;
     return;
   }
@@ -4806,7 +4693,7 @@ async function loadDetailSidebar(reset) {
       detailSidebarPageNo.value += 1;
     }
   } catch {
-    detailSidebarList.value = genMockSidebarList(detailSidebarTab.value);
+    detailSidebarList.value = [];
     detailSidebarHasMore.value = false;
   } finally {
     detailSidebarLoading.value = false;
@@ -5127,7 +5014,7 @@ function openHistoryFeedFullscreen(sourceList, index, { forceVideoType = "" } = 
   const source = Array.isArray(sourceList) ? sourceList : [];
   const playableQueue = source
     .map((x) => {
-      const url = resolveVideoUrl(x) || pickFallbackVideoUrl(x?.id || x?.title || "");
+      const url = resolveVideoUrl(x);
       return {
         ...x,
         videoType: forceVideoType || x?.videoType || "",
@@ -6747,10 +6634,6 @@ function resolveVideoUrlForListItem(videoId, hintItem) {
   const fromLiked = likedRows.value.find((x) => String(x.id) === id);
   if (fromLiked && resolveVideoUrl(fromLiked)) return resolveVideoUrl(fromLiked);
   return "";
-}
-
-function resolveVideoUrlWithFallback(item, seed = "") {
-  return resolveVideoUrl(item) || pickFallbackVideoUrl(seed || item?.id || item?.title || "");
 }
 
 /** 点赞接口返回后同步更新各列表中的 likeCount */
@@ -9933,7 +9816,7 @@ onBeforeUnmount(() => {
                     <div class="search-feed-player">
                       <div class="search-feed-player__blur" aria-hidden="true">
                         <video
-                          :src="resolveVideoUrlWithFallback(card, String(card.id || card.title || index))"
+                          :src="resolveVideoUrl(card) || undefined"
                           class="search-feed-video search-feed-video--blur"
                           muted
                           loop
@@ -9943,7 +9826,7 @@ onBeforeUnmount(() => {
                       </div>
                       <video
                         :ref="(el) => searchFeedBindMainVideo(card.id, el)"
-                        :src="resolveVideoUrlWithFallback(card, String(card.id || card.title || index))"
+                        :src="resolveVideoUrl(card) || undefined"
                         class="search-feed-video search-feed-video--main"
                         :muted="searchFeedListMuted(card)"
                         loop
