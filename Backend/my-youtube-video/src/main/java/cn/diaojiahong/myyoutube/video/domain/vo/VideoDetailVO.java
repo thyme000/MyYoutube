@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.video.domain.vo;
 
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoCategoryEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;

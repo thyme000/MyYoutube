@@ -17,6 +17,12 @@ spring:
               enabled: false
           routes:
             # ---- 业务服务路由(拆一个启用一个, order 越小越优先) ----
+            # 内部接口不经网关暴露
+            - id: block-internal
+              uri: no://op
+              predicates: [ "Path=/internal/**" ]
+              filters: [ "SetStatus=404" ]
+              order: 5
             - id: user-service
               uri: lb://my-youtube-user-service
               predicates: [ "Path=/user/**,/login,/register,/captcha,/forget-password,/storage/**" ]
@@ -33,13 +39,8 @@ spring:
               uri: lb://my-youtube-search-service
               predicates: [ "Path=/search/**" ]
               order: 40
-            # - id: admin-service
-            #   uri: lb://my-youtube-admin-service
-            #   predicates: [ "Path=/admin/**" ]
-            #   order: 50
+            - id: admin-service
+              uri: lb://my-youtube-admin-service
+              predicates: [ "Path=/admin/**" ]
+              order: 50
 
-            # ---- 过渡路由: 未拆完的路径全部回落到旧单体(开发期以 SERVER_PORT=8090 运行) ----
-            - id: legacy-monolith
-              uri: ${LEGACY_URI:http://localhost:8090}
-              predicates: [ "Path=/**" ]
-              order: 100

@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.comment.domain.po;
 
-import cn.diaojiahong.myyoutube.comment.domain.enums.CommentReportReasonEnum;
-import cn.diaojiahong.myyoutube.comment.domain.enums.CommentReportStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.CommentReportReasonEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.CommentReportStatusEnum;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;

@@ -16,6 +16,9 @@ public class Result<T> {
     @Schema(description = "响应数据")
     private T data;
 
+    public Result() {
+    }
+
     private Result(int code, String message, T data) {
         this.code = code;
         this.message = message;

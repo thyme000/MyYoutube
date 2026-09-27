@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.comment.service.impl;
 
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentReportDTO;
-import cn.diaojiahong.myyoutube.comment.domain.enums.CommentReportStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.CommentReportStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.po.CommentReport;
 import cn.diaojiahong.myyoutube.comment.mapper.CommentReportMapper;
 import cn.diaojiahong.myyoutube.comment.service.ICommentReportService;

@@ -10,8 +10,7 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    # 阶段二过渡: 先与旧单体共用 my_youtube 库, 第 5 步统一拆 schema 到 user_db
-    url: jdbc:mysql://${DATASOURCE_HOST:localhost}:3306/my_youtube?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${DATASOURCE_HOST:localhost}:3306/user_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${DATASOURCE_USERNAME}
     password: ${DATASOURCE_PASSWORD}
 

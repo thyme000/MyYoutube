@@ -10,14 +10,13 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    # 阶段二过渡: emoji 表暂在 my_youtube 库, 第 5 步迁到 chat_db
-    url: jdbc:mysql://${DATASOURCE_HOST:localhost}:3306/my_youtube?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${DATASOURCE_HOST:localhost}:3306/chat_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${DATASOURCE_USERNAME}
     password: ${DATASOURCE_PASSWORD}
 
   data:
     mongodb:
-      uri: ${MONGODB_URI:mongodb://root:mongo123456@localhost:27017/my_youtube?authSource=admin}
+      uri: ${MONGODB_URI:mongodb://root:mongo123456@localhost:27017/chat_db?authSource=admin}
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}

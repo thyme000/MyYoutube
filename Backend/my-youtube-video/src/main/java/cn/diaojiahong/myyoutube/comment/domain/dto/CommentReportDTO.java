@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.comment.domain.dto;
 
-import cn.diaojiahong.myyoutube.comment.domain.enums.CommentReportReasonEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.CommentReportReasonEnum;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;

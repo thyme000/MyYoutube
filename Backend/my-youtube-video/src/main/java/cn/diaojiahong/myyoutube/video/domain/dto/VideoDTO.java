@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.video.domain.dto;
 
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoCategoryEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoCategoryEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import lombok.AllArgsConstructor;
 import lombok.Data;

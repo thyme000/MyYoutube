@@ -1,0 +1,23 @@
+spring:
+  config:
+    import: optional:classpath:application-local.yml
+  application:
+    name: my-youtube-admin-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+  # 管理端无自有数据库, 排除 JDBC/MyBatis 自动配置
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 3000ms
+
+server:
+  port: ${SERVER_PORT:8085}

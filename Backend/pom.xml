@@ -25,7 +25,7 @@
 		<module>my-youtube-user-api</module>
 		<module>my-youtube-search-api</module>
 		<module>my-youtube-chat-api</module>
-		<module>my-youtube-app</module>
+		<module>my-youtube-admin</module>
 	</modules>
 
 	<properties>

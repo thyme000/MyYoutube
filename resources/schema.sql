@@ -1,8 +1,11 @@
--- MyYoutube MySQL 建表脚本
+-- MyYoutube MySQL 建表脚本(微服务多 schema 版)
 -- 主键两种风格: BIGINT 自增(AUTO) / 雪花ID(ASSIGN_ID, 应用生成, 不用 AUTO_INCREMENT)
+-- 库划分与微服务一一对应: user_db(user 服务) / video_db(video 服务) / chat_db(chat 服务)
+-- search/admin 服务无自有 MySQL 库
 
-CREATE DATABASE IF NOT EXISTS my_youtube DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE my_youtube;
+-- ==================== user_db: 用户库 ====================
+CREATE DATABASE IF NOT EXISTS user_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE user_db;
 
 -- 用户核心表
 CREATE TABLE IF NOT EXISTS `user` (
@@ -26,11 +29,15 @@ CREATE TABLE IF NOT EXISTS `user` (
     UNIQUE KEY `uk_username` (`username`)
 ) ENGINE=InnoDB COMMENT='用户';
 
--- 初始用户 thyme, 密码明文: password (BCrypt)
+-- 初始用户, 密码明文: password (BCrypt)
 INSERT INTO `user` (`id`, `username`, `password`, `nickname`)
 VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'thyme');
 INSERT INTO `user` (`id`, `username`, `password`, `nickname`)
 VALUES (2, 'test', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'test');
+
+-- ==================== video_db: 视频库(视频+互动+标签+通知) ====================
+CREATE DATABASE IF NOT EXISTS video_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE video_db;
 
 -- 视频信息表
 CREATE TABLE IF NOT EXISTS `video` (
@@ -188,7 +195,11 @@ CREATE TABLE IF NOT EXISTS `user_video_behavior` (
     KEY `idx_video_id` (`video_id`)
 ) ENGINE=InnoDB COMMENT='用户视频行为流水';
 
--- 表情项表(聊天用)
+-- ==================== chat_db: 聊天库 ====================
+CREATE DATABASE IF NOT EXISTS chat_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE chat_db;
+
+-- 表情项表(聊天用; 聊天消息本体存 MongoDB)
 CREATE TABLE IF NOT EXISTS `emoji_item` (
     `id`            BIGINT      NOT NULL AUTO_INCREMENT,
     `category_code` VARCHAR(32) NOT NULL COMMENT '分组, 如 nature/animals',

@@ -19,6 +19,9 @@ public class PageResult<T> {
     @Schema(description = "当前页数据列表")
     private List<T> list;
 
+    public PageResult() {
+    }
+
     private PageResult(long total, long pages, List<T> list) {
         this.total = total;
         this.pages = pages;
