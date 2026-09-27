@@ -13,10 +13,11 @@ import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
 import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
-import cn.diaojiahong.myyoutube.video.port.RecommendPort;
-import cn.diaojiahong.myyoutube.video.port.VideoDocPort;
-import cn.diaojiahong.myyoutube.user.domain.po.User;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.search.api.RecommendPort;
+import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
+import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.mq.message.PictureToVideoMessage;
 import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.*;
@@ -65,7 +66,7 @@ import static cn.diaojiahong.myyoutube.video.domain.enums.VideoTypeEnum.SHORT_VI
 @RequiredArgsConstructor
 public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements IVideoService {
 
-    private final IUserService userService;
+    private final UserPort userPort;
     private final RocketMQTemplate rocketMQTemplate;
     private final S3StorageUtil storageUtil;
     private final IVideoTagService videoTagService;
@@ -141,13 +142,13 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
         // 推荐视频
         if (pageQuery.getSort() == VideoSortEnum.RECOMMENDED) {
-            List<Long> ids = recommendPort.recommend(
+            List<Long> ids = recommendPort.recommend(new RecommendPort.RecommendQuery(
                     userId,
                     pageQuery.getCategory() != null ? pageQuery.getCategory().getCode() : null,
                     pageQuery.getVideoType() != null ? pageQuery.getVideoType().getCode() : null,
                     pageQuery.getPageNo(),
                     pageQuery.getPageSize()
-            );
+            ));
             if (!ids.isEmpty()) {
                 // 用 MySQL 按 ids 批量查详情（保持字段一致）
                 List<Video> videos = listByIds(ids);
@@ -216,8 +217,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (list == null || list.isEmpty()) {
             return;
         }
-        Map<Long, String> map = userService
-                .getAuthorAvatarUrls(list.stream()
+        Map<Long, String> map = userPort
+                .getAvatars(list.stream()
                         .map(VideoListVO::getAuthorId)
                         .collect(Collectors.toList()));
         list.forEach(vo ->
@@ -250,7 +251,10 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
 
         // 获取作者的信息
-        User author = userService.getById(video.getAuthorId());
+        UserSummary author = userPort.getUser(video.getAuthorId());
+        if (author == null) {
+            return Result.fail("作者不存在");
+        }
         detailVo.setAuthorFanCount(author.getFans());
         detailVo.setAuthorAvatarUrl(storageUtil.signGetUrl(author.getAvatarUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         detailVo.setAuthorNickname(author.getNickname());
@@ -359,9 +363,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     public Result<PageResult<ShortsVO>> getShortsFeed(PageQuery pageQuery) {
         Long userId = getUserId();
         // 获得推荐短视频id
-        List<Long> videoIds = recommendPort.recommend(userId,
-                null, SHORT_VIDEO.getCode(),
-                pageQuery.getPageNo(), pageQuery.getPageSize());
+        List<Long> videoIds = recommendPort.recommend(new RecommendPort.RecommendQuery(
+                userId, null, SHORT_VIDEO.getCode(),
+                pageQuery.getPageNo(), pageQuery.getPageSize()));
         if (videoIds.isEmpty()) {
             // 直接返回空列表
             return Result.success(PageResult.of(0,0, Collections.emptyList()));
@@ -381,9 +385,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         List<Long> authorIds = voList.stream().map(ShortsVO::getAuthorId).toList();
         if (!authorIds.isEmpty()) {
             // 查询作者昵称
-            Map<Long, String> authorNicknames = userService.getAuthorNicknames(authorIds);
+            Map<Long, String> authorNicknames = userPort.getNicknames(authorIds);
             // 作者头像url
-            Map<Long, String> authorAvatarUrls = userService.getAuthorAvatarUrls(authorIds);
+            Map<Long, String> authorAvatarUrls = userPort.getAvatars(authorIds);
             // 填充
             voList.forEach(vo -> vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId())));
             voList.forEach(vo -> {
@@ -491,7 +495,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         List<VideoListVO> voList = videoList.stream().map(v -> BeanUtil.toBean(v, VideoListVO.class)).toList();
 
         // 获取作者昵称
-        User author = userService.getById(userId);
+        UserSummary author = userPort.getUser(userId);
         if (author == null) {
             return Result.success(PageResult.of(0,0, Collections.emptyList()));
         }
@@ -521,7 +525,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (followIds == null || followIds.isEmpty()) {
             return Result.success(PageResult.of(0,0, Collections.emptyList()));
         }
-        List<Long> videoIds = recommendPort.recommendForFollow(followIds, userId , pageQuery.getPageNo(), pageQuery.getPageSize());
+        List<Long> videoIds = recommendPort.recommendForFollow(new RecommendPort.FollowRecommendQuery(
+                followIds, userId, pageQuery.getPageNo(), pageQuery.getPageSize()));
         if (videoIds == null || videoIds.isEmpty()) {
             return Result.success(PageResult.of(0,0, Collections.emptyList()));
         }
@@ -533,12 +538,12 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 转换为VO
         List<FollowVideoVO> voList = videos.stream().map(v -> BeanUtil.toBean(v, FollowVideoVO.class)).toList();
         // 填充作者昵称
-        Map<Long, String> idToNick = userService.getAuthorNicknames(videoIds);
+        Map<Long, String> idToNick = userPort.getNicknames(videoIds);
         for (FollowVideoVO vo : voList) {
             vo.setAuthorNickname(idToNick.get(vo.getAuthorId()));
         }
         // 填充作者头像url
-        Map<Long, String> idToAvatar = userService.getAuthorAvatarUrls(videoIds);
+        Map<Long, String> idToAvatar = userPort.getAvatars(videoIds);
         for (FollowVideoVO vo : voList) {
             vo.setAuthorAvatarUrl(storageUtil.signGetUrl(idToAvatar.get(vo.getAuthorId()), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         }
@@ -592,7 +597,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             return Result.fail("修改失败");
         }
         // 在es中更新这个文档
-        videoDocPort.syncVisibility(videoId, null, "private", false);
+        videoDocPort.syncVisibility(videoId, new VisibilitySync(null, null, null, "private", false));
         return Result.success();
     }
 
@@ -616,12 +621,12 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 return Result.fail("修改失败");
             } else {
                 // 在es中更新这个文档
-                videoDocPort.syncVisibility(videoId, video, "public", false);
+                videoDocPort.syncVisibility(videoId, new VisibilitySync(null, null, null, "public", false));
                 return Result.success("修改成功,等待审核中");
             }
         }
         // 在es中更新这个文档
-        videoDocPort.syncVisibility(videoId, video, "public", true);
+        videoDocPort.syncVisibility(videoId, new VisibilitySync(video.getTitle(), video.getDescription(), video.getTags(), "public", true));
         return Result.success("修改成功");
     }
 
@@ -773,10 +778,10 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (ids.isEmpty()) {
             return;
         }
-        List<User> users = userService.listByIds(ids);
+        List<UserSummary> users = userPort.listByIds(ids);
         Map<Long, String> idToNick = users.stream()
                 .filter(u -> u.getId() != null)
-                .collect(Collectors.toMap(User::getId, u -> u.getNickname() != null ? u.getNickname() : "", (a, b) -> a));
+                .collect(Collectors.toMap(UserSummary::getId, u -> u.getNickname() != null ? u.getNickname() : "", (a, b) -> a));
         for (VideoListVO vo : list) {
             Long aid = vo.getAuthorId();
             if (aid != null && idToNick.containsKey(aid)) {

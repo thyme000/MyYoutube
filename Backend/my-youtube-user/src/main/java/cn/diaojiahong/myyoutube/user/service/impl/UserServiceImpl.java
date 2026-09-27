@@ -13,7 +13,7 @@ import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserLongHistoryVideoVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserShortsVideoVO;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.mq.message.UserDocSyncMessage;
+import cn.diaojiahong.myyoutube.search.api.message.UserDocSyncMessage;
 import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.mapper.UserMapper;

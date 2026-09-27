@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.port;
 
-import cn.diaojiahong.myyoutube.common.port.WsPushPort;
+import cn.diaojiahong.myyoutube.chat.api.WsPushPort;
 import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;

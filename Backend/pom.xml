@@ -22,6 +22,9 @@
 		<module>my-youtube-search</module>
 		<module>my-youtube-gateway</module>
 		<module>my-youtube-video-api</module>
+		<module>my-youtube-user-api</module>
+		<module>my-youtube-search-api</module>
+		<module>my-youtube-chat-api</module>
 		<module>my-youtube-app</module>
 	</modules>
 

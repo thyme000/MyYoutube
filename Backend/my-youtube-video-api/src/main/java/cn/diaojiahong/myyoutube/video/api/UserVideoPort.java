@@ -16,7 +16,7 @@ import java.util.Set;
  * 拆部署前由 video 模块的 UserVideoPortImpl 提供本地实现;
  * 拆部署后走 Feign, 过渡期用 my-youtube.video-service.url 指向旧单体。
  */
-@FeignClient(name = "my-youtube-video-service", path = "/internal/user-video",
+@FeignClient(name = "my-youtube-video-service", contextId = "userVideoPort", path = "/internal/user-video",
         url = "${my-youtube.video-service.url:}")
 public interface UserVideoPort {
 

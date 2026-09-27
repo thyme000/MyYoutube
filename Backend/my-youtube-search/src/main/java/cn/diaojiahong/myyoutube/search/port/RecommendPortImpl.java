@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.search.port;
 
 import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
-import cn.diaojiahong.myyoutube.video.port.RecommendPort;
+import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -14,12 +14,14 @@ public class RecommendPortImpl implements RecommendPort {
     private final IRecommendService recommendService;
 
     @Override
-    public List<Long> recommend(Long userId, String category, String videoType, int page, int size) {
-        return recommendService.recommend(userId, category, videoType, page, size);
+    public List<Long> recommend(RecommendPort.RecommendQuery query) {
+        return recommendService.recommend(query.getUserId(), query.getCategory(), query.getVideoType(),
+                query.getPage(), query.getSize());
     }
 
     @Override
-    public List<Long> recommendForFollow(List<Long> followIds, Long userId, int page, int size) {
-        return recommendService.recommendForFollow(followIds, userId, page, size);
+    public List<Long> recommendForFollow(RecommendPort.FollowRecommendQuery query) {
+        return recommendService.recommendForFollow(query.getFollowIds(), query.getUserId(),
+                query.getPage(), query.getSize());
     }
 }

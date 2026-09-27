@@ -14,8 +14,7 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
-import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
@@ -46,7 +45,7 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, VideoComment> implements IVideoCommentService {
 
-    private final IUserService userService;
+    private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final IVideoService videoService;
     private final StringRedisTemplate redisTemplate;
@@ -196,8 +195,8 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
         // 填充用户昵称
         // 填充用户头像url
         List<Long> userIds = commentVOList.stream().map(CommentVO::getUserId).toList();
-        Map<Long, String> nicknames = userService.getAuthorNicknames(userIds);
-        Map<Long, String> avatarUrls = userService.getAuthorAvatarUrls(userIds);
+        Map<Long, String> nicknames = userPort.getNicknames(userIds);
+        Map<Long, String> avatarUrls = userPort.getAvatars(userIds);
         if (nicknames == null || nicknames.isEmpty() || avatarUrls == null || avatarUrls.isEmpty()) {
             return Result.success(PageResult.of(page.getTotal(), page.getPages(), commentVOList));
         }
@@ -206,7 +205,7 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
 
         // 填充回复用户的昵称
         List<Long> replyUserIds = commentVOList.stream().map(CommentVO::getReplyUserId).toList();
-        Map<Long, String> replyNicknames = userService.getAuthorNicknames(replyUserIds);
+        Map<Long, String> replyNicknames = userPort.getNicknames(replyUserIds);
         if (replyNicknames != null && !replyNicknames.isEmpty()) {
             commentVOList.forEach(commentVO -> commentVO.setReplyNickname(replyNicknames.get(commentVO.getReplyUserId())));
         }

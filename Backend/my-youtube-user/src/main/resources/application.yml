@@ -35,7 +35,7 @@ mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   type-aliases-package: cn.diaojiahong.myyoutube
 
-# 过渡期: video 服务尚未独立注册, Feign 直连旧单体; 第 3 步后删除此配置走 Nacos 负载均衡
+# video-service 已注册进 Nacos, 置空走负载均衡; 需要回退时设 VIDEO_SERVICE_URL=http://localhost:8090
 my-youtube:
   video-service:
-    url: ${VIDEO_SERVICE_URL:http://localhost:8090}
+    url: ${VIDEO_SERVICE_URL:}

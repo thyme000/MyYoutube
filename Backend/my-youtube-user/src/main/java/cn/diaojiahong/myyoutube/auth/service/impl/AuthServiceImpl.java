@@ -11,7 +11,7 @@ import cn.diaojiahong.myyoutube.auth.domain.dto.ForgetPasswordDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.LoginRequestDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
 import cn.diaojiahong.myyoutube.auth.service.IAuthService;
-import cn.diaojiahong.myyoutube.mq.message.UserDocSyncMessage;
+import cn.diaojiahong.myyoutube.search.api.message.UserDocSyncMessage;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.hutool.core.bean.BeanUtil;

@@ -41,6 +41,25 @@
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>com.alibaba.cloud</groupId>
+			<artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>cn.diaojiahong</groupId>
+			<artifactId>my-youtube-user-api</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>cn.diaojiahong</groupId>
+			<artifactId>my-youtube-search-api</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>cn.diaojiahong</groupId>
+			<artifactId>my-youtube-chat-api</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<dependency>
 			<groupId>cn.diaojiahong</groupId>
 			<artifactId>my-youtube-video-api</artifactId>
 			<version>${project.version}</version>
@@ -51,10 +70,18 @@
 			<version>${project.version}</version>
 		</dependency>
 	
-		<dependency>
-			<groupId>cn.diaojiahong</groupId>
-			<artifactId>my-youtube-user</artifactId>
-			<version>${project.version}</version>
-		</dependency>
 	</dependencies>
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+				<!-- 普通 jar 供旧单体过渡期依赖, 可执行 jar 用 -exec 后缀 -->
+				<configuration>
+					<classifier>exec</classifier>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
 </project>

@@ -17,7 +17,7 @@ import cn.diaojiahong.myyoutube.like.domain.vo.LikeVideoVO;
 import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
 import cn.diaojiahong.myyoutube.like.service.IVideoLikeService;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -53,7 +53,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
 
     private final IVideoService videoService;
     private final StringRedisTemplate redisTemplate;
-    private final IUserService userService;
+    private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final VideoLikeMapper videoLikeMapper;
     private final IVideoCommentService videoCommentService;
@@ -176,8 +176,8 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
                 .map(video -> BeanUtil.toBean(video, LikeVideoVO.class)).toList();
         // 填充作者昵称和头像url
         List<Long> authorIds = voList.stream().map(LikeVideoVO::getAuthorId).toList();
-        Map<Long, String> authorNicknames = userService.getAuthorNicknames(authorIds);
-        Map<Long, String> authorAvatarUrls = userService.getAuthorAvatarUrls(authorIds);
+        Map<Long, String> authorNicknames = userPort.getNicknames(authorIds);
+        Map<Long, String> authorAvatarUrls = userPort.getAvatars(authorIds);
         voList.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
             vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), STORAGE_EXPIRE));

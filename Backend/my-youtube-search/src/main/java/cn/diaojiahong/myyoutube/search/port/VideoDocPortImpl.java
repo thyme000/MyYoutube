@@ -2,8 +2,8 @@ package cn.diaojiahong.myyoutube.search.port;
 
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
-import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.port.VideoDocPort;
+import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
+import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.stereotype.Component;
@@ -24,22 +24,22 @@ public class VideoDocPortImpl implements VideoDocPort {
     }
 
     @Override
-    public void syncVisibility(Long videoId, Video video, String visibility, boolean rebuildSuggest) {
+    public void syncVisibility(Long videoId, VisibilitySync sync) {
         videoDocRepository.findById(videoId).ifPresent(doc -> {
-            if ("private".equals(visibility)) {
+            if ("private".equals(sync.getVisibility())) {
                 doc.setSuggest(new Completion());
-            } else if (rebuildSuggest) {
+            } else if (sync.isRebuildSuggest()) {
                 List<String> list = new ArrayList<>(List.of(
-                        video.getTitle(),
-                        video.getDescription(),
+                        sync.getTitle(),
+                        sync.getDescription(),
                         doc.getAuthorName()
                 ));
-                if (video.getTags() != null) {
-                    list.addAll(Arrays.asList(video.getTags().split(",")));
+                if (sync.getTags() != null) {
+                    list.addAll(Arrays.asList(sync.getTags().split(",")));
                 }
                 doc.setSuggest(new Completion(list));
             }
-            doc.setVisibility(visibility);
+            doc.setVisibility(sync.getVisibility());
             videoDocRepository.save(doc);
         });
     }

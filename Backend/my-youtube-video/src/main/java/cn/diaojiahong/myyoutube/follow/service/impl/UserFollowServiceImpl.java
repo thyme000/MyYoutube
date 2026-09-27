@@ -11,9 +11,10 @@ import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
 import cn.diaojiahong.myyoutube.follow.domain.vo.UserRelationshipVO;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
-import cn.diaojiahong.myyoutube.mq.message.UserDocSyncMessage;
-import cn.diaojiahong.myyoutube.user.domain.po.User;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.search.api.message.UserDocSyncMessage;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -40,7 +41,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFollow> implements IUserFollowService {
 
-    private final IUserService userService;
+    private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final RocketMQTemplate rocketMQTemplate;
 
@@ -58,8 +59,9 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         int row = baseMapper.followOrRestore(id, userId, authorId);
         // 关注成功后，更新用户信息 -> 被关注者粉丝数加一,关注者关注数量加一
         if (row > 0) {
-            userService.lambdaUpdate().eq(User::getId, authorId).setIncrBy(User::getFans, 1).update();
-            userService.lambdaUpdate().eq(User::getId, userId).setIncrBy(User::getAttentionCount, 1).update();
+            userPort.adjustCounters(List.of(
+                    new CounterAdjust(authorId, "fans", 1),
+                    new CounterAdjust(userId, "attentionCount", 1)));
         }
         // 延迟同步 ES 用户文档, 短时间多次变更天然合并(消费端以 MySQL 为准)
         rocketMQTemplate.syncSendDelayTimeSeconds(
@@ -84,8 +86,9 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         int row = baseMapper.cancelFollow(userId, authorId);
         // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一
         if (row > 0) {
-            userService.lambdaUpdate().eq(User::getId, authorId).setDecrBy(User::getFans, 1).gt(User::getFans, 0).update();
-            userService.lambdaUpdate().eq(User::getId, userId).setDecrBy(User::getAttentionCount, 1).gt(User::getAttentionCount, 0).update();
+            userPort.adjustCounters(List.of(
+                    new CounterAdjust(authorId, "fans", -1),
+                    new CounterAdjust(userId, "attentionCount", -1)));
         }
         // 延迟同步 ES 用户文档
         rocketMQTemplate.syncSendDelayTimeSeconds(
@@ -178,8 +181,9 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         int row = baseMapper.cancelFollow(followerId, userId);
         // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一
         if (row > 0) {
-            userService.lambdaUpdate().eq(User::getId, userId).setDecrBy(User::getFans, 1).gt(User::getFans, 0).update();
-            userService.lambdaUpdate().eq(User::getId, followerId).setDecrBy(User::getAttentionCount, 1).gt(User::getAttentionCount, 0).update();
+            userPort.adjustCounters(List.of(
+                    new CounterAdjust(userId, "fans", -1),
+                    new CounterAdjust(followerId, "attentionCount", -1)));
         }
         // 延迟同步 ES 用户文档
         rocketMQTemplate.syncSendDelayTimeSeconds(
@@ -204,12 +208,12 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     }
 
     private List<UserRelationshipVO> getUserRelationshipVOS(List<Long> records) {
-        List<User> users = userService.listByIds(records);
+        List<UserSummary> users = userPort.listByIds(records);
         // 转换为 Map
-        Map<Long, User> userMap = users.stream()
-                .collect(Collectors.toMap(User::getId, u -> u));
+        Map<Long, UserSummary> userMap = users.stream()
+                .collect(Collectors.toMap(UserSummary::getId, u -> u));
         // 按原始顺序重组列表
-        List<User> orderedList = records.stream().map(userMap::get)
+        List<UserSummary> orderedList = records.stream().map(userMap::get)
                 .filter(Objects::nonNull)
                 .toList();
         // 转vo

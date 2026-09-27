@@ -14,7 +14,7 @@ import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.domain.vo.NotificationVO;
 import cn.diaojiahong.myyoutube.notification.mapper.UserNotificationMapper;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
-import cn.diaojiahong.myyoutube.user.service.IUserService;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +37,7 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMapper, UserNotification> implements IUserNotificationService {
 
-    private final IUserService userService;
+    private final UserPort userPort;
     private final IVideoCommentService videoCommentService;
     private final S3StorageUtil storageUtil;
 
@@ -79,13 +79,13 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
 
         // 填充发送者昵称
         List<Long> senderIds = result.stream().map(NotificationVO::getSenderId).toList();
-        Map<Long, String> nicknames = userService.getAuthorNicknames(senderIds);
+        Map<Long, String> nicknames = userPort.getNicknames(senderIds);
         result.forEach(r -> {
             r.setSenderNickname(nicknames.getOrDefault(r.getSenderId(), ""));
         });
         // 填充发送者头像url
         List<Long> senderAvatarIds = senderIds;
-        Map<Long, String> avatarUrls = userService.getAuthorAvatarUrls(senderAvatarIds);
+        Map<Long, String> avatarUrls = userPort.getAvatars(senderAvatarIds);
         result.forEach(r -> {
             r.setSenderAvatarUrl(storageUtil.signGetUrl(avatarUrls.getOrDefault(r.getSenderId(), ""), 300));
         });

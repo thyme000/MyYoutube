@@ -1,5 +1,8 @@
 # 敏感信息请勿写在本文件中，请通过环境变量或 application-local.yml（已加入 .gitignore）提供。
 spring:
+  main:
+    # 过渡期: legacy 扫到 user/video 服务的嵌套启动类, Feign 规格重复注册需放行; 第 5 步 legacy 退役后删除
+    allow-bean-definition-overriding: true
   config:
     import: optional:classpath:application-local.yml
   application:
