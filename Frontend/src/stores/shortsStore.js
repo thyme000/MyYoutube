@@ -1,8 +1,8 @@
 /**
  * 短视频播放器域状态：沉浸 feed 播放态、播放控制与进度上报、评论侧栏，
  * 以及被历史/赞过/个人主页/关注复用的全屏队列（feedScope 区分数据源）。
- * 跨域能力（跨列表补丁、观看历史入队、菜单归属）经 registerShortsHooks 注入；
- * 播放器 DOM ref 经 registerShortsFeedPlayerRefs 注入。
+ * 跨域能力（跨列表补丁、菜单归属）经 registerShortsHooks 注入；
+ * 播放器 DOM ref 由宿主组件 ShortsView 经 registerShortsFeedPlayerRefs 注册。
  */
 import { defineStore } from "pinia";
 import { nextTick } from "vue";
@@ -95,10 +95,6 @@ const hooks = {
   isShortsMenuActive: () => false,
   /** 当前是否停留在「关注」Tab——关注态判定要区分全部动态与按作者筛选 */
   isSubscribedMenuActive: () => false,
-  /** 播放代次：切换视频时自增，用于丢弃旧 video 元素的 loadedmetadata */
-  getPlayToken: () => 0,
-  /** 代次自增由 App 持有该变量，store 只请求推进 */
-  bumpPlayToken: () => {},
   /** 删除视频后从各列表移除（feedPatchStore 负责广播） */
   removeVideoById: () => {},
 };
@@ -128,6 +124,11 @@ export const useShortsStore = defineStore("shorts", {
     profileFeedOpen: false,
 
     shortsFeedIndex: 0,
+    /**
+     * 播放代次：切换视频时自增。渲染到 `:data-play-token`，loadedmetadata 时比对，
+     * 用来丢弃「旧元素迟到的元数据」触发的自动播放。
+     */
+    shortsFeedPlayToken: 0,
     shortsFeedIsPortrait: false,
     shortsFeedDuration: 0,
     shortsFeedCurrentTime: 0,
@@ -393,8 +394,7 @@ export const useShortsStore = defineStore("shorts", {
       this.shortsFeedAutoplayPending = true;
       this.profileFeedOpen = true;
       nextTick(() => {
-        playerRefs.fg?.value?.load();
-        playerRefs.bg?.value?.load();
+        this.reloadFeedPlayers();
       });
     },
 
@@ -497,9 +497,9 @@ export const useShortsStore = defineStore("shorts", {
           if (!hooks.isShortsMenuActive() && !this.profileFeedOpen) {
             return;
           }
-          if (tokenOfEl !== hooks.getPlayToken()) {
-            return;
-          }
+            if (tokenOfEl !== this.shortsFeedPlayToken) {
+              return;
+            }
           await v.play();
           await playerRefs.bg?.value?.play().catch(() => {});
         } catch {
@@ -829,6 +829,37 @@ export const useShortsStore = defineStore("shorts", {
       this.shortsFeedCurrentTime = 0;
     },
 
+    bumpPlayToken() {
+      this.shortsFeedPlayToken += 1;
+    },
+
+    /** 前后台两个 <video> 的 DOM 由 ShortsView 持有，宿主只经注册的 ref 命令式重载 */
+    reloadFeedPlayers() {
+      try {
+        playerRefs.fg?.value?.load();
+        playerRefs.bg?.value?.load();
+      } catch {
+        /* 元素已卸载 */
+      }
+    },
+
+    resetFeedPlayersToStart() {
+      try {
+        const fg = playerRefs.fg?.value;
+        const bg = playerRefs.bg?.value;
+        if (fg) {
+          fg.pause();
+          fg.currentTime = 0;
+        }
+        if (bg) {
+          bg.pause();
+          bg.currentTime = 0;
+        }
+      } catch {
+        /* 元素已卸载 */
+      }
+    },
+
     // ===== 点赞 / 不感兴趣 / 关注 =====
 
     async onShortsLikeClick() {
@@ -1041,8 +1072,7 @@ export const useShortsStore = defineStore("shorts", {
         this.shortsFeedIndex = Math.max(0, list.length - 1);
       }
       nextTick(() => {
-        playerRefs.fg?.value?.load();
-        playerRefs.bg?.value?.load();
+        this.reloadFeedPlayers();
       });
       pushToast("已删除该视频", "success");
     },
@@ -1211,7 +1241,7 @@ export const useShortsStore = defineStore("shorts", {
       this.followAuthorVideoPageNo = 1;
       this.followAuthorVideoHasMore = false;
       this.shortsFeedIndex = 0;
-      hooks.bumpPlayToken();
+      this.bumpPlayToken();
       this.shortsFeedAutoplayPending = true;
       if (hadFilter || this.followFeedQueue.length === 0) {
         await this.loadSubscribedFollowVideos({ reset: true });
@@ -1220,8 +1250,7 @@ export const useShortsStore = defineStore("shorts", {
         if (this.followSubscribedFilterAuthorId != null && this.followSubscribedFilterAuthorId !== "") {
           return;
         }
-        playerRefs.fg?.value?.load();
-        playerRefs.bg?.value?.load();
+        this.reloadFeedPlayers();
       });
     },
 
@@ -1239,13 +1268,12 @@ export const useShortsStore = defineStore("shorts", {
       this.followAuthorVideoPageNo = 1;
       this.followAuthorVideoHasMore = true;
       this.shortsFeedIndex = 0;
-      hooks.bumpPlayToken();
+      this.bumpPlayToken();
       this.shortsFeedAutoplayPending = true;
       await this.loadSubscribedAuthorVideos(id, { reset: true });
       nextTick(() => {
         if (String(this.followSubscribedFilterAuthorId || "") !== String(id)) return;
-        playerRefs.fg?.value?.load();
-        playerRefs.bg?.value?.load();
+        this.reloadFeedPlayers();
       });
     },
 

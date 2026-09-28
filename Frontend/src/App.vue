@@ -4,7 +4,7 @@ import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
 import { useAuthStore } from "./stores/authStore";
-import { useSearchStore, registerSearchExpandHooks, registerSearchExpandRefs, SEARCH_PAGE_SIZE, SEARCH_UI } from "./stores/searchStore";
+import { useSearchStore, registerSearchExpandHooks, SEARCH_PAGE_SIZE, SEARCH_UI } from "./stores/searchStore";
 import { useHistoryStore } from "./stores/historyStore";
 import { useLikedStore, LIKED_PAGE_SIZE } from "./stores/likedStore";
 import { useHomeStore, registerHomeHooks, homeSortOptions, HOME_LONG_HEAD_COUNT_DESKTOP, HOME_LONG_HEAD_COUNT_MOBILE } from "./stores/homeStore";
@@ -20,7 +20,7 @@ import { useNavigationStore, registerNavigationHooks } from "./stores/navigation
 import { useShareStore } from "./stores/shareStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
 import { useHoverPreviewStore, cardPreviewKey } from "./stores/hoverPreviewStore";
-import { registerShortsFeedPlayerRefs, registerShortsHooks } from "./stores/shortsStore";
+import { registerShortsHooks } from "./stores/shortsStore";
 import { registerLikedHooks } from "./stores/likedStore";
 import {
   resolveVideoUrl,
@@ -36,7 +36,6 @@ import {
 } from "./utils/videoCard.js";
 import {
   formatCommentTime as formatDetailCommentTime,
-  insertGlyphIntoCommentDraft,
   isBlockedComment,
 } from "./utils/comment.js";
 import { getAuthExpiredEventName, getToken } from "./api/http";
@@ -208,9 +207,6 @@ const {
 const searchInputRef = ref(null);
 const searchFeedScrollRef = ref(null);
 const contentScrollRef = ref(null);
-const searchExpandPlayerRef = ref(null);
-const searchExpandBlurRef = ref(null);
-const searchExpandStageRef = ref(null);
 
 function dedupeStringsMax10(arr) {
   const seen = new Set();
@@ -797,12 +793,6 @@ const shortPlayerTitle = ref("");
 const shortPlayerIsPortrait = ref(false);
 const shortFgVideoRef = ref(null);
 const shortBgVideoRef = ref(null);
-/** 短视频模块内嵌 feed（默认沉浸播放，非弹窗）：DOM 引用与播放令牌留在本地 */
-const shortsFeedFgRef = ref(null);
-const shortsFeedBgRef = ref(null);
-const shortsFeedCenterRef = ref(null);
-let shortsFeedPlayToken = 0;
-const shortsPanelCommentInputRef = ref(null);
 const {
   historyLongRows,
   historyLongLoading,
@@ -1358,12 +1348,7 @@ async function restoreProfileReturnContext(ctx) {
   shortsCommentPanelOpen.value = st.shortsCommentPanelOpen;
   shortsFeedAutoplayPending.value = true;
   await nextTick();
-  try {
-    shortsFeedFgRef.value?.load();
-    shortsFeedBgRef.value?.load();
-  } catch {
-    /* ignore */
-  }
+  shortsStore.reloadFeedPlayers();
   profileStore.clearReturnContext();
 }
 
@@ -1376,21 +1361,9 @@ async function reloadFeedAfterLeavingDetail() {
   await loadModuleCards(menu);
   if (menu.key === "shorts" || menu.key === "subscribed") {
     nextTick(() => {
-      shortsFeedFgRef.value?.load();
-      shortsFeedBgRef.value?.load();
+      shortsStore.reloadFeedPlayers();
     });
   }
-}
-
-function onShortsPanelCommentEmojiPick(glyph) {
-  insertGlyphIntoCommentDraft(shortsPanelCommentDraft, shortsPanelCommentInputRef, glyph);
-}
-
-function onShortsPanelCommentUserClick(ev, userId) {
-  if (userId == null || userId === "") {
-    return;
-  }
-  onAuthorAvatarClick(ev, userId);
 }
 
 /** 短视频评论面板：状态与请求已移入 shortsStore，这里保留同名薄封装供桥调用 */
@@ -1547,8 +1520,7 @@ function openHomeShortVideoInFeed(card, index) {
   }
 
   nextTick(() => {
-    shortsFeedFgRef.value?.load();
-    shortsFeedBgRef.value?.load();
+    shortsStore.reloadFeedPlayers();
     maybePrefetchHomeShortsForFeed();
   });
 }
@@ -1822,24 +1794,11 @@ async function setActiveMenu(menu) {
     (prevMenuKey === "shorts" || prevMenuKey === "subscribed") &&
     (menu.key === "shorts" || menu.key === "subscribed");
   if (switchingShortsTabs) {
-    shortsFeedPlayToken += 1;
+    shortsStore.bumpPlayToken();
     pauseShortsFeedVideos({ muteForeground: true });
     shortsFeedPaused.value = true;
     resetShortsFeedProgressUiForSwitch();
-    try {
-      const fg = shortsFeedFgRef.value;
-      const bg = shortsFeedBgRef.value;
-      if (fg) {
-        fg.pause();
-        fg.currentTime = 0;
-      }
-      if (bg) {
-        bg.pause();
-        bg.currentTime = 0;
-      }
-    } catch {
-      /* ignore */
-    }
+    shortsStore.resetFeedPlayersToStart();
   }
   if (prevMenuKey === "shorts" && menu.key !== "shorts") {
     void behaviorStore.flushShortsHistory();
@@ -1864,13 +1823,13 @@ async function setActiveMenu(menu) {
     void router.push(targetPath);
   }
   if (menu.key === "shorts") {
-    shortsFeedPlayToken += 1;
+    shortsStore.bumpPlayToken();
     feedScope.value = "shorts";
     shortsFeedIndex.value = 0;
     shortsFeedAutoplayPending.value = true;
   }
   if (menu.key === "subscribed") {
-    shortsFeedPlayToken += 1;
+    shortsStore.bumpPlayToken();
     feedScope.value = "follow";
     followSubscribedFilterAuthorId.value = null;
     followAuthorFeedQueue.value = [];
@@ -1920,8 +1879,7 @@ async function setActiveMenu(menu) {
     nextTick(() => {
       if (switchSeq !== activeMenuSwitchSeq) return;
       if (activeMenuKey.value !== menu.key) return;
-      shortsFeedFgRef.value?.load();
-      shortsFeedBgRef.value?.load();
+      shortsStore.reloadFeedPlayers();
     });
   }
 }
@@ -2707,8 +2665,7 @@ function openFollowFeedFromCard(item) {
   shortsFeedAutoplayPending.value = true;
   profileFeedOpen.value = activeMenuKey.value !== "subscribed";
   nextTick(() => {
-    shortsFeedFgRef.value?.load();
-    shortsFeedBgRef.value?.load();
+    shortsStore.reloadFeedPlayers();
   });
 }
 
@@ -2825,8 +2782,7 @@ async function openProfileWorkFeed(item) {
   shortsFeedAutoplayPending.value = true;
   profileFeedOpen.value = true;
   nextTick(() => {
-    shortsFeedFgRef.value?.load();
-    shortsFeedBgRef.value?.load();
+    shortsStore.reloadFeedPlayers();
   });
 }
 
@@ -2860,8 +2816,7 @@ async function openLikedWorkFeed(item) {
   shortsFeedAutoplayPending.value = true;
   profileFeedOpen.value = true;
   nextTick(() => {
-    shortsFeedFgRef.value?.load();
-    shortsFeedBgRef.value?.load();
+    shortsStore.reloadFeedPlayers();
   });
 }
 
@@ -2967,16 +2922,15 @@ watch(
 );
 
 watch(shortsFeedIndex, () => {
-  shortsFeedPlayToken += 1;
+  shortsStore.bumpPlayToken();
   resetShortsFeedProgressUiForSwitch();
-  const tokenAtSwitch = shortsFeedPlayToken;
+  const tokenAtSwitch = shortsStore.shortsFeedPlayToken;
   nextTick(() => {
     const inMainShorts =
       activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed";
     if (!inMainShorts && !profileFeedOpen.value) return;
-    if (tokenAtSwitch !== shortsFeedPlayToken) return;
-    shortsFeedFgRef.value?.load();
-    shortsFeedBgRef.value?.load();
+    if (tokenAtSwitch !== shortsStore.shortsFeedPlayToken) return;
+    shortsStore.reloadFeedPlayers();
     maybePrefetchHomeShortsForFeed();
     maybePrefetchFollowFeed();
   });
@@ -3567,7 +3521,6 @@ provide("shortsBridge", {
   loadFollowingNextPage,
   loadMoreShortsPanelComments,
   loading,
-  onAuthorAvatarClick,
   onDeleteShortsPanelComment,
   onSearchExpandDislikeClick,
   onSearchExpandFgPause,
@@ -3597,8 +3550,6 @@ provide("shortsBridge", {
   onShortsFeedWheel,
   onShortsForwardClick,
   onShortsLikeClick,
-  onShortsPanelCommentEmojiPick,
-  onShortsPanelCommentUserClick,
   onShortsScrubInput,
   onShortsVolumeInput,
   onTopbarAvatarError,
@@ -3607,7 +3558,6 @@ provide("shortsBridge", {
   profileFeedOpen,
   requestDeleteCurrentSelfVideo,
   searchActive,
-  searchExpandBlurRef,
   searchExpandCard,
   searchExpandCommentOpen,
   searchExpandCurrentTime,
@@ -3622,13 +3572,11 @@ provide("shortsBridge", {
   searchExpandNext,
   searchExpandOpen,
   searchExpandPaused,
-  searchExpandPlayerRef,
   searchExpandPrev,
   searchExpandRequestFullscreen,
   searchExpandRequestPip,
   searchExpandScrubDisplayValue,
   searchExpandScrubMax,
-  searchExpandStageRef,
   searchExpandToggleMute,
   searchExpandVideoUrl,
   searchExpandVolume,
@@ -3641,20 +3589,16 @@ provide("shortsBridge", {
   shortsDurationReady,
   shortsFeedAuthorAvatar,
   shortsFeedAuthorName,
-  shortsFeedBgRef,
-  shortsFeedCenterRef,
   shortsFeedCurrent,
   shortsFeedCurrentTime,
   shortsFeedDescText,
   shortsFeedDuration,
-  shortsFeedFgRef,
   shortsFeedIsPortrait,
   shortsFeedLikedDisplay,
   shortsFeedMetaTimeText,
   shortsFeedMuted,
   shortsFeedNext,
   shortsFeedPaused,
-  shortsFeedPlayToken,
   shortsFeedPrev,
   shortsFeedTitleText,
   shortsFeedVideoBuffering,
@@ -3664,7 +3608,6 @@ provide("shortsBridge", {
   shortsIsSelfCurrent,
   shortsPanelCommentDraft,
   shortsPanelCommentHasMore,
-  shortsPanelCommentInputRef,
   shortsPanelCommentSubmitting,
   shortsPanelCommentsLoading,
   shortsPanelExpandedRoots,
@@ -3773,16 +3716,6 @@ registerNavigationHooks({
     }
   },
 });
-registerShortsFeedPlayerRefs({
-  fg: shortsFeedFgRef,
-  bg: shortsFeedBgRef,
-  center: shortsFeedCenterRef,
-});
-registerSearchExpandRefs({
-  main: searchExpandPlayerRef,
-  blur: searchExpandBlurRef,
-  stage: searchExpandStageRef,
-});
 /** searchStore 的宿主依赖：搜索结果列表的内联预览观察器与跨列表补丁仍在 App */
 registerSearchExpandHooks({
   teardownSearchVideoObserver: () => teardownSearchVideoObserver(),
@@ -3796,10 +3729,6 @@ registerShortsHooks({
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
   isShortsMenuActive: () => activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed",
   isSubscribedMenuActive: () => activeMenuKey.value === "subscribed",
-  getPlayToken: () => shortsFeedPlayToken,
-  bumpPlayToken: () => {
-    shortsFeedPlayToken += 1;
-  },
   removeVideoById: (id) => feedPatch.removeVideoById(id),
 });
 
@@ -3950,8 +3879,7 @@ onMounted(async () => {
     await loadModuleCards(menu);
     if (menu.key === "shorts" || menu.key === "subscribed") {
       nextTick(() => {
-        shortsFeedFgRef.value?.load();
-        shortsFeedBgRef.value?.load();
+        shortsStore.reloadFeedPlayers();
       });
     }
   }

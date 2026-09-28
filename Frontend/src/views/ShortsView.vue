@@ -1,11 +1,60 @@
 <script setup>
 /**
  * 短视频域：沉浸 feed(短视频/关注/全屏队列)、共享评论面板、搜索全屏放大层。
- * 过渡期：全部状态/函数/DOM ref 经 App.vue provide 的 shortsBridge 注入
- * (ref 对象直传保持响应式)；后续逐步迁入 shortsStore 与本组件，最终撤桥。
+ * 过渡期：状态/函数仍经 App.vue provide 的 shortsBridge 注入；
+ * DOM ref 与依赖它们的本地处理已归本组件，桥后续继续收敛为 store 直连。
  */
-import { inject } from "vue";
+import { inject, ref } from "vue";
+import { storeToRefs } from "pinia";
+import { registerShortsFeedPlayerRefs, useShortsStore } from "../stores/shortsStore";
+import { registerSearchExpandRefs } from "../stores/searchStore";
+import { useProfileStore } from "../stores/profileStore";
+import { insertGlyphIntoCommentDraft } from "../utils/comment.js";
 import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar } from "../utils/userProfile";
+
+const shortsStore = useShortsStore();
+const profileStore = useProfileStore();
+const { shortsFeedPlayToken, shortsPanelCommentDraft } = storeToRefs(shortsStore);
+
+/**
+ * 模板 ref= 绑定的元素对象必须留在本组件；播放器与放大层要命令式控制，
+ * 故把 ref 对象注册给 store（store 侧只经 playerRefs 读写，不持有元素本身）。
+ */
+const shortsFeedFgRef = ref(null);
+const shortsFeedBgRef = ref(null);
+const shortsFeedCenterRef = ref(null);
+registerShortsFeedPlayerRefs({
+  fg: shortsFeedFgRef,
+  bg: shortsFeedBgRef,
+  center: shortsFeedCenterRef,
+});
+
+const searchExpandPlayerRef = ref(null);
+const searchExpandBlurRef = ref(null);
+const searchExpandStageRef = ref(null);
+registerSearchExpandRefs({
+  main: searchExpandPlayerRef,
+  blur: searchExpandBlurRef,
+  stage: searchExpandStageRef,
+});
+
+const shortsPanelCommentInputRef = ref(null);
+
+function onAuthorAvatarClick(event, authorId) {
+  event?.stopPropagation?.();
+  profileStore.openByAuthorId(authorId);
+}
+
+function onShortsPanelCommentEmojiPick(glyph) {
+  insertGlyphIntoCommentDraft(shortsPanelCommentDraft, shortsPanelCommentInputRef, glyph);
+}
+
+function onShortsPanelCommentUserClick(ev, userId) {
+  if (userId == null || userId === "") {
+    return;
+  }
+  onAuthorAvatarClick(ev, userId);
+}
 
 const {
   activeCommentVideo,
@@ -31,7 +80,6 @@ const {
   loadFollowingNextPage,
   loadMoreShortsPanelComments,
   loading,
-  onAuthorAvatarClick,
   onDeleteShortsPanelComment,
   onSearchExpandDislikeClick,
   onSearchExpandFgPause,
@@ -61,8 +109,6 @@ const {
   onShortsFeedWheel,
   onShortsForwardClick,
   onShortsLikeClick,
-  onShortsPanelCommentEmojiPick,
-  onShortsPanelCommentUserClick,
   onShortsScrubInput,
   onShortsVolumeInput,
   onTopbarAvatarError,
@@ -71,7 +117,6 @@ const {
   profileFeedOpen,
   requestDeleteCurrentSelfVideo,
   searchActive,
-  searchExpandBlurRef,
   searchExpandCard,
   searchExpandCommentOpen,
   searchExpandCurrentTime,
@@ -86,13 +131,11 @@ const {
   searchExpandNext,
   searchExpandOpen,
   searchExpandPaused,
-  searchExpandPlayerRef,
   searchExpandPrev,
   searchExpandRequestFullscreen,
   searchExpandRequestPip,
   searchExpandScrubDisplayValue,
   searchExpandScrubMax,
-  searchExpandStageRef,
   searchExpandToggleMute,
   searchExpandVideoUrl,
   searchExpandVolume,
@@ -105,20 +148,16 @@ const {
   shortsDurationReady,
   shortsFeedAuthorAvatar,
   shortsFeedAuthorName,
-  shortsFeedBgRef,
-  shortsFeedCenterRef,
   shortsFeedCurrent,
   shortsFeedCurrentTime,
   shortsFeedDescText,
   shortsFeedDuration,
-  shortsFeedFgRef,
   shortsFeedIsPortrait,
   shortsFeedLikedDisplay,
   shortsFeedMetaTimeText,
   shortsFeedMuted,
   shortsFeedNext,
   shortsFeedPaused,
-  shortsFeedPlayToken,
   shortsFeedPrev,
   shortsFeedTitleText,
   shortsFeedVideoBuffering,
@@ -126,9 +165,7 @@ const {
   shortsFeedVolume,
   shortsIsFollowedCurrent,
   shortsIsSelfCurrent,
-  shortsPanelCommentDraft,
   shortsPanelCommentHasMore,
-  shortsPanelCommentInputRef,
   shortsPanelCommentSubmitting,
   shortsPanelCommentsLoading,
   shortsPanelExpandedRoots,
