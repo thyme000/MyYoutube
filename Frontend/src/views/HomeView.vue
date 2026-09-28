@@ -68,7 +68,8 @@ const {
         </div>
           <section v-if="activeMenuKey === 'home'" class="home-mixed-feed">
         <section class="card-grid">
-              <article v-if="loading" v-for="n in 8" :key="`skeleton-home-a-${n}`" class="video-card video-card--skeleton">
+              <template v-if="loading">
+              <article v-for="n in 8" :key="`skeleton-home-a-${n}`" class="video-card video-card--skeleton">
                 <div class="video-cover video-cover-loading"></div>
             <div class="video-info">
                   <div class="video-card-author-avatar"></div>
@@ -78,8 +79,9 @@ const {
                   </div>
             </div>
           </article>
+              </template>
+              <template v-if="!loading">
               <article
-                v-if="!loading"
                 v-for="(card, index) in homeLongHeadCards"
                 :key="`home-long-head-${card.id}`"
                 class="video-card"
@@ -115,6 +117,7 @@ const {
                   </div>
                 </div>
               </article>
+              </template>
             </section>
 
             <section v-if="!loading && homeShortsRows.length" class="home-shorts-block">
@@ -168,8 +171,8 @@ const {
             </section>
 
             <section class="card-grid">
+              <template v-if="!loading">
               <article
-                v-if="!loading"
                 v-for="(card, index) in homeLongTailCards"
                 :key="`home-long-tail-${card.id}`"
                 class="video-card"
@@ -205,6 +208,7 @@ const {
                   </div>
             </div>
           </article>
+              </template>
         </section>
             <section v-if="homeLongLoadingMore" class="card-grid card-grid--loading-more">
               <article v-for="n in 5" :key="`skeleton-home-more-${n}`" class="video-card video-card--skeleton">
@@ -229,7 +233,8 @@ const {
           </section>
 
           <section v-else-if="activeMenuKey !== 'subscribed' && activeMenuKey !== 'chat'" class="card-grid">
-            <article v-if="loading" v-for="n in 8" :key="`skeleton-${n}`" class="video-card video-card--skeleton">
+            <template v-if="loading">
+            <article v-for="n in 8" :key="`skeleton-${n}`" class="video-card video-card--skeleton">
               <div class="video-cover video-cover-loading"></div>
               <div class="video-info">
                 <div class="video-card-author-avatar"></div>
@@ -239,9 +244,10 @@ const {
                 </div>
               </div>
             </article>
+            </template>
 
+            <template v-if="!loading">
             <article
-              v-if="!loading"
               v-for="(card, index) in cards"
               :key="card.id"
               class="video-card"
@@ -265,6 +271,7 @@ const {
                 </div>
               </div>
             </article>
+            </template>
             <div v-if="!loading && !cards.length" class="module-empty module-empty--grid">
               <div class="module-empty-icon"><i :class="moduleEmptyState.icon"></i></div>
               <h5>{{ moduleEmptyState.title }}</h5>
