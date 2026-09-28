@@ -30,7 +30,6 @@ import {
   parseSearchTagsArray,
   formatSearchRelTime,
   formatShortsTime,
-  readVideoDurationFromVideoEl,
 } from "./utils/videoCard.js";
 import {
   formatCommentTime as formatDetailCommentTime,
@@ -38,7 +37,6 @@ import {
   isBlockedComment,
 } from "./utils/comment.js";
 import { getApiBaseUrl, getAuthExpiredEventName, getToken } from "./api/http";
-import { sendPlaybackResumePut } from "./utils/playbackResume";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
   forgotPasswordApi,
@@ -96,6 +94,7 @@ import {
 } from "./api/notificationApi";
 import {
   sanitizeImageUrl,
+  stripUserIdLikeName,
   DEFAULT_PROFILE_AVATAR_URL as profileAvatar,
   DEFAULT_PROFILE_BG_URL as profileBanner,
 } from "./utils/userProfile";
@@ -717,6 +716,19 @@ const {
   shortsFeedCurrent,
   activeCommentVideo,
   activeCommentVideoAllowsComment,
+  /** 当前条的展示值：模板与桥直接消费，推导逻辑在 store */
+  shortsFeedVideoSrc,
+  shortsFeedLikedDisplay,
+  shortsScrubMax,
+  shortsScrubDisplayValue,
+  shortsDurationReady,
+  shortsFeedAuthorName,
+  shortsFeedMetaTimeText,
+  shortsFeedTitleText,
+  shortsFeedDescText,
+  shortsFeedAuthorAvatar,
+  shortsIsFollowedCurrent,
+  shortsIsSelfCurrent,
   shortsFeedIndex,
   shortsFeedIsPortrait,
   shortsFeedDuration,
@@ -745,29 +757,42 @@ const {
   searchListCommentOpen,
   searchListCommentCard,
 } = storeToRefs(useCommentPanelStore());
-const SHORTS_BUFFERING_UI_DELAY_MS = 320;
-let shortsBufferingUITimer = null;
+/** 播放缓冲遮罩：实现已移入 shortsStore，这里保留同名薄封装供桥与生命周期调用 */
+const scheduleShortsBufferingOverlay = () => shortsStore.scheduleShortsBufferingOverlay();
+const hideShortsBufferingOverlay = () => shortsStore.hideShortsBufferingOverlay();
 
-function clearShortsBufferingUITimer() {
-  if (shortsBufferingUITimer != null) {
-    clearTimeout(shortsBufferingUITimer);
-    shortsBufferingUITimer = null;
-  }
-}
-
-function scheduleShortsBufferingOverlay() {
-  clearShortsBufferingUITimer();
-  shortsFeedVideoBuffering.value = false;
-  shortsBufferingUITimer = window.setTimeout(() => {
-    shortsBufferingUITimer = null;
-    shortsFeedVideoBuffering.value = true;
-  }, SHORTS_BUFFERING_UI_DELAY_MS);
-}
-
-function hideShortsBufferingOverlay() {
-  clearShortsBufferingUITimer();
-  shortsFeedVideoBuffering.value = false;
-}
+/**
+ * 短视频播放控制：实现已移入 shortsStore（DOM ref 仍由本组件持有并注册），
+ * 这里保留同名薄封装，使桥、生命周期与详情/主页等域调用点零改动。
+ */
+const shortsFeedPrev = () => shortsStore.shortsFeedPrev();
+const shortsFeedNext = () => shortsStore.shortsFeedNext();
+const onShortsFeedFgLoadStart = () => shortsStore.onShortsFeedFgLoadStart();
+const onShortsFeedFgCanPlay = () => shortsStore.onShortsFeedFgCanPlay();
+const onShortsFeedFgMediaError = () => shortsStore.onShortsFeedFgMediaError();
+const onShortsFeedFgLoadedMetadata = (e) => shortsStore.onShortsFeedFgLoadedMetadata(e);
+const onShortsFeedFgTimeUpdate = (e) => shortsStore.onShortsFeedFgTimeUpdate(e);
+const onShortsFeedFgPlay = () => shortsStore.onShortsFeedFgPlay();
+const onShortsFeedFgPause = () => shortsStore.onShortsFeedFgPause();
+const onShortsFeedFgDurationChange = (e) => shortsStore.onShortsFeedFgDurationChange(e);
+const onShortsFeedFgSeeked = (e) => shortsStore.onShortsFeedFgSeeked(e);
+const onShortsFeedFgEnded = () => shortsStore.onShortsFeedFgEnded();
+const onShortsScrubInput = (e) => shortsStore.onShortsScrubInput(e);
+const onShortsVolumeInput = (e) => shortsStore.onShortsVolumeInput(e);
+const shortsToggleMute = () => shortsStore.shortsToggleMute();
+const shortsTogglePlay = () => shortsStore.shortsTogglePlay();
+const shortsRequestPip = () => shortsStore.shortsRequestPip();
+const shortsRequestFullscreen = () => shortsStore.shortsRequestFullscreen();
+const onShortsFeedKeydown = (ev) => shortsStore.onShortsFeedKeydown(ev);
+const onShortsFeedWheel = (e) => shortsStore.onShortsFeedWheel(e);
+const onShortsFeedTouchStart = (ev) => shortsStore.onShortsFeedTouchStart(ev);
+const onShortsFeedTouchEnd = (ev) => shortsStore.onShortsFeedTouchEnd(ev);
+const pauseShortsFeedVideos = (opts) => shortsStore.pauseShortsFeedVideos(opts);
+const restoreShortsFeedForegroundMuteFromState = () =>
+  shortsStore.restoreShortsFeedForegroundMuteFromState();
+const resetShortsFeedProgressUiForSwitch = () => shortsStore.resetShortsFeedProgressUiForSwitch();
+const isLongShortsFeedVideo = (item) => shortsStore.isLongShortsFeedVideo(item);
+const flushShortsLongPlaybackResume = (reason) => shortsStore.flushShortsLongPlaybackResume(reason);
 /** 地址栏 ?v= 与 sessionStorage 恢复详情页（刷新不丢） */
 const VIDEO_URL_PARAM = "v";
 
@@ -803,18 +828,9 @@ const shortsHistorySeenSet = new Set();
 let shortsHistoryFlushInFlight = false;
 /** 按作者 ID 覆盖关注状态（乐观更新后优先于接口返回的 isFollow），状态在 pinia followStore */
 const { overrideByAuthorId: followStateOverrideByAuthorId } = storeToRefs(useFollowStore());
-/** PLAY 上报阈值：累计顺播达总时长比例且排除拖动（单次 timeupdate 跳跃过大不计入） */
-const BEHAVIOR_PLAY_THRESHOLD = 0.7;
-const BEHAVIOR_MAX_PLAY_DELTA_SEC = 3;
 const behaviorStore = useBehaviorStore();
-const hasPlayReported = (videoId) => behaviorStore.hasPlayReported(videoId);
-const markPlayReported = (videoId) => behaviorStore.markPlayReported(videoId);
 const reportBehaviorSilently = (videoIdLike, event, watchDurationMs = 0) =>
   behaviorStore.report(videoIdLike, event, watchDurationMs);
-let shortsLongResumeInFlight = false;
-let shortsLongResumeLastSentAtMs = 0;
-let shortsLongResumeTickCount = 0;
-let shortsLongResumeAppliedVideoId = "";
 const UI_STATE_STORAGE_KEY = "myyoutube_ui_state_v1";
 
 /** 仅音乐歌词「全屏」时隐藏右侧会话条；普通音乐页仍显示 */
@@ -892,33 +908,6 @@ watch(slideshowBgmTargetSec, (sec, oldSec) => {
     pushToast("图片张数已变更，请重新选择背景音乐", "info");
   }
 });
-
-function stripUserIdLikeName(name) {
-  const n = String(name || "").trim();
-  if (!n) return "";
-  if (/^用户\s*\d+$/i.test(n)) return "";
-  return n;
-}
-
-function formatRelativeTimeText(raw) {
-  if (!raw) return "";
-  const d = new Date(raw);
-  if (!Number.isFinite(d.getTime())) return "";
-  const diff = Date.now() - d.getTime();
-  if (diff < 0) return "刚刚";
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return "刚刚";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}分钟前`;
-  const hour = Math.floor(min / 60);
-  if (hour < 24) return `${hour}小时前`;
-  const day = Math.floor(hour / 24);
-  if (day < 30) return `${day}天前`;
-  const month = Math.floor(day / 30);
-  if (month < 12) return `${month}个月前`;
-  const year = Math.floor(month / 12);
-  return `${year}年前`;
-}
 
 function pushToast(message, type = "info") {
   const text = String(message || "").trim();
@@ -1617,31 +1606,6 @@ const onDeleteShortsPanelComment = (c) => shortsStore.onDeleteShortsPanelComment
 const commentDisplayNickname = (userId, nickname) => shortsStore.commentDisplayNickname(userId, nickname);
 const isCommentLikeBusy = (id) => shortsStore.isCommentLikeBusy(id);
 const submitCommentLike = (row) => shortsStore.submitCommentLike(row);
-function onShortsFeedFgEnded() {
-  const cur = shortsFeedCurrent.value;
-  const now = Number(shortsFeedCurrentTime.value || 0);
-  if (cur?.id) {
-    void reportBehaviorSilently(cur.id, "FINISH", now * 1000);
-  }
-  if (isLongShortsFeedVideo(cur)) {
-    void flushShortsLongPlaybackResume("ended");
-  }
-  const n = unifiedFeedList.value.length;
-  /** 评论打开时循环当前条，避免播完突然切走影响阅读 */
-  if (n <= 1 || shortsCommentPanelOpen.value) {
-    const v = shortsFeedFgRef.value;
-    const bg = shortsFeedBgRef.value;
-    if (v) {
-      v.currentTime = 0;
-      v.play()
-        .then(() => bg?.play().catch(() => {}))
-        .catch(() => {});
-    }
-    return;
-  }
-  shortsFeedNext();
-}
-
 function onWindowResize() {
   viewportWidth.value = window.innerWidth || 1440;
 }
@@ -2892,8 +2856,6 @@ async function submitUploadVideo() {
 
 /** 评论侧栏：短视频流、搜索全屏放大或搜索列表共用同一套列表与接口 */
 
-const shortsFeedVideoSrc = computed(() => resolveVideoUrl(shortsFeedCurrent.value));
-
 watch(
   () => shortsFeedVideoSrc.value,
   (src) => {
@@ -2902,21 +2864,6 @@ watch(
     }
   }
 );
-
-/**
- * 短视频流红心：普通流看接口 isLike；赞过列表后端可能不传该字段，默认视为已赞，
- * 仅当本地明确 patch 为 isLike === false（取消赞）时显示空心。
- */
-const shortsFeedLikedDisplay = computed(() => {
-  const cur = shortsFeedCurrent.value;
-  if (!cur?.id) {
-    return false;
-  }
-  if (feedScope.value === "liked") {
-    return cur.isLike !== false;
-  }
-  return Boolean(cur.isLike);
-});
 
 watch(
   () => [
@@ -2938,129 +2885,6 @@ watch(
     void loadShortsPanelTopComments(true);
   },
 );
-
-/** 从 video 元素读取有效时长，避免 NaN / Infinity / 未缓冲导致进度条错乱 */
-
-/**
- * 进度条：duration 未就绪时若 max 过小（曾用 0.01），而 currentTime 仍为上一段或中间值，
- * 原生 range 会把滑块钳到最右，看起来像「暂停就跳到结尾」或闪烁。
- */
-const shortsScrubMax = computed(() => {
-  const d = Number(shortsFeedDuration.value);
-  if (Number.isFinite(d) && d > 0) {
-    return d;
-  }
-  return 1;
-});
-
-const shortsScrubDisplayValue = computed(() => {
-  const t = Number(shortsFeedCurrentTime.value);
-  const d = Number(shortsFeedDuration.value);
-  if (!Number.isFinite(t) || t < 0) {
-    return 0;
-  }
-  if (Number.isFinite(d) && d > 0) {
-    return Math.min(t, d);
-  }
-  return 0;
-});
-
-const shortsDurationReady = computed(() => {
-  const d = Number(shortsFeedDuration.value);
-  return Number.isFinite(d) && d > 0;
-});
-
-const shortsFeedAuthorName = computed(() => {
-  const c = shortsFeedCurrent.value;
-  const nick = stripUserIdLikeName(c?.authorNickname) || stripUserIdLikeName(c?.author);
-  if (nick) return nick;
-  if (feedScope.value === "profile") {
-    const p = stripUserIdLikeName(profileUser.value?.nickName || profileUser.value?.nickname);
-    if (p) {
-      return p;
-    }
-    if (isViewingSelf.value) {
-      const s = stripUserIdLikeName(selfUserProfile.value?.nickName || selfUserProfile.value?.nickname);
-      if (s) {
-        return s;
-      }
-    }
-  }
-  if (feedScope.value === "liked") {
-    return nick || "创作者";
-  }
-  return "创作者";
-});
-
-const shortsFeedMetaTimeText = computed(() => formatRelativeTimeText(shortsFeedCurrent.value?.createTime || ""));
-const shortsFeedTitleText = computed(() => shortsFeedCurrent.value?.title || "未命名主题");
-const shortsFeedDescText = computed(
-  () => shortsFeedCurrent.value?.description || shortsFeedCurrent.value?.title || ""
-);
-/** 关注 Tab：与左侧关注列表同一套 avatarDisplaySrc，避免视频 VO 里作者头像与侧栏不一致/糊片 */
-const shortsFeedAuthorAvatar = computed(() => {
-  const c = shortsFeedCurrent.value;
-  if (!c) {
-    return profileAvatar;
-  }
-  if (activeMenuKey.value === "subscribed" && feedScope.value === "follow" && c.authorId != null && c.authorId !== "") {
-    const key = String(c.authorId);
-    const row = followingRows.value.find((u) => u && String(u.id) === key);
-    if (row?.avatarDisplaySrc) {
-      return row.avatarDisplaySrc;
-    }
-  }
-  const fromAuthor =
-    sanitizeImageUrl(c.authorAvatarUrl ?? "") || sanitizeImageUrl(c.authorAvatar ?? "");
-  if (fromAuthor) {
-    return fromAuthor;
-  }
-  if (feedScope.value === "profile" && showProfileCenter.value) {
-    if (isViewingSelf.value) {
-      const selfAv = sanitizeImageUrl(selfUserProfile.value?.avatarUrl || "");
-      if (selfAv) {
-        return selfAv;
-      }
-      return topbarAvatarSrc.value;
-    }
-    const pav = sanitizeImageUrl(profileUser.value?.avatarUrl || "");
-    if (pav) {
-      return pav;
-    }
-  }
-  return profileAvatar;
-});
-
-const shortsIsFollowedCurrent = computed(() => {
-  const c = shortsFeedCurrent.value;
-  if (!c?.authorId) {
-    return false;
-  }
-  const key = String(c.authorId);
-  if (Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)) {
-    return followStateOverrideByAuthorId.value[key];
-  }
-  // 关注 Tab：侧栏点「某作者」时该作者必已关注；全部动态里作者应在关注列表中
-  if (activeMenuKey.value === "subscribed" && feedScope.value === "follow") {
-    const filtered = followSubscribedFilterAuthorId.value;
-    if (filtered != null && filtered !== "" && String(filtered) === key) {
-      return true;
-    }
-    if ((filtered == null || filtered === "") && followingRows.value.some((u) => u && String(u.id) === key)) {
-      return true;
-    }
-  }
-  return Boolean(c.isFollow);
-});
-
-const shortsIsSelfCurrent = computed(() => {
-  const authorId = shortsFeedCurrent.value?.authorId;
-  const selfId = currentUserId.value;
-  if (authorId == null || selfId == null) {
-    return false;
-  }
-  return String(authorId) === String(selfId);
-});
 
 async function toggleShortsFollow() {
   const c = shortsFeedCurrent.value;
@@ -3380,257 +3204,6 @@ async function flushShortsHistoryQueue({ keepalive = false } = {}) {
   }
 }
 
-function shortsFeedPrev() {
-  const cur = shortsFeedCurrent.value;
-  const dur = Number(shortsFeedDuration.value || 0);
-  const now = Number(shortsFeedCurrentTime.value || 0);
-  if (isLongShortsFeedVideo(cur)) {
-    void flushShortsLongPlaybackResume("switch");
-  }
-  if (cur?.id) {
-    enqueueShortsHistoryByVideoId(cur.id, cur);
-  }
-  if (cur?.id && dur > 0 && now / dur < 0.95) {
-    void reportBehaviorSilently(cur.id, "SKIP", now * 1000);
-  }
-  const n = unifiedFeedList.value.length;
-  if (!n) {
-    return;
-  }
-  shortsFeedIndex.value = (shortsFeedIndex.value - 1 + n) % n;
-}
-
-function shortsFeedNext() {
-  const cur = shortsFeedCurrent.value;
-  const dur = Number(shortsFeedDuration.value || 0);
-  const now = Number(shortsFeedCurrentTime.value || 0);
-  if (isLongShortsFeedVideo(cur)) {
-    void flushShortsLongPlaybackResume("switch");
-  }
-  if (cur?.id) {
-    enqueueShortsHistoryByVideoId(cur.id, cur);
-  }
-  if (cur?.id && dur > 0 && now / dur < 0.95) {
-    void reportBehaviorSilently(cur.id, "SKIP", now * 1000);
-  }
-  const n = unifiedFeedList.value.length;
-  if (!n) {
-    return;
-  }
-  shortsFeedIndex.value = (shortsFeedIndex.value + 1) % n;
-}
-
-function onShortsFeedFgLoadStart() {
-  scheduleShortsBufferingOverlay();
-}
-
-function onShortsFeedFgCanPlay() {
-  hideShortsBufferingOverlay();
-}
-
-function onShortsFeedFgMediaError() {
-  hideShortsBufferingOverlay();
-}
-
-async function onShortsFeedFgLoadedMetadata(e) {
-  const v = e.target;
-  const tokenOfEl = Number(v?.dataset?.playToken || 0);
-  applyShortsLongPlaybackResumeIfNeeded(v);
-  shortsFeedIsPortrait.value =
-    v.videoWidth > 0 && v.videoHeight > 0 && v.videoHeight > v.videoWidth;
-  const dur = readVideoDurationFromVideoEl(v);
-  shortsFeedDuration.value = dur;
-  let ct = Number(v.currentTime) || 0;
-  if (dur > 0) {
-    ct = Math.min(ct, dur);
-  }
-  shortsFeedCurrentTime.value = ct;
-  v.volume = shortsFeedVolume.value;
-  v.muted = shortsFeedMuted.value;
-  shortsFeedVolume.value = v.volume;
-  shortsFeedMuted.value = v.muted;
-  if (shortsFeedAutoplayPending.value) {
-    try {
-      const inMainShorts =
-        activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed";
-      if (!inMainShorts && !profileFeedOpen.value) {
-        return;
-      }
-      if (tokenOfEl !== shortsFeedPlayToken) {
-        return;
-      }
-      await v.play();
-      await shortsFeedBgRef.value?.play().catch(() => {});
-    } catch {
-      /* 浏览器策略可能阻止自动播放，此时显示中央播放按钮 */
-    } finally {
-      shortsFeedAutoplayPending.value = false;
-    }
-  }
-  shortsFeedPaused.value = v.paused;
-}
-
-function onShortsFeedFgTimeUpdate(e) {
-  const inMainShorts =
-    activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed";
-  if (!inMainShorts && !profileFeedOpen.value) {
-    return;
-  }
-  const fg = e.target;
-  const dur = readVideoDurationFromVideoEl(fg);
-  if (dur > 0) {
-    const prev = shortsFeedDuration.value;
-    if (!Number.isFinite(prev) || prev <= 0 || Math.abs(prev - dur) > 0.35) {
-      shortsFeedDuration.value = dur;
-    }
-  }
-  let ct = Number(fg.currentTime) || 0;
-  if (dur > 0) {
-    ct = Math.min(ct, dur);
-  }
-  shortsFeedCurrentTime.value = ct;
-  const cur = shortsFeedCurrent.value;
-  const duration = dur > 0 ? dur : Number(fg.duration);
-  const current = ct;
-  if (cur?.id && Number.isFinite(duration) && duration > 0) {
-    const idKey = String(cur.id);
-    if (shortsAccVideoId.value !== idKey) {
-      shortsAccVideoId.value = idKey;
-      shortsPlaybackAccSec.value = 0;
-      shortsLastTimeSec.value = null;
-    }
-    const prev = shortsLastTimeSec.value;
-    shortsLastTimeSec.value = current;
-    if (prev != null) {
-      const delta = current - prev;
-      if (delta > 0 && delta <= BEHAVIOR_MAX_PLAY_DELTA_SEC) {
-        shortsPlaybackAccSec.value += delta;
-      }
-    }
-    if (
-      shortsPlaybackAccSec.value >= duration * BEHAVIOR_PLAY_THRESHOLD &&
-      !hasPlayReported(cur.id)
-    ) {
-      markPlayReported(cur.id);
-      void reportBehaviorSilently(cur.id, "PLAY", current * 1000);
-    }
-    if (isLongShortsFeedVideo(cur) && !fg.paused) {
-      shortsLongResumeTickCount += 1;
-      if (shortsLongResumeTickCount >= 30) {
-        shortsLongResumeTickCount = 0;
-        void flushShortsLongPlaybackResume("tick");
-      }
-    }
-  }
-  const bg = shortsFeedBgRef.value;
-  if (!bg || !fg) {
-    return;
-  }
-  if (Math.abs(bg.currentTime - fg.currentTime) > 0.2) {
-    bg.currentTime = fg.currentTime;
-  }
-}
-
-function onShortsScrubInput(e) {
-  const v = shortsFeedFgRef.value;
-  if (!v) {
-    return;
-  }
-  const dur = readVideoDurationFromVideoEl(v);
-  if (!(dur > 0)) {
-    return;
-  }
-  const t = Math.min(Math.max(0, Number(e.target.value)), dur);
-  v.currentTime = t;
-  shortsFeedCurrentTime.value = t;
-}
-
-function onShortsVolumeInput(e) {
-  const v = shortsFeedFgRef.value;
-  if (!v) {
-    return;
-  }
-  const vol = Number(e.target.value);
-  v.volume = vol;
-  v.muted = vol === 0;
-  shortsFeedVolume.value = vol;
-  shortsFeedMuted.value = v.muted;
-}
-
-function shortsToggleMute() {
-  const v = shortsFeedFgRef.value;
-  if (!v) {
-    return;
-  }
-  v.muted = !v.muted;
-  shortsFeedMuted.value = v.muted;
-}
-
-function shortsTogglePlay() {
-  const v = shortsFeedFgRef.value;
-  if (!v) {
-    return;
-  }
-  if (v.paused) {
-    v.play().catch(() => {});
-  } else {
-    v.pause();
-  }
-}
-
-async function shortsRequestPip() {
-  const v = shortsFeedFgRef.value;
-  if (!v) {
-    return;
-  }
-  try {
-    if (document.pictureInPictureElement === v) {
-      await document.exitPictureInPicture();
-    } else if (v.requestPictureInPicture) {
-      await v.requestPictureInPicture();
-    }
-  } catch {
-    /* 浏览器策略或用户拒绝 */
-  }
-}
-
-async function shortsRequestFullscreen() {
-  const el = shortsFeedCenterRef.value;
-  if (!el) {
-    return;
-  }
-  try {
-    if (document.fullscreenElement === el) {
-      await document.exitFullscreen();
-    } else {
-      await el.requestFullscreen();
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-function onShortsFeedKeydown(ev) {
-  if (showProfileCenter.value || (activeMenuKey.value !== "shorts" && activeMenuKey.value !== "subscribed")) {
-    return;
-  }
-  const tag = ev.target?.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) {
-    return;
-  }
-  const k = ev.key;
-  if (k === "ArrowUp" || k === "w" || k === "W") {
-    ev.preventDefault();
-    shortsFeedPrev();
-  } else if (k === "ArrowDown" || k === "s" || k === "S") {
-    ev.preventDefault();
-    shortsFeedNext();
-  } else if (k === " ") {
-    ev.preventDefault();
-    shortsTogglePlay();
-  }
-}
-
 function closeTopMostOverlayByEsc() {
   if (uploadModalOpen.value) {
     uploadModalOpen.value = false;
@@ -3694,127 +3267,6 @@ function onGlobalKeydown(ev) {
   detailStore.handleKeydown(ev);
 }
 
-function onShortsFeedFgPlay() {
-  shortsFeedPaused.value = false;
-  const curPlay = shortsFeedCurrent.value;
-  enqueueShortsHistoryByVideoId(curPlay?.id, curPlay);
-  if (isLongShortsFeedVideo()) {
-    shortsLongResumeTickCount = 0;
-  }
-  shortsFeedBgRef.value?.play().catch(() => {});
-}
-
-function onShortsFeedFgPause() {
-  if (shortsFeedAutoplayPending.value) {
-    return;
-  }
-  shortsFeedPaused.value = true;
-  const fg = shortsFeedFgRef.value;
-  if (fg) {
-    const dur = readVideoDurationFromVideoEl(fg);
-    if (dur > 0) {
-      shortsFeedDuration.value = dur;
-    }
-    let ct = Number(fg.currentTime) || 0;
-    if (dur > 0) {
-      ct = Math.min(ct, dur);
-    }
-    shortsFeedCurrentTime.value = ct;
-  }
-  if (isLongShortsFeedVideo()) {
-    void flushShortsLongPlaybackResume("pause");
-  }
-  shortsFeedBgRef.value?.pause();
-}
-
-function onShortsFeedFgDurationChange(e) {
-  const v = e.target;
-  const dur = readVideoDurationFromVideoEl(v);
-  if (dur > 0) {
-    const prev = shortsFeedDuration.value;
-    if (!Number.isFinite(prev) || prev <= 0 || Math.abs(prev - dur) > 0.35) {
-      shortsFeedDuration.value = dur;
-    }
-    let ct = Number(v.currentTime) || 0;
-    shortsFeedCurrentTime.value = dur > 0 ? Math.min(ct, dur) : ct;
-  }
-}
-
-function onShortsFeedFgSeeked(e) {
-  shortsLastTimeSec.value = null;
-  const fg = e.target;
-  const bg = shortsFeedBgRef.value;
-  if (bg) {
-    bg.currentTime = fg.currentTime;
-  }
-}
-
-function isLongShortsFeedVideo(item = shortsFeedCurrent.value) {
-  const vt = item?.videoType;
-  if (!vt) return false;
-  const s = String(vt).toLowerCase().trim();
-  return s === "long" || s === "long_video" || s === "longvideo" || s.includes("long");
-}
-
-function getShortsLongCurrentPlayTimeMs() {
-  const player = shortsFeedFgRef.value;
-  if (!player) return 0;
-  const ms = Math.floor((Number(player.currentTime || 0) || 0) * 1000);
-  return ms > 0 ? ms : 0;
-}
-
-function getShortsLongPlaybackResumePayload(playTimeMs) {
-  const userId = currentUserId.value ?? profileUser.value?.id;
-  const videoId = shortsFeedCurrent.value?.id;
-  if (!userId || userId === "" || !videoId) return null;
-  if (!Number.isFinite(Number(playTimeMs))) return null;
-  return { userId, videoId, playTime: playTimeMs };
-}
-
-function applyShortsLongPlaybackResumeIfNeeded(player) {
-  const cur = shortsFeedCurrent.value;
-  if (!isLongShortsFeedVideo(cur)) return;
-  if (!cur || !player) return;
-  const vid = String(cur.id ?? "");
-  if (!vid || shortsLongResumeAppliedVideoId === vid) return;
-  const playbackMs = Number(cur.playbackTime ?? 0);
-  if (!Number.isFinite(playbackMs) || playbackMs <= 0) {
-    shortsLongResumeAppliedVideoId = vid;
-    return;
-  }
-  const targetSec = playbackMs / 1000;
-  const duration = Number(player.duration);
-  if (!Number.isFinite(targetSec) || targetSec <= 0 || !Number.isFinite(duration) || duration <= 0) {
-    return;
-  }
-  player.currentTime = Math.max(0, Math.min(targetSec, Math.max(0, duration - 1)));
-  shortsLongResumeAppliedVideoId = vid;
-}
-
-function flushShortsLongPlaybackResume(reason) {
-  const cur = shortsFeedCurrent.value;
-  const player = shortsFeedFgRef.value;
-  if (!isLongShortsFeedVideo(cur) || !player) return Promise.resolve();
-  if (reason !== "pause" && player.paused) return Promise.resolve();
-  const playTimeMs = getShortsLongCurrentPlayTimeMs();
-  if (reason !== "pause" && reason !== "switch" && reason !== "leave" && reason !== "unload" && playTimeMs <= 0) {
-    return Promise.resolve();
-  }
-  const payload = getShortsLongPlaybackResumePayload(playTimeMs);
-  if (!payload) return Promise.resolve();
-  const now = Date.now();
-  if (reason === "tick" && now - shortsLongResumeLastSentAtMs < 8_000) {
-    return Promise.resolve();
-  }
-  if (shortsLongResumeInFlight) return Promise.resolve();
-  shortsLongResumeInFlight = true;
-  shortsLongResumeLastSentAtMs = now;
-  const keepalive = reason === "unload" || reason === "leave";
-  return sendPlaybackResumePut(payload, { keepalive }).finally(() => {
-    shortsLongResumeInFlight = false;
-  });
-}
-
 async function onShortsLikeClick() {
   const cur = shortsFeedCurrent.value;
   if (!cur?.id) return;
@@ -3869,84 +3321,6 @@ async function onShortsDislikeClick() {
     pushToast("已标记为不感兴趣", "success");
   } catch (error) {
     pushToast(error.message || "操作失败", "error");
-  }
-}
-
-function pauseShortsFeedVideos({ muteForeground = false } = {}) {
-  const fg = shortsFeedFgRef.value;
-  const bg = shortsFeedBgRef.value;
-  fg?.pause();
-  bg?.pause();
-  if (muteForeground && fg) {
-    try {
-      fg.muted = true;
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-/** 从详情页等遮罩返回时，把前景音量状态与 UI 同步，避免误静音 */
-function restoreShortsFeedForegroundMuteFromState() {
-  const fg = shortsFeedFgRef.value;
-  if (!fg) return;
-  try {
-    fg.muted = shortsFeedMuted.value;
-    fg.volume = shortsFeedVolume.value;
-  } catch {
-    /* ignore */
-  }
-}
-
-/** 切换作者/数据源时重置底部进度条状态（index 仍为 0 时 watch 不会触发） */
-function resetShortsFeedProgressUiForSwitch() {
-  shortsFeedIsPortrait.value = false;
-  shortsFeedAutoplayPending.value = true;
-  shortsFeedDuration.value = 0;
-  shortsFeedCurrentTime.value = 0;
-}
-
-/** 短视频：滚轮 / 触摸上下切换（与常见 App 一致：上滑下一条、下滑上一条） */
-let shortsWheelCooldown = false;
-function onShortsFeedWheel(e) {
-  e.preventDefault();
-  if (shortsWheelCooldown) {
-    return;
-  }
-  const dy = e.deltaY;
-  if (Math.abs(dy) < 18) {
-    return;
-  }
-  shortsWheelCooldown = true;
-  if (dy > 0) {
-    shortsFeedNext();
-  } else {
-    shortsFeedPrev();
-  }
-  window.setTimeout(() => {
-    shortsWheelCooldown = false;
-  }, 420);
-}
-
-const shortsTouchStartY = ref(0);
-
-function onShortsFeedTouchStart(ev) {
-  const t = ev.touches?.[0]?.clientY;
-  if (t != null) {
-    shortsTouchStartY.value = t;
-  }
-}
-
-function onShortsFeedTouchEnd(ev) {
-  const y = ev.changedTouches[0]?.clientY ?? shortsTouchStartY.value;
-  const dy = shortsTouchStartY.value - y;
-  if (Math.abs(dy) < 48) {
-    return;
-  }
-  if (dy > 0) {
-    shortsFeedNext();
-  } else {
-    shortsFeedPrev();
   }
 }
 
@@ -4070,8 +3444,7 @@ function closeProfileFeed() {
   profileFeedQueue.value = [];
   likedFeedQueue.value = [];
   followFeedQueue.value = [];
-  shortsLongResumeTickCount = 0;
-  shortsLongResumeAppliedVideoId = "";
+  shortsStore.resetShortsLongResumeState();
 }
 
 function onProfileFeedKeydown(ev) {
@@ -5008,7 +4381,11 @@ function loadLikedPage({ reset = false } = {}) {
 }
 registerLikedHooks({ getUserId: () => currentUserId.value });
 registerHomeHooks({ reloadHome: () => loadModuleCards(primaryMenus[0]) });
-registerShortsFeedPlayerRefs({ fg: shortsFeedFgRef, bg: shortsFeedBgRef });
+registerShortsFeedPlayerRefs({
+  fg: shortsFeedFgRef,
+  bg: shortsFeedBgRef,
+  center: shortsFeedCenterRef,
+});
 registerSearchExpandRefs({
   main: searchExpandPlayerRef,
   blur: searchExpandBlurRef,
@@ -5024,9 +4401,13 @@ registerSearchExpandHooks({
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
   openForwardVideo: (card) => openForwardVideoModal(card),
 });
-/** shortsStore 的宿主依赖：评论数变更要跨多份列表打补丁 */
+/** shortsStore 的宿主依赖：评论数变更跨多份列表打补丁，观看历史入队，菜单归属与播放代次仍在 App */
 registerShortsHooks({
   patchFeedVideoById: (id, patch) => patchFeedVideoById(id, patch),
+  enqueueShortsHistory: (videoIdLike, feedItem) => enqueueShortsHistoryByVideoId(videoIdLike, feedItem),
+  isShortsMenuActive: () => activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed",
+  isSubscribedMenuActive: () => activeMenuKey.value === "subscribed",
+  getPlayToken: () => shortsFeedPlayToken,
 });
 
 /** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，跨列表关注/短视频历史/举报转发弹窗都在 App */
@@ -5191,7 +4572,7 @@ onBeforeUnmount(() => {
   searchStore.detachSearchExpandEscape();
   if (searchSuggestBlurTimer) clearTimeout(searchSuggestBlurTimer);
   if (searchPromptDebounceTimer) clearTimeout(searchPromptDebounceTimer);
-  clearShortsBufferingUITimer();
+  shortsStore.clearShortsBufferingUITimer();
   stopNotifyUnreadPoll();
   stopNotifyWebSocket();
   stopCardHoverPreview();

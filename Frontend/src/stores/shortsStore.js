@@ -1,13 +1,21 @@
 /**
- * 短视频播放器域状态：沉浸 feed 播放态、评论侧栏，
+ * 短视频播放器域状态：沉浸 feed 播放态、播放控制与进度上报、评论侧栏，
  * 以及被历史/赞过/个人主页/关注复用的全屏队列（feedScope 区分数据源）。
- * 跨域能力（跨列表补丁）经 registerShortsHooks 注入；播放器 DOM ref 经 registerShortsFeedPlayerRefs 注入。
+ * 跨域能力（跨列表补丁、观看历史入队、菜单归属）经 registerShortsHooks 注入；
+ * 播放器 DOM ref 经 registerShortsFeedPlayerRefs 注入。
  */
 import { defineStore } from "pinia";
 import { nextTick } from "vue";
-import { resolveVideoUrl } from "../utils/videoCard.js";
+import { resolveVideoUrl, readVideoDurationFromVideoEl } from "../utils/videoCard.js";
 import { parseDigitSnowflakeId } from "../utils/snowflakeId.js";
+import { formatRelativeTimeText } from "../utils/relativeTime.js";
 import { commentDisplayNickname as commentDisplayNicknameText } from "../utils/comment.js";
+import {
+  DEFAULT_PROFILE_AVATAR_URL as defaultAuthorAvatar,
+  sanitizeImageUrl,
+  stripUserIdLikeName,
+} from "../utils/userProfile.js";
+import { sendPlaybackResumePut } from "../utils/playbackResume.js";
 import {
   fetchCommentPage,
   deleteComment as deleteCommentApi,
@@ -15,24 +23,49 @@ import {
 } from "../api/commentApi.js";
 import { toast as pushToast } from "../utils/toast.js";
 import { useAuthStore } from "./authStore.js";
+import { useBehaviorStore } from "./behaviorStore.js";
 import { useCommentPanelStore } from "./commentPanelStore.js";
 import { useCommentStore } from "./commentStore.js";
+import { useFollowStore } from "./followStore.js";
 import { useHomeStore } from "./homeStore.js";
+import { useProfileStore } from "./profileStore.js";
 import { useSearchStore } from "./searchStore.js";
 
 const SHORTS_COMMENT_PAGE_SIZE = 10;
+/** 切换很快时不显示加载层，先等这么久再亮出遮罩 */
+const SHORTS_BUFFERING_UI_DELAY_MS = 320;
+/** PLAY 上报阈值：累计顺播达总时长比例且排除拖动（单次 timeupdate 跳跃过大不计入） */
+const BEHAVIOR_PLAY_THRESHOLD = 0.7;
+const BEHAVIOR_MAX_PLAY_DELTA_SEC = 3;
 
-const playerRefs = { fg: null, bg: null };
+const playerRefs = { fg: null, bg: null, center: null };
 
 /** 宿主注册全屏播放器 DOM ref（app 内单例，模块级持有不入 store） */
-export function registerShortsFeedPlayerRefs({ fg, bg }) {
+export function registerShortsFeedPlayerRefs({ fg, bg, center }) {
   if (fg) playerRefs.fg = fg;
   if (bg) playerRefs.bg = bg;
+  if (center) playerRefs.center = center;
 }
+
+let bufferingUITimer = null;
+let wheelCooldown = false;
+let touchStartY = 0;
+let longResumeInFlight = false;
+let longResumeLastSentAtMs = 0;
+let longResumeTickCount = 0;
+let longResumeAppliedVideoId = "";
 
 const hooks = {
   /** 跨多份列表同步点赞数/评论数 */
   patchFeedVideoById: () => {},
+  /** 观看历史入队（队列与上报在 App，属历史域） */
+  enqueueShortsHistory: () => {},
+  /** 当前是否停留在短视频 Tab（shorts / subscribed）——菜单状态机仍在 App */
+  isShortsMenuActive: () => false,
+  /** 当前是否停留在「关注」Tab——关注态判定要区分全部动态与按作者筛选 */
+  isSubscribedMenuActive: () => false,
+  /** 播放代次：切换视频时自增，用于丢弃旧 video 元素的 loadedmetadata */
+  getPlayToken: () => 0,
 };
 
 export function registerShortsHooks(next = {}) {
@@ -126,6 +159,156 @@ export const useShortsStore = defineStore("shorts", {
     activeCommentVideoAllowsComment() {
       return Number(this.activeCommentVideo?.allowComment ?? 1) === 1;
     },
+
+    // ===== 当前条的展示值（模板直接消费，避免在视图里重复推导） =====
+
+    shortsFeedVideoSrc() {
+      return resolveVideoUrl(this.shortsFeedCurrent);
+    },
+    /**
+     * 普通流看接口 isLike；赞过列表后端可能不传该字段，默认视为已赞，
+     * 仅当本地明确 patch 为 isLike === false（取消赞）时显示空心。
+     */
+    shortsFeedLikedDisplay() {
+      const cur = this.shortsFeedCurrent;
+      if (!cur?.id) {
+        return false;
+      }
+      if (this.feedScope === "liked") {
+        return cur.isLike !== false;
+      }
+      return Boolean(cur.isLike);
+    },
+    /**
+     * 进度条 max：duration 未就绪时若给 0，而 currentTime 仍是上一段或中间值，
+     * 原生 range 会把滑块钳到最右，看起来像「暂停就跳到结尾」或闪烁。
+     */
+    shortsScrubMax() {
+      const d = Number(this.shortsFeedDuration);
+      if (Number.isFinite(d) && d > 0) {
+        return d;
+      }
+      return 1;
+    },
+    shortsScrubDisplayValue() {
+      const t = Number(this.shortsFeedCurrentTime);
+      const d = Number(this.shortsFeedDuration);
+      if (!Number.isFinite(t) || t < 0) {
+        return 0;
+      }
+      if (Number.isFinite(d) && d > 0) {
+        return Math.min(t, d);
+      }
+      return 0;
+    },
+    shortsDurationReady() {
+      const d = Number(this.shortsFeedDuration);
+      return Number.isFinite(d) && d > 0;
+    },
+    shortsFeedAuthorName() {
+      const c = this.shortsFeedCurrent;
+      const nick = stripUserIdLikeName(c?.authorNickname) || stripUserIdLikeName(c?.author);
+      if (nick) {
+        return nick;
+      }
+      if (this.feedScope === "profile") {
+        const profile = useProfileStore();
+        const p = stripUserIdLikeName(profile.user?.nickName || profile.user?.nickname);
+        if (p) {
+          return p;
+        }
+        if (profile.isViewingSelf) {
+          const self = useAuthStore().selfProfile;
+          const s = stripUserIdLikeName(self?.nickName || self?.nickname);
+          if (s) {
+            return s;
+          }
+        }
+      }
+      if (this.feedScope === "liked") {
+        return nick || "创作者";
+      }
+      return "创作者";
+    },
+    shortsFeedMetaTimeText() {
+      return formatRelativeTimeText(this.shortsFeedCurrent?.createTime || "");
+    },
+    shortsFeedTitleText() {
+      return this.shortsFeedCurrent?.title || "未命名主题";
+    },
+    shortsFeedDescText() {
+      return this.shortsFeedCurrent?.description || this.shortsFeedCurrent?.title || "";
+    },
+    /** 关注 Tab：与左侧关注列表同一套 avatarDisplaySrc，避免视频 VO 里作者头像与侧栏不一致/糊片 */
+    shortsFeedAuthorAvatar() {
+      const c = this.shortsFeedCurrent;
+      if (!c) {
+        return defaultAuthorAvatar;
+      }
+      if (
+        hooks.isSubscribedMenuActive() &&
+        this.feedScope === "follow" &&
+        c.authorId != null &&
+        c.authorId !== ""
+      ) {
+        const key = String(c.authorId);
+        const row = useProfileStore().followingRows.find((u) => u && String(u.id) === key);
+        if (row?.avatarDisplaySrc) {
+          return row.avatarDisplaySrc;
+        }
+      }
+      const fromAuthor =
+        sanitizeImageUrl(c.authorAvatarUrl ?? "") || sanitizeImageUrl(c.authorAvatar ?? "");
+      if (fromAuthor) {
+        return fromAuthor;
+      }
+      const profile = useProfileStore();
+      if (this.feedScope === "profile" && profile.open) {
+        if (profile.isViewingSelf) {
+          const selfAv = sanitizeImageUrl(useAuthStore().selfProfile?.avatarUrl || "");
+          if (selfAv) {
+            return selfAv;
+          }
+          return useAuthStore().selfAvatarUrl;
+        }
+        const pav = sanitizeImageUrl(profile.user?.avatarUrl || "");
+        if (pav) {
+          return pav;
+        }
+      }
+      return defaultAuthorAvatar;
+    },
+    shortsIsFollowedCurrent() {
+      const c = this.shortsFeedCurrent;
+      if (!c?.authorId) {
+        return false;
+      }
+      const key = String(c.authorId);
+      const override = useFollowStore().overrideByAuthorId;
+      if (Object.prototype.hasOwnProperty.call(override, key)) {
+        return override[key];
+      }
+      // 关注 Tab：侧栏点「某作者」时该作者必已关注；全部动态里作者应在关注列表中
+      if (hooks.isSubscribedMenuActive() && this.feedScope === "follow") {
+        const filtered = this.followSubscribedFilterAuthorId;
+        if (filtered != null && filtered !== "" && String(filtered) === key) {
+          return true;
+        }
+        const following = useProfileStore().followingRows;
+        if ((filtered == null || filtered === "") && following.some((u) => u && String(u.id) === key)) {
+          return true;
+        }
+      }
+      return Boolean(c.isFollow);
+    },
+    shortsIsSelfCurrent() {
+      const authorId = this.shortsFeedCurrent?.authorId;
+      const selfId = useAuthStore().userId;
+      if (authorId == null || selfId == null) {
+        return false;
+      }
+      return String(authorId) === String(selfId);
+    },
   },
 
   actions: {
@@ -151,6 +334,505 @@ export const useShortsStore = defineStore("shorts", {
       nextTick(() => {
         playerRefs.fg?.value?.load();
         playerRefs.bg?.value?.load();
+      });
+    },
+
+    // ===== 播放缓冲遮罩 =====
+
+    clearShortsBufferingUITimer() {
+      if (bufferingUITimer != null) {
+        clearTimeout(bufferingUITimer);
+        bufferingUITimer = null;
+      }
+    },
+
+    scheduleShortsBufferingOverlay() {
+      this.clearShortsBufferingUITimer();
+      this.shortsFeedVideoBuffering = false;
+      bufferingUITimer = window.setTimeout(() => {
+        bufferingUITimer = null;
+        this.shortsFeedVideoBuffering = true;
+      }, SHORTS_BUFFERING_UI_DELAY_MS);
+    },
+
+    hideShortsBufferingOverlay() {
+      this.clearShortsBufferingUITimer();
+      this.shortsFeedVideoBuffering = false;
+    },
+
+    // ===== 切换与播放控制 =====
+
+    shortsFeedPrev() {
+      const cur = this.shortsFeedCurrent;
+      const dur = Number(this.shortsFeedDuration || 0);
+      const now = Number(this.shortsFeedCurrentTime || 0);
+      if (this.isLongShortsFeedVideo(cur)) {
+        void this.flushShortsLongPlaybackResume("switch");
+      }
+      if (cur?.id) {
+        hooks.enqueueShortsHistory(cur.id, cur);
+      }
+      if (cur?.id && dur > 0 && now / dur < 0.95) {
+        void useBehaviorStore().report(cur.id, "SKIP", now * 1000);
+      }
+      const n = this.unifiedFeedList.length;
+      if (!n) {
+        return;
+      }
+      this.shortsFeedIndex = (this.shortsFeedIndex - 1 + n) % n;
+    },
+
+    shortsFeedNext() {
+      const cur = this.shortsFeedCurrent;
+      const dur = Number(this.shortsFeedDuration || 0);
+      const now = Number(this.shortsFeedCurrentTime || 0);
+      if (this.isLongShortsFeedVideo(cur)) {
+        void this.flushShortsLongPlaybackResume("switch");
+      }
+      if (cur?.id) {
+        hooks.enqueueShortsHistory(cur.id, cur);
+      }
+      if (cur?.id && dur > 0 && now / dur < 0.95) {
+        void useBehaviorStore().report(cur.id, "SKIP", now * 1000);
+      }
+      const n = this.unifiedFeedList.length;
+      if (!n) {
+        return;
+      }
+      this.shortsFeedIndex = (this.shortsFeedIndex + 1) % n;
+    },
+
+    onShortsFeedFgLoadStart() {
+      this.scheduleShortsBufferingOverlay();
+    },
+
+    onShortsFeedFgCanPlay() {
+      this.hideShortsBufferingOverlay();
+    },
+
+    onShortsFeedFgMediaError() {
+      this.hideShortsBufferingOverlay();
+    },
+
+    async onShortsFeedFgLoadedMetadata(e) {
+      const v = e.target;
+      const tokenOfEl = Number(v?.dataset?.playToken || 0);
+      this.applyShortsLongPlaybackResumeIfNeeded(v);
+      this.shortsFeedIsPortrait =
+        v.videoWidth > 0 && v.videoHeight > 0 && v.videoHeight > v.videoWidth;
+      const dur = readVideoDurationFromVideoEl(v);
+      this.shortsFeedDuration = dur;
+      let ct = Number(v.currentTime) || 0;
+      if (dur > 0) {
+        ct = Math.min(ct, dur);
+      }
+      this.shortsFeedCurrentTime = ct;
+      v.volume = this.shortsFeedVolume;
+      v.muted = this.shortsFeedMuted;
+      this.shortsFeedVolume = v.volume;
+      this.shortsFeedMuted = v.muted;
+      if (this.shortsFeedAutoplayPending) {
+        try {
+          if (!hooks.isShortsMenuActive() && !this.profileFeedOpen) {
+            return;
+          }
+          if (tokenOfEl !== hooks.getPlayToken()) {
+            return;
+          }
+          await v.play();
+          await playerRefs.bg?.value?.play().catch(() => {});
+        } catch {
+          /* 浏览器策略可能阻止自动播放，此时显示中央播放按钮 */
+        } finally {
+          this.shortsFeedAutoplayPending = false;
+        }
+      }
+      this.shortsFeedPaused = v.paused;
+    },
+
+    onShortsFeedFgTimeUpdate(e) {
+      if (!hooks.isShortsMenuActive() && !this.profileFeedOpen) {
+        return;
+      }
+      const fg = e.target;
+      const dur = readVideoDurationFromVideoEl(fg);
+      if (dur > 0) {
+        const prev = this.shortsFeedDuration;
+        if (!Number.isFinite(prev) || prev <= 0 || Math.abs(prev - dur) > 0.35) {
+          this.shortsFeedDuration = dur;
+        }
+      }
+      let ct = Number(fg.currentTime) || 0;
+      if (dur > 0) {
+        ct = Math.min(ct, dur);
+      }
+      this.shortsFeedCurrentTime = ct;
+      const cur = this.shortsFeedCurrent;
+      const duration = dur > 0 ? dur : Number(fg.duration);
+      const current = ct;
+      if (cur?.id && Number.isFinite(duration) && duration > 0) {
+        const behavior = useBehaviorStore();
+        const idKey = String(cur.id);
+        if (this.shortsAccVideoId !== idKey) {
+          this.shortsAccVideoId = idKey;
+          this.shortsPlaybackAccSec = 0;
+          this.shortsLastTimeSec = null;
+        }
+        const prev = this.shortsLastTimeSec;
+        this.shortsLastTimeSec = current;
+        if (prev != null) {
+          const delta = current - prev;
+          if (delta > 0 && delta <= BEHAVIOR_MAX_PLAY_DELTA_SEC) {
+            this.shortsPlaybackAccSec += delta;
+          }
+        }
+        if (this.shortsPlaybackAccSec >= duration * BEHAVIOR_PLAY_THRESHOLD && !behavior.hasPlayReported(cur.id)) {
+          behavior.markPlayReported(cur.id);
+          void behavior.report(cur.id, "PLAY", current * 1000);
+        }
+        if (this.isLongShortsFeedVideo(cur) && !fg.paused) {
+          longResumeTickCount += 1;
+          if (longResumeTickCount >= 30) {
+            longResumeTickCount = 0;
+            void this.flushShortsLongPlaybackResume("tick");
+          }
+        }
+      }
+      const bg = playerRefs.bg?.value;
+      if (!bg || !fg) {
+        return;
+      }
+      if (Math.abs(bg.currentTime - fg.currentTime) > 0.2) {
+        bg.currentTime = fg.currentTime;
+      }
+    },
+
+    onShortsFeedFgPlay() {
+      this.shortsFeedPaused = false;
+      const cur = this.shortsFeedCurrent;
+      hooks.enqueueShortsHistory(cur?.id, cur);
+      if (this.isLongShortsFeedVideo()) {
+        longResumeTickCount = 0;
+      }
+      playerRefs.bg?.value?.play().catch(() => {});
+    },
+
+    onShortsFeedFgPause() {
+      if (this.shortsFeedAutoplayPending) {
+        return;
+      }
+      this.shortsFeedPaused = true;
+      const fg = playerRefs.fg?.value;
+      if (fg) {
+        const dur = readVideoDurationFromVideoEl(fg);
+        if (dur > 0) {
+          this.shortsFeedDuration = dur;
+        }
+        let ct = Number(fg.currentTime) || 0;
+        if (dur > 0) {
+          ct = Math.min(ct, dur);
+        }
+        this.shortsFeedCurrentTime = ct;
+      }
+      if (this.isLongShortsFeedVideo()) {
+        void this.flushShortsLongPlaybackResume("pause");
+      }
+      playerRefs.bg?.value?.pause();
+    },
+
+    onShortsFeedFgDurationChange(e) {
+      const v = e.target;
+      const dur = readVideoDurationFromVideoEl(v);
+      if (dur > 0) {
+        const prev = this.shortsFeedDuration;
+        if (!Number.isFinite(prev) || prev <= 0 || Math.abs(prev - dur) > 0.35) {
+          this.shortsFeedDuration = dur;
+        }
+        const ct = Number(v.currentTime) || 0;
+        this.shortsFeedCurrentTime = dur > 0 ? Math.min(ct, dur) : ct;
+      }
+    },
+
+    onShortsFeedFgSeeked(e) {
+      this.shortsLastTimeSec = null;
+      const fg = e.target;
+      const bg = playerRefs.bg?.value;
+      if (bg) {
+        bg.currentTime = fg.currentTime;
+      }
+    },
+
+    onShortsFeedFgEnded() {
+      const cur = this.shortsFeedCurrent;
+      const now = Number(this.shortsFeedCurrentTime || 0);
+      if (cur?.id) {
+        void useBehaviorStore().report(cur.id, "FINISH", now * 1000);
+      }
+      if (this.isLongShortsFeedVideo(cur)) {
+        void this.flushShortsLongPlaybackResume("ended");
+      }
+      const n = this.unifiedFeedList.length;
+      // 评论打开时循环当前条，避免播完突然切走影响阅读
+      if (n <= 1 || useCommentPanelStore().shortsCommentPanelOpen) {
+        const v = playerRefs.fg?.value;
+        const bg = playerRefs.bg?.value;
+        if (v) {
+          v.currentTime = 0;
+          v.play()
+            .then(() => bg?.play().catch(() => {}))
+            .catch(() => {});
+        }
+        return;
+      }
+      this.shortsFeedNext();
+    },
+
+    onShortsScrubInput(e) {
+      const v = playerRefs.fg?.value;
+      if (!v) {
+        return;
+      }
+      const dur = readVideoDurationFromVideoEl(v);
+      if (!(dur > 0)) {
+        return;
+      }
+      const t = Math.min(Math.max(0, Number(e.target.value)), dur);
+      v.currentTime = t;
+      this.shortsFeedCurrentTime = t;
+    },
+
+    onShortsVolumeInput(e) {
+      const v = playerRefs.fg?.value;
+      if (!v) {
+        return;
+      }
+      const vol = Number(e.target.value);
+      v.volume = vol;
+      v.muted = vol === 0;
+      this.shortsFeedVolume = vol;
+      this.shortsFeedMuted = v.muted;
+    },
+
+    shortsToggleMute() {
+      const v = playerRefs.fg?.value;
+      if (!v) {
+        return;
+      }
+      v.muted = !v.muted;
+      this.shortsFeedMuted = v.muted;
+    },
+
+    shortsTogglePlay() {
+      const v = playerRefs.fg?.value;
+      if (!v) {
+        return;
+      }
+      if (v.paused) {
+        v.play().catch(() => {});
+      } else {
+        v.pause();
+      }
+    },
+
+    async shortsRequestPip() {
+      const v = playerRefs.fg?.value;
+      if (!v) {
+        return;
+      }
+      try {
+        if (document.pictureInPictureElement === v) {
+          await document.exitPictureInPicture();
+        } else if (v.requestPictureInPicture) {
+          await v.requestPictureInPicture();
+        }
+      } catch {
+        /* 浏览器策略或用户拒绝 */
+      }
+    },
+
+    async shortsRequestFullscreen() {
+      const el = playerRefs.center?.value;
+      if (!el) {
+        return;
+      }
+      try {
+        if (document.fullscreenElement === el) {
+          await document.exitFullscreen();
+        } else {
+          await el.requestFullscreen();
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+
+    onShortsFeedKeydown(ev) {
+      if (useProfileStore().open || !hooks.isShortsMenuActive()) {
+        return;
+      }
+      const tag = ev.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) {
+        return;
+      }
+      const k = ev.key;
+      if (k === "ArrowUp" || k === "w" || k === "W") {
+        ev.preventDefault();
+        this.shortsFeedPrev();
+      } else if (k === "ArrowDown" || k === "s" || k === "S") {
+        ev.preventDefault();
+        this.shortsFeedNext();
+      } else if (k === " ") {
+        ev.preventDefault();
+        this.shortsTogglePlay();
+      }
+    },
+
+    /** 滚轮 / 触摸上下切换（与常见 App 一致：上滑下一条、下滑上一条） */
+    onShortsFeedWheel(e) {
+      e.preventDefault();
+      if (wheelCooldown) {
+        return;
+      }
+      const dy = e.deltaY;
+      if (Math.abs(dy) < 18) {
+        return;
+      }
+      wheelCooldown = true;
+      if (dy > 0) {
+        this.shortsFeedNext();
+      } else {
+        this.shortsFeedPrev();
+      }
+      window.setTimeout(() => {
+        wheelCooldown = false;
+      }, 420);
+    },
+
+    onShortsFeedTouchStart(ev) {
+      const t = ev.touches?.[0]?.clientY;
+      if (t != null) {
+        touchStartY = t;
+      }
+    },
+
+    onShortsFeedTouchEnd(ev) {
+      const y = ev.changedTouches[0]?.clientY ?? touchStartY;
+      const dy = touchStartY - y;
+      if (Math.abs(dy) < 48) {
+        return;
+      }
+      if (dy > 0) {
+        this.shortsFeedNext();
+      } else {
+        this.shortsFeedPrev();
+      }
+    },
+
+    pauseShortsFeedVideos({ muteForeground = false } = {}) {
+      const fg = playerRefs.fg?.value;
+      const bg = playerRefs.bg?.value;
+      fg?.pause();
+      bg?.pause();
+      if (muteForeground && fg) {
+        try {
+          fg.muted = true;
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+
+    /** 从详情页等遮罩返回时，把前景音量状态与 UI 同步，避免误静音 */
+    restoreShortsFeedForegroundMuteFromState() {
+      const fg = playerRefs.fg?.value;
+      if (!fg) return;
+      try {
+        fg.muted = this.shortsFeedMuted;
+        fg.volume = this.shortsFeedVolume;
+      } catch {
+        /* ignore */
+      }
+    },
+
+    /** 退出全屏流时清掉续播节流状态，避免下次进入沿用上一轮的节流窗口 */
+    resetShortsLongResumeState() {
+      longResumeTickCount = 0;
+      longResumeAppliedVideoId = "";
+    },
+
+    /** 切换作者/数据源时重置底部进度条状态（index 仍为 0 时 watch 不会触发） */
+    resetShortsFeedProgressUiForSwitch() {
+      this.shortsFeedIsPortrait = false;
+      this.shortsFeedAutoplayPending = true;
+      this.shortsFeedDuration = 0;
+      this.shortsFeedCurrentTime = 0;
+    },
+
+    // ===== 长视频续播 =====
+
+    isLongShortsFeedVideo(item = this.shortsFeedCurrent) {
+      const vt = item?.videoType;
+      if (!vt) return false;
+      const s = String(vt).toLowerCase().trim();
+      return s === "long" || s === "long_video" || s === "longvideo" || s.includes("long");
+    },
+
+    getShortsLongCurrentPlayTimeMs() {
+      const player = playerRefs.fg?.value;
+      if (!player) return 0;
+      const ms = Math.floor((Number(player.currentTime || 0) || 0) * 1000);
+      return ms > 0 ? ms : 0;
+    },
+
+    getShortsLongPlaybackResumePayload(playTimeMs) {
+      const userId = useAuthStore().userId ?? useProfileStore().user?.id;
+      const videoId = this.shortsFeedCurrent?.id;
+      if (!userId || userId === "" || !videoId) return null;
+      if (!Number.isFinite(Number(playTimeMs))) return null;
+      return { userId, videoId, playTime: playTimeMs };
+    },
+
+    applyShortsLongPlaybackResumeIfNeeded(player) {
+      const cur = this.shortsFeedCurrent;
+      if (!this.isLongShortsFeedVideo(cur)) return;
+      if (!cur || !player) return;
+      const vid = String(cur.id ?? "");
+      if (!vid || longResumeAppliedVideoId === vid) return;
+      const playbackMs = Number(cur.playbackTime ?? 0);
+      if (!Number.isFinite(playbackMs) || playbackMs <= 0) {
+        longResumeAppliedVideoId = vid;
+        return;
+      }
+      const targetSec = playbackMs / 1000;
+      const duration = Number(player.duration);
+      if (!Number.isFinite(targetSec) || targetSec <= 0 || !Number.isFinite(duration) || duration <= 0) {
+        return;
+      }
+      player.currentTime = Math.max(0, Math.min(targetSec, Math.max(0, duration - 1)));
+      longResumeAppliedVideoId = vid;
+    },
+
+    flushShortsLongPlaybackResume(reason) {
+      const cur = this.shortsFeedCurrent;
+      const player = playerRefs.fg?.value;
+      if (!this.isLongShortsFeedVideo(cur) || !player) return Promise.resolve();
+      if (reason !== "pause" && player.paused) return Promise.resolve();
+      const playTimeMs = this.getShortsLongCurrentPlayTimeMs();
+      if (reason !== "pause" && reason !== "switch" && reason !== "leave" && reason !== "unload" && playTimeMs <= 0) {
+        return Promise.resolve();
+      }
+      const payload = this.getShortsLongPlaybackResumePayload(playTimeMs);
+      if (!payload) return Promise.resolve();
+      const now = Date.now();
+      if (reason === "tick" && now - longResumeLastSentAtMs < 8_000) {
+        return Promise.resolve();
+      }
+      if (longResumeInFlight) return Promise.resolve();
+      longResumeInFlight = true;
+      longResumeLastSentAtMs = now;
+      const keepalive = reason === "unload" || reason === "leave";
+      return sendPlaybackResumePut(payload, { keepalive }).finally(() => {
+        longResumeInFlight = false;
       });
     },
 

@@ -22,6 +22,13 @@ export function sanitizeImageUrl(url) {
   return s;
 }
 
+/** 接口有时把 userId 当昵称返回（形如「用户 123」），这类占位名不该展示给用户 */
+export function stripUserIdLikeName(name) {
+  const n = String(name || "").trim();
+  if (!n || /^用户\s*\d+$/i.test(n)) return "";
+  return n;
+}
+
 /**
  * 关注/粉丝等列表接口里用户对象字段名不统一时，尽量取出头像 URL（支持一层嵌套 user / followee）。
  */

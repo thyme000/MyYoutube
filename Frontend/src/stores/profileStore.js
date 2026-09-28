@@ -34,6 +34,7 @@ import {
   DEFAULT_PROFILE_BG_URL as defaultBg,
   normalizeUserProfile,
   sanitizeImageUrl,
+  stripUserIdLikeName,
 } from "../utils/userProfile";
 import { parseDigitSnowflakeId, safeSnowflakeId } from "../utils/snowflakeId.js";
 
@@ -59,12 +60,6 @@ export function registerProfileHooks({ prepareOpen, pushHistory, openWorkFeed, p
   if (pushHistory) hooks.pushHistory = pushHistory;
   if (openWorkFeed) hooks.openWorkFeed = openWorkFeed;
   if (patchAuthorFollow) hooks.patchAuthorFollow = patchAuthorFollow;
-}
-
-function stripUserIdLikeName(name) {
-  const n = String(name || "").trim();
-  if (!n || /^用户\s*\d+$/i.test(n)) return "";
-  return n;
 }
 
 function isCropFullFrame(rect) {
