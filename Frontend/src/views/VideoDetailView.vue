@@ -1,83 +1,78 @@
 <script setup>
 /**
  * 视频详情页（播放器/点赞关注/评论区/侧栏推荐）。
- * 过渡期：状态/函数/DOM ref 经 App.vue provide 的 detailBridge 注入。
+ * 业务状态与动作在 detailStore；本组件只保留 DOM 交互（输入框、滚动、表情插入）。
  */
-import { inject } from "vue";
-import {
-  DEFAULT_PROFILE_AVATAR_URL as profileAvatar,
-  DEFAULT_PROFILE_BG_URL as profileBanner,
-} from "../utils/userProfile";
+import { ref, watch } from "vue";
+import { storeToRefs } from "pinia";
+import { useAuthStore } from "../stores/authStore";
+import { useDetailStore, detailSidebarTabs } from "../stores/detailStore";
+import { formatCommentTime, insertGlyphIntoCommentDraft, isBlockedComment } from "../utils/comment.js";
+import { cardAuthorLabel, parseSearchTagsArray } from "../utils/videoCard.js";
+import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar, DEFAULT_PROFILE_BG_URL as profileBanner } from "../utils/userProfile";
+import ChatEmojiPicker from "../components/chat/ChatEmojiPicker.vue";
 
+const authStore = useAuthStore();
+const { isAuthed, userId: currentUserId, selfAvatarUrl: topbarAvatarSrc } = storeToRefs(authStore);
+
+const store = useDetailStore();
 const {
-  applyDetailPlaybackResumeIfNeeded,
-  cardAuthorLabel,
-  commentDisplayNickname,
-  currentUserId,
-  detailAuthorAvatar,
-  detailCommentDraft,
-  detailCommentHasMore,
-  detailCommentInputRef,
-  detailCommentSubmitting,
-  detailCommentsLoading,
-  detailErrorMsg,
-  detailExpandedRoots,
-  detailFanText,
-  detailFollowBusy,
-  detailLikeBusy,
-  detailLoading,
-  detailPlayerRef,
-  detailReplyTarget,
-  detailSessionLiked,
-  detailSidebarList,
-  detailSidebarLoading,
-  detailSidebarLoadingMore,
-  detailSidebarScrollRef,
-  detailSidebarTab,
-  detailSidebarTabs,
-  detailSubscribeFollowed,
-  detailThreadByRootId,
-  detailTopComments,
-  detailVideoAllowComment,
-  detailVideoBuffering,
-  formatDetailCommentTime,
-  isAuthed,
-  isBlockedComment,
-  isCommentLikeBusy,
-  isSidebarItemNowPlaying,
-  loadMoreDetailComments,
-  onAuthorAvatarClick,
-  onDeleteDetailComment,
-  onDetailCommentEmojiPick,
-  onDetailCommentUserClick,
-  onDetailDislikeClick,
-  onDetailFollowClick,
-  onDetailLikeClick,
-  onDetailSidebarScroll,
-  onDetailVideoCanPlay,
-  onDetailVideoEnded,
-  onDetailVideoLoadStart,
-  onDetailVideoMediaError,
-  onDetailVideoPause,
-  onDetailVideoPlay,
-  onDetailVideoSeeked,
-  onDetailVideoTimeUpdate,
-  onSearchTagNavigate,
-  onTopbarAvatarError,
-  openCommentReportModal,
-  openForwardVideoModal,
-  openVideoDetailFromSidebar,
-  parseSearchTagsArray,
-  setDetailReplyTarget,
-  setDetailSidebarTab,
-  showVideoDetail,
-  submitCommentLike,
-  submitDetailComment,
-  toggleDetailThread,
-  topbarAvatarSrc,
-  tryDetailVideoAutoplay,
-  videoDetail,
-} = inject("detailBridge");
+  open: showVideoDetail,
+  video: videoDetail,
+  loading: detailLoading,
+  buffering: detailVideoBuffering,
+  errorMsg: detailErrorMsg,
+  playerRef: detailPlayerRef,
+  sidebarTab: detailSidebarTab,
+  sidebarList: detailSidebarList,
+  sidebarLoading: detailSidebarLoading,
+  sidebarLoadingMore: detailSidebarLoadingMore,
+  topComments: detailTopComments,
+  commentsLoading: detailCommentsLoading,
+  submitting: detailCommentSubmitting,
+  draft: detailCommentDraft,
+  replyTarget: detailReplyTarget,
+  threadByRootId: detailThreadByRootId,
+  expandedRoots: detailExpandedRoots,
+  sessionLiked: detailSessionLiked,
+  likeBusy: detailLikeBusy,
+  followBusy: detailFollowBusy,
+  authorAvatar: detailAuthorAvatar,
+  fanText: detailFanText,
+  subscribeFollowed: detailSubscribeFollowed,
+  allowComment: detailVideoAllowComment,
+  commentHasMore: detailCommentHasMore,
+} = storeToRefs(store);
+
+const detailCommentInputRef = ref(null);
+const detailSidebarScrollRef = ref(null);
+
+/** 切换视频后侧栏回到顶部 */
+watch(
+  () => String(store.video?.id ?? ""),
+  () => {
+    const el = detailSidebarScrollRef.value;
+    if (el) el.scrollTop = 0;
+  },
+);
+
+function onDetailCommentEmojiPick(glyph) {
+  insertGlyphIntoCommentDraft(detailCommentDraft, detailCommentInputRef, glyph);
+}
+
+function onDetailCommentUserClick(ev, userId) {
+  store.onCommentUserClick(ev, userId);
+}
+
+function onAuthorAvatarClick(ev, authorId) {
+  ev?.stopPropagation?.();
+  store.onCommentUserClick(ev, authorId);
+}
+
+function onTopbarAvatarError(e) {
+  const el = e?.target;
+  if (el) el.src = profileAvatar;
+}
 </script>
 
 <template>
@@ -100,17 +95,17 @@ const {
                   preload="auto"
                   autoplay
                   :src="videoDetail.videoUrl"
-                  @loadstart="onDetailVideoLoadStart"
-                  @canplay="onDetailVideoCanPlay"
-                  @error="onDetailVideoMediaError"
-                  @loadeddata="() => void tryDetailVideoAutoplay()"
-                  @loadedmetadata="() => { applyDetailPlaybackResumeIfNeeded(); void tryDetailVideoAutoplay(); }"
-                  @canplaythrough="() => void tryDetailVideoAutoplay()"
-                  @pause="onDetailVideoPause"
-                  @play="onDetailVideoPlay"
-                  @timeupdate="onDetailVideoTimeUpdate"
-                  @seeked="onDetailVideoSeeked"
-                  @ended="onDetailVideoEnded"
+                  @loadstart="store.onVideoLoadStart"
+                  @canplay="store.onVideoCanPlay"
+                  @error="store.onVideoMediaError"
+                  @loadeddata="() => void store.tryAutoplay()"
+                  @loadedmetadata="() => { store.applyPlaybackResumeIfNeeded(); void store.tryAutoplay(); }"
+                  @canplaythrough="() => void store.tryAutoplay()"
+                  @pause="store.onVideoPause"
+                  @play="store.onVideoPlay"
+                  @timeupdate="store.onVideoTimeUpdate"
+                  @seeked="store.onVideoSeeked"
+                  @ended="store.onVideoEnded"
                 />
                 <div
                   v-if="videoDetail.videoUrl && detailVideoBuffering"
@@ -149,7 +144,7 @@ const {
                     type="button"
                     class="video-detail-subscribe"
                     :disabled="detailFollowBusy"
-                    @click="onDetailFollowClick"
+                    @click="store.onFollowClick"
                   >
                     {{ detailSubscribeFollowed ? "已关注" : "+ 关注" }}
                   </button>
@@ -160,15 +155,15 @@ const {
                     class="video-detail-action-pill"
                     :class="{ 'video-detail-action-pill--active': detailSessionLiked }"
                     :disabled="detailLikeBusy"
-                    @click="onDetailLikeClick"
+                    @click="store.onLikeClick"
                   >
                     <i :class="detailSessionLiked ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'"></i>
                     {{ videoDetail.likeCount ?? 0 }}
                   </button>
-                  <button type="button" class="video-detail-action-pill" @click="onDetailDislikeClick">
+                  <button type="button" class="video-detail-action-pill" @click="store.onDislikeClick">
                     <i class="ri-thumb-down-line"></i> 不感兴趣
                   </button>
-                  <button type="button" class="video-detail-action-pill" @click="openForwardVideoModal(videoDetail)">
+                  <button type="button" class="video-detail-action-pill" @click="store.openForwardVideo(videoDetail)">
                     <i class="ri-share-forward-line"></i> 分享
                   </button>
                 </div>
@@ -183,7 +178,7 @@ const {
                     :key="'dvtg-' + String(videoDetail.id) + '-' + tg"
                     type="button"
                     class="search-feed-tag-chip"
-                    @click.stop="onSearchTagNavigate(tg)"
+                    @click.stop="store.onSearchTagNavigate(tg)"
                   >
                     {{ tg.startsWith("#") ? tg : "#" + tg }}
                   </button>
@@ -193,11 +188,11 @@ const {
               <section class="video-detail-comments" aria-label="评论区">
                 <div class="video-detail-comments-head">
                   <h3>评论 {{ videoDetail.commentCount != null ? `（${videoDetail.commentCount}）` : "" }}</h3>
-                  <span v-if="!detailVideoAllowComment()" class="video-detail-comments-note">作者已关闭评论</span>
+                  <span v-if="!detailVideoAllowComment" class="video-detail-comments-note">作者已关闭评论</span>
                 </div>
                 <p v-if="detailReplyTarget" class="video-detail-comment-reply-hint">
-                  回复 @{{ commentDisplayNickname(detailReplyTarget.userId, detailReplyTarget.nickname) }}
-                  <button type="button" class="video-detail-comment-reply-cancel" @click="setDetailReplyTarget(null)">取消</button>
+                  回复 @{{ store.displayCommentNickname(detailReplyTarget.userId, detailReplyTarget.nickname) }}
+                  <button type="button" class="video-detail-comment-reply-cancel" @click="store.setReplyTarget(null)">取消</button>
                 </p>
                 <div class="video-detail-comment-input">
                   <img :src="topbarAvatarSrc" alt="" class="video-detail-comment-avatar" @error="onTopbarAvatarError" />
@@ -206,29 +201,29 @@ const {
                     v-model="detailCommentDraft"
                     type="text"
                     class="video-detail-comment-field"
-                    :disabled="!isAuthed || !detailVideoAllowComment() || detailCommentSubmitting"
+                    :disabled="!isAuthed || !detailVideoAllowComment || detailCommentSubmitting"
                     :placeholder="
                       !isAuthed
                         ? '登录后参与评论…'
-                        : !detailVideoAllowComment()
+                        : !detailVideoAllowComment
                           ? '评论已关闭'
                           : detailReplyTarget
-                            ? `回复 @${commentDisplayNickname(detailReplyTarget.userId, detailReplyTarget.nickname)}…`
+                            ? `回复 @${store.displayCommentNickname(detailReplyTarget.userId, detailReplyTarget.nickname)}…`
                             : '添加评论…'
                     "
                     maxlength="500"
-                    @keyup.enter.prevent="submitDetailComment"
+                    @keyup.enter.prevent="store.submitComment"
                   />
                   <div class="video-detail-comment-input-actions">
                     <ChatEmojiPicker
-                      :disabled="!isAuthed || !detailVideoAllowComment() || detailCommentSubmitting"
+                      :disabled="!isAuthed || !detailVideoAllowComment || detailCommentSubmitting"
                       @pick="onDetailCommentEmojiPick"
                     />
                     <button
                       type="button"
                       class="video-detail-comment-send"
-                      :disabled="!isAuthed || !detailVideoAllowComment() || detailCommentSubmitting || !detailCommentDraft.trim()"
-                      @click="submitDetailComment"
+                      :disabled="!isAuthed || !detailVideoAllowComment || detailCommentSubmitting || !detailCommentDraft.trim()"
+                      @click="store.submitComment"
                     >
                       {{ detailCommentSubmitting ? "发送中…" : "发送" }}
                     </button>
@@ -256,9 +251,9 @@ const {
                             class="video-detail-comment-user video-detail-comment-user--link"
                             @click.stop="onDetailCommentUserClick($event, c.userId)"
                           >
-                            {{ commentDisplayNickname(c.userId, c.nickname) }}
+                            {{ store.displayCommentNickname(c.userId, c.nickname) }}
                           </button>
-                          <span class="video-detail-comment-time">{{ formatDetailCommentTime(c.createTime) }}</span>
+                          <span class="video-detail-comment-time">{{ formatCommentTime(c.createTime) }}</span>
                         </div>
                         <p class="video-detail-comment-text">{{ c.content }}</p>
                         <div class="video-detail-comment-actions">
@@ -266,10 +261,10 @@ const {
                             type="button"
                             class="video-detail-comment-like-btn"
                             :class="{ 'video-detail-comment-like-btn--active': c.isLike }"
-                            :disabled="isCommentLikeBusy(c.id)"
+                            :disabled="store.isCommentLikeBusy(c.id)"
                             :aria-pressed="c.isLike ? 'true' : 'false'"
                             :aria-label="c.isLike ? '取消点赞' : '点赞'"
-                            @click="submitCommentLike(c)"
+                            @click="store.submitCommentLike(c)"
                           >
                             <i
                               :class="c.isLike ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'"
@@ -278,10 +273,10 @@ const {
                             {{ c.likeCount ?? 0 }}
                           </button>
                           <button
-                            v-if="isAuthed && detailVideoAllowComment()"
+                            v-if="isAuthed && detailVideoAllowComment"
                             type="button"
                             class="video-detail-comment-action-btn"
-                            @click="setDetailReplyTarget(c)"
+                            @click="store.setReplyTarget(c)"
                           >
                             回复
                           </button>
@@ -289,7 +284,7 @@ const {
                             v-if="isAuthed && currentUserId != null && String(c.userId) === String(currentUserId)"
                             type="button"
                             class="video-detail-comment-action-btn video-detail-comment-action-btn--danger"
-                            @click="onDeleteDetailComment(c)"
+                            @click="store.deleteComment(c)"
                           >
                             删除
                           </button>
@@ -302,7 +297,7 @@ const {
                             type="button"
                             class="video-detail-comment-action-btn video-detail-comment-action-btn--report"
                             title="举报"
-                            @click="openCommentReportModal(c)"
+                            @click="store.openCommentReport(c)"
                           >
                             <i class="ri-flag-line" aria-hidden="true"></i>举报
                           </button>
@@ -311,7 +306,7 @@ const {
                           v-if="c.replyCount > 0"
                           type="button"
                           class="video-detail-thread-toggle"
-                          @click="toggleDetailThread(c.id)"
+                          @click="store.toggleThread(c.id)"
                         >
                           {{
                             detailExpandedRoots[String(c.id)]
@@ -346,7 +341,7 @@ const {
                                   class="video-detail-comment-user video-detail-comment-user--link"
                                   @click.stop="onDetailCommentUserClick($event, r.userId)"
                                 >
-                                  {{ commentDisplayNickname(r.userId, r.nickname) }}
+                                  {{ store.displayCommentNickname(r.userId, r.nickname) }}
                                 </button>
                                 <span
                                   v-if="r.replyNickname"
@@ -360,11 +355,11 @@ const {
                                   class="video-detail-comment-at video-detail-comment-at--link"
                                   @click.stop="onDetailCommentUserClick($event, r.replyUserId)"
                                 >
-                                  @{{ commentDisplayNickname(r.replyUserId, r.replyNickname) }}
+                                  @{{ store.displayCommentNickname(r.replyUserId, r.replyNickname) }}
                                 </button>
                                 <span v-else-if="r.replyNickname" class="video-detail-comment-at"
-                                  >@{{ commentDisplayNickname(r.replyUserId, r.replyNickname) }}</span>
-                                <span class="video-detail-comment-time">{{ formatDetailCommentTime(r.createTime) }}</span>
+                                  >@{{ store.displayCommentNickname(r.replyUserId, r.replyNickname) }}</span>
+                                <span class="video-detail-comment-time">{{ formatCommentTime(r.createTime) }}</span>
                               </div>
                               <p class="video-detail-comment-text">{{ r.content }}</p>
                               <div class="video-detail-comment-actions">
@@ -372,10 +367,10 @@ const {
                                   type="button"
                                   class="video-detail-comment-like-btn"
                                   :class="{ 'video-detail-comment-like-btn--active': r.isLike }"
-                                  :disabled="isCommentLikeBusy(r.id)"
+                                  :disabled="store.isCommentLikeBusy(r.id)"
                                   :aria-pressed="r.isLike ? 'true' : 'false'"
                                   :aria-label="r.isLike ? '取消点赞' : '点赞'"
-                                  @click="submitCommentLike(r)"
+                                  @click="store.submitCommentLike(r)"
                                 >
                                   <i
                                     :class="r.isLike ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'"
@@ -384,10 +379,10 @@ const {
                                   {{ r.likeCount ?? 0 }}
                                 </button>
                                 <button
-                                  v-if="isAuthed && detailVideoAllowComment()"
+                                  v-if="isAuthed && detailVideoAllowComment"
                                   type="button"
                                   class="video-detail-comment-action-btn"
-                                  @click="setDetailReplyTarget(r)"
+                                  @click="store.setReplyTarget(r)"
                                 >
                                   回复
                                 </button>
@@ -395,7 +390,7 @@ const {
                                   v-if="isAuthed && currentUserId != null && String(r.userId) === String(currentUserId)"
                                   type="button"
                                   class="video-detail-comment-action-btn video-detail-comment-action-btn--danger"
-                                  @click="onDeleteDetailComment(r)"
+                                  @click="store.deleteComment(r)"
                                 >
                                   删除
                                 </button>
@@ -408,7 +403,7 @@ const {
                                   type="button"
                                   class="video-detail-comment-action-btn video-detail-comment-action-btn--report"
                                   title="举报"
-                                  @click="openCommentReportModal(r)"
+                                  @click="store.openCommentReport(r)"
                                 >
                                   <i class="ri-flag-line" aria-hidden="true"></i>举报
                                 </button>
@@ -427,12 +422,12 @@ const {
                   </template>
                 </ul>
                 <p v-if="!detailCommentsLoading && !detailTopComments.length" class="video-detail-comments-empty">暂无评论，来抢沙发吧</p>
-                <div v-if="detailCommentHasMore()" class="video-detail-comments-more">
+                <div v-if="detailCommentHasMore" class="video-detail-comments-more">
                   <button
                     type="button"
                     class="history-layout-btn"
                     :disabled="detailCommentsLoading"
-                    @click="loadMoreDetailComments"
+                    @click="store.loadMoreComments"
                   >
                     {{ detailCommentsLoading ? "加载中…" : "加载更多评论" }}
                   </button>
@@ -448,25 +443,25 @@ const {
                   type="button"
                   class="video-detail-chip"
                   :class="{ 'video-detail-chip--active': detailSidebarTab === tab.key }"
-                  @click="setDetailSidebarTab(tab.key)"
+                  @click="store.setSidebarTab(tab.key)"
                 >
                   {{ tab.label }}
                 </button>
               </div>
-              <div ref="detailSidebarScrollRef" class="video-detail-side-scroll" @scroll.passive="onDetailSidebarScroll">
+              <div ref="detailSidebarScrollRef" class="video-detail-side-scroll" @scroll.passive="store.onSidebarScroll">
                 <p v-if="detailSidebarLoading && !detailSidebarList.length" class="video-detail-side-hint">加载中…</p>
                 <button
                   v-for="item in detailSidebarList"
                   :key="item.id"
                   type="button"
                   class="video-detail-side-item"
-                  :class="{ 'video-detail-side-item--current': isSidebarItemNowPlaying(item) }"
-                  @click="openVideoDetailFromSidebar(item)"
+                  :class="{ 'video-detail-side-item--current': store.isSidebarItemNowPlaying(item) }"
+                  @click="store.openFromSidebar(item)"
                 >
                   <div class="video-detail-side-thumb-wrap">
                     <img :src="item.coverUrl || item.avatarUrl || profileBanner" alt="" class="video-detail-side-thumb" />
                     <div
-                      v-if="isSidebarItemNowPlaying(item)"
+                      v-if="store.isSidebarItemNowPlaying(item)"
                       class="video-detail-now-playing"
                       aria-hidden="true"
                     >

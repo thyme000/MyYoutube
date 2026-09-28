@@ -3,6 +3,7 @@
  */
 import { defineStore } from "pinia";
 import { getToken, setToken as persistToken, clearToken } from "../api/http";
+import { DEFAULT_PROFILE_AVATAR_URL as defaultAvatar, sanitizeImageUrl } from "../utils/userProfile";
 
 export const useAuthStore = defineStore("auth", {
   state: () => ({
@@ -16,6 +17,11 @@ export const useAuthStore = defineStore("auth", {
   }),
   getters: {
     isAuthed: (s) => Boolean(s.token),
+    /** 顶栏与评论框的「我」头像：始终取当前登录用户 */
+    selfAvatarUrl: (s) => {
+      const url = s.selfProfile?.avatarUrl ? sanitizeImageUrl(s.selfProfile.avatarUrl) : "";
+      return url || defaultAvatar;
+    },
   },
   actions: {
     signIn(newToken) {
