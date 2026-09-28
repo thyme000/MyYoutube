@@ -3,6 +3,7 @@
  * App.vue 过渡期用 storeToRefs 同名解构引用；拆 HomeView 时随之整体搬出。
  */
 import { defineStore } from "pinia";
+import { patchRowById, patchRowsByAuthorId, removeRowById } from "../utils/feedRowPatch.js";
 
 /** 桌面/移动端首屏长视频张数阈值 */
 export const HOME_LONG_HEAD_COUNT_DESKTOP = 9;
@@ -44,6 +45,20 @@ export const useHomeStore = defineStore("home", {
     selectSort(value) {
       this.homeSortKey = value;
       hooks.reloadHome?.();
+    },
+
+    // 同一份视频/作者会同时出现在多份列表，feedPatchStore 负责广播，各域只改自己的
+    patchVideoById(id, patch) {
+      this.cards = patchRowById(this.cards, id, patch);
+      this.homeShortsRows = patchRowById(this.homeShortsRows, id, patch);
+    },
+    patchAuthorFollow(authorId, isFollow) {
+      this.cards = patchRowsByAuthorId(this.cards, authorId, isFollow);
+      this.homeShortsRows = patchRowsByAuthorId(this.homeShortsRows, authorId, isFollow);
+    },
+    removeVideoById(id) {
+      this.cards = removeRowById(this.cards, id);
+      this.homeShortsRows = removeRowById(this.homeShortsRows, id);
     },
   },
 });

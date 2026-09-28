@@ -13,6 +13,7 @@ import { useProfileStore, registerProfileHooks } from "./stores/profileStore";
 import { useDetailStore, registerDetailHooks } from "./stores/detailStore";
 import { useCommentPanelStore } from "./stores/commentPanelStore";
 import { useCommentStore } from "./stores/commentStore";
+import { useFeedPatchStore } from "./stores/feedPatchStore";
 import { useFollowStore } from "./stores/followStore";
 import { useBehaviorStore } from "./stores/behaviorStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
@@ -691,6 +692,8 @@ const clearVideoDetailFromAddressBar = () => detailStore.clearFromAddressBar();
 const hideDetailBufferingOverlay = () => detailStore.hideBufferingOverlay();
 /** 短视频播放器域状态在 pinia shortsStore（含历史/赞过/主页/关注共用的全屏队列），同名解构零引用改动 */
 const shortsStore = useShortsStore();
+/** 跨列表补丁的协调者在 feedPatchStore，各域 store 只改自己的列表 */
+const feedPatch = useFeedPatchStore();
 const {
   feedScope,
   profileFeedQueue,
@@ -2460,70 +2463,11 @@ const resolveVideoUrlForListItem = (videoId, hintItem) =>
     likedRows.value,
   ]);
 
-/** 点赞接口返回后同步更新各列表中的 likeCount */
-function patchFeedVideoById(videoId, patch) {
-  const id = String(videoId ?? "");
-  if (!id || !patch || typeof patch !== "object") return;
-  const apply = (arrRef) => {
-    const arr = arrRef.value;
-    const i = arr.findIndex((x) => x && String(x.id) === id);
-    if (i < 0) return;
-    const next = [...arr];
-    next[i] = { ...next[i], ...patch };
-    arrRef.value = next;
-  };
-  apply(homeShortsRows);
-  apply(cards);
-  apply(profileFeedQueue);
-  apply(likedFeedQueue);
-  apply(likedRows);
-  apply(profileWorksRows);
-  apply(followFeedQueue);
-  apply(followAuthorFeedQueue);
-  apply(studioRows);
-  apply(searchVideoRows);
-  apply(searchTagRows);
-  if (searchExpandCard.value && String(searchExpandCard.value.id) === id) {
-    searchExpandCard.value = { ...searchExpandCard.value, ...patch };
-  }
-  if (searchListCommentCard.value && String(searchListCommentCard.value.id) === id) {
-    searchListCommentCard.value = { ...searchListCommentCard.value, ...patch };
-  }
-}
-
+/** 跨列表补丁：实现已移入 feedPatchStore（各域 store 只改自己的列表），这里保留同名薄封装 */
+const patchFeedVideoById = (videoId, patch) => feedPatch.patchVideoById(videoId, patch);
 /** 同一作者下所有视频条目的 isFollow（与列表数据一致，不请求详情） */
-function patchIsFollowForAuthor(authorId, isFollow) {
-  const aid = String(authorId ?? "");
-  if (!aid) return;
-  const patchRow = (row) =>
-    row && String(row.authorId) === aid ? { ...row, isFollow } : row;
-  const patchArr = (arrRef) => {
-    const arr = arrRef.value;
-    if (!Array.isArray(arr) || !arr.length) return;
-    arrRef.value = arr.map(patchRow);
-  };
-  patchArr(homeShortsRows);
-  patchArr(cards);
-  patchArr(profileWorksRows);
-  patchArr(profileFeedQueue);
-  patchArr(likedFeedQueue);
-  patchArr(likedRows);
-  patchArr(followFeedQueue);
-  patchArr(followAuthorFeedQueue);
-  patchArr(searchVideoRows);
-  patchArr(searchTagRows);
-  const patchUserByUserId = (row) =>
-    row && String(row.id) === aid ? { ...row, isFollow } : row;
-  if (Array.isArray(searchUserRows.value) && searchUserRows.value.length) {
-    searchUserRows.value = searchUserRows.value.map(patchUserByUserId);
-  }
-  if (Array.isArray(searchAllUserStrip.value) && searchAllUserStrip.value.length) {
-    searchAllUserStrip.value = searchAllUserStrip.value.map(patchUserByUserId);
-  }
-  if (searchExpandCard.value && String(searchExpandCard.value.authorId) === aid) {
-    searchExpandCard.value = { ...searchExpandCard.value, isFollow };
-  }
-}
+const patchIsFollowForAuthor = (authorId, isFollow) =>
+  feedPatch.patchAuthorFollow(authorId, isFollow);
 
 function readVideoDuration(file) {
   return new Promise((resolve) => {
@@ -2721,18 +2665,8 @@ function cancelDeleteCurrentSelfVideo() {
   pendingDeleteVideoId.value = null;
 }
 
-function removeVideoFromAllClientLists(targetId) {
-  const id = String(targetId);
-  profileWorksRows.value = profileWorksRows.value.filter((x) => String(x.id) !== id);
-  profileFeedQueue.value = profileFeedQueue.value.filter((x) => String(x.id) !== id);
-  cards.value = cards.value.filter((x) => String(x.id) !== id);
-  homeShortsRows.value = homeShortsRows.value.filter((x) => String(x.id) !== id);
-  likedRows.value = likedRows.value.filter((x) => String(x.id) !== id);
-  likedFeedQueue.value = likedFeedQueue.value.filter((x) => String(x.id) !== id);
-  studioRows.value = studioRows.value.filter((x) => String(x.id) !== id);
-  followFeedQueue.value = followFeedQueue.value.filter((x) => String(x.id) !== id);
-  followAuthorFeedQueue.value = followAuthorFeedQueue.value.filter((x) => String(x.id) !== id);
-}
+/** 删除后从各列表移除：实现已移入 feedPatchStore */
+const removeVideoFromAllClientLists = (targetId) => feedPatch.removeVideoById(targetId);
 
 async function confirmDeleteCurrentSelfVideo() {
   const rawId = pendingDeleteVideoId.value;

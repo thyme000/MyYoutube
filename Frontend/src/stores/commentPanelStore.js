@@ -16,4 +16,13 @@ export const useCommentPanelStore = defineStore("commentPanel", {
     searchListCommentOpen: false,
     searchListCommentCard: null,
   }),
+  actions: {
+    /** 搜索列表内联评论持有的卡片副本，同样要跟随跨列表补丁 */
+    patchVideoById(id, patch) {
+      const card = this.searchListCommentCard;
+      if (card && String(card.id) === id) {
+        this.searchListCommentCard = { ...card, ...patch };
+      }
+    },
+  },
 });

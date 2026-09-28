@@ -5,6 +5,7 @@
 import { defineStore } from "pinia";
 import { fetchLikedVideosPage } from "../api/likeApi.js";
 import { toast as pushToast } from "../utils/toast.js";
+import { patchRowById, patchRowsByAuthorId, removeRowById } from "../utils/feedRowPatch.js";
 
 export const LIKED_PAGE_SIZE = 12;
 
@@ -60,6 +61,17 @@ export const useLikedStore = defineStore("liked", {
         this.likedLoading = false;
         this.likedLoadingMore = false;
       }
+    },
+
+    // 同一份视频/作者会同时出现在多份列表，feedPatchStore 负责广播，各域只改自己的
+    patchVideoById(id, patch) {
+      this.likedRows = patchRowById(this.likedRows, id, patch);
+    },
+    patchAuthorFollow(authorId, isFollow) {
+      this.likedRows = patchRowsByAuthorId(this.likedRows, authorId, isFollow);
+    },
+    removeVideoById(id) {
+      this.likedRows = removeRowById(this.likedRows, id);
     },
   },
 });

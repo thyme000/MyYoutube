@@ -17,6 +17,7 @@ import { useAuthStore } from "./authStore.js";
 import { useBehaviorStore } from "./behaviorStore.js";
 import { useCommentPanelStore } from "./commentPanelStore.js";
 import { useFollowStore } from "./followStore.js";
+import { patchRowById, patchRowsByAuthorId, patchRowsById } from "../utils/feedRowPatch.js";
 
 export const SEARCH_PAGE_SIZE = 10;
 
@@ -167,6 +168,24 @@ export const useSearchStore = defineStore("search", {
   },
 
   actions: {
+    // 同一份视频/作者会同时出现在多份列表，feedPatchStore 负责广播，各域只改自己的
+    patchVideoById(id, patch) {
+      this.searchVideoRows = patchRowById(this.searchVideoRows, id, patch);
+      this.searchTagRows = patchRowById(this.searchTagRows, id, patch);
+      if (this.searchExpandCard && String(this.searchExpandCard.id) === id) {
+        this.searchExpandCard = { ...this.searchExpandCard, ...patch };
+      }
+    },
+    patchAuthorFollow(authorId, isFollow) {
+      this.searchVideoRows = patchRowsByAuthorId(this.searchVideoRows, authorId, isFollow);
+      this.searchTagRows = patchRowsByAuthorId(this.searchTagRows, authorId, isFollow);
+      this.searchUserRows = patchRowsById(this.searchUserRows, authorId, isFollow);
+      this.searchAllUserStrip = patchRowsById(this.searchAllUserStrip, authorId, isFollow);
+      if (this.searchExpandCard && String(this.searchExpandCard.authorId) === authorId) {
+        this.searchExpandCard = { ...this.searchExpandCard, isFollow };
+      }
+    },
+
     /** 列表加载完成后的视图层钩子（观察器依赖 App.vue 的 DOM 引用），由宿主注册 */
     registerLoadedHook(fn) {
       this._loadedHook = typeof fn === "function" ? fn : null;

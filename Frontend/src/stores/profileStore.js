@@ -37,6 +37,7 @@ import {
   stripUserIdLikeName,
 } from "../utils/userProfile";
 import { parseDigitSnowflakeId, safeSnowflakeId } from "../utils/snowflakeId.js";
+import { patchRowById, patchRowsByAuthorId, removeRowById } from "../utils/feedRowPatch.js";
 
 const RELATION_PAGE_SIZE = 20;
 /** 头像预览框边长，用于换算裁剪后的显示尺寸 */
@@ -272,6 +273,17 @@ export const useProfileStore = defineStore("profile", {
   },
 
   actions: {
+    // 同一份视频/作者会同时出现在多份列表，feedPatchStore 负责广播，各域只改自己的
+    patchVideoById(id, patch) {
+      this.worksRows = patchRowById(this.worksRows, id, patch);
+    },
+    patchAuthorFollow(authorId, isFollow) {
+      this.worksRows = patchRowsByAuthorId(this.worksRows, authorId, isFollow);
+    },
+    removeVideoById(id) {
+      this.worksRows = removeRowById(this.worksRows, id);
+    },
+
     /** 打开主页前收起其它遮罩并记录返回现场 */
     _enter(targetUserId) {
       const returnCtx = hooks.prepareOpen?.() ?? null;

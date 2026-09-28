@@ -7,6 +7,7 @@ import { defineStore } from "pinia";
 import { fetchMyVideos, setMyVideoPublic, setMyVideoPrivate, openMyVideoComment, closeMyVideoComment } from "../api/videoApi";
 import { getToken } from "../api/http";
 import { toast as pushToast } from "../utils/toast.js";
+import { patchRowById, removeRowById } from "../utils/feedRowPatch.js";
 
 export const studioTabs = [
   { key: "video", label: "长视频" },
@@ -30,6 +31,14 @@ export const useStudioStore = defineStore("studio", {
     studioRowMenuOpenId: null,
   }),
   actions: {
+    // 同一份视频会同时出现在多份列表，feedPatchStore 负责广播，各域只改自己的
+    patchVideoById(id, patch) {
+      this.studioRows = patchRowById(this.studioRows, id, patch);
+    },
+    removeVideoById(id) {
+      this.studioRows = removeRowById(this.studioRows, id);
+    },
+
     selectSideNav(key) {
       this.studioSideNav = key;
       if (key === "info") {

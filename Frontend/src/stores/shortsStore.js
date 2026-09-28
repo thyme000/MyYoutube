@@ -20,6 +20,7 @@ import {
   stripUserIdLikeName,
 } from "../utils/userProfile.js";
 import { sendPlaybackResumePut } from "../utils/playbackResume.js";
+import { patchRowById, patchRowsByAuthorId, removeRowById } from "../utils/feedRowPatch.js";
 import {
   fetchCommentPage,
   deleteComment as deleteCommentApi,
@@ -346,6 +347,26 @@ export const useShortsStore = defineStore("shorts", {
   },
 
   actions: {
+    // 同一份视频/作者会同时出现在多份列表，feedPatchStore 负责广播，各域只改自己的
+    patchVideoById(id, patch) {
+      this.profileFeedQueue = patchRowById(this.profileFeedQueue, id, patch);
+      this.likedFeedQueue = patchRowById(this.likedFeedQueue, id, patch);
+      this.followFeedQueue = patchRowById(this.followFeedQueue, id, patch);
+      this.followAuthorFeedQueue = patchRowById(this.followAuthorFeedQueue, id, patch);
+    },
+    patchAuthorFollow(authorId, isFollow) {
+      this.profileFeedQueue = patchRowsByAuthorId(this.profileFeedQueue, authorId, isFollow);
+      this.likedFeedQueue = patchRowsByAuthorId(this.likedFeedQueue, authorId, isFollow);
+      this.followFeedQueue = patchRowsByAuthorId(this.followFeedQueue, authorId, isFollow);
+      this.followAuthorFeedQueue = patchRowsByAuthorId(this.followAuthorFeedQueue, authorId, isFollow);
+    },
+    removeVideoById(id) {
+      this.profileFeedQueue = removeRowById(this.profileFeedQueue, id);
+      this.likedFeedQueue = removeRowById(this.likedFeedQueue, id);
+      this.followFeedQueue = removeRowById(this.followFeedQueue, id);
+      this.followAuthorFeedQueue = removeRowById(this.followAuthorFeedQueue, id);
+    },
+
     /**
      * 全屏连播入口：历史/赞过/他人主页等列表以现有行开播（不重复请求详情）。
      * 播放器 DOM ref 由宿主经 registerShortsFeedPlayerRefs 注入。
