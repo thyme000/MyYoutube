@@ -109,6 +109,8 @@ const LikedView = defineAsyncComponent(() => import("./views/LikedView.vue"));
 import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
 import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
 const ChatView = defineAsyncComponent(() => import("./views/ChatView.vue"));
+const StudioView = defineAsyncComponent(() => import("./views/StudioView.vue"));
+const ProfileCenterView = defineAsyncComponent(() => import("./views/ProfileCenterView.vue"));
 import ChatFloatingRail from "./components/chat/ChatFloatingRail.vue";
 import ChatEmojiPicker from "./components/chat/ChatEmojiPicker.vue";
 import ChatForwardVideoModal from "./components/chat/ChatForwardVideoModal.vue";
@@ -9041,6 +9043,79 @@ provide("detailBridge", {
   tryDetailVideoAutoplay,
   videoDetail,
 });
+/** 过渡桥接: studioBridge 注入 */
+provide("studioBridge", {
+  closeStudioRowMenu,
+  displayNickname,
+  formatStudioDate,
+  formatStudioVisibility,
+  loadStudioVideos,
+  onStudioRowRequestDelete,
+  onStudioRowToggleComment,
+  onStudioRowToggleVisibility,
+  openUploadModal,
+  selectStudioSideNav,
+  showStudio,
+  studioContentTab,
+  studioLoading,
+  studioMsg,
+  studioPageNo,
+  studioPages,
+  studioRowMenuOpenId,
+  studioRowVisibilityIsPrivate,
+  studioRows,
+  studioSideNav,
+  studioTabs,
+  switchStudioTab,
+  toggleStudioRowMenu,
+  topbarAvatarSrc,
+});
+
+/** 过渡桥接: profileBridge 注入 */
+provide("profileBridge", {
+  activePreviewVideoUrl,
+  avatarFileInput,
+  avatarImgStyle,
+  avatarImgUsePrecise,
+  bgFileInput,
+  displayNickname,
+  formatHomeShortStat,
+  heroCropContainerRef,
+  heroImgStyle,
+  heroImgUsePrecise,
+  introDisplayText,
+  isAuthed,
+  isCardPreviewPlaying,
+  isViewingSelf,
+  onAvatarFileChange,
+  onBgFileChange,
+  onCardHoverEnter,
+  onCardHoverLeave,
+  onProfileAvatarImgError,
+  onProfileAvatarNaturalLoad,
+  onProfileBgImgError,
+  onProfileHeroBgLoad,
+  onProfileWorksChatClick,
+  onWorkCardClick,
+  openMediaPreview,
+  openProfileEdit,
+  openRelationTable,
+  profileChatBusy,
+  profileDisplayAvatar,
+  profileDisplayBg,
+  profileFollowBusy,
+  profileLoading,
+  profileMsg,
+  profileTargetFollowed,
+  profileUser,
+  profileWorksDisplay,
+  profileWorksFilter,
+  profileWorksLoading,
+  resolveVideoUrl,
+  showProfileCenter,
+  toggleProfileTargetFollow,
+});
+
 onMounted(async () => {
   registerGlobalToast(pushToast);
   registerChatNavigator(async (conversationId) => {
@@ -9749,393 +9824,14 @@ onBeforeUnmount(() => {
         }"
       >
         <!-- 创作中心（YouTube Studio 风格） -->
-        <div v-if="showStudio" class="studio-page">
-          <aside class="studio-sidebar">
-            <div class="studio-sidebar-user">
-              <img :src="topbarAvatarSrc" alt="" class="studio-sidebar-avatar" />
-              <div class="studio-sidebar-meta">
-                <span class="studio-sidebar-title">我的频道</span>
-                <span class="studio-sidebar-name">{{ displayNickname }}</span>
-              </div>
-            </div>
-            <nav class="studio-side-nav">
-              <button
-                type="button"
-                class="studio-side-link"
-                :class="{ active: studioSideNav === 'info' }"
-                @click="selectStudioSideNav('info')"
-              >
-                <i class="ri-dashboard-3-line"></i> 信息中心
-              </button>
-              <button
-                type="button"
-                class="studio-side-link"
-                :class="{ active: studioSideNav === 'data' }"
-                @click="selectStudioSideNav('data')"
-              >
-                <i class="ri-bar-chart-2-line"></i> 数据分析
-              </button>
-              <button
-                type="button"
-                class="studio-side-link"
-                :class="{ active: studioSideNav === 'audio' }"
-                @click="selectStudioSideNav('audio')"
-              >
-                <i class="ri-music-2-line"></i> 音频库
-              </button>
-            </nav>
-          </aside>
-          <div class="studio-body">
-            <div class="studio-body-head">
-              <h2 class="studio-body-title">频道内容</h2>
-              <div v-if="studioSideNav === 'info'" class="studio-tabs">
-                <button
-                  v-for="tab in studioTabs"
-                  :key="tab.key"
-                  type="button"
-                  class="studio-tab"
-                  :class="{ active: studioContentTab === tab.key }"
-                  @click="switchStudioTab(tab.key)"
-                >
-                  {{ tab.label }}
-                </button>
-              </div>
-            </div>
-            <div v-if="studioSideNav === 'data'" class="studio-placeholder-card">
-              <p>数据分析功能开发中，敬请期待。</p>
-            </div>
-            <div v-else-if="studioSideNav === 'audio'" class="studio-placeholder-card">
-              <p>音频库功能开发中，敬请期待。</p>
-            </div>
-            <template v-else>
-              <div v-if="studioContentTab === 'live'" class="studio-placeholder-card">
-                <p>{{ studioMsg || "直播内容尚未接入。" }}</p>
-              </div>
-              <div v-else-if="studioLoading" class="studio-placeholder-card">加载中…</div>
-              <div v-else class="studio-table-panel" @click="closeStudioRowMenu">
-                <table class="studio-table" @click.stop>
-                  <thead>
-                    <tr>
-                      <th>视频</th>
-                      <th>公开范围</th>
-                      <th>日期</th>
-                      <th>观看次数</th>
-                      <th class="studio-th-actions" aria-label="操作"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-if="!studioRows.length">
-                      <td colspan="5" class="studio-table-empty">没有可显示的内容</td>
-                    </tr>
-                    <tr v-for="row in studioRows" :key="row.id">
-                      <td>
-                        <div class="studio-td-video">
-                          <img :src="row.avatarUrl || profileBanner" alt="" class="studio-thumb" />
-                          <span>{{ row.title }}</span>
-                        </div>
-                      </td>
-                      <td>{{ formatStudioVisibility(row) }}</td>
-                      <td>{{ formatStudioDate(row) }}</td>
-                      <td>{{ row.viewsText }}</td>
-                      <td class="studio-td-actions">
-                        <button
-                          type="button"
-                          class="studio-row-more-btn"
-                          aria-label="更多操作"
-                          @click.stop="toggleStudioRowMenu(row, $event)"
-                        >
-                          <i class="ri-more-2-fill"></i>
-                        </button>
-                        <div
-                          v-if="studioRowMenuOpenId === String(row.id)"
-                          class="studio-row-action-menu"
-                          @click.stop
-                        >
-                          <button type="button" class="studio-row-action-btn" @click="onStudioRowToggleVisibility(row)">
-                            {{ studioRowVisibilityIsPrivate(row) ? "设为公开" : "设为私密" }}
-                          </button>
-                          <button type="button" class="studio-row-action-btn" @click="onStudioRowToggleComment(row)">
-                            {{ Number(row.allowComment ?? 1) === 1 ? "关闭评论" : "开启评论" }}
-                          </button>
-                          <button
-                            type="button"
-                            class="studio-row-action-btn studio-row-action-btn--danger"
-                            @click="onStudioRowRequestDelete(row)"
-                          >
-                            删除
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div class="studio-pager">
-                  <button
-                    type="button"
-                    class="studio-pager-btn"
-                    :disabled="studioPageNo <= 1"
-                    @click="studioPageNo--; loadStudioVideos()"
-                  >
-                    上一页
-                  </button>
-                  <span class="studio-pager-info">{{ studioPageNo }} / {{ Math.max(1, studioPages || 1) }}</span>
-                  <button
-                    type="button"
-                    class="studio-pager-btn"
-                    :disabled="studioPageNo >= (studioPages || 1)"
-                    @click="studioPageNo++; loadStudioVideos()"
-                  >
-                    下一页
-                  </button>
-                </div>
-                <p v-if="studioMsg && studioContentTab !== 'live'" class="studio-hint">{{ studioMsg }}</p>
-                <button type="button" class="studio-upload-fab" @click="openUploadModal">上传视频</button>
-              </div>
-            </template>
-          </div>
-        </div>
+        <StudioView v-if="showStudio" />
 
         <template v-else>
         <SearchView v-if="searchActive" :scroll-ref="searchFeedScrollRef" />
         <ShortsView />
         <template v-if="!searchActive">
 
-        <section v-if="showProfileCenter" class="profile-page">
-          <input
-            ref="avatarFileInput"
-            type="file"
-            accept="image/*"
-            class="visually-hidden"
-            aria-hidden="true"
-            @change="onAvatarFileChange"
-          />
-          <input
-            ref="bgFileInput"
-            type="file"
-            accept="image/*"
-            class="visually-hidden"
-            aria-hidden="true"
-            @change="onBgFileChange"
-          />
-          <p v-if="profileLoading" class="profile-api-hint">正在加载用户信息…</p>
-          <p v-else-if="profileMsg" class="profile-api-hint">{{ profileMsg }}</p>
-
-          <div class="profile-top-row">
-            <aside class="profile-side-card">
-              <button
-                type="button"
-                class="profile-avatar-wrap"
-                title="查看头像"
-                @click="openMediaPreview('avatar')"
-              >
-                <img
-                  v-if="!isViewingSelf"
-                  :src="profileDisplayAvatar"
-                  alt="用户头像"
-                  class="profile-avatar-sm"
-                  @error="onProfileAvatarImgError"
-                />
-                <div
-                  v-else
-                  class="profile-avatar-sm profile-avatar-crop-inner"
-                  role="img"
-                  :aria-label="displayNickname"
-                >
-                  <img
-                    :src="profileDisplayAvatar"
-                    :class="['profile-avatar-img-el', avatarImgUsePrecise ? 'profile-avatar-img-el--precise' : 'profile-avatar-img-el--cover']"
-                    :style="avatarImgStyle"
-                    alt=""
-                    draggable="false"
-                    @load="onProfileAvatarNaturalLoad"
-                    @error="onProfileAvatarImgError"
-                  />
-                </div>
-              </button>
-              <h4>个人资料</h4>
-              <p>昵称：{{ displayNickname }}</p>
-              <p class="profile-id-line">ID：{{ profileUser?.id ?? "—" }}</p>
-              <div class="profile-stat-list">
-                <button
-                  v-if="isViewingSelf"
-                  type="button"
-                  class="profile-stat-row profile-stat-btn"
-                  @click="openRelationTable('following')"
-                >
-                  <span class="profile-stat-left">关注 <i class="ri-play-fill stat-triangle"></i></span>
-                  <strong>{{ profileUser?.attentionCount ?? "—" }}</strong>
-                </button>
-                <div v-else class="profile-stat-row">
-                  <span>关注</span>
-                  <strong>{{ profileUser?.attentionCount ?? "—" }}</strong>
-                </div>
-                <button
-                  v-if="isViewingSelf"
-                  type="button"
-                  class="profile-stat-row profile-stat-btn"
-                  @click="openRelationTable('followers')"
-                >
-                  <span class="profile-stat-left">粉丝 <i class="ri-play-fill stat-triangle"></i></span>
-                  <strong>{{ profileUser?.fans ?? "—" }}</strong>
-                </button>
-                <div v-else class="profile-stat-row">
-                  <span>粉丝</span>
-                  <strong>{{ profileUser?.fans ?? "—" }}</strong>
-                </div>
-                <div class="profile-stat-row">
-                  <span>获赞</span>
-                  <strong>{{ profileUser?.likeCount ?? "—" }}</strong>
-                </div>
-                <div class="profile-stat-row">
-                  <span>作品数</span>
-                  <strong>{{ profileUser?.videoCount ?? profileWorksDisplay.length }}</strong>
-                </div>
-              </div>
-              <div
-                class="profile-intro"
-                :class="{ 'profile-intro--editable': isViewingSelf }"
-                :role="isViewingSelf ? 'button' : undefined"
-                :tabindex="isViewingSelf ? 0 : undefined"
-                @click="isViewingSelf && openProfileEdit()"
-                @keydown.enter.prevent="isViewingSelf && openProfileEdit()"
-              >
-                <h5>个人简介</h5>
-                <p>{{ introDisplayText }}</p>
-                <span v-if="isViewingSelf" class="profile-intro-edit-hint">点击编辑资料</span>
-              </div>
-            </aside>
-
-            <section class="profile-hero-col">
-              <button
-                type="button"
-                class="profile-hero profile-hero-clickable profile-hero--stretch"
-                title="查看背景图"
-                @click="openMediaPreview('bg')"
-              >
-                <div ref="heroCropContainerRef" class="profile-hero-img" role="img" aria-hidden="true">
-                  <img
-                    :src="profileDisplayBg"
-                    :class="['profile-hero-img-el', heroImgUsePrecise ? 'profile-hero-img-el--precise' : 'profile-hero-img-el--cover']"
-                    :style="heroImgStyle"
-                    alt=""
-                    draggable="false"
-                    @load="onProfileHeroBgLoad"
-                    @error="onProfileBgImgError"
-                  />
-                </div>
-                <div class="profile-hero-mask"></div>
-              </button>
-            </section>
-          </div>
-          <section class="profile-works-section">
-              <div class="profile-works-title">
-                <h4>作品列表</h4>
-                <div class="profile-works-toolbar">
-                  <button
-                    v-if="!isViewingSelf && isAuthed"
-                    type="button"
-                    class="profile-page-follow-btn"
-                    :disabled="profileFollowBusy"
-                    @click="toggleProfileTargetFollow"
-                  >
-                    {{ profileTargetFollowed ? "已关注" : "+ 关注" }}
-                  </button>
-                  <button
-                    v-if="!isViewingSelf && isAuthed"
-                    type="button"
-                    class="profile-works-filter-btn"
-                    :disabled="profileChatBusy"
-                    title="与对方发起私聊"
-                    @click="onProfileWorksChatClick"
-                  >
-                    {{ profileChatBusy ? "创建中…" : "聊一聊" }}
-                  </button>
-                  <div v-if="isViewingSelf" class="profile-works-filters">
-                    <button
-                      type="button"
-                      class="profile-works-filter-btn"
-                      :class="{ 'profile-works-filter-btn--active': profileWorksFilter === 'ALL' }"
-                      @click="profileWorksFilter = 'ALL'"
-                    >
-                      全部
-                    </button>
-                    <button
-                      type="button"
-                      class="profile-works-filter-btn"
-                      :class="{ 'profile-works-filter-btn--active': profileWorksFilter === 'PUBLIC' }"
-                      @click="profileWorksFilter = 'PUBLIC'"
-                    >
-                      公开
-                    </button>
-                    <button
-                      type="button"
-                      class="profile-works-filter-btn"
-                      :class="{ 'profile-works-filter-btn--active': profileWorksFilter === 'PRIVATE' }"
-                      @click="profileWorksFilter = 'PRIVATE'"
-                    >
-                      私密
-                    </button>
-                  </div>
-                  <span>共 {{ profileWorksDisplay.length }} 条</span>
-                </div>
-              </div>
-              <p v-if="profileWorksLoading" class="profile-api-hint profile-api-hint--loading">正在加载作品列表…</p>
-              <div v-if="profileWorksLoading" class="works-grid works-grid-profile works-grid-profile--skeleton">
-                <article v-for="n in 6" :key="`work-skeleton-${n}`" class="work-card work-card--skeleton">
-                  <div class="work-thumb"></div>
-                  <div class="work-meta">
-                    <p class="work-title"></p>
-                  </div>
-                </article>
-              </div>
-              <div class="works-grid works-grid-profile">
-                <article
-                  v-for="item in profileWorksDisplay"
-                  :key="item.id"
-                  class="work-card"
-                  :class="{ 'work-card--playable': resolveVideoUrl(item) }"
-                  @click="onWorkCardClick(item)"
-                  @mouseenter="onCardHoverEnter(item, 'profile-work')"
-                  @mouseleave="onCardHoverLeave(item, 'profile-work')"
-                >
-                  <div class="work-thumb">
-                    <video
-                      v-if="isCardPreviewPlaying(item, 'profile-work')"
-                      class="work-preview-video"
-                      :src="activePreviewVideoUrl"
-                      muted
-                      autoplay
-                      loop
-                      playsinline
-                      preload="metadata"
-                    ></video>
-                    <img v-else :src="item.image" :alt="item.title" />
-                    <span class="work-like work-like--bottom-left"><i class="ri-heart-line"></i> {{ item.likes }}</span>
-                  </div>
-                  <div class="work-meta">
-                    <img
-                      class="work-author-avatar"
-                      :src="item.authorAvatarUrl || profileAvatar"
-                      alt=""
-                    />
-                    <div class="work-meta-main">
-                      <div class="work-title-row">
-                        <p class="work-title">{{ item.title }}</p>
-                        <span class="work-play-stat" title="播放量">
-                          <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(item.playCount) }}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              </div>
-              <div v-if="!profileWorksLoading && !profileWorksDisplay.length" class="profile-works-empty">
-                <div class="profile-works-empty-icon"><i class="ri-movie-2-line"></i></div>
-                <h5>暂无内容</h5>
-                <p>该账号还未发布过作品哦～</p>
-              </div>
-          </section>
-        </section>
+        <ProfileCenterView v-if="showProfileCenter" />
 
         <div v-if="mediaPreviewOpen" class="modal-overlay modal-overlay--light" @click.self="closeMediaPreview">
           <div class="modal-card media-preview-card media-preview-card--light" role="dialog" aria-modal="true" @click.stop>
