@@ -15,6 +15,7 @@ import {
 } from "../api/commentApi.js";
 import { toast as pushToast } from "../utils/toast.js";
 import { useAuthStore } from "./authStore.js";
+import { useCommentPanelStore } from "./commentPanelStore.js";
 import { useCommentStore } from "./commentStore.js";
 import { useHomeStore } from "./homeStore.js";
 import { useSearchStore } from "./searchStore.js";
@@ -72,7 +73,6 @@ export const useShortsStore = defineStore("shorts", {
     shortsFeedVideoBuffering: false,
 
     /** 短视频流右侧评论侧栏（与详情共用 /comment API） */
-    shortsCommentPanelOpen: false,
     shortsPanelTopComments: [],
     shortsPanelCommentsLoading: false,
     shortsPanelCommentsPageNo: 1,
@@ -113,12 +113,13 @@ export const useShortsStore = defineStore("shorts", {
     },
     /** 评论侧栏：短视频流、搜索全屏放大或搜索列表共用同一套列表与接口 */
     activeCommentVideo() {
+      const panel = useCommentPanelStore();
       const search = useSearchStore();
-      if (search.searchExpandCommentOpen && search.searchExpandCard) {
+      if (panel.searchExpandCommentOpen && search.searchExpandCard) {
         return search.searchExpandCard;
       }
-      if (search.searchListCommentOpen && search.searchListCommentCard) {
-        return search.searchListCommentCard;
+      if (panel.searchListCommentOpen && panel.searchListCommentCard) {
+        return panel.searchListCommentCard;
       }
       return this.shortsFeedCurrent;
     },
@@ -171,19 +172,19 @@ export const useShortsStore = defineStore("shorts", {
       if (!this.shortsFeedCurrent?.id) {
         return;
       }
-      const search = useSearchStore();
-      search.searchExpandCommentOpen = false;
-      search.searchListCommentOpen = false;
-      search.searchListCommentCard = null;
-      this.shortsCommentPanelOpen = !this.shortsCommentPanelOpen;
+      const panel = useCommentPanelStore();
+      panel.searchExpandCommentOpen = false;
+      panel.searchListCommentOpen = false;
+      panel.searchListCommentCard = null;
+      panel.shortsCommentPanelOpen = !panel.shortsCommentPanelOpen;
     },
 
     closeShortsCommentPanel() {
-      const search = useSearchStore();
-      this.shortsCommentPanelOpen = false;
-      search.searchExpandCommentOpen = false;
-      search.searchListCommentOpen = false;
-      search.searchListCommentCard = null;
+      const panel = useCommentPanelStore();
+      panel.shortsCommentPanelOpen = false;
+      panel.searchExpandCommentOpen = false;
+      panel.searchListCommentOpen = false;
+      panel.searchListCommentCard = null;
     },
 
     async loadShortsPanelTopComments(reset, opts = {}) {

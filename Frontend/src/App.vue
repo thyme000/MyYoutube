@@ -11,6 +11,7 @@ import { useHomeStore, registerHomeHooks, homeSortOptions, HOME_LONG_HEAD_COUNT_
 import { useShortsStore } from "./stores/shortsStore";
 import { useProfileStore, registerProfileHooks } from "./stores/profileStore";
 import { useDetailStore, registerDetailHooks } from "./stores/detailStore";
+import { useCommentPanelStore } from "./stores/commentPanelStore";
 import { useCommentStore } from "./stores/commentStore";
 import { useFollowStore } from "./stores/followStore";
 import { useBehaviorStore } from "./stores/behaviorStore";
@@ -197,9 +198,6 @@ const {
   searchExpandOpen,
   searchExpandCard,
   searchExpandIndex,
-  searchExpandCommentOpen,
-  searchListCommentOpen,
-  searchListCommentCard,
   searchFeedProgressMap,
   searchFeedLikeBusyId,
   searchFeedPausedMap,
@@ -728,7 +726,6 @@ const {
   shortsFeedPaused,
   shortsFeedAutoplayPending,
   shortsFeedVideoBuffering,
-  shortsCommentPanelOpen,
   shortsPanelTopComments,
   shortsPanelCommentsLoading,
   shortsPanelCommentDraft,
@@ -741,6 +738,13 @@ const {
   shortsLastTimeSec,
   shortsAccVideoId,
 } = storeToRefs(shortsStore);
+/** 评论面板开关在 commentPanelStore：短视频侧栏 / 搜索放大层 / 搜索列表三个入口互斥 */
+const {
+  shortsCommentPanelOpen,
+  searchExpandCommentOpen,
+  searchListCommentOpen,
+  searchListCommentCard,
+} = storeToRefs(useCommentPanelStore());
 const SHORTS_BUFFERING_UI_DELAY_MS = 320;
 let shortsBufferingUITimer = null;
 

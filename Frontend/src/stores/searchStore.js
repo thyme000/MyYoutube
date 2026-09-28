@@ -15,8 +15,8 @@ import { sendPlaybackResumePut } from "../utils/playbackResume.js";
 import { toast as pushToast } from "../utils/toast.js";
 import { useAuthStore } from "./authStore.js";
 import { useBehaviorStore } from "./behaviorStore.js";
+import { useCommentPanelStore } from "./commentPanelStore.js";
 import { useFollowStore } from "./followStore.js";
-import { useShortsStore } from "./shortsStore.js";
 
 export const SEARCH_PAGE_SIZE = 10;
 
@@ -102,11 +102,6 @@ export const useSearchStore = defineStore("search", {
     searchExpandOpen: false,
     searchExpandCard: null,
     searchExpandIndex: 0,
-    searchExpandCommentOpen: false,
-    /** 搜索列表内打开评论（未进全屏放大层） */
-    searchListCommentOpen: false,
-    searchListCommentCard: null,
-    /** 搜索列表每条视频的播放进度（仅列表内预览） */
     searchFeedProgressMap: {},
     searchFeedLikeBusyId: null,
     searchFeedPausedMap: {},
@@ -357,8 +352,9 @@ export const useSearchStore = defineStore("search", {
     },
 
     openSearchExpand(card, index) {
-      this.searchListCommentOpen = false;
-      this.searchListCommentCard = null;
+      const panel = useCommentPanelStore();
+      panel.searchListCommentOpen = false;
+      panel.searchListCommentCard = null;
       expandResumeTickCount = 0;
       expandResumeInFlight = false;
       expandResumeLastSentAtMs = 0;
@@ -485,7 +481,7 @@ export const useSearchStore = defineStore("search", {
 
     closeSearchExpand() {
       this.detachSearchExpandEscape();
-      this.searchExpandCommentOpen = false;
+      useCommentPanelStore().searchExpandCommentOpen = false;
       void this.flushSearchExpandPlaybackResume("leave");
       expandResumeTickCount = 0;
       this.searchExpandOpen = false;
@@ -647,7 +643,7 @@ export const useSearchStore = defineStore("search", {
       expandResumeTickCount = 0;
       this.searchExpandCard = list[i - 1];
       this.searchExpandIndex = i - 1;
-      this.searchExpandCommentOpen = false;
+      useCommentPanelStore().searchExpandCommentOpen = false;
       nextTick(() => this.syncSearchExpandPlayerAfterSwitch());
     },
 
@@ -659,7 +655,7 @@ export const useSearchStore = defineStore("search", {
       expandResumeTickCount = 0;
       this.searchExpandCard = list[i + 1];
       this.searchExpandIndex = i + 1;
-      this.searchExpandCommentOpen = false;
+      useCommentPanelStore().searchExpandCommentOpen = false;
       nextTick(() => this.syncSearchExpandPlayerAfterSwitch());
     },
 
@@ -787,10 +783,11 @@ export const useSearchStore = defineStore("search", {
       if (!this.searchExpandCard?.id) {
         return;
       }
-      useShortsStore().shortsCommentPanelOpen = false;
-      this.searchListCommentOpen = false;
-      this.searchListCommentCard = null;
-      this.searchExpandCommentOpen = !this.searchExpandCommentOpen;
+      const panel = useCommentPanelStore();
+      panel.shortsCommentPanelOpen = false;
+      panel.searchListCommentOpen = false;
+      panel.searchListCommentCard = null;
+      panel.searchExpandCommentOpen = !panel.searchExpandCommentOpen;
     },
   },
 });

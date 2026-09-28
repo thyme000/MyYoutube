@@ -8,7 +8,7 @@ import { computed, inject } from "vue";
 import { storeToRefs } from "pinia";
 import { useSearchStore, SEARCH_UI } from "../stores/searchStore";
 import { useAuthStore } from "../stores/authStore";
-import { useShortsStore } from "../stores/shortsStore";
+import { useCommentPanelStore } from "../stores/commentPanelStore";
 import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar } from "../utils/userProfile";
 import {
   resolveVideoUrl,
@@ -298,7 +298,7 @@ function onSearchFeedListVideoPause(e, cardId) {
 function openSearchListCommentPanel(card, ev) {
   ev?.stopPropagation?.();
   if (!card?.id) return;
-  useShortsStore().shortsCommentPanelOpen = false;
+  useCommentPanelStore().shortsCommentPanelOpen = false;
   searchExpandCommentOpen.value = false;
   searchListCommentCard.value = card;
   searchListCommentOpen.value = true;
