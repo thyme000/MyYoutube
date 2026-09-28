@@ -25,19 +25,11 @@ import { registerLikedHooks } from "./stores/likedStore";
 import {
   resolveVideoUrl,
   videoCardPlayable,
-  cardAuthorAvatar,
   cardCoverSrc,
   formatHomeShortStat,
   formatWorkLikeText,
-  parseSearchTagsArray,
-  formatSearchRelTime,
-  formatShortsTime,
   resolveVideoUrlFromLists,
 } from "./utils/videoCard.js";
-import {
-  formatCommentTime as formatDetailCommentTime,
-  isBlockedComment,
-} from "./utils/comment.js";
 import { getAuthExpiredEventName, getToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
@@ -182,27 +174,13 @@ const {
   searchTagLoadingMore,
   searchAllUserStrip,
   searchResultError,
-  searchExpandScrubMax,
-  searchExpandScrubDisplayValue,
-  searchExpandDurationReady,
-  searchExpandLikedDisplay,
-  searchExpandIsSelf,
-  searchExpandIsFollowed,
   searchExpandOpen,
-  searchExpandCard,
-  searchExpandIndex,
   searchFeedProgressMap,
   searchFeedLikeBusyId,
   searchFeedPausedMap,
   searchFeedListPrefs,
   searchFeedMainVideoById,
   searchFeedMediaWrapById,
-  searchExpandCurrentTime,
-  searchExpandDuration,
-  searchExpandPaused,
-  searchExpandMuted,
-  searchExpandVolume,
-  searchExpandIsPortrait,
 } = storeToRefs(searchStore);
 const searchInputRef = ref(null);
 const searchFeedScrollRef = ref(null);
@@ -570,13 +548,9 @@ const {
   targetFollowed: profileTargetFollowed,
   worksRows: profileWorksRows,
   /** 关注列表同时供「关注」页侧栏与粉丝/关注弹窗使用 */
-  followingRows,
-  followingLoading,
-  followingHasMore,
   mediaPreviewOpen,
   isViewingSelf,
 } = storeToRefs(profileStore);
-const loadFollowingNextPage = () => profileStore.loadRelationNextPage("following");
 
 /** 主页入口：供顶栏、头像与桥接消费；打开动作与状态都在 profileStore */
 const openProfile = () => profileStore.openSelf();
@@ -685,36 +659,11 @@ const {
   unifiedFeedList,
   shortsFeedCurrent,
   activeCommentVideo,
-  activeCommentVideoAllowsComment,
   /** 当前条的展示值：模板与桥直接消费，推导逻辑在 store */
   shortsFeedVideoSrc,
-  shortsFeedLikedDisplay,
-  shortsScrubMax,
-  shortsScrubDisplayValue,
-  shortsDurationReady,
-  shortsFeedAuthorName,
-  shortsFeedMetaTimeText,
-  shortsFeedTitleText,
-  shortsFeedDescText,
-  shortsFeedAuthorAvatar,
-  shortsIsFollowedCurrent,
-  shortsIsSelfCurrent,
   shortsFeedIndex,
-  shortsFeedIsPortrait,
-  shortsFeedDuration,
-  shortsFeedCurrentTime,
-  shortsFeedVolume,
-  shortsFeedMuted,
   shortsFeedPaused,
   shortsFeedAutoplayPending,
-  shortsFeedVideoBuffering,
-  shortsPanelTopComments,
-  shortsPanelCommentsLoading,
-  shortsPanelCommentDraft,
-  shortsPanelCommentSubmitting,
-  shortsPanelReplyTarget,
-  shortsPanelThreadByRootId,
-  shortsPanelExpandedRoots,
   shortsLikeBusy,
   selfVideoActionOpen,
   selfVideoDeleteConfirmOpen,
@@ -735,31 +684,13 @@ const scheduleShortsBufferingOverlay = () => shortsStore.scheduleShortsBuffering
 const hideShortsBufferingOverlay = () => shortsStore.hideShortsBufferingOverlay();
 
 /**
- * 短视频播放控制：实现已移入 shortsStore（DOM ref 仍由本组件持有并注册），
- * 这里保留同名薄封装，使桥、生命周期与详情/主页等域调用点零改动。
+ * 短视频播放控制：实现已移入 shortsStore（播放器 DOM ref 归 ShortsView 持有并注册），
+ * 这里保留同名薄封装，使生命周期与详情/主页等域调用点零改动。
  */
 const shortsFeedPrev = () => shortsStore.shortsFeedPrev();
 const shortsFeedNext = () => shortsStore.shortsFeedNext();
-const onShortsFeedFgLoadStart = () => shortsStore.onShortsFeedFgLoadStart();
-const onShortsFeedFgCanPlay = () => shortsStore.onShortsFeedFgCanPlay();
-const onShortsFeedFgMediaError = () => shortsStore.onShortsFeedFgMediaError();
-const onShortsFeedFgLoadedMetadata = (e) => shortsStore.onShortsFeedFgLoadedMetadata(e);
-const onShortsFeedFgTimeUpdate = (e) => shortsStore.onShortsFeedFgTimeUpdate(e);
-const onShortsFeedFgPlay = () => shortsStore.onShortsFeedFgPlay();
-const onShortsFeedFgPause = () => shortsStore.onShortsFeedFgPause();
-const onShortsFeedFgDurationChange = (e) => shortsStore.onShortsFeedFgDurationChange(e);
-const onShortsFeedFgSeeked = (e) => shortsStore.onShortsFeedFgSeeked(e);
-const onShortsFeedFgEnded = () => shortsStore.onShortsFeedFgEnded();
-const onShortsScrubInput = (e) => shortsStore.onShortsScrubInput(e);
-const onShortsVolumeInput = (e) => shortsStore.onShortsVolumeInput(e);
-const shortsToggleMute = () => shortsStore.shortsToggleMute();
 const shortsTogglePlay = () => shortsStore.shortsTogglePlay();
-const shortsRequestPip = () => shortsStore.shortsRequestPip();
-const shortsRequestFullscreen = () => shortsStore.shortsRequestFullscreen();
 const onShortsFeedKeydown = (ev) => shortsStore.onShortsFeedKeydown(ev);
-const onShortsFeedWheel = (e) => shortsStore.onShortsFeedWheel(e);
-const onShortsFeedTouchStart = (ev) => shortsStore.onShortsFeedTouchStart(ev);
-const onShortsFeedTouchEnd = (ev) => shortsStore.onShortsFeedTouchEnd(ev);
 const pauseShortsFeedVideos = (opts) => shortsStore.pauseShortsFeedVideos(opts);
 const restoreShortsFeedForegroundMuteFromState = () =>
   shortsStore.restoreShortsFeedForegroundMuteFromState();
@@ -767,21 +698,11 @@ const resetShortsFeedProgressUiForSwitch = () => shortsStore.resetShortsFeedProg
 const isLongShortsFeedVideo = (item) => shortsStore.isLongShortsFeedVideo(item);
 const flushShortsLongPlaybackResume = (reason) => shortsStore.flushShortsLongPlaybackResume(reason);
 
-/** 短视频互动：点赞/不感兴趣/关注与自视频三点菜单的实现已移入 shortsStore */
-const onShortsLikeClick = () => shortsStore.onShortsLikeClick();
-const onShortsDislikeClick = () => shortsStore.onShortsDislikeClick();
-const toggleShortsFollow = () => shortsStore.toggleShortsFollow();
-const toggleSelfVideoActionMenu = () => shortsStore.toggleSelfVideoActionMenu();
-const closeSelfVideoActionMenu = () => shortsStore.closeSelfVideoActionMenu();
-const toggleCurrentSelfVideoVisibility = () => shortsStore.toggleCurrentSelfVideoVisibility();
-const toggleCurrentSelfVideoAllowComment = () => shortsStore.toggleCurrentSelfVideoAllowComment();
 
 /** 关注页数据源与侧栏筛选：实现已移入 shortsStore */
 const loadSubscribedFollowVideos = (opts) => shortsStore.loadSubscribedFollowVideos(opts);
 const loadSubscribedAuthorVideos = (authorId, opts) =>
   shortsStore.loadSubscribedAuthorVideos(authorId, opts);
-const selectFollowSidebarAll = () => shortsStore.selectFollowSidebarAll();
-const selectFollowSidebarAuthor = (user) => shortsStore.selectFollowSidebarAuthor(user);
 const maybePrefetchFollowFeed = () => shortsStore.maybePrefetchFollowFeed();
 /** 地址栏 ?v= 与 sessionStorage 恢复详情页（刷新不丢） */
 const VIDEO_URL_PARAM = "v";
@@ -1366,20 +1287,10 @@ async function reloadFeedAfterLeavingDetail() {
   }
 }
 
-/** 短视频评论面板：状态与请求已移入 shortsStore，这里保留同名薄封装供桥调用 */
+/** 短视频评论面板：状态与请求已移入 shortsStore，这里保留同名薄封装供跨域调用 */
 const resetShortsPanelCommentsState = () => shortsStore.resetShortsPanelCommentsState();
-const toggleShortsCommentPanel = () => shortsStore.toggleShortsCommentPanel();
 const closeShortsCommentPanel = () => shortsStore.closeShortsCommentPanel();
 const loadShortsPanelTopComments = (reset, opts) => shortsStore.loadShortsPanelTopComments(reset, opts);
-const shortsPanelCommentHasMore = () => shortsStore.shortsPanelCommentHasMore();
-const loadMoreShortsPanelComments = () => shortsStore.loadMoreShortsPanelComments();
-const toggleShortsPanelThread = (rootId) => shortsStore.toggleShortsPanelThread(rootId);
-const setShortsPanelReplyTarget = (row) => shortsStore.setShortsPanelReplyTarget(row);
-const submitShortsPanelComment = () => shortsStore.submitShortsPanelComment();
-const onDeleteShortsPanelComment = (c) => shortsStore.onDeleteShortsPanelComment(c);
-const commentDisplayNickname = (userId, nickname) => shortsStore.commentDisplayNickname(userId, nickname);
-const isCommentLikeBusy = (id) => shortsStore.isCommentLikeBusy(id);
-const submitCommentLike = (row) => shortsStore.submitCommentLike(row);
 function onWindowResize() {
   viewportWidth.value = window.innerWidth || 1440;
 }
@@ -2572,8 +2483,6 @@ watch(
   },
 );
 
-/** 删除当前自视频：实现已移入 shortsStore（与创作中心共用同一份确认状态） */
-const requestDeleteCurrentSelfVideo = () => shortsStore.requestDeleteCurrentSelfVideo();
 const cancelDeleteCurrentSelfVideo = () => shortsStore.cancelDeleteCurrentSelfVideo();
 const confirmDeleteCurrentSelfVideo = () => shortsStore.confirmDeleteCurrentSelfVideo();
 
@@ -3459,34 +3368,11 @@ async function toggleSearchUserFollow(u) {
   }
 }
 
-/** 搜索全屏放大层：播放控制是命令式的，实现已移入 searchStore，这里保留同名薄封装供桥与生命周期调用 */
-const searchExpandVideoUrl = () => searchStore.searchExpandVideoUrl();
+/** 搜索全屏放大层：播放控制是命令式的，实现已移入 searchStore，这里保留同名薄封装供生命周期调用 */
 const openSearchExpand = (card, index) => searchStore.openSearchExpand(card, index);
 const closeSearchExpand = () => searchStore.closeSearchExpand();
 const flushSearchExpandPlaybackResume = (reason) => searchStore.flushSearchExpandPlaybackResume(reason);
-const toggleSearchExpandPlay = () => searchStore.toggleSearchExpandPlay();
-const toggleSearchExpandCommentPanel = () => searchStore.toggleSearchExpandCommentPanel();
-const toggleSearchExpandFollow = () => searchStore.toggleSearchExpandFollow();
-const onSearchExpandFgPlay = () => searchStore.onSearchExpandFgPlay();
-const onSearchExpandFgPause = () => searchStore.onSearchExpandFgPause();
-const onSearchExpandFgSeeked = (e) => searchStore.onSearchExpandFgSeeked(e);
-const onSearchExpandVideoTimeUpdate = (e) => searchStore.onSearchExpandVideoTimeUpdate(e);
-const onSearchExpandVideoLoadedMetadata = (e) => searchStore.onSearchExpandVideoLoadedMetadata(e);
-const onSearchExpandScrubInput = (e) => searchStore.onSearchExpandScrubInput(e);
-const onSearchExpandVolumeInput = (e) => searchStore.onSearchExpandVolumeInput(e);
-const onSearchExpandLikeClick = () => searchStore.onSearchExpandLikeClick();
-const onSearchExpandDislikeClick = () => searchStore.onSearchExpandDislikeClick();
-const onSearchExpandShareClick = () => searchStore.onSearchExpandShareClick();
-const onSearchExpandForwardClick = () => searchStore.onSearchExpandForwardClick();
-const searchExpandRequestPip = () => searchStore.searchExpandRequestPip();
-const searchExpandRequestFullscreen = () => searchStore.searchExpandRequestFullscreen();
-const searchExpandToggleMute = () => searchStore.searchExpandToggleMute();
-const searchExpandPrev = () => searchStore.searchExpandPrev();
-const searchExpandNext = () => searchStore.searchExpandNext();
 
-/** 转发取当前短视频，举报弹窗直接落到 shareStore；ShortsView 仍按原名从桥取用 */
-const onShortsForwardClick = () => shortsStore.onShortsForwardClick();
-const openCommentReportModal = (comment) => share.openCommentReport(comment);
 
 watch(searchActive, (v) => {
   if (!v && searchExpandOpen.value) closeSearchExpand();
@@ -3496,144 +3382,6 @@ watch(searchActive, (v) => {
   }
 });
 
-/** ShortsView 残余桥: 状态/函数/DOM ref 全量注入(ref 直传保持响应式) */
-provide("shortsBridge", {
-  activeCommentVideo,
-  activeCommentVideoAllowsComment,
-  activeMenuKey,
-  cardAuthorAvatar,
-  closeProfileFeed,
-  closeSearchExpand,
-  closeShortsCommentPanel,
-  commentDisplayNickname,
-  currentUserId,
-  feedScope,
-  followSubscribedFilterAuthorId,
-  followingHasMore,
-  followingLoading,
-  followingRows,
-  formatDetailCommentTime,
-  formatSearchRelTime,
-  formatShortsTime,
-  isAuthed,
-  isBlockedComment,
-  isCommentLikeBusy,
-  loadFollowingNextPage,
-  loadMoreShortsPanelComments,
-  loading,
-  onDeleteShortsPanelComment,
-  onSearchExpandDislikeClick,
-  onSearchExpandFgPause,
-  onSearchExpandFgPlay,
-  onSearchExpandFgSeeked,
-  onSearchExpandForwardClick,
-  onSearchExpandLikeClick,
-  onSearchExpandScrubInput,
-  onSearchExpandShareClick,
-  onSearchExpandVideoLoadedMetadata,
-  onSearchExpandVideoTimeUpdate,
-  onSearchExpandVolumeInput,
-  onSearchTagNavigate,
-  onShortsDislikeClick,
-  onShortsFeedFgCanPlay,
-  onShortsFeedFgDurationChange,
-  onShortsFeedFgEnded,
-  onShortsFeedFgLoadStart,
-  onShortsFeedFgLoadedMetadata,
-  onShortsFeedFgMediaError,
-  onShortsFeedFgPause,
-  onShortsFeedFgPlay,
-  onShortsFeedFgSeeked,
-  onShortsFeedFgTimeUpdate,
-  onShortsFeedTouchEnd,
-  onShortsFeedTouchStart,
-  onShortsFeedWheel,
-  onShortsForwardClick,
-  onShortsLikeClick,
-  onShortsScrubInput,
-  onShortsVolumeInput,
-  onTopbarAvatarError,
-  openCommentReportModal,
-  parseSearchTagsArray,
-  profileFeedOpen,
-  requestDeleteCurrentSelfVideo,
-  searchActive,
-  searchExpandCard,
-  searchExpandCommentOpen,
-  searchExpandCurrentTime,
-  searchExpandDuration,
-  searchExpandDurationReady,
-  searchExpandIndex,
-  searchExpandIsFollowed,
-  searchExpandIsPortrait,
-  searchExpandIsSelf,
-  searchExpandLikedDisplay,
-  searchExpandMuted,
-  searchExpandNext,
-  searchExpandOpen,
-  searchExpandPaused,
-  searchExpandPrev,
-  searchExpandRequestFullscreen,
-  searchExpandRequestPip,
-  searchExpandScrubDisplayValue,
-  searchExpandScrubMax,
-  searchExpandToggleMute,
-  searchExpandVideoUrl,
-  searchExpandVolume,
-  searchListCommentOpen,
-  selectFollowSidebarAll,
-  selectFollowSidebarAuthor,
-  selfVideoActionOpen,
-  setShortsPanelReplyTarget,
-  shortsCommentPanelOpen,
-  shortsDurationReady,
-  shortsFeedAuthorAvatar,
-  shortsFeedAuthorName,
-  shortsFeedCurrent,
-  shortsFeedCurrentTime,
-  shortsFeedDescText,
-  shortsFeedDuration,
-  shortsFeedIsPortrait,
-  shortsFeedLikedDisplay,
-  shortsFeedMetaTimeText,
-  shortsFeedMuted,
-  shortsFeedNext,
-  shortsFeedPaused,
-  shortsFeedPrev,
-  shortsFeedTitleText,
-  shortsFeedVideoBuffering,
-  shortsFeedVideoSrc,
-  shortsFeedVolume,
-  shortsIsFollowedCurrent,
-  shortsIsSelfCurrent,
-  shortsPanelCommentDraft,
-  shortsPanelCommentHasMore,
-  shortsPanelCommentSubmitting,
-  shortsPanelCommentsLoading,
-  shortsPanelExpandedRoots,
-  shortsPanelReplyTarget,
-  shortsPanelThreadByRootId,
-  shortsPanelTopComments,
-  shortsRequestFullscreen,
-  shortsRequestPip,
-  shortsScrubDisplayValue,
-  shortsScrubMax,
-  shortsToggleMute,
-  shortsTogglePlay,
-  showProfileCenter,
-  submitCommentLike,
-  submitShortsPanelComment,
-  toggleCurrentSelfVideoAllowComment,
-  toggleCurrentSelfVideoVisibility,
-  toggleSearchExpandCommentPanel,
-  toggleSearchExpandFollow,
-  toggleSearchExpandPlay,
-  toggleSelfVideoActionMenu,
-  toggleShortsCommentPanel,
-  toggleShortsFollow,
-  toggleShortsPanelThread,
-  topbarAvatarSrc,
-});
 /** HomeView 残余桥: 短视频条滚动加载/进短视频流/卡片进详情仍依赖 App 级逻辑 */
 provide("homeBridge", {
   showProfileCenter,

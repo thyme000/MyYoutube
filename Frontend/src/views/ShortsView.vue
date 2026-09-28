@@ -1,20 +1,191 @@
 <script setup>
 /**
- * 短视频域：沉浸 feed(短视频/关注/全屏队列)、共享评论面板、搜索全屏放大层。
- * 过渡期：状态/函数仍经 App.vue provide 的 shortsBridge 注入；
- * DOM ref 与依赖它们的本地处理已归本组件，桥后续继续收敛为 store 直连。
+ * 短视频域：沉浸 feed（短视频/关注/全屏队列）、共享评论面板、搜索全屏放大层。
+ * 状态与动作全部直接取自各域 store；本组件只保留 DOM ref 与本地交互处理。
  */
-import { inject, ref } from "vue";
+import { ref } from "vue";
 import { storeToRefs } from "pinia";
 import { registerShortsFeedPlayerRefs, useShortsStore } from "../stores/shortsStore";
-import { registerSearchExpandRefs } from "../stores/searchStore";
+import { registerSearchExpandRefs, useSearchStore } from "../stores/searchStore";
+import { useAuthStore } from "../stores/authStore";
+import { useCommentPanelStore } from "../stores/commentPanelStore";
+import { useHomeStore } from "../stores/homeStore";
+import { useNavigationStore } from "../stores/navigationStore";
 import { useProfileStore } from "../stores/profileStore";
-import { insertGlyphIntoCommentDraft } from "../utils/comment.js";
-import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar } from "../utils/userProfile";
+import { useShareStore } from "../stores/shareStore";
+import {
+  formatCommentTime as formatDetailCommentTime,
+  insertGlyphIntoCommentDraft,
+  isBlockedComment,
+} from "../utils/comment.js";
+import {
+  applyAvatarFallback,
+  DEFAULT_PROFILE_AVATAR_URL as profileAvatar,
+} from "../utils/userProfile";
+import {
+  cardAuthorAvatar,
+  formatSearchRelTime,
+  formatShortsTime,
+  parseSearchTagsArray,
+} from "../utils/videoCard.js";
 
 const shortsStore = useShortsStore();
+const searchStore = useSearchStore();
+const commentPanelStore = useCommentPanelStore();
 const profileStore = useProfileStore();
-const { shortsFeedPlayToken, shortsPanelCommentDraft } = storeToRefs(shortsStore);
+const authStore = useAuthStore();
+const homeStore = useHomeStore();
+const navigationStore = useNavigationStore();
+const shareStore = useShareStore();
+
+const {
+  activeCommentVideo,
+  activeCommentVideoAllowsComment,
+  feedScope,
+  followSubscribedFilterAuthorId,
+  profileFeedOpen,
+  selfVideoActionOpen,
+  shortsDurationReady,
+  shortsFeedAuthorAvatar,
+  shortsFeedAuthorName,
+  shortsFeedCurrent,
+  shortsFeedCurrentTime,
+  shortsFeedDescText,
+  shortsFeedDuration,
+  shortsFeedIsPortrait,
+  shortsFeedLikedDisplay,
+  shortsFeedMetaTimeText,
+  shortsFeedMuted,
+  shortsFeedPaused,
+  shortsFeedTitleText,
+  shortsFeedVideoBuffering,
+  shortsFeedVideoSrc,
+  shortsFeedVolume,
+  shortsIsFollowedCurrent,
+  shortsIsSelfCurrent,
+  shortsPanelCommentDraft,
+  shortsPanelCommentSubmitting,
+  shortsPanelCommentsLoading,
+  shortsPanelExpandedRoots,
+  shortsPanelReplyTarget,
+  shortsPanelThreadByRootId,
+  shortsPanelTopComments,
+  shortsScrubDisplayValue,
+  shortsScrubMax,
+} = storeToRefs(shortsStore);
+
+const {
+  searchActive,
+  searchExpandCard,
+  searchExpandCurrentTime,
+  searchExpandDuration,
+  searchExpandDurationReady,
+  searchExpandIndex,
+  searchExpandIsFollowed,
+  searchExpandIsPortrait,
+  searchExpandIsSelf,
+  searchExpandLikedDisplay,
+  searchExpandMuted,
+  searchExpandOpen,
+  searchExpandPaused,
+  searchExpandScrubDisplayValue,
+  searchExpandScrubMax,
+  searchExpandVolume,
+} = storeToRefs(searchStore);
+
+const { shortsCommentPanelOpen, searchListCommentOpen, searchExpandCommentOpen } =
+  storeToRefs(commentPanelStore);
+const {
+  open: showProfileCenter,
+  followingRows,
+  followingLoading,
+  followingHasMore,
+} = storeToRefs(profileStore);
+const {
+  userId: currentUserId,
+  isAuthed,
+  selfAvatarUrl: topbarAvatarSrc,
+} = storeToRefs(authStore);
+const { loading } = storeToRefs(homeStore);
+const { activeMenuKey } = storeToRefs(navigationStore);
+
+// store action 与 store 绑定，可直接解构；带括号调用的函数型接口（如 searchExpandVideoUrl）
+// 在 store 里就是 action，不能写成 getter
+const {
+  closeProfileFeed,
+  closeShortsCommentPanel,
+  commentDisplayNickname,
+  isCommentLikeBusy,
+  loadMoreShortsPanelComments,
+  onDeleteShortsPanelComment,
+  onShortsDislikeClick,
+  onShortsFeedFgCanPlay,
+  onShortsFeedFgDurationChange,
+  onShortsFeedFgEnded,
+  onShortsFeedFgLoadStart,
+  onShortsFeedFgLoadedMetadata,
+  onShortsFeedFgMediaError,
+  onShortsFeedFgPause,
+  onShortsFeedFgPlay,
+  onShortsFeedFgSeeked,
+  onShortsFeedFgTimeUpdate,
+  onShortsFeedTouchEnd,
+  onShortsFeedTouchStart,
+  onShortsFeedWheel,
+  onShortsForwardClick,
+  onShortsLikeClick,
+  onShortsScrubInput,
+  onShortsVolumeInput,
+  requestDeleteCurrentSelfVideo,
+  selectFollowSidebarAll,
+  selectFollowSidebarAuthor,
+  setShortsPanelReplyTarget,
+  shortsFeedNext,
+  shortsFeedPrev,
+  shortsPanelCommentHasMore,
+  shortsRequestFullscreen,
+  shortsRequestPip,
+  shortsToggleMute,
+  shortsTogglePlay,
+  submitCommentLike,
+  submitShortsPanelComment,
+  toggleCurrentSelfVideoAllowComment,
+  toggleCurrentSelfVideoVisibility,
+  toggleSelfVideoActionMenu,
+  toggleShortsCommentPanel,
+  toggleShortsFollow,
+  toggleShortsPanelThread,
+} = shortsStore;
+
+const {
+  closeSearchExpand,
+  onSearchExpandDislikeClick,
+  onSearchExpandFgPause,
+  onSearchExpandFgPlay,
+  onSearchExpandFgSeeked,
+  onSearchExpandForwardClick,
+  onSearchExpandLikeClick,
+  onSearchExpandScrubInput,
+  onSearchExpandShareClick,
+  onSearchExpandVideoLoadedMetadata,
+  onSearchExpandVideoTimeUpdate,
+  onSearchExpandVolumeInput,
+  searchExpandNext,
+  searchExpandPrev,
+  searchExpandRequestFullscreen,
+  searchExpandRequestPip,
+  searchExpandToggleMute,
+  searchExpandVideoUrl,
+  toggleSearchExpandCommentPanel,
+  toggleSearchExpandFollow,
+  toggleSearchExpandPlay,
+} = searchStore;
+
+/** 模板沿用的名字与 store 成员名不一致，这里保留原名薄封装 */
+const loadFollowingNextPage = () => profileStore.loadRelationNextPage("following");
+const onSearchTagNavigate = (tag) => navigationStore.navigateToTag(tag);
+const openCommentReportModal = (comment) => shareStore.openCommentReport(comment);
+const onTopbarAvatarError = (evt) => applyAvatarFallback(evt, profileAvatar);
 
 /**
  * 模板 ref= 绑定的元素对象必须留在本组件；播放器与放大层要命令式控制，
@@ -55,143 +226,6 @@ function onShortsPanelCommentUserClick(ev, userId) {
   }
   onAuthorAvatarClick(ev, userId);
 }
-
-const {
-  activeCommentVideo,
-  activeCommentVideoAllowsComment,
-  activeMenuKey,
-  cardAuthorAvatar,
-  closeProfileFeed,
-  closeSearchExpand,
-  closeShortsCommentPanel,
-  commentDisplayNickname,
-  currentUserId,
-  feedScope,
-  followSubscribedFilterAuthorId,
-  followingHasMore,
-  followingLoading,
-  followingRows,
-  formatDetailCommentTime,
-  formatSearchRelTime,
-  formatShortsTime,
-  isAuthed,
-  isBlockedComment,
-  isCommentLikeBusy,
-  loadFollowingNextPage,
-  loadMoreShortsPanelComments,
-  loading,
-  onDeleteShortsPanelComment,
-  onSearchExpandDislikeClick,
-  onSearchExpandFgPause,
-  onSearchExpandFgPlay,
-  onSearchExpandFgSeeked,
-  onSearchExpandForwardClick,
-  onSearchExpandLikeClick,
-  onSearchExpandScrubInput,
-  onSearchExpandShareClick,
-  onSearchExpandVideoLoadedMetadata,
-  onSearchExpandVideoTimeUpdate,
-  onSearchExpandVolumeInput,
-  onSearchTagNavigate,
-  onShortsDislikeClick,
-  onShortsFeedFgCanPlay,
-  onShortsFeedFgDurationChange,
-  onShortsFeedFgEnded,
-  onShortsFeedFgLoadStart,
-  onShortsFeedFgLoadedMetadata,
-  onShortsFeedFgMediaError,
-  onShortsFeedFgPause,
-  onShortsFeedFgPlay,
-  onShortsFeedFgSeeked,
-  onShortsFeedFgTimeUpdate,
-  onShortsFeedTouchEnd,
-  onShortsFeedTouchStart,
-  onShortsFeedWheel,
-  onShortsForwardClick,
-  onShortsLikeClick,
-  onShortsScrubInput,
-  onShortsVolumeInput,
-  onTopbarAvatarError,
-  openCommentReportModal,
-  parseSearchTagsArray,
-  profileFeedOpen,
-  requestDeleteCurrentSelfVideo,
-  searchActive,
-  searchExpandCard,
-  searchExpandCommentOpen,
-  searchExpandCurrentTime,
-  searchExpandDuration,
-  searchExpandDurationReady,
-  searchExpandIndex,
-  searchExpandIsFollowed,
-  searchExpandIsPortrait,
-  searchExpandIsSelf,
-  searchExpandLikedDisplay,
-  searchExpandMuted,
-  searchExpandNext,
-  searchExpandOpen,
-  searchExpandPaused,
-  searchExpandPrev,
-  searchExpandRequestFullscreen,
-  searchExpandRequestPip,
-  searchExpandScrubDisplayValue,
-  searchExpandScrubMax,
-  searchExpandToggleMute,
-  searchExpandVideoUrl,
-  searchExpandVolume,
-  searchListCommentOpen,
-  selectFollowSidebarAll,
-  selectFollowSidebarAuthor,
-  selfVideoActionOpen,
-  setShortsPanelReplyTarget,
-  shortsCommentPanelOpen,
-  shortsDurationReady,
-  shortsFeedAuthorAvatar,
-  shortsFeedAuthorName,
-  shortsFeedCurrent,
-  shortsFeedCurrentTime,
-  shortsFeedDescText,
-  shortsFeedDuration,
-  shortsFeedIsPortrait,
-  shortsFeedLikedDisplay,
-  shortsFeedMetaTimeText,
-  shortsFeedMuted,
-  shortsFeedNext,
-  shortsFeedPaused,
-  shortsFeedPrev,
-  shortsFeedTitleText,
-  shortsFeedVideoBuffering,
-  shortsFeedVideoSrc,
-  shortsFeedVolume,
-  shortsIsFollowedCurrent,
-  shortsIsSelfCurrent,
-  shortsPanelCommentHasMore,
-  shortsPanelCommentSubmitting,
-  shortsPanelCommentsLoading,
-  shortsPanelExpandedRoots,
-  shortsPanelReplyTarget,
-  shortsPanelThreadByRootId,
-  shortsPanelTopComments,
-  shortsRequestFullscreen,
-  shortsRequestPip,
-  shortsScrubDisplayValue,
-  shortsScrubMax,
-  shortsToggleMute,
-  shortsTogglePlay,
-  showProfileCenter,
-  submitCommentLike,
-  submitShortsPanelComment,
-  toggleCurrentSelfVideoAllowComment,
-  toggleCurrentSelfVideoVisibility,
-  toggleSearchExpandCommentPanel,
-  toggleSearchExpandFollow,
-  toggleSearchExpandPlay,
-  toggleSelfVideoActionMenu,
-  toggleShortsCommentPanel,
-  toggleShortsFollow,
-  toggleShortsPanelThread,
-  topbarAvatarSrc,
-} = inject("shortsBridge");
 </script>
 
 <template>
