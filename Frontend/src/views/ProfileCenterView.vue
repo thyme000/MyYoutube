@@ -4,10 +4,7 @@
  * 过渡期：状态/函数/DOM ref 经 App.vue provide 的 profileBridge 注入。
  */
 import { inject } from "vue";
-import {
-  DEFAULT_PROFILE_AVATAR_URL as profileAvatar,
-  DEFAULT_PROFILE_BG_URL as profileBanner,
-} from "../utils/userProfile";
+import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar } from "../utils/userProfile";
 
 const {
   activePreviewVideoUrl,
