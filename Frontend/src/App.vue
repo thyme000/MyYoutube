@@ -60,7 +60,6 @@ import {
   mergePicturesToVideo,
   getMergePictureJobStatus,
   reportShortHistoryBatch,
-  deleteMyVideo,
 } from "./api/videoApi";
 import {
   fetchSearchHot,
@@ -510,7 +509,13 @@ function onLoginCubesAnimFinished() {
 const authMessage = ref("");
 const activeAuthTab = ref("login");
 const authStore = useAuthStore();
-const { token, userId: currentUserId, selfProfile: selfUserProfile } = storeToRefs(authStore);
+/** isAuthed / topbarAvatarSrc 直接取 authStore 的 getter，不再在 App 里重复推导 */
+const {
+  userId: currentUserId,
+  selfProfile: selfUserProfile,
+  isAuthed,
+  selfAvatarUrl: topbarAvatarSrc,
+} = storeToRefs(authStore);
 /** 创作中心域状态在 pinia studioStore */
 const hoverPreview = useHoverPreviewStore();
 const {
@@ -565,7 +570,6 @@ const registerForm = ref({
 
 const loginCaptchaPreview = ref("");
 const registerCaptchaPreview = ref("");
-const isAuthed = computed(() => Boolean(token.value));
 
 const showLoginPassword = ref(false);
 const showRegisterPassword = ref(false);
@@ -744,6 +748,8 @@ const {
   shortsPanelExpandedRoots,
   shortsLikeBusy,
   selfVideoActionOpen,
+  selfVideoDeleteConfirmOpen,
+  pendingDeleteVideoId,
   shortsPlaybackAccSec,
   shortsLastTimeSec,
   shortsAccVideoId,
@@ -867,9 +873,6 @@ const {
   likedLoading,
   likedLoadingMore,
 } = storeToRefs(useLikedStore());
-const selfVideoDeleteConfirmOpen = ref(false);
-/** 删除确认弹窗对应的视频 id（创作中心 / 短视频流共用） */
-const pendingDeleteVideoId = ref(null);
 /** 创作中心表格行「更多」菜单 */
 const toasts = ref([]);
 let toastSeed = 0;
@@ -1246,9 +1249,6 @@ const selfDisplayNickname = computed(() => {
   }
   return "未命名用户";
 });
-
-/** 顶栏「我」头像：始终为当前登录用户，不随他人主页 profileUser 变化 */
-const topbarAvatarSrc = computed(() => authStore.selfAvatarUrl);
 
 /** 仅当 id 为纯数字字符串时可用于 /videos/detail/{id}，全程用字符串避免精度丢失 */
 function parseVideoIdForApi(id) {
@@ -2648,68 +2648,15 @@ watch(
   },
 );
 
-function requestDeleteCurrentSelfVideo() {
-  if (!shortsIsSelfCurrent.value) {
-    pushToast("只能删除自己的视频", "info");
-    return;
-  }
-  const cur = shortsFeedCurrent.value;
-  if (!cur?.id) return;
-  closeSelfVideoActionMenu();
-  pendingDeleteVideoId.value = String(cur.id);
-  selfVideoDeleteConfirmOpen.value = true;
-}
-
-function cancelDeleteCurrentSelfVideo() {
-  selfVideoDeleteConfirmOpen.value = false;
-  pendingDeleteVideoId.value = null;
-}
-
-/** 删除后从各列表移除：实现已移入 feedPatchStore */
-const removeVideoFromAllClientLists = (targetId) => feedPatch.removeVideoById(targetId);
-
-async function confirmDeleteCurrentSelfVideo() {
-  const rawId = pendingDeleteVideoId.value;
-  if (!rawId) {
-    selfVideoDeleteConfirmOpen.value = false;
-    return;
-  }
-  try {
-    await deleteMyVideo(rawId);
-  } catch (e) {
-    pushToast(e?.message || "删除失败", "error");
-    return;
-  }
-  selfVideoDeleteConfirmOpen.value = false;
-  pendingDeleteVideoId.value = null;
-  const targetId = String(rawId);
-  removeVideoFromAllClientLists(targetId);
-
-  if (feedScope.value === "profile" && !profileFeedQueue.value.length) {
-    closeProfileFeed();
-    pushToast("已删除该视频", "success");
-    return;
-  }
-  if (feedScope.value === "liked" && !likedFeedQueue.value.length) {
-    closeProfileFeed();
-    pushToast("已删除该视频", "success");
-    return;
-  }
-  const list = unifiedFeedList.value;
-  if (shortsFeedIndex.value >= list.length) {
-    shortsFeedIndex.value = Math.max(0, list.length - 1);
-  }
-  nextTick(() => {
-    shortsFeedFgRef.value?.load();
-    shortsFeedBgRef.value?.load();
-  });
-  pushToast("已删除该视频", "success");
-}
+/** 删除当前自视频：实现已移入 shortsStore（与创作中心共用同一份确认状态） */
+const requestDeleteCurrentSelfVideo = () => shortsStore.requestDeleteCurrentSelfVideo();
+const cancelDeleteCurrentSelfVideo = () => shortsStore.cancelDeleteCurrentSelfVideo();
+const confirmDeleteCurrentSelfVideo = () => shortsStore.confirmDeleteCurrentSelfVideo();
 
 function onStudioRowRequestDelete(row) {
   if (!row?.id) return;
-  pendingDeleteVideoId.value = String(row.id);
-  selfVideoDeleteConfirmOpen.value = true;
+  shortsStore.pendingDeleteVideoId = String(row.id);
+  shortsStore.selfVideoDeleteConfirmOpen = true;
   closeStudioRowMenu();
 }
 
@@ -3020,34 +2967,8 @@ function onLikedWorkClick(item) {
   void openLikedWorkFeed(item);
 }
 
-function closeProfileFeed() {
-  void flushShortsLongPlaybackResume("leave");
-  pauseShortsFeedVideos({ muteForeground: true });
-  try {
-    const fg = shortsFeedFgRef.value;
-    const bg = shortsFeedBgRef.value;
-    if (fg) {
-      fg.removeAttribute("src");
-      fg.load();
-    }
-    if (bg) {
-      bg.removeAttribute("src");
-      bg.load();
-    }
-  } catch {
-    /* ignore */
-  }
-  selfVideoActionOpen.value = false;
-  selfVideoDeleteConfirmOpen.value = false;
-  pendingDeleteVideoId.value = null;
-  shortsCommentPanelOpen.value = false;
-  profileFeedOpen.value = false;
-  feedScope.value = "shorts";
-  profileFeedQueue.value = [];
-  likedFeedQueue.value = [];
-  followFeedQueue.value = [];
-  shortsStore.resetShortsLongResumeState();
-}
+/** 退出全屏流：实现已移入 shortsStore */
+const closeProfileFeed = () => shortsStore.closeProfileFeed();
 
 function onProfileFeedKeydown(ev) {
   if (ev.key === "Escape") {
@@ -4014,6 +3935,7 @@ registerShortsHooks({
   bumpPlayToken: () => {
     shortsFeedPlayToken += 1;
   },
+  removeVideoById: (id) => feedPatch.removeVideoById(id),
 });
 
 /** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，跨列表关注/短视频历史/举报转发弹窗都在 App */

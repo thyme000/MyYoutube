@@ -36,6 +36,7 @@ import {
   normalizeVideoDetail,
   fetchFollowVideoFeedPage,
   fetchOtherUserVideos,
+  deleteMyVideo,
   setMyVideoPrivate,
   setMyVideoPublic,
   openMyVideoComment,
@@ -99,6 +100,8 @@ const hooks = {
   getPlayToken: () => 0,
   /** 代次自增由 App 持有该变量，store 只请求推进 */
   bumpPlayToken: () => {},
+  /** 删除视频后从各列表移除（feedPatchStore 负责广播） */
+  removeVideoById: () => {},
 };
 
 export function registerShortsHooks(next = {}) {
@@ -153,6 +156,10 @@ export const useShortsStore = defineStore("shorts", {
     shortsLikeBusy: false,
     /** 自己的视频在全屏短视频里显示更多操作（三点） */
     selfVideoActionOpen: false,
+    /** 删除确认弹窗：短视频流与创作中心表格共用同一份确认状态 */
+    selfVideoDeleteConfirmOpen: false,
+    /** 删除确认弹窗对应的视频 id（创作中心 / 短视频流共用） */
+    pendingDeleteVideoId: null,
     /** 顺播累计秒数 + 当前条 id */
     shortsPlaybackAccSec: 0,
     shortsLastTimeSec: null,
@@ -980,6 +987,91 @@ export const useShortsStore = defineStore("shorts", {
       } catch (e) {
         pushToast(e?.message || "操作失败", "error");
       }
+    },
+
+    // ===== 删除当前自视频 / 退出全屏流 =====
+
+    requestDeleteCurrentSelfVideo() {
+      if (!this.shortsIsSelfCurrent) {
+        pushToast("只能删除自己的视频", "info");
+        return;
+      }
+      const cur = this.shortsFeedCurrent;
+      if (!cur?.id) return;
+      this.closeSelfVideoActionMenu();
+      this.pendingDeleteVideoId = String(cur.id);
+      this.selfVideoDeleteConfirmOpen = true;
+    },
+
+    cancelDeleteCurrentSelfVideo() {
+      this.selfVideoDeleteConfirmOpen = false;
+      this.pendingDeleteVideoId = null;
+    },
+
+    async confirmDeleteCurrentSelfVideo() {
+      const rawId = this.pendingDeleteVideoId;
+      if (!rawId) {
+        this.selfVideoDeleteConfirmOpen = false;
+        return;
+      }
+      try {
+        await deleteMyVideo(rawId);
+      } catch (e) {
+        pushToast(e?.message || "删除失败", "error");
+        return;
+      }
+      this.selfVideoDeleteConfirmOpen = false;
+      this.pendingDeleteVideoId = null;
+      hooks.removeVideoById(String(rawId));
+
+      // 当前队列被删空时没有可播的了，直接退出全屏流
+      const scopeEmpty =
+        (this.feedScope === "profile" && !this.profileFeedQueue.length) ||
+        (this.feedScope === "liked" && !this.likedFeedQueue.length);
+      if (scopeEmpty) {
+        this.closeProfileFeed();
+        pushToast("已删除该视频", "success");
+        return;
+      }
+      const list = this.unifiedFeedList;
+      if (this.shortsFeedIndex >= list.length) {
+        this.shortsFeedIndex = Math.max(0, list.length - 1);
+      }
+      nextTick(() => {
+        playerRefs.fg?.value?.load();
+        playerRefs.bg?.value?.load();
+      });
+      pushToast("已删除该视频", "success");
+    },
+
+    /** 退出全屏流：停播并清空队列，复位面板与续播节流状态 */
+    closeProfileFeed() {
+      void this.flushShortsLongPlaybackResume("leave");
+      this.pauseShortsFeedVideos({ muteForeground: true });
+      try {
+        const fg = playerRefs.fg?.value;
+        const bg = playerRefs.bg?.value;
+        if (fg) {
+          fg.removeAttribute("src");
+          fg.load();
+        }
+        if (bg) {
+          bg.removeAttribute("src");
+          bg.load();
+        }
+      } catch {
+        /* ignore */
+      }
+      this.selfVideoActionOpen = false;
+      this.selfVideoDeleteConfirmOpen = false;
+      this.pendingDeleteVideoId = null;
+      useCommentPanelStore().shortsCommentPanelOpen = false;
+      this.profileFeedOpen = false;
+      this.feedScope = "shorts";
+      this.profileFeedQueue = [];
+      this.likedFeedQueue = [];
+      this.followFeedQueue = [];
+      this.resetShortsLongResumeState();
     },
 
     // ===== 关注页：全部动态 / 按作者筛选 =====
