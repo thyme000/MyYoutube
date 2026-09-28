@@ -1,3 +1,4 @@
+// @ts-check
 /** 由 App.vue 在 setup 中调用 registerGlobalToast，子组件可 import { toast } */
 
 let impl = (message, type) => {

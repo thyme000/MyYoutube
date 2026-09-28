@@ -1,3 +1,4 @@
+// @ts-check
 import { getToken } from "../api/http";
 
 /** 长视频续播上报（详情页与搜索全屏层共用），静默失败不影响播放体验 */

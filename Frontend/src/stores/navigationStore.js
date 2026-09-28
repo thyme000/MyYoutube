@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 导航域状态：当前主菜单 key / 标题、页面提示文案，以及「按标签跳搜索」这类跨域导航编排。
  * 原先散在 App.vue 且被 SearchView / ShortsView / HomeView 共用，故独立成 store。

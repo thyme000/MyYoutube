@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 个人主页域：自己/他人主页的资料、作品、头像与背景裁剪、关注关系、粉丝/关注列表。
  * 打开主页需要收起搜索、创作中心、详情等 App 级遮罩，这类宿主能力经 registerProfileHooks 注入。
@@ -45,17 +46,33 @@ const AVATAR_BOX_PX = 110;
 const FULL_FRAME = { L: 0, T: 0, W: 1, H: 1 };
 const RETURN_CTX_STORAGE_KEY = "myyoutube_profile_return_ctx_v1";
 
+/**
+ * @type {{
+ *   prepareOpen: () => any,
+ *   pushHistory: (targetUserId: string) => void,
+ *   openWorkFeed: (item: any) => void,
+ *   patchAuthorFollow: (authorId: any, isFollow: boolean) => void,
+ * }}
+ */
 const hooks = {
   /** 打开主页前收起 App 级遮罩，返回可恢复的现场快照 */
   prepareOpen: () => null,
   /** 写入 history state，使浏览器后退能退出主页 */
-  pushHistory: null,
+  pushHistory: () => {},
   /** 作品卡进入全屏短视频流（shorts 域） */
-  openWorkFeed: null,
+  openWorkFeed: () => {},
   /** 跨列表同步同一作者的 isFollow */
-  patchAuthorFollow: null,
+  patchAuthorFollow: () => {},
 };
 
+/**
+ * @param {{
+ *   prepareOpen?: () => any,
+ *   pushHistory?: (targetUserId: string) => void,
+ *   openWorkFeed?: (item: any) => void,
+ *   patchAuthorFollow?: (authorId: any, isFollow: boolean) => void,
+ * }} [injected]
+ */
 export function registerProfileHooks({ prepareOpen, pushHistory, openWorkFeed, patchAuthorFollow } = {}) {
   if (prepareOpen) hooks.prepareOpen = prepareOpen;
   if (pushHistory) hooks.pushHistory = pushHistory;
@@ -206,6 +223,7 @@ export const useProfileStore = defineStore("profile", {
       if (!u) return "加载中…";
       return u.nickName?.trim() || u.username?.trim() || "未命名用户";
     },
+    /** @returns {string} */
     introDisplayText(state) {
       const t = state.user?.introduction?.trim();
       if (t) return t;
@@ -219,15 +237,20 @@ export const useProfileStore = defineStore("profile", {
       if (state.bgImgError) return defaultBg;
       return sanitizeImageUrl(state.user?.bgImage) || defaultBg;
     },
+    /** @returns {string} */
     mediaPreviewSrc(state) {
       if (state.pendingCropUrl) return state.pendingCropUrl;
       return state.mediaPreviewType === "avatar" ? this.displayAvatar : this.displayBg;
     },
+    /** @returns {boolean} */
     avatarImgUsePrecise(state) {
       if (!this.isViewingSelf || isCropFullFrame(state.cropRectAvatar)) return false;
       return state.avatarNaturalSize.w > 0 && state.avatarNaturalSize.h > 0;
     },
-    /** scale = 展示框宽 / 选区像素宽，再平移使选区左上角对齐容器左上角 */
+    /**
+     * scale = 展示框宽 / 选区像素宽，再平移使选区左上角对齐容器左上角
+     * @returns {Record<string, string>}
+     */
     avatarImgStyle(state) {
       if (!this.avatarImgUsePrecise) return {};
       const { L, T, W } = state.cropRectAvatar;
@@ -242,11 +265,13 @@ export const useProfileStore = defineStore("profile", {
         maxWidth: "none",
       };
     },
+    /** @returns {boolean} */
     heroImgUsePrecise(state) {
       if (!this.isViewingSelf || isCropFullFrame(state.cropRectBg)) return false;
       const { w: nw, h: nh } = state.bgNaturalSize;
       return nw > 0 && nh > 0 && state.heroSize.w > 0 && state.heroSize.h > 0;
     },
+    /** @returns {Record<string, string>} */
     heroImgStyle(state) {
       if (!this.heroImgUsePrecise) return {};
       const { L, T, W } = state.cropRectBg;

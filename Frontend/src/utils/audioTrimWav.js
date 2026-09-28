@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 从 URL 拉取音频 → decode → 截取 [startSec, endSec) → 导出 16bit PCM WAV（供幻灯片等上传对象存储）
  */
@@ -66,7 +67,10 @@ export async function trimUrlToWavFile(url, startSec, endSec, fileName) {
     throw new Error(`下载音频失败（HTTP ${res.status}），请检查解析地址是否允许跨域`);
   }
   const ab = await res.arrayBuffer();
-  const Ctx = window.AudioContext || window.webkitAudioContext;
+  // webkitAudioContext 是 Safari 旧前缀，DOM 类型定义里没有
+  const Ctx = /** @type {typeof AudioContext} */ (
+    window.AudioContext || /** @type {any} */ (window).webkitAudioContext
+  );
   const ctx = new Ctx();
   let decoded;
   try {

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 「赞过的视频」域状态：GET /like/{userId}/list 的分页数据。
  * App.vue 过渡期用 storeToRefs 同名解构引用；拆 LikedView 时随之整体搬出。

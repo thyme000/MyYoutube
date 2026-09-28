@@ -1,3 +1,4 @@
+// @ts-check
 /** 发布时间到「x分钟前」文案：短视频流、详情与卡片共用同一套粒度 */
 export function formatRelativeTimeText(raw) {
   if (!raw) return "";

@@ -1,3 +1,4 @@
+// @ts-check
 /** 从悬浮会话条跳转到全屏聊天并选中会话（由 App.vue 注册实现） */
 let impl = null;
 

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 搜索域状态：关键词、分页结果、下拉联想、列表内预览与全屏放大层。
  * 全屏放大层的播放控制是命令式的（PIP / 全屏 / 音量 / 拖动），所以播放器 DOM ref 由宿主经
@@ -33,9 +34,13 @@ export const SEARCH_UI = {
   searchError: "搜索失败，请检查网络后重试",
 };
 
-/** 放大层播放器 DOM ref（app 内单例，模块级持有不入 store） */
+/**
+ * 放大层播放器 DOM ref（app 内单例，模块级持有不入 store）
+ * @type {{ main: any, blur: any, stage: any }}
+ */
 const expandRefs = { main: null, blur: null, stage: null };
 
+/** @param {{ main?: any, blur?: any, stage?: any }} [refs] */
 export function registerSearchExpandRefs({ main, blur, stage } = {}) {
   if (main) expandRefs.main = main;
   if (blur) expandRefs.blur = blur;
@@ -49,6 +54,14 @@ let expandResumeTickCount = 0;
 let expandResumeInFlight = false;
 let expandResumeLastSentAtMs = 0;
 
+/**
+ * @type {{
+ *   teardownSearchVideoObserver: () => void,
+ *   setupSearchVideoAutoplay: () => void,
+ *   patchFeedVideoById: (id: any, patch: any) => void,
+ *   patchAuthorFollow: (authorId: any, isFollow: boolean) => void,
+ * }}
+ */
 const hooks = {
   /** 打开放大层要停掉搜索结果列表里的内联预览播放器 */
   teardownSearchVideoObserver: () => {},
@@ -64,6 +77,9 @@ export function registerSearchExpandHooks(next = {}) {
     if (typeof fn === "function") hooks[key] = fn;
   }
 }
+
+/** 列表加载完成后的观察器钩子，宿主注册；非响应式，不入 state */
+let loadedHook = null;
 
 export const useSearchStore = defineStore("search", {
   state: () => ({
@@ -186,11 +202,11 @@ export const useSearchStore = defineStore("search", {
 
     /** 列表加载完成后的视图层钩子（观察器依赖 App.vue 的 DOM 引用），由宿主注册 */
     registerLoadedHook(fn) {
-      this._loadedHook = typeof fn === "function" ? fn : null;
+      loadedHook = typeof fn === "function" ? fn : null;
     },
     _notifyLoaded() {
-      if (this._loadedHook) {
-        nextTick(() => this._loadedHook());
+      if (loadedHook) {
+        nextTick(() => loadedHook?.());
       }
     },
 
@@ -387,7 +403,7 @@ export const useSearchStore = defineStore("search", {
       nextTick(() => {
         document.querySelectorAll(".search-feed-slide .search-feed-video").forEach((v) => {
           try {
-            v.pause();
+            /** @type {HTMLVideoElement} */ (v).pause();
           } catch {
             /* ignore */
           }

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 预签名 PUT 直传 RustFS（视频 work、聊天 chat，与后端 /storage/presign 一致）。
  */

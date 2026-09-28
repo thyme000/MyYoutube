@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 首页 feed 域状态：混合流卡片、首页短视频行、长视频分页与分类/排序。
  * App.vue 过渡期用 storeToRefs 同名解构引用；拆 HomeView 时随之整体搬出。

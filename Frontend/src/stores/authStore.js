@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 认证态：token 与当前用户。token 持久化走 api/http.js（localStorage myyoutube_token）。
  */

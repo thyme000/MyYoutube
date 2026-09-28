@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 短视频播放器域状态：沉浸 feed 播放态、播放控制与进度上报、评论侧栏，
  * 以及被历史/赞过/个人主页/关注复用的全屏队列（feedScope 区分数据源）。
@@ -86,12 +87,21 @@ let longResumeLastSentAtMs = 0;
 let longResumeTickCount = 0;
 let longResumeAppliedVideoId = "";
 
+/**
+ * @type {{
+ *   patchFeedVideoById: (id: any, patch: any) => void,
+ *   patchAuthorFollow: (authorId: any, isFollow: boolean) => void,
+ *   isShortsMenuActive: () => boolean,
+ *   isSubscribedMenuActive: () => boolean,
+ *   removeVideoById: (id: string) => void,
+ * }}
+ */
 const hooks = {
   /** 跨多份列表同步点赞数/评论数 */
   patchFeedVideoById: () => {},
-    /** 跨列表同步同一作者的 isFollow */
-    patchAuthorFollow: () => {},
-    /** 当前是否停留在短视频 Tab（shorts / subscribed）——菜单状态机仍在 App */
+  /** 跨列表同步同一作者的 isFollow */
+  patchAuthorFollow: () => {},
+  /** 当前是否停留在短视频 Tab（shorts / subscribed）——菜单状态机仍在 App */
   isShortsMenuActive: () => false,
   /** 当前是否停留在「关注」Tab——关注态判定要区分全部动态与按作者筛选 */
   isSubscribedMenuActive: () => false,
@@ -167,7 +177,10 @@ export const useShortsStore = defineStore("shorts", {
   }),
 
   getters: {
-    /** 全屏流当前队列：feedScope 决定数据源，首页/默认流读 homeStore */
+    /**
+     * 全屏流当前队列：feedScope 决定数据源，首页/默认流读 homeStore
+     * @returns {any[]}
+     */
     unifiedFeedList: (s) => {
       if (s.feedScope === "profile") return s.profileFeedQueue;
       if (s.feedScope === "liked") return s.likedFeedQueue;
@@ -180,13 +193,17 @@ export const useShortsStore = defineStore("shorts", {
       if (s.feedScope === "home") return home.homeShortsRows;
       return home.cards;
     },
+    /** @returns {any} */
     shortsFeedCurrent() {
       const list = this.unifiedFeedList;
       if (!list.length) return null;
       const i = Math.min(Math.max(0, this.shortsFeedIndex), list.length - 1);
       return list[i];
     },
-    /** 评论侧栏：短视频流、搜索全屏放大或搜索列表共用同一套列表与接口 */
+    /**
+     * 评论侧栏：短视频流、搜索全屏放大或搜索列表共用同一套列表与接口
+     * @returns {any}
+     */
     activeCommentVideo() {
       const panel = useCommentPanelStore();
       const search = useSearchStore();
@@ -198,18 +215,21 @@ export const useShortsStore = defineStore("shorts", {
       }
       return this.shortsFeedCurrent;
     },
+    /** @returns {boolean} */
     activeCommentVideoAllowsComment() {
       return Number(this.activeCommentVideo?.allowComment ?? 1) === 1;
     },
 
     // ===== 当前条的展示值（模板直接消费，避免在视图里重复推导） =====
 
+    /** @returns {string} */
     shortsFeedVideoSrc() {
       return resolveVideoUrl(this.shortsFeedCurrent);
     },
     /**
      * 普通流看接口 isLike；赞过列表后端可能不传该字段，默认视为已赞，
      * 仅当本地明确 patch 为 isLike === false（取消赞）时显示空心。
+     * @returns {boolean}
      */
     shortsFeedLikedDisplay() {
       const cur = this.shortsFeedCurrent;
@@ -224,6 +244,7 @@ export const useShortsStore = defineStore("shorts", {
     /**
      * 进度条 max：duration 未就绪时若给 0，而 currentTime 仍是上一段或中间值，
      * 原生 range 会把滑块钳到最右，看起来像「暂停就跳到结尾」或闪烁。
+     * @returns {number}
      */
     shortsScrubMax() {
       const d = Number(this.shortsFeedDuration);
@@ -232,6 +253,7 @@ export const useShortsStore = defineStore("shorts", {
       }
       return 1;
     },
+    /** @returns {number} */
     shortsScrubDisplayValue() {
       const t = Number(this.shortsFeedCurrentTime);
       const d = Number(this.shortsFeedDuration);
@@ -243,10 +265,12 @@ export const useShortsStore = defineStore("shorts", {
       }
       return 0;
     },
+    /** @returns {boolean} */
     shortsDurationReady() {
       const d = Number(this.shortsFeedDuration);
       return Number.isFinite(d) && d > 0;
     },
+    /** @returns {string} */
     shortsFeedAuthorName() {
       const c = this.shortsFeedCurrent;
       const nick = stripUserIdLikeName(c?.authorNickname) || stripUserIdLikeName(c?.author);
@@ -272,16 +296,22 @@ export const useShortsStore = defineStore("shorts", {
       }
       return "创作者";
     },
+    /** @returns {string} */
     shortsFeedMetaTimeText() {
       return formatRelativeTimeText(this.shortsFeedCurrent?.createTime || "");
     },
+    /** @returns {string} */
     shortsFeedTitleText() {
       return this.shortsFeedCurrent?.title || "未命名主题";
     },
+    /** @returns {string} */
     shortsFeedDescText() {
       return this.shortsFeedCurrent?.description || this.shortsFeedCurrent?.title || "";
     },
-    /** 关注 Tab：与左侧关注列表同一套 avatarDisplaySrc，避免视频 VO 里作者头像与侧栏不一致/糊片 */
+    /**
+     * 关注 Tab：与左侧关注列表同一套 avatarDisplaySrc，避免视频 VO 里作者头像与侧栏不一致/糊片
+     * @returns {string}
+     */
     shortsFeedAuthorAvatar() {
       const c = this.shortsFeedCurrent;
       if (!c) {
@@ -320,6 +350,7 @@ export const useShortsStore = defineStore("shorts", {
       }
       return defaultAuthorAvatar;
     },
+    /** @returns {boolean} */
     shortsIsFollowedCurrent() {
       const c = this.shortsFeedCurrent;
       if (!c?.authorId) {
@@ -343,6 +374,7 @@ export const useShortsStore = defineStore("shorts", {
       }
       return Boolean(c.isFollow);
     },
+    /** @returns {boolean} */
     shortsIsSelfCurrent() {
       const authorId = this.shortsFeedCurrent?.authorId;
       const selfId = useAuthStore().userId;
@@ -1114,7 +1146,7 @@ export const useShortsStore = defineStore("shorts", {
       const sources = [
         useProfileStore().worksRows,
         useHomeStore().cards,
-        useLikedStore().rows,
+        useLikedStore().likedRows,
       ];
       return (Array.isArray(list) ? list : [])
         .map((x) => {

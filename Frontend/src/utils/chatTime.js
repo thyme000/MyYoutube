@@ -1,3 +1,4 @@
+// @ts-check
 function pad2(n) {
   return String(Math.trunc(n)).padStart(2, "0");
 }

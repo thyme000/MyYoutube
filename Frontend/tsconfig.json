@@ -10,6 +10,8 @@
     },
     "jsx": "preserve",
     "allowJs": true,
+    // 渐进式类型检查：全局保持 false，由各文件首行 `// @ts-check` 自行开启。
+    // 已全量开启的目录：src/utils、src/stores；src/api 与各 .vue 留待后续增量。
     "checkJs": false,
     "noEmit": true,
     "isolatedModules": true,

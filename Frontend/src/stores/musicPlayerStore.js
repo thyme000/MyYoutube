@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 全局音乐播放状态：切换侧栏「音乐」以外的界面时队列与播放不丢失。
  * 队列最多 20 首，超出时按 FIFO 移除最早一首。
@@ -472,7 +473,11 @@ function sanitizeMusicError(err) {
   return raw.replace(/<[^>]*>/g, "").trim().slice(0, 240) || "请求失败";
 }
 
-/** 解析服务返回后入队并播放（队列满时先 FIFO 丢队首） */
+/**
+ * 解析服务返回后入队并播放（队列满时先 FIFO 丢队首）
+ * @param {any} row
+ * @param {{ onError?: (msg: string) => void }} [opts]
+ */
 export async function playCloudTrackFromSearch(row, { onError } = {}) {
   if (!row?.id) return;
   const sid = String(row.id);

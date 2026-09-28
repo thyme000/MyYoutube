@@ -1,3 +1,4 @@
+// @ts-check
 import { nextTick } from "vue";
 
 /** 本人评论显示「我」，需显式传入当前登录用户 id 做比较 */

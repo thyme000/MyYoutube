@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 创作中心域：侧栏/tab/作品列表/行内菜单与操作。
  * loadProfileUser（App）与 patchFeedVideoById（跨列表同步）经注册钩子注入；

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 历史播放记录域状态：长视频与短视频两个列表的分页数据。
  * App.vue 过渡期用 storeToRefs 同名解构引用；拆 HistoryView 时随之整体搬出。

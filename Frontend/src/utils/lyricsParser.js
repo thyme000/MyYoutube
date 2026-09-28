@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 解析 LRC / 增强 LRC（行内 <mm:ss.xx> 逐字时间戳）为统一结构。
  * QRC 等为二进制，此处不支持；可改用纯文本 LRC。
@@ -77,7 +78,7 @@ export function parseLyricsText(raw) {
     if (!m) continue;
     const timeMs = parseTimeTriple(m[1], m[2], m[3]);
     const rest = m[4] || "";
-    const parsed = parseWordsInLine(rest, timeMs);
+    const parsed = parseWordsInLine(rest);
     lines.push({
       timeMs,
       text: parsed.text || rest.replace(/<\d{2}:\d{2}(?:\.\d{2,3})?>/g, "").trim(),

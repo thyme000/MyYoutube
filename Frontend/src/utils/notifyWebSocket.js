@@ -1,3 +1,4 @@
+// @ts-check
 import { buildNotifyWebSocketUrl, getToken } from "../api/http";
 
 let socket = null;

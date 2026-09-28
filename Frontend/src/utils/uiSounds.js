@@ -1,3 +1,4 @@
+// @ts-check
 import notificationSoundUrl from "../../static/notification.mp3?url";
 import sendSoundUrl from "../../static/send.mp3?url";
 

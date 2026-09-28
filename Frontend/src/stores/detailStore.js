@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 视频详情域：播放器状态机、长视频续播上报、评论区、作者作品侧栏、URL/sessionStorage 现场恢复。
  * 详情页会收起搜索/创作中心/短视频流等 App 级遮罩，并需要跨列表同步关注态，这类宿主能力经 registerDetailHooks 注入。
@@ -37,6 +38,15 @@ export const detailSidebarTabs = [
   { key: "short", label: "短视频" },
 ];
 
+/**
+ * @type {{
+ *   pauseShortsFeed: () => void,
+ *   closeProfileFeedIfOpen: () => void,
+ *   closeUploadModal: () => void,
+ *   patchAuthorFollow: (authorId: any, isFollow: boolean) => void,
+ *   onSearchTagNavigate: (tag: any) => void,
+ * }}
+ */
 const hooks = {
   /** 打开详情前停掉后台短视频音频（浏览器可能继续播放隐藏元素） */
   pauseShortsFeed: () => {},
