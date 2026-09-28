@@ -6,6 +6,8 @@
 import { computed, inject } from "vue";
 import { storeToRefs } from "pinia";
 import { useLikedStore } from "../stores/likedStore";
+import { useHoverPreviewStore, cardPreviewKey } from "../stores/hoverPreviewStore";
+import { resolveVideoUrl, formatHomeShortStat, formatWorkLikeText } from "../utils/videoCard.js";
 import { useAuthStore } from "../stores/authStore";
 import {
   sanitizeImageUrl,
@@ -14,17 +16,20 @@ import {
 } from "../utils/userProfile";
 
 const bridge = inject("cardsBridge");
-const { likedRows, likedTotal, likedLoading, likedLoadingMore, likedPageNo, likedPages } = storeToRefs(useLikedStore());
+const likedStore = useLikedStore();
+const { likedRows, likedTotal, likedLoading, likedLoadingMore, likedPageNo, likedPages } = storeToRefs(likedStore);
 const { isAuthed } = storeToRefs(useAuthStore());
+const hoverPreview = useHoverPreviewStore();
+const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
 
 const likedDisplay = computed(() => {
   return likedRows.value.map((item) => ({
     id: item.id,
     title: item.title || "未命名视频",
     image: item.coverUrl || item.avatarUrl || profileBanner,
-    likes: bridge.formatWorkLikeText(item),
+    likes: formatWorkLikeText(item),
     playCount: item.playCount,
-    videoUrl: bridge.resolveVideoUrl(item),
+    videoUrl: resolveVideoUrl(item),
     authorNickname: item.authorNickname || item.author || "",
     description: item.description || "",
     tags: item.tags || "",
@@ -35,17 +40,9 @@ const likedDisplay = computed(() => {
 });
 const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0));
 
-const {
-  onLikedWorkClick,
-  loadLikedPage,
-  onAuthorAvatarClick,
-  onCardHoverEnter,
-  onCardHoverLeave,
-  isCardPreviewPlaying,
-  activePreviewVideoUrl,
-  resolveVideoUrl,
-  formatHomeShortStat,
-} = bridge;
+
+/** 残余桥: 进他人主页(App 级 overlay)与赞过连播(App 级列表查找) */
+const { onAuthorAvatarClick, onLikedWorkClick } = bridge;
 </script>
 
 <template>
@@ -76,12 +73,12 @@ const {
                 class="work-card"
                 :class="{ 'work-card--playable': resolveVideoUrl(item) }"
                 @click="onLikedWorkClick(item)"
-                @mouseenter="onCardHoverEnter(item, 'liked-work')"
-                @mouseleave="onCardHoverLeave(item, 'liked-work')"
+                @mouseenter="hoverPreview.enter(item, 'liked-work')"
+                @mouseleave="hoverPreview.leave(item, 'liked-work')"
               >
                 <div class="work-thumb">
                   <video
-                    v-if="isCardPreviewPlaying(item, 'liked-work')"
+                    v-if="hoverPreview.activeId === cardPreviewKey(item, 'liked-work')"
                     class="work-preview-video"
                     :src="activePreviewVideoUrl"
                     muted
@@ -120,7 +117,7 @@ const {
                 type="button"
                 class="history-layout-btn"
                 :disabled="likedLoadingMore"
-                @click="loadLikedPage({ reset: false })"
+                @click="likedStore.load({ reset: false })"
               >
                 {{ likedLoadingMore ? "加载中…" : "加载更多" }}
               </button>

@@ -6,6 +6,14 @@
 import { inject } from "vue";
 import { storeToRefs } from "pinia";
 import { useHistoryStore } from "../stores/historyStore";
+import { useHoverPreviewStore, cardPreviewKey } from "../stores/hoverPreviewStore";
+import {
+  videoCardPlayable,
+  cardAuthorAvatar,
+  cardCoverSrc,
+  cardAuthorLabel,
+  formatHomeShortStat,
+} from "../utils/videoCard.js";
 
 const bridge = inject("cardsBridge");
 const {
@@ -20,27 +28,11 @@ const {
   historyShortPages,
   historyShortExpanded,
 } = storeToRefs(useHistoryStore());
+const historyStore = useHistoryStore();
+const hoverPreview = useHoverPreviewStore();
 
-const {
-  cardAuthorAvatar,
-  cardAuthorLabel,
-  cardCoverSrc,
-  onAuthorAvatarClick,
-  onCardHoverEnter,
-  onCardHoverLeave,
-  isCardPreviewPlaying,
-  activePreviewVideoUrl,
-  videoCardPlayable,
-  formatHomeShortStat,
-  onHistoryLongCardClick,
-  onHistoryLongPrevPage,
-  onHistoryLongNextPage,
-  toggleHistoryLongExpanded,
-  onHistoryShortCardClick,
-  onHistoryShortPrevPage,
-  onHistoryShortNextPage,
-  toggleHistoryShortExpanded,
-} = bridge;
+/** 残余桥: 进他人主页(App 级 overlay) */
+const { onAuthorAvatarClick } = bridge;
 </script>
 
 <template>
@@ -53,7 +45,7 @@ const {
               <div class="history-section-head">
                 <h4>长视频历史记录</h4>
                 <div class="history-pager">
-                  <button type="button" class="history-layout-btn" :disabled="historyLongPageNo <= 1" @click="onHistoryLongPrevPage">
+                  <button type="button" class="history-layout-btn" :disabled="historyLongPageNo <= 1" @click="historyStore.longPrevPage">
                     上一页
                   </button>
                   <span>{{ historyLongPageNo }} / {{ Math.max(1, historyLongPages || 1) }}</span>
@@ -61,7 +53,7 @@ const {
                     type="button"
                     class="history-layout-btn"
                     :disabled="historyLongPageNo >= (historyLongPages || 1)"
-                    @click="onHistoryLongNextPage"
+                    @click="historyStore.longNextPage"
                   >
                     下一页
                   </button>
@@ -81,12 +73,12 @@ const {
                   :key="`history-long-${card.id}-${index}`"
                   class="video-card history-long-card"
                   :class="{ 'video-card--playable': videoCardPlayable(card) }"
-                  @click="onHistoryLongCardClick(card, index)"
-                  @mouseenter="onCardHoverEnter(card, 'history-long')"
-                  @mouseleave="onCardHoverLeave(card, 'history-long')"
+                  @click="historyStore.openLongCard(card, index)"
+                  @mouseenter="hoverPreview.enter(card, 'history-long')"
+                  @mouseleave="hoverPreview.leave(card, 'history-long')"
                 >
                   <video
-                    v-if="isCardPreviewPlaying(card, 'history-long')"
+                    v-if="hoverPreview.activeId === cardPreviewKey(card, 'history-long')"
                     class="video-cover video-cover--preview"
                     :src="activePreviewVideoUrl"
                     muted
@@ -114,7 +106,7 @@ const {
                 </article>
               </div>
               <div class="history-section-foot">
-                <button type="button" class="history-expand-btn" @click="toggleHistoryLongExpanded">
+                <button type="button" class="history-expand-btn" @click="historyStore.toggleLongExpanded">
                   <i class="ri-arrow-down-s-line"></i>{{ historyLongExpanded ? "收起" : "展开" }}
                 </button>
               </div>
@@ -124,7 +116,7 @@ const {
               <div class="history-section-head">
                 <h4>短视频历史记录</h4>
                 <div class="history-pager">
-                  <button type="button" class="history-layout-btn" :disabled="historyShortPageNo <= 1" @click="onHistoryShortPrevPage">
+                  <button type="button" class="history-layout-btn" :disabled="historyShortPageNo <= 1" @click="historyStore.shortPrevPage">
                     上一页
                   </button>
                   <span>{{ historyShortPageNo }} / {{ Math.max(1, historyShortPages || 1) }}</span>
@@ -132,7 +124,7 @@ const {
                     type="button"
                     class="history-layout-btn"
                     :disabled="historyShortPageNo >= (historyShortPages || 1)"
-                    @click="onHistoryShortNextPage"
+                    @click="historyStore.shortNextPage"
                   >
                     下一页
                   </button>
@@ -151,13 +143,13 @@ const {
                   v-for="(card, index) in historyShortRows"
                   :key="`history-short-${card.id}-${index}`"
                   class="home-short-card"
-                  @click="onHistoryShortCardClick(card, index)"
-                  @mouseenter="onCardHoverEnter(card, 'history-short')"
-                  @mouseleave="onCardHoverLeave(card, 'history-short')"
+                  @click="historyStore.openShortCard(card, index)"
+                  @mouseenter="hoverPreview.enter(card, 'history-short')"
+                  @mouseleave="hoverPreview.leave(card, 'history-short')"
                 >
                   <div class="home-short-media">
                     <video
-                      v-if="isCardPreviewPlaying(card, 'history-short')"
+                      v-if="hoverPreview.activeId === cardPreviewKey(card, 'history-short')"
                       class="home-short-cover home-short-cover--video video-cover--preview"
                       :src="activePreviewVideoUrl"
                       muted
@@ -182,7 +174,7 @@ const {
                 </article>
               </div>
               <div class="history-section-foot">
-                <button type="button" class="history-expand-btn" @click="toggleHistoryShortExpanded">
+                <button type="button" class="history-expand-btn" @click="historyStore.toggleShortExpanded">
                   <i class="ri-arrow-down-s-line"></i>{{ historyShortExpanded ? "收起" : "展开" }}
                 </button>
               </div>

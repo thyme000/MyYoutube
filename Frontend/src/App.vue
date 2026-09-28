@@ -10,6 +10,18 @@ import { useLikedStore, LIKED_PAGE_SIZE } from "./stores/likedStore";
 import { useHomeStore } from "./stores/homeStore";
 import { useShortsStore } from "./stores/shortsStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
+import { useHoverPreviewStore, cardPreviewKey } from "./stores/hoverPreviewStore";
+import { registerShortsFeedPlayerRefs } from "./stores/shortsStore";
+import { registerLikedHooks } from "./stores/likedStore";
+import {
+  resolveVideoUrl,
+  videoCardPlayable,
+  cardAuthorAvatar,
+  cardCoverSrc,
+  cardAuthorLabel,
+  formatHomeShortStat,
+  formatWorkLikeText,
+} from "./utils/videoCard.js";
 import { getApiBaseUrl, getAuthExpiredEventName, getToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
@@ -777,10 +789,6 @@ const homeLongHasMore = computed(() => homeLongPageNo.value < (homeLongPages.val
 const homeLongLoadLock = ref(false);
 /** 离开首页或打开个人中心前保存，回到首页时可无请求恢复，减少列表跳动 */
 const homeFeedSnapshot = ref(null);
-const hoveringPreviewCardId = ref("");
-const activePreviewCardId = ref("");
-const activePreviewVideoUrl = ref("");
-let hoverPreviewTimer = null;
 const authLoading = ref(false);
 /** 登录成功后全屏 LOADING 立方体动画，与首屏数据加载并行 */
 const showLoginLoadingOverlay = ref(false);
@@ -795,6 +803,26 @@ const activeAuthTab = ref("login");
 const authStore = useAuthStore();
 const { token } = storeToRefs(authStore);
 /** 创作中心域状态在 pinia studioStore */
+const hoverPreview = useHoverPreviewStore();
+const {
+  hoveringId: hoveringPreviewCardId,
+  activeId: activePreviewCardId,
+  videoUrl: activePreviewVideoUrl,
+} = storeToRefs(hoverPreview);
+
+function stopCardHoverPreview() {
+  hoverPreview.stop();
+}
+function onCardHoverEnter(card, listKey = "") {
+  hoverPreview.enter(card, listKey);
+}
+function onCardHoverLeave(card, listKey = "") {
+  hoverPreview.leave(card, listKey);
+}
+function isCardPreviewPlaying(card, listKey = "") {
+  return hoverPreview.activeId === cardPreviewKey(card, listKey);
+}
+
 const studioStore = useStudioStore();
 const {
   showStudio: studioShow,
@@ -1203,37 +1231,7 @@ const toasts = ref([]);
 let toastSeed = 0;
 
 /** 首页 Shorts 卡片：播放量 / 点赞展示 */
-function formatHomeShortStat(v) {
-  if (v === undefined || v === null || v === "") {
-    return "0";
-  }
-  const num = Number(v);
-  if (!Number.isFinite(num)) {
-    return "0";
-  }
-  if (num >= 10000) {
-    return `${(num / 10000).toFixed(1)}万`;
-  }
-  return String(num);
-}
 
-function formatWorkLikeText(item) {
-  const v = item?.likeCount ?? item?.likes;
-  if (v === undefined || v === null || v === "") {
-    return "—";
-  }
-  if (typeof v === "string" && /[万千]/.test(v)) {
-    return v;
-  }
-  const num = Number(v);
-  if (!Number.isFinite(num)) {
-    return "—";
-  }
-  if (num >= 10000) {
-    return `${(num / 10000).toFixed(1)}万`;
-  }
-  return String(num);
-}
 
 const profileWorksDisplay = computed(() => {
   const base = profileWorksRows.value.map((item) => ({
@@ -2490,52 +2488,11 @@ function hasPlayReported(videoId) {
   return reportedPlayReportedSet.value.has(behaviorPlayReportKey(videoId));
 }
 
-function clearPreviewTimer() {
-  if (hoverPreviewTimer) {
-    clearTimeout(hoverPreviewTimer);
-    hoverPreviewTimer = null;
-  }
-}
 
-function stopCardHoverPreview() {
-  clearPreviewTimer();
-  hoveringPreviewCardId.value = "";
-  activePreviewCardId.value = "";
-  activePreviewVideoUrl.value = "";
-}
 
-function cardPreviewKey(card, listKey = "") {
-  return `${listKey}:${String(card?.id ?? "")}`;
-}
 
-function isCardPreviewPlaying(card, listKey = "") {
-  return activePreviewCardId.value && activePreviewCardId.value === cardPreviewKey(card, listKey);
-}
 
-function onCardHoverEnter(card, listKey = "") {
-  const url = resolveVideoUrl(card);
-  if (!url) return;
-  const key = cardPreviewKey(card, listKey);
-  clearPreviewTimer();
-  hoveringPreviewCardId.value = key;
-  hoverPreviewTimer = setTimeout(() => {
-    if (hoveringPreviewCardId.value !== key) return;
-    activePreviewCardId.value = key;
-    activePreviewVideoUrl.value = url;
-  }, 500);
-}
 
-function onCardHoverLeave(card, listKey = "") {
-  const key = cardPreviewKey(card, listKey);
-  if (hoveringPreviewCardId.value === key) {
-    hoveringPreviewCardId.value = "";
-  }
-  if (activePreviewCardId.value === key) {
-    stopCardHoverPreview();
-  } else {
-    clearPreviewTimer();
-  }
-}
 
 async function reportBehaviorSilently(videoIdLike, event, watchDurationMs = 0) {
   if (!isAuthed.value) return;
@@ -2592,35 +2549,9 @@ function shouldRecordShortsWatchHistory(item) {
   return item != null && !isLongVideoItem(item);
 }
 
-function cardAuthorAvatar(card, index) {
-  const raw = card?.authorAvatarUrl ?? card?.avatarUrl ?? "";
-  const trimmed = String(raw).trim();
-  if (!trimmed) {
-    return profileAvatar;
-  }
-  const u = sanitizeImageUrl(trimmed);
-  return u || profileAvatar;
-}
 
-function cardCoverSrc(card, index) {
-  return card?.coverUrl || card?.avatarUrl || profileBanner;
-}
 
 /** 列表/侧栏与详情同一套昵称：优先接口 authorNickname，否则用已拼好的 author */
-function cardAuthorLabel(card) {
-  if (!card) {
-    return "";
-  }
-  const nick = card.authorNickname;
-  if (typeof nick === "string" && nick.trim()) {
-    return nick.trim();
-  }
-  const a = card.author;
-  if (typeof a === "string" && a.trim()) {
-    return a.trim();
-  }
-  return "—";
-}
 
 function videoIdsEqual(a, b) {
   if (a == null || b == null) {
@@ -4232,126 +4163,16 @@ function onHomeShortCardClick(card, index) {
   openHomeShortVideoInFeed(card, index);
 }
 
-async function loadHistoryShortsPage({ reset = false } = {}) {
-  if (!isAuthed.value) return;
-  if (historyShortLoading.value) return;
-  historyShortLoading.value = true;
-  try {
-    const targetPage = reset ? 1 : historyShortPageNo.value;
-    const pageSize = historyShortExpanded.value ? 15 : 5;
-    const res = await fetchShortHistoryPage({
-      pageNo: targetPage,
-      pageSize,
-    });
-    const nextList = Array.isArray(res.list) ? res.list : [];
-    historyShortRows.value = nextList;
-    historyShortPages.value = Number(res.pages || 0);
-    if (reset) {
-      historyShortPageNo.value = 1;
-    }
-  } catch {
-    historyShortRows.value = [];
-    historyShortPageNo.value = 1;
-    historyShortPages.value = 0;
-  } finally {
-    historyShortLoading.value = false;
-  }
-}
 
-async function loadHistoryLongPage({ reset = false } = {}) {
-  if (!isAuthed.value) return;
-  if (historyLongLoading.value) return;
-  historyLongLoading.value = true;
-  try {
-    const targetPage = reset ? 1 : historyLongPageNo.value;
-    const pageSize = historyLongExpanded.value ? 9 : 3;
-    const res = await fetchLongHistoryPage({
-      pageNo: targetPage,
-      pageSize,
-    });
-    const nextList = Array.isArray(res.list) ? res.list : [];
-    historyLongRows.value = nextList;
-    historyLongPages.value = Number(res.pages || 0);
-    if (reset) {
-      historyLongPageNo.value = 1;
-    }
-  } catch {
-    historyLongRows.value = [];
-    historyLongPageNo.value = 1;
-    historyLongPages.value = 0;
-  }
-  historyLongLoading.value = false;
-}
 
-async function toggleHistoryLongExpanded() {
-  historyLongExpanded.value = !historyLongExpanded.value;
-  historyLongPageNo.value = 1;
-  await loadHistoryLongPage({ reset: true });
-}
 
-async function toggleHistoryShortExpanded() {
-  historyShortExpanded.value = !historyShortExpanded.value;
-  historyShortPageNo.value = 1;
-  await loadHistoryShortsPage({ reset: true });
-}
 
-async function onHistoryLongPrevPage() {
-  if (historyLongPageNo.value <= 1 || historyLongLoading.value) return;
-  historyLongPageNo.value -= 1;
-  await loadHistoryLongPage();
-}
 
-async function onHistoryLongNextPage() {
-  if (historyLongPageNo.value >= (historyLongPages.value || 1) || historyLongLoading.value) return;
-  historyLongPageNo.value += 1;
-  await loadHistoryLongPage();
-}
 
-async function onHistoryShortPrevPage() {
-  if (historyShortPageNo.value <= 1 || historyShortLoading.value) return;
-  historyShortPageNo.value -= 1;
-  await loadHistoryShortsPage();
-}
 
-async function onHistoryShortNextPage() {
-  if (historyShortPageNo.value >= (historyShortPages.value || 1) || historyShortLoading.value) return;
-  historyShortPageNo.value += 1;
-  await loadHistoryShortsPage();
-}
 
-function onHistoryShortCardClick(card, index) {
-  if (!card) return;
-  openHistoryFeedFullscreen(historyShortRows.value, index, { forceVideoType: "SHORT_VIDEO" });
-}
 
-function onHistoryLongCardClick(card, index) {
-  if (!card) return;
-  openHistoryFeedFullscreen(historyLongRows.value, index, { forceVideoType: "LONG_VIDEO" });
-}
 
-function openHistoryFeedFullscreen(sourceList, index, { forceVideoType = "" } = {}) {
-  const source = Array.isArray(sourceList) ? sourceList : [];
-  const playableQueue = source
-    .map((x) => {
-      const url = resolveVideoUrl(x);
-      return {
-        ...x,
-        videoType: forceVideoType || x?.videoType || "",
-        videoUrl: url,
-      };
-    })
-    .filter((x) => x.videoUrl);
-  if (!playableQueue.length) return;
-  feedScope.value = "profile";
-  profileFeedQueue.value = playableQueue;
-  shortsFeedIndex.value = Math.min(Math.max(0, Number(index) || 0), playableQueue.length - 1);
-  shortsFeedAutoplayPending.value = true;
-  profileFeedOpen.value = true;
-  nextTick(() => {
-    shortsFeedFgRef.value?.load();
-    shortsFeedBgRef.value?.load();
-  });
-}
 
 async function loadHomeLongMore() {
   if (homeLongLoadLock.value || homeLongLoadingMore.value) return;
@@ -4440,41 +4261,6 @@ function onContentScroll(e) {
   }
 }
 
-async function loadLikedPage({ reset = false } = {}) {
-  const uid = currentUserId.value;
-  if (!uid) {
-    return;
-  }
-  const isFirst = reset || likedRows.value.length === 0;
-  if (isFirst) {
-    if (likedLoadingMore.value) return;
-    likedLoading.value = true;
-  } else {
-    if (likedLoading.value || likedLoadingMore.value) return;
-    if (likedPageNo.value >= (likedPages.value || 0)) return;
-    likedLoadingMore.value = true;
-  }
-  try {
-    const pageNo = isFirst ? 1 : likedPageNo.value + 1;
-    const res = await fetchLikedVideosPage(uid, { pageNo, pageSize: LIKED_PAGE_SIZE });
-    if (isFirst) {
-      likedRows.value = res.list || [];
-    } else {
-      likedRows.value = [...likedRows.value, ...(res.list || [])];
-    }
-    likedPageNo.value = pageNo;
-    likedPages.value = res.pages ?? 0;
-    likedTotal.value = res.total ?? 0;
-  } catch (error) {
-    if (isFirst) {
-      likedRows.value = [];
-    }
-    pushToast(error.message || "加载赞过的视频失败", "error");
-  } finally {
-    likedLoading.value = false;
-    likedLoadingMore.value = false;
-  }
-}
 
 async function loadModuleCards(menu, { fallback = true } = {}) {
   loading.value = true;
@@ -5842,17 +5628,6 @@ async function saveProfileEdit() {
 }
 
 /** 仅从列表项取播放地址，不再请求 /videos/detail */
-function resolveVideoUrl(item) {
-  if (!item || typeof item !== "object") return "";
-  return (
-    item.videoUrl ||
-    item.playUrl ||
-    item.url ||
-    item.videoURL ||
-    item.video_url ||
-    ""
-  );
-}
 
 /** 在作品列表 / 关注流 / 赞列表间按 id 查找已有行，避免重复请求详情 */
 function resolveVideoUrlForListItem(videoId, hintItem) {
@@ -5934,9 +5709,6 @@ function patchIsFollowForAuthor(authorId, isFollow) {
   }
 }
 
-function videoCardPlayable(card) {
-  return Boolean(resolveVideoUrl(card));
-}
 
 function readVideoDuration(file) {
   return new Promise((resolve) => {
@@ -8077,29 +7849,10 @@ provide("searchBridge", {
 });
 
 /** 过渡桥接: HistoryView/LikedView 依赖的卡片/翻页/悬停预览函数与预览源仍在本组件 */
+/** HistoryView/LikedView 残余桥: 进他人主页与赞过连播(依赖 App 级 overlay/列表查找) */
 provide("cardsBridge", {
-  cardAuthorAvatar,
-  cardAuthorLabel,
-  cardCoverSrc,
   onAuthorAvatarClick,
-  onCardHoverEnter,
-  onCardHoverLeave,
-  isCardPreviewPlaying,
-  activePreviewVideoUrl,
-  videoCardPlayable,
-  resolveVideoUrl,
-  formatWorkLikeText,
-  formatHomeShortStat,
-  onHistoryLongCardClick,
-  onHistoryLongPrevPage,
-  onHistoryLongNextPage,
-  toggleHistoryLongExpanded,
-  onHistoryShortCardClick,
-  onHistoryShortPrevPage,
-  onHistoryShortNextPage,
-  toggleHistoryShortExpanded,
   onLikedWorkClick,
-  loadLikedPage,
 });
 
 /** 搜索页文案与分页常量已移至 stores/searchStore.js */
@@ -8931,6 +8684,47 @@ function loadStudioVideos() {
 function closeStudioRowMenu() {
   studioStore.closeRowMenu();
 }
+
+const historyStore2 = useHistoryStore();
+function loadHistoryLongPage({ reset = false } = {}) {
+  return historyStore2.loadLongPage({ reset });
+}
+function loadHistoryShortsPage({ reset = false } = {}) {
+  return historyStore2.loadShortPage({ reset });
+}
+function toggleHistoryLongExpanded() {
+  return historyStore2.toggleLongExpanded();
+}
+function toggleHistoryShortExpanded() {
+  return historyStore2.toggleShortExpanded();
+}
+function onHistoryLongPrevPage() {
+  return historyStore2.longPrevPage();
+}
+function onHistoryLongNextPage() {
+  return historyStore2.longNextPage();
+}
+function onHistoryShortPrevPage() {
+  return historyStore2.shortPrevPage();
+}
+function onHistoryShortNextPage() {
+  return historyStore2.shortNextPage();
+}
+function onHistoryShortCardClick(card, index) {
+  historyStore2.openShortCard(index);
+}
+function onHistoryLongCardClick(card, index) {
+  historyStore2.openLongCard(index);
+}
+function openHistoryFeedFullscreen(sourceList, index, { forceVideoType = "" } = {}) {
+  useShortsStore().openProfileFeed(sourceList, index, { forceVideoType });
+}
+const likedStore2 = useLikedStore();
+function loadLikedPage({ reset = false } = {}) {
+  return likedStore2.load({ reset });
+}
+registerLikedHooks({ getUserId: () => currentUserId.value });
+registerShortsFeedPlayerRefs({ fg: shortsFeedFgRef, bg: shortsFeedBgRef });
 
 /** 过渡桥接: profileBridge 注入 */
 provide("profileBridge", {
