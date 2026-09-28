@@ -84,3 +84,65 @@ export function formatWorkLikeText(item) {
   }
   return String(num);
 }
+
+/** 秒 → m:ss（列表内预览时长展示） */
+export function formatShortsTime(sec) {
+  if (!Number.isFinite(sec) || sec < 0) {
+    return "0:00";
+  }
+  const s = Math.floor(sec % 60);
+  const m = Math.floor(sec / 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/** 解析卡片标签为数组（兼容 tags 数组 / 逗号分隔字符串 / # 前缀） */
+export function parseSearchTagsArray(card) {
+  const raw = card?.tags ?? card?.tagNames ?? "";
+  const arr = Array.isArray(raw)
+    ? raw.map((x) => String(x).trim()).filter(Boolean)
+    : String(raw || "")
+        .split(/[\s,，;]+/)
+        .map((x) => x.trim().replace(/^#/, ""))
+        .filter(Boolean);
+  return arr;
+}
+
+/** 卡片相对时间展示 */
+export function formatSearchRelTime(card) {
+  const t = card?.createTime ?? card?.publishTime ?? "";
+  if (!t) return "";
+  try {
+    const d = new Date(t);
+    if (Number.isNaN(d.getTime())) return "";
+    const diff = Date.now() - d.getTime();
+    const day = Math.floor(diff / 86400000);
+    if (day <= 0) return "今天";
+    if (day === 1) return "昨天";
+    if (day < 7) return `${day}天前`;
+    return d.toLocaleDateString();
+  } catch {
+    return "";
+  }
+}
+
+/** 从 video 元素读取有效时长（含 seekable 兜底，流媒体 duration 可能为 Infinity） */
+export function readVideoDurationFromVideoEl(v) {
+  if (!v) {
+    return 0;
+  }
+  let d = Number(v.duration);
+  if (Number.isFinite(d) && d > 0 && d !== Number.POSITIVE_INFINITY) {
+    return d;
+  }
+  try {
+    if (v.seekable && v.seekable.length > 0) {
+      const end = Number(v.seekable.end(v.seekable.length - 1));
+      if (Number.isFinite(end) && end > 0 && end !== Number.POSITIVE_INFINITY) {
+        return end;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return 0;
+}

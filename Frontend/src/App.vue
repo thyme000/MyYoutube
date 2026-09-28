@@ -9,6 +9,7 @@ import { useHistoryStore } from "./stores/historyStore";
 import { useLikedStore, LIKED_PAGE_SIZE } from "./stores/likedStore";
 import { useHomeStore, registerHomeHooks, homeSortOptions, HOME_LONG_HEAD_COUNT_DESKTOP, HOME_LONG_HEAD_COUNT_MOBILE } from "./stores/homeStore";
 import { useShortsStore } from "./stores/shortsStore";
+import { useProfileStore, registerProfileHooks } from "./stores/profileStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
 import { useHoverPreviewStore, cardPreviewKey } from "./stores/hoverPreviewStore";
 import { registerShortsFeedPlayerRefs } from "./stores/shortsStore";
@@ -21,6 +22,10 @@ import {
   cardAuthorLabel,
   formatHomeShortStat,
   formatWorkLikeText,
+  parseSearchTagsArray,
+  formatSearchRelTime,
+  formatShortsTime,
+  readVideoDurationFromVideoEl,
 } from "./utils/videoCard.js";
 import { getApiBaseUrl, getAuthExpiredEventName, getToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
@@ -37,7 +42,6 @@ import {
   fetchVideoListPage,
   fetchAuthorVideos,
   fetchOtherUserVideos,
-  fetchMyVideos,
   fetchShortsFeedPage,
   fetchFollowVideoFeedPage,
   fetchShortHistoryPage,
@@ -67,13 +71,6 @@ import { STORAGE_BIZ_WORK } from "./api/otherApi";
 import { uploadFileWithPresign } from "./utils/presignUpload.js";
 import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
 import {
-  getUserInfo,
-  getUserInfoById,
-  updateUserAvatar,
-  updateUserBgImage,
-  updateUserProfile,
-} from "./api/userApi";
-import {
   likeVideo as likeVideoApi,
   likeComment as likeCommentApi,
   cancelLikeComment as cancelLikeCommentApi,
@@ -82,14 +79,7 @@ import {
   fetchLikedVideosPage,
   fetchVideoLikedStatus,
 } from "./api/likeApi";
-import {
-  fetchMyFansPage,
-  fetchMyFollowingPage,
-  followAuthor,
-  unfollowAuthor,
-  isFollowed,
-  removeFan,
-} from "./api/followApi";
+import { followAuthor, unfollowAuthor } from "./api/followApi";
 import {
   fetchNotificationPage,
   markNotificationRead,
@@ -98,13 +88,6 @@ import {
   NOTIFICATION_TYPE_LABELS,
 } from "./api/notificationApi";
 import {
-  loadCropFromStorage,
-  makeDefaultCropRect,
-  normalizeRect,
-  saveCropToStorage,
-} from "./utils/imageCropStorage";
-import {
-  normalizeUserProfile,
   sanitizeImageUrl,
   DEFAULT_PROFILE_AVATAR_URL as profileAvatar,
   DEFAULT_PROFILE_BG_URL as profileBanner,
@@ -433,37 +416,7 @@ const searchVerticalLoadingMore = computed(() => {
   return searchVideoLoadingMore.value;
 });
 
-function formatSearchTagsText(card) {
-  const raw = card?.tags ?? card?.tagNames ?? "";
-  if (Array.isArray(raw)) return raw.map((x) => String(x)).filter(Boolean).join(" ");
-  return String(raw || "");
-}
-
-/** 话题展示为 #标签 形式（短视频底部文案用） */
-function formatSearchTagsHashtags(card) {
-  const raw = card?.tags ?? card?.tagNames ?? "";
-  const arr = Array.isArray(raw)
-    ? raw.map((x) => String(x).trim()).filter(Boolean)
-    : String(raw || "")
-        .split(/[\s,，;]+/)
-        .map((x) => x.trim())
-        .filter(Boolean);
-  if (!arr.length) return "";
-  return arr.map((x) => (x.startsWith("#") ? x : `#${x}`)).join(" ");
-}
-
 /** 解析为可点击标签（不含 # 前缀，便于搜索） */
-function parseSearchTagsArray(card) {
-  const raw = card?.tags ?? card?.tagNames ?? "";
-  const arr = Array.isArray(raw)
-    ? raw.map((x) => String(x).trim()).filter(Boolean)
-    : String(raw || "")
-        .split(/[\s,，;]+/)
-        .map((x) => x.trim().replace(/^#/, ""))
-        .filter(Boolean);
-  return arr;
-}
-
 function onSearchTagNavigate(tag) {
   const t = String(tag ?? "")
     .replace(/^#/, "")
@@ -494,224 +447,34 @@ function onSearchTagNavigate(tag) {
   void loadSearchTabResults({ reset: true });
 }
 
-function searchFeedBindMainVideo(cardId, el) {
-  const k = String(cardId);
-  const cur = searchFeedMainVideoById.value[k];
-  if (el) {
-    if (cur === el) return;
-    searchFeedMainVideoById.value = { ...searchFeedMainVideoById.value, [k]: el };
-  } else {
-    if (cur === undefined) return;
-    const next = { ...searchFeedMainVideoById.value };
-    delete next[k];
-    searchFeedMainVideoById.value = next;
-  }
-}
 
-function searchFeedBindMediaWrap(cardId, el) {
-  const k = String(cardId);
-  const cur = searchFeedMediaWrapById.value[k];
-  if (el) {
-    if (cur === el) return;
-    searchFeedMediaWrapById.value = { ...searchFeedMediaWrapById.value, [k]: el };
-  } else {
-    if (cur === undefined) return;
-    const next = { ...searchFeedMediaWrapById.value };
-    delete next[k];
-    searchFeedMediaWrapById.value = next;
-  }
-}
 
-function searchFeedGetMainVideo(id) {
-  return searchFeedMainVideoById.value[String(id)] ?? null;
-}
 
-function searchFeedListMuted(card) {
-  return searchFeedListPrefs.value[String(card.id)]?.muted !== false;
-}
 
-function searchFeedListVolValue(card) {
-  return searchFeedListPrefs.value[String(card.id)]?.volume ?? 0.85;
-}
 
-function searchFeedListScrubMax(cardId) {
-  const d = Number(searchFeedProgressMap.value[String(cardId)]?.d);
-  return Number.isFinite(d) && d > 0 ? d : 1;
-}
 
-function searchFeedListScrubDisplay(cardId) {
-  const p = searchFeedProgressMap.value[String(cardId)];
-  const t = Number(p?.t);
-  const d = Number(p?.d);
-  if (!Number.isFinite(t) || t < 0) return 0;
-  if (Number.isFinite(d) && d > 0) return Math.min(t, d);
-  return 0;
-}
 
-function searchFeedListDurationReady(cardId) {
-  const d = Number(searchFeedProgressMap.value[String(cardId)]?.d);
-  return Number.isFinite(d) && d > 0;
-}
 
-function searchFeedListCurrent(cardId) {
-  return Number(searchFeedProgressMap.value[String(cardId)]?.t) || 0;
-}
 
-function searchFeedListDuration(cardId) {
-  return Number(searchFeedProgressMap.value[String(cardId)]?.d) || 0;
-}
 
-function searchFeedListShowPaused(card) {
-  return searchFeedPausedMap.value[String(card.id)] !== false;
-}
 
-function onSearchFeedListScrubInput(e, card) {
-  const v = searchFeedGetMainVideo(card.id);
-  if (!v) return;
-  const t = Number(e.target.value);
-  if (!Number.isFinite(t)) return;
-  v.currentTime = t;
-  const d = readVideoDurationFromVideoEl(v);
-  searchFeedProgressMap.value = {
-    ...searchFeedProgressMap.value,
-    [String(card.id)]: { t, d: d > 0 ? d : searchFeedProgressMap.value[String(card.id)]?.d ?? 0 },
-  };
-}
 
-function searchFeedListToggleMute(card, ev) {
-  ev?.stopPropagation?.();
-  const k = String(card.id);
-  const next = !searchFeedListMuted(card);
-  searchFeedListPrefs.value = { ...searchFeedListPrefs.value, [k]: { ...searchFeedListPrefs.value[k], muted: next } };
-  const el = searchFeedGetMainVideo(card.id);
-  if (el) el.muted = next;
-}
 
-function onSearchFeedListVolumeInput(e, card) {
-  const vol = Number(e.target.value);
-  const k = String(card.id);
-  searchFeedListPrefs.value = {
-    ...searchFeedListPrefs.value,
-    [k]: { ...searchFeedListPrefs.value[k], volume: vol, muted: vol === 0 },
-  };
-  const v = searchFeedGetMainVideo(card.id);
-  if (v) {
-    v.volume = vol;
-    v.muted = vol === 0;
-  }
-}
 
-async function searchFeedListRequestPip(card, ev) {
-  ev?.stopPropagation?.();
-  const v = searchFeedGetMainVideo(card.id);
-  if (!v?.requestPictureInPicture) return;
-  try {
-    if (document.pictureInPictureElement === v) {
-      await document.exitPictureInPicture();
-    } else {
-      await v.requestPictureInPicture();
-    }
-  } catch {
-    /* ignore */
-  }
-}
 
-async function searchFeedListRequestFullscreen(card, ev) {
-  ev?.stopPropagation?.();
-  const el = searchFeedMediaWrapById.value[String(card.id)];
-  if (!el) return;
-  try {
-    if (document.fullscreenElement === el) {
-      await document.exitFullscreen();
-    } else {
-      await el.requestFullscreen();
-    }
-  } catch {
-    /* ignore */
-  }
-}
 
-function searchFeedListTogglePlay(card, ev) {
-  ev?.stopPropagation?.();
-  const v = searchFeedGetMainVideo(card.id);
-  if (!v) return;
-  if (v.paused) v.play().catch(() => {});
-  else v.pause();
-}
 
 function onSearchFeedForwardClick(card, ev) {
   ev?.stopPropagation?.();
   openForwardVideoModal(card);
 }
 
-function onSearchFeedListTimeUpdate(e, cardId) {
-  const v = e.target;
-  const id = String(cardId);
-  const now = Date.now();
-  const last = searchFeedProgressThrottleTs.get(id) ?? 0;
-  if (now - last < 180) {
-    return;
-  }
-  searchFeedProgressThrottleTs.set(id, now);
-  const d = readVideoDurationFromVideoEl(v);
-  const t = Number(v.currentTime) || 0;
-  const prev = searchFeedProgressMap.value[id];
-  const dur = d > 0 ? d : prev?.d ?? 0;
-  if (prev && Math.abs((prev.t ?? 0) - t) < 0.12 && prev.d === dur) {
-    return;
-  }
-  searchFeedProgressMap.value = {
-    ...searchFeedProgressMap.value,
-    [id]: { t, d: dur },
-  };
-  const slide = e.target.closest?.("[data-search-v-slide]");
-  const blur = slide?.querySelector?.(".search-feed-video--blur");
-  if (blur && v && Math.abs(blur.currentTime - v.currentTime) > 0.25) {
-    blur.currentTime = v.currentTime;
-  }
-}
 
-function onSearchFeedListLoadedMetadata(e, cardId) {
-  const v = e.target;
-  const id = String(cardId);
-  const d = readVideoDurationFromVideoEl(v);
-  searchFeedProgressMap.value = {
-    ...searchFeedProgressMap.value,
-    [id]: { t: Number(v.currentTime) || 0, d },
-  };
-  const p = searchFeedListPrefs.value[id];
-  v.volume = p?.volume ?? 0.85;
-  v.muted = p?.muted !== false;
-}
 
-function onSearchFeedListSeeked(e) {
-  const v = e.target;
-  const slide = e.target.closest?.("[data-search-v-slide]");
-  const blur = slide?.querySelector?.(".search-feed-video--blur");
-  if (blur && v) {
-    blur.currentTime = v.currentTime;
-  }
-}
 
-function onSearchFeedListPlay(e) {
-  const blur = e.target?.closest?.("[data-search-v-slide]")?.querySelector?.(".search-feed-video--blur");
-  blur?.play?.().catch(() => {});
-}
 
-function onSearchFeedListPause(e) {
-  const blur = e.target?.closest?.("[data-search-v-slide]")?.querySelector?.(".search-feed-video--blur");
-  blur?.pause?.();
-}
 
-function onSearchFeedListVideoPlay(e, cardId) {
-  onSearchFeedListPlay(e);
-  searchFeedPausedMap.value = { ...searchFeedPausedMap.value, [String(cardId)]: false };
-}
 
-function onSearchFeedListVideoPause(e, cardId) {
-  onSearchFeedListPause(e);
-  searchFeedPausedMap.value = { ...searchFeedPausedMap.value, [String(cardId)]: true };
-}
 
 function onSearchFeedMainVideoClick(card, index) {
   openSearchExpand(card, index);
@@ -754,31 +517,7 @@ async function onSearchFeedLikeClick(card, ev) {
   }
 }
 
-function openSearchListCommentPanel(card, ev) {
-  ev?.stopPropagation?.();
-  if (!card?.id) return;
-  shortsCommentPanelOpen.value = false;
-  searchExpandCommentOpen.value = false;
-  searchListCommentCard.value = card;
-  searchListCommentOpen.value = true;
-}
 
-function formatSearchRelTime(card) {
-  const t = card?.createTime ?? card?.publishTime ?? "";
-  if (!t) return "";
-  try {
-    const d = new Date(t);
-    if (Number.isNaN(d.getTime())) return "";
-    const diff = Date.now() - d.getTime();
-    const day = Math.floor(diff / 86400000);
-    if (day <= 0) return "今天";
-    if (day === 1) return "昨天";
-    if (day < 7) return `${day}天前`;
-    return d.toLocaleDateString();
-  } catch {
-    return "";
-  }
-}
 
 const sidebarCollapsed = ref(false);
 const exploreExpanded = ref(true);
@@ -801,7 +540,7 @@ function onLoginCubesAnimFinished() {
 const authMessage = ref("");
 const activeAuthTab = ref("login");
 const authStore = useAuthStore();
-const { token } = storeToRefs(authStore);
+const { token, userId: currentUserId, selfProfile: selfUserProfile } = storeToRefs(authStore);
 /** 创作中心域状态在 pinia studioStore */
 const hoverPreview = useHoverPreviewStore();
 const {
@@ -879,43 +618,37 @@ const forgotForm = ref({
 });
 const forgotCaptchaRemain = ref(0);
 const forgotCaptchaPreview = ref("");
-const showProfileCenter = ref(false);
-/** null = 自己的主页；有值 = 正在查看该 userId 的主页 */
-const profileTargetUserId = ref(null);
-/** 从详情页或短视频流进个人主页：浏览器后退时恢复（含侧栏评论里点头像） */
-const profileReturnContextRef = ref(null);
-/** 当前登录用户 id，来自 /user/info，用于判断是否「看自己」 */
-const currentUserId = ref(null);
-/** 当前登录用户资料快照（顶栏头像等），不因进入他人主页而被替换 */
-const selfUserProfile = ref(null);
-const profileUser = ref(null);
-const profileLoading = ref(false);
-/** 他人主页：是否已关注该用户（GET /follow/isFollow/{authorId}） */
-const profileTargetFollowed = ref(false);
-const profileFollowBusy = ref(false);
-const profileChatBusy = ref(false);
-const profileMsg = ref("");
-const profileUploadBusy = ref(false);
-const pendingCropUploadFile = ref(null);
-const pendingCropUploadType = ref(null);
-const pendingCropUploadUrl = ref("");
-const avatarFileInput = ref(null);
-const bgFileInput = ref(null);
-/** 头像 / 背景 方形预览弹层 */
-const mediaPreviewOpen = ref(false);
-/** 'avatar' | 'bg' */
-const mediaPreviewType = ref("avatar");
-const relationTableOpen = ref(false);
-const relationTableTitle = ref("");
-const relationTableUsers = ref([]);
-/** 'following' | 'followers' — 控制操作列：粉丝为三点菜单，关注为取关 */
-const relationTableKind = ref("followers");
-/** 粉丝列表：当前展开三点菜单的行 id */
-const relationFollowerMenuId = ref(null);
-/** 编辑个人资料（昵称、简介） */
-const profileEditOpen = ref(false);
-const profileEditForm = ref({ nickName: "", introduction: "" });
-const profileEditSaving = ref(false);
+/** 个人主页域状态在 pinia profileStore；同名解构保持既有引用零改动 */
+const profileStore = useProfileStore();
+const {
+  open: showProfileCenter,
+  targetUserId: profileTargetUserId,
+  user: profileUser,
+  targetFollowed: profileTargetFollowed,
+  worksRows: profileWorksRows,
+  /** 关注列表同时供「关注」页侧栏与粉丝/关注弹窗使用 */
+  followingRows,
+  followingLoading,
+  followingHasMore,
+  mediaPreviewOpen,
+  isViewingSelf,
+} = storeToRefs(profileStore);
+const loadFollowingNextPage = () => profileStore.loadRelationNextPage("following");
+
+/** 主页入口：供顶栏、头像与桥接消费；打开动作与状态都在 profileStore */
+const openProfile = () => profileStore.openSelf();
+const openOtherUserProfile = (userId) => profileStore.openOther(userId);
+const onAuthorAvatarClick = (event, authorId) => {
+  event?.stopPropagation?.();
+  profileStore.openByAuthorId(authorId);
+};
+const onSidebarOpenMyProfile = () => {
+  if (!isAuthed.value) {
+    pushToast("请先登录", "info");
+    return;
+  }
+  profileStore.openSelf();
+};
 /** 创作中心（全屏主区，模拟 YouTube Studio） */
 const showStudio = studioShow;
 /** 进入创作中心时 pushState，便于浏览器后退与「返回」同步 */
@@ -1150,42 +883,6 @@ let shortsLongResumeLastSentAtMs = 0;
 let shortsLongResumeTickCount = 0;
 let shortsLongResumeAppliedVideoId = "";
 const UI_STATE_STORAGE_KEY = "myyoutube_ui_state_v1";
-/** 进个人主页时把返回快照写入 sessionStorage，避免内存 ref 丢失导致后退无法恢复短视频流 */
-const PROFILE_RETURN_CTX_STORAGE_KEY = "myyoutube_profile_return_ctx_v1";
-
-function persistProfileReturnContext(ctx) {
-  try {
-    if (ctx == null) {
-      sessionStorage.removeItem(PROFILE_RETURN_CTX_STORAGE_KEY);
-      return;
-    }
-    sessionStorage.setItem(PROFILE_RETURN_CTX_STORAGE_KEY, JSON.stringify(ctx));
-  } catch {
-    /* ignore */
-  }
-}
-
-function readPersistedProfileReturnContext() {
-  try {
-    const raw = sessionStorage.getItem(PROFILE_RETURN_CTX_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    const o = JSON.parse(raw);
-    return o && typeof o === "object" ? o : null;
-  } catch {
-    return null;
-  }
-}
-
-function clearCapturedProfileReturnContext() {
-  profileReturnContextRef.value = null;
-  persistProfileReturnContext(null);
-}
-
-const profileWorksRows = ref([]);
-const profileWorksLoading = ref(false);
-const profileWorksFilter = ref("ALL");
 
 /** 仅音乐歌词「全屏」时隐藏右侧会话条；普通音乐页仍显示 */
 const chatRailSuppress = computed(
@@ -1225,28 +922,6 @@ let toastSeed = 0;
 /** 首页 Shorts 卡片：播放量 / 点赞展示 */
 
 
-const profileWorksDisplay = computed(() => {
-  const base = profileWorksRows.value.map((item) => ({
-    ...item,
-    id: item.id,
-    title: item.title || "未命名视频",
-    image: item.coverUrl || item.avatarUrl || profileBanner,
-    likes: formatWorkLikeText(item),
-    playCount: item.playCount,
-    videoUrl: resolveVideoUrl(item),
-    authorNickname: item.authorNickname || item.author || "",
-    description: item.description || "",
-    tags: item.tags || "",
-    authorAvatarUrl: sanitizeImageUrl(item.authorAvatarUrl || item.authorAvatar || "") || profileDisplayAvatar.value,
-  }));
-  if (profileWorksFilter.value === "PRIVATE") {
-    return base.filter((item) => String(item.visibility || "").toUpperCase() === "PRIVATE");
-  }
-  if (profileWorksFilter.value === "PUBLIC") {
-    return base.filter((item) => String(item.visibility || "").toUpperCase() !== "PRIVATE");
-  }
-  return base;
-});
 
 const likedDisplay = computed(() => {
   return likedRows.value.map((item) => ({
@@ -1294,15 +969,6 @@ watch(slideshowBgmTargetSec, (sec, oldSec) => {
 
 
 
-
-function parseTagsToList(raw) {
-  if (!raw) return [];
-  return String(raw)
-    .replace(/[，\s]+/g, ",")
-    .split(",")
-    .map((x) => x.trim())
-    .filter((x) => x);
-}
 
 function stripUserIdLikeName(name) {
   const n = String(name || "").trim();
@@ -1643,54 +1309,6 @@ async function onNotifyToastClick(t) {
   }
 }
 
-const avatarImgError = ref(false);
-const bgImgError = ref(false);
-
-watch(
-  () => profileUser.value?.avatarUrl,
-  () => {
-    avatarImgError.value = false;
-  }
-);
-watch(
-  () => profileUser.value?.bgImage,
-  () => {
-    bgImgError.value = false;
-  }
-);
-
-const profileDisplayAvatar = computed(() => {
-  if (avatarImgError.value) {
-    return profileAvatar;
-  }
-  const u = sanitizeImageUrl(profileUser.value?.avatarUrl);
-  return u || profileAvatar;
-});
-
-const profileDisplayBg = computed(() => {
-  if (bgImgError.value) {
-    return profileBanner;
-  }
-  const u = sanitizeImageUrl(profileUser.value?.bgImage);
-  return u || profileBanner;
-});
-
-function onProfileAvatarImgError() {
-  avatarImgError.value = true;
-}
-
-function onProfileBgImgError() {
-  bgImgError.value = true;
-}
-
-function onMediaPreviewImgError() {
-  if (mediaPreviewType.value === "bg") {
-    onProfileBgImgError();
-  } else {
-    onProfileAvatarImgError();
-  }
-}
-
 /** 创作中心侧栏等：始终展示当前登录用户昵称 */
 const selfDisplayNickname = computed(() => {
   const u = selfUserProfile.value;
@@ -1704,39 +1322,6 @@ const selfDisplayNickname = computed(() => {
     return u.username.trim();
   }
   return "未命名用户";
-});
-
-const displayNickname = computed(() => {
-  const u = profileUser.value;
-  if (!u) {
-    return "加载中…";
-  }
-  if (u.nickName?.trim()) {
-    return u.nickName.trim();
-  }
-  if (u.username?.trim()) {
-    return u.username.trim();
-  }
-  return "未命名用户";
-});
-
-const isViewingSelf = computed(() => {
-  if (profileTargetUserId.value == null) {
-    return true;
-  }
-  if (currentUserId.value == null) {
-    return false;
-  }
-  return String(profileTargetUserId.value) === String(currentUserId.value);
-});
-
-/** 个人简介展示文案（自己主页可点进编辑） */
-const introDisplayText = computed(() => {
-  const t = profileUser.value?.introduction?.trim();
-  if (t) {
-    return t;
-  }
-  return isViewingSelf.value ? "暂无简介，点击此处编辑" : "暂无简介";
 });
 
 /** 顶栏「我」头像：始终为当前登录用户，不随他人主页 profileUser 变化 */
@@ -1772,472 +1357,6 @@ const detailSubscribeFollowed = computed(() => {
   }
   return Boolean(videoDetail.value?.isFollow);
 });
-
-/** 裁剪区域（归一化相对原图）：仅自己主页使用，本地按「用户 + 图片 URL」记忆 */
-const cropRectBg = ref({ L: 0, T: 0, W: 1, H: 1 });
-const cropRectAvatar = ref({ L: 0, T: 0, W: 1, H: 1 });
-const cropRectDraft = ref({ L: 0, T: 0, W: 1, H: 1 });
-const cropNaturalSize = ref({ w: 0, h: 0 });
-
-/** 横幅裁剪容器（用于 ResizeObserver 量宽高） */
-const heroCropContainerRef = ref(null);
-const heroSize = ref({ w: 0, h: 0 });
-const profileBgNaturalSize = ref({ w: 0, h: 0 });
-const profileAvatarNaturalSize = ref({ w: 0, h: 0 });
-const AVATAR_BOX_PX = 110;
-
-let heroResizeObserver = null;
-
-function isCropFullFrame(rect) {
-  const { L, T, W, H } = rect;
-  return L <= 0.001 && T <= 0.001 && W >= 0.999 && H >= 0.999;
-}
-
-function measureHeroContainer() {
-  const el = heroCropContainerRef.value;
-  if (!el) {
-    return;
-  }
-  const r = el.getBoundingClientRect();
-  heroSize.value = { w: r.width, h: r.height };
-}
-
-const heroImgUsePrecise = computed(() => {
-  if (!isViewingSelf.value) {
-    return false;
-  }
-  if (isCropFullFrame(cropRectBg.value)) {
-    return false;
-  }
-  const nw = profileBgNaturalSize.value.w;
-  const nh = profileBgNaturalSize.value.h;
-  const Ew = heroSize.value.w;
-  const Eh = heroSize.value.h;
-  return nw > 0 && nh > 0 && Ew > 0 && Eh > 0;
-});
-
-/** 与弹窗内归一化选区一致：scale = 容器宽 / 选区像素宽，再平移使选区左上角对齐容器左上角 */
-const heroImgStyle = computed(() => {
-  if (!heroImgUsePrecise.value) {
-    return {};
-  }
-  const { L, T, W, H } = cropRectBg.value;
-  const nw = profileBgNaturalSize.value.w;
-  const nh = profileBgNaturalSize.value.h;
-  const Ew = heroSize.value.w;
-  const scale = Ew / (W * nw);
-  const imgW = nw * scale;
-  const imgH = nh * scale;
-  const left = -L * nw * scale;
-  const top = -T * nh * scale;
-  return {
-    position: "absolute",
-    width: `${imgW}px`,
-    height: `${imgH}px`,
-    left: `${left}px`,
-    top: `${top}px`,
-    maxWidth: "none",
-  };
-});
-
-const avatarImgUsePrecise = computed(() => {
-  if (!isViewingSelf.value) {
-    return false;
-  }
-  if (isCropFullFrame(cropRectAvatar.value)) {
-    return false;
-  }
-  const nw = profileAvatarNaturalSize.value.w;
-  const nh = profileAvatarNaturalSize.value.h;
-  return nw > 0 && nh > 0;
-});
-
-const avatarImgStyle = computed(() => {
-  if (!avatarImgUsePrecise.value) {
-    return {};
-  }
-  const { L, T, W, H } = cropRectAvatar.value;
-  const nw = profileAvatarNaturalSize.value.w;
-  const nh = profileAvatarNaturalSize.value.h;
-  const Ew = AVATAR_BOX_PX;
-  const scale = Ew / (W * nw);
-  const imgW = nw * scale;
-  const imgH = nh * scale;
-  const left = -L * nw * scale;
-  const top = -T * nh * scale;
-  return {
-    position: "absolute",
-    width: `${imgW}px`,
-    height: `${imgH}px`,
-    left: `${left}px`,
-    top: `${top}px`,
-    maxWidth: "none",
-  };
-});
-
-function onProfileHeroBgLoad(e) {
-  profileBgNaturalSize.value = {
-    w: e.target.naturalWidth,
-    h: e.target.naturalHeight,
-  };
-}
-
-function onProfileAvatarNaturalLoad(e) {
-  profileAvatarNaturalSize.value = {
-    w: e.target.naturalWidth,
-    h: e.target.naturalHeight,
-  };
-}
-
-function preloadImageNaturalSize(url, targetRef) {
-  if (!url) {
-    return;
-  }
-  const im = new Image();
-  im.onload = () => {
-    targetRef.value = { w: im.naturalWidth, h: im.naturalHeight };
-  };
-  im.src = url;
-}
-
-watch(
-  () => profileDisplayBg.value,
-  (url) => {
-    preloadImageNaturalSize(url, profileBgNaturalSize);
-  },
-  { immediate: true }
-);
-
-watch(
-  () => profileDisplayAvatar.value,
-  (url) => {
-    preloadImageNaturalSize(url, profileAvatarNaturalSize);
-  },
-  { immediate: true }
-);
-
-watch(
-  () => [showProfileCenter.value, heroCropContainerRef.value],
-  async () => {
-    await nextTick();
-    if (heroResizeObserver) {
-      heroResizeObserver.disconnect();
-      heroResizeObserver = null;
-    }
-    if (!showProfileCenter.value || !heroCropContainerRef.value) {
-      return;
-    }
-    measureHeroContainer();
-    heroResizeObserver = new ResizeObserver(() => {
-      measureHeroContainer();
-    });
-    heroResizeObserver.observe(heroCropContainerRef.value);
-  },
-  { flush: "post" }
-);
-
-const cropBoxStyle = computed(() => ({
-  left: `${cropRectDraft.value.L * 100}%`,
-  top: `${cropRectDraft.value.T * 100}%`,
-  width: `${cropRectDraft.value.W * 100}%`,
-  height: `${cropRectDraft.value.H * 100}%`,
-}));
-
-function applyCropsFromStorage() {
-  if (!isViewingSelf.value) {
-    return;
-  }
-  const uid = currentUserId.value ?? profileUser.value?.id;
-  if (!uid) {
-    return;
-  }
-  const urlBg = sanitizeImageUrl(profileUser.value?.bgImage) || profileDisplayBg.value;
-  const urlAv = sanitizeImageUrl(profileUser.value?.avatarUrl) || profileDisplayAvatar.value;
-  if (urlBg) {
-    const s = loadCropFromStorage("bg", uid, urlBg);
-    cropRectBg.value = s || { L: 0, T: 0, W: 1, H: 1 };
-  }
-  if (urlAv) {
-    const s = loadCropFromStorage("avatar", uid, urlAv);
-    cropRectAvatar.value = s || { L: 0, T: 0, W: 1, H: 1 };
-  }
-}
-
-function applyDraftCrop() {
-  if (!isViewingSelf.value) {
-    return;
-  }
-  const uid = currentUserId.value ?? profileUser.value?.id;
-  if (!uid) {
-    return;
-  }
-  const r = normalizeRect({ ...cropRectDraft.value });
-  if (mediaPreviewType.value === "bg") {
-    const url = sanitizeImageUrl(profileUser.value?.bgImage) || profileDisplayBg.value;
-    cropRectBg.value = r;
-    saveCropToStorage("bg", uid, url, r);
-  } else {
-    const url = sanitizeImageUrl(profileUser.value?.avatarUrl) || profileDisplayAvatar.value;
-    cropRectAvatar.value = r;
-    saveCropToStorage("avatar", uid, url, r);
-  }
-}
-
-function onCropImgLoad(e) {
-  const img = e.target;
-  const nw = img.naturalWidth;
-  const nh = img.naturalHeight;
-  cropNaturalSize.value = { w: nw, h: nh };
-  if (!pendingCropUploadFile.value) {
-    return;
-  }
-  const { L, T, W, H } = cropRectDraft.value;
-  const isFull = L <= 0.001 && T <= 0.001 && W >= 0.999 && H >= 0.999;
-  if (isFull && nw > 0 && nh > 0) {
-    const aspect = mediaPreviewType.value === "bg" ? 16 / 5 : 1;
-    cropRectDraft.value = makeDefaultCropRect(nw, nh, aspect, 1);
-  }
-}
-
-function onCropBoxDragStart(e) {
-  if (e.button !== 0 || e.target.classList.contains("crop-handle-br")) {
-    return;
-  }
-  e.preventDefault();
-  e.stopPropagation();
-  const inner = e.currentTarget.closest(".media-preview-crop-stage-inner");
-  if (!inner) {
-    return;
-  }
-  const rect = inner.getBoundingClientRect();
-  const start = { ...cropRectDraft.value };
-  const sx = e.clientX;
-  const sy = e.clientY;
-  function onMove(ev) {
-    const dx = (ev.clientX - sx) / rect.width;
-    const dy = (ev.clientY - sy) / rect.height;
-    let L = start.L + dx;
-    let T = start.T + dy;
-    L = Math.min(Math.max(L, 0), 1 - start.W);
-    T = Math.min(Math.max(T, 0), 1 - start.H);
-    cropRectDraft.value = { ...start, L, T };
-  }
-  function onUp() {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-  }
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-}
-
-function onCropResizeStart(e) {
-  e.stopPropagation();
-  e.preventDefault();
-  const inner = e.currentTarget.closest(".media-preview-crop-stage-inner");
-  if (!inner) {
-    return;
-  }
-  const rect = inner.getBoundingClientRect();
-  const nw = cropNaturalSize.value.w;
-  const nh = cropNaturalSize.value.h;
-  if (nw <= 0 || nh <= 0) {
-    return;
-  }
-  const ratioWH =
-    mediaPreviewType.value === "bg" ? (16 / 5) * (nh / nw) : 1 * (nh / nw);
-  const start = { ...cropRectDraft.value };
-  const sx = e.clientX;
-  const sy = e.clientY;
-  function onMove(ev) {
-    const dx = (ev.clientX - sx) / rect.width;
-    let newW = start.W + dx;
-    let newH = newW / ratioWH;
-    newW = Math.max(0.05, newW);
-    newH = Math.max(0.05, newH);
-    if (start.L + newW > 1) {
-      newW = 1 - start.L;
-      newH = newW / ratioWH;
-    }
-    if (start.T + newH > 1) {
-      newH = 1 - start.T;
-      newW = newH * ratioWH;
-    }
-    cropRectDraft.value = normalizeRect({ ...start, W: newW, H: newH });
-  }
-  function onUp() {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-  }
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-}
-
-watch(
-  () => [
-    isViewingSelf.value,
-    currentUserId.value,
-    profileUser.value?.bgImage,
-    profileUser.value?.avatarUrl,
-    profileUser.value?.id,
-    profileDisplayBg.value,
-    profileDisplayAvatar.value,
-  ],
-  () => {
-    applyCropsFromStorage();
-  }
-);
-
-const mediaPreviewSrc = computed(() =>
-  pendingCropUploadUrl.value ||
-  (mediaPreviewType.value === "avatar" ? profileDisplayAvatar.value : profileDisplayBg.value)
-);
-
-const followingRows = ref([]);
-const followingPageNo = ref(1);
-const followingLoading = ref(false);
-const followingHasMore = ref(true);
-
-const followerRows = ref([]);
-const followerPageNo = ref(1);
-const followerLoading = ref(false);
-const followerHasMore = ref(true);
-
-/** 与 videoApi.normalizeVideoListVo 作者头像字段链一致；最终展示 URL 在 normalizeRelationUser 里算好，避免列表每次渲染重复 sanitize */
-function relationRowRawAuthorAvatar(raw) {
-  if (!raw || typeof raw !== "object") {
-    return "";
-  }
-  const direct =
-    raw.authorAvatarUrl ??
-    raw.avatar_url ??
-    raw.authorAvatar ??
-    raw.avatarUrl ??
-    raw.avatar ??
-    "";
-  if (typeof direct === "string" && direct.trim()) {
-    return direct.trim();
-  }
-  if (direct != null && direct !== "") {
-    return String(direct).trim();
-  }
-  const nested = raw.user ?? raw.followee ?? raw.followUser ?? raw.fanUser;
-  if (nested && typeof nested === "object") {
-    return relationRowRawAuthorAvatar(nested);
-  }
-  return "";
-}
-
-function normalizeRelationUser(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  const id = raw.followeeId ?? raw.fanId ?? raw.id ?? raw.userId ?? raw.user_id ?? "";
-  const authorAvatarUrl = relationRowRawAuthorAvatar(raw);
-  const trimmed = String(authorAvatarUrl).trim();
-  const avatarDisplaySrc = trimmed ? sanitizeImageUrl(trimmed) || profileAvatar : profileAvatar;
-  return {
-    id,
-    nickName: raw.nickname ?? raw.nickName ?? raw.name ?? raw.nick_name ?? "",
-    authorAvatarUrl,
-    avatarUrl: authorAvatarUrl,
-    avatarDisplaySrc,
-    introduction: raw.introduction ?? "",
-  };
-}
-
-function extractPageList(data) {
-  if (Array.isArray(data)) {
-    return data;
-  }
-  if (!data || typeof data !== "object") {
-    return [];
-  }
-  if (Array.isArray(data.list)) {
-    return data.list;
-  }
-  if (Array.isArray(data.records)) {
-    return data.records;
-  }
-  if (Array.isArray(data.content)) {
-    return data.content;
-  }
-  const inner = data.data;
-  if (inner && typeof inner === "object") {
-    if (Array.isArray(inner.list)) {
-      return inner.list;
-    }
-    if (Array.isArray(inner.records)) {
-      return inner.records;
-    }
-  }
-  return [];
-}
-
-async function loadFollowingMore({ reset = false } = {}) {
-  if (!isAuthed.value) return;
-  if (followingLoading.value) return;
-  if (!followingHasMore.value && !reset) return;
-  followingLoading.value = true;
-  try {
-    const pageNo = reset ? 1 : followingPageNo.value;
-    const pageSize = 20;
-    const data = await fetchMyFollowingPage({ pageNo, pageSize });
-    const list = extractPageList(data);
-    const normalized = list.map(normalizeRelationUser).filter(Boolean);
-    followingRows.value = reset ? normalized : [...followingRows.value, ...normalized];
-    if (relationTableOpen.value && relationTableKind.value === "following") {
-      relationTableUsers.value = followingRows.value;
-    }
-    followingPageNo.value = pageNo;
-    followingHasMore.value = normalized.length === pageSize;
-  } catch (e) {
-    if (reset) {
-      followingRows.value = [];
-      followingPageNo.value = 1;
-    }
-    followingHasMore.value = false;
-  } finally {
-    followingLoading.value = false;
-  }
-}
-
-function loadFollowingNextPage() {
-  if (followingLoading.value || !followingHasMore.value) return;
-  followingPageNo.value += 1;
-  void loadFollowingMore({ reset: false });
-}
-
-async function loadFollowersMore({ reset = false } = {}) {
-  if (!isAuthed.value) return;
-  if (followerLoading.value) return;
-  if (!followerHasMore.value && !reset) return;
-  followerLoading.value = true;
-  try {
-    const pageNo = reset ? 1 : followerPageNo.value;
-    const pageSize = 20;
-    const data = await fetchMyFansPage({ pageNo, pageSize });
-    const list = extractPageList(data);
-    const normalized = list.map(normalizeRelationUser).filter(Boolean);
-    followerRows.value = reset ? normalized : [...followerRows.value, ...normalized];
-    if (relationTableOpen.value && relationTableKind.value === "followers") {
-      relationTableUsers.value = followerRows.value;
-    }
-    followerPageNo.value = pageNo;
-    followerHasMore.value = normalized.length === pageSize;
-  } catch (e) {
-    if (reset) {
-      followerRows.value = [];
-      followerPageNo.value = 1;
-    }
-    followerHasMore.value = false;
-  } finally {
-    followerLoading.value = false;
-  }
-}
-
-function loadFollowersNextPage() {
-  if (followerLoading.value || !followerHasMore.value) return;
-  followerPageNo.value += 1;
-  void loadFollowersMore({ reset: false });
-}
 
 function mapToFollowPlayableRows(list) {
   return (Array.isArray(list) ? list : [])
@@ -3113,7 +2232,7 @@ async function restoreProfileReturnContext(ctx) {
   } catch {
     /* ignore */
   }
-  persistProfileReturnContext(null);
+  profileStore.clearReturnContext();
 }
 
 /** 离开详情 / 关闭创作中心后刷新列表，避免主区空白 */
@@ -3257,7 +2376,7 @@ function closeVideoDetail() {
   detailErrorMsg.value = "";
   detailSidebarList.value = [];
   resetDetailCommentsState();
-  clearCapturedProfileReturnContext();
+  profileStore.clearReturnContext();
   clearVideoDetailFromAddressBar();
 }
 
@@ -4303,7 +3422,7 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       feedScope.value = "follow";
       shortsFeedIndex.value = 0;
       shortsFeedAutoplayPending.value = true;
-      await loadFollowingMore({ reset: true });
+      await profileStore.loadRelationPage("following", { reset: true });
       await loadSubscribedFollowVideos({ reset: true });
       pageHint.value = "关注 · 左侧为关注列表，右侧为关注作者的短视频推荐（GET /videos/follow/list）";
       return;
@@ -4433,7 +3552,7 @@ async function setActiveMenu(menu) {
   showVideoDetail.value = false;
   videoDetail.value = null;
   showProfileCenter.value = false;
-  clearCapturedProfileReturnContext();
+  profileStore.clearReturnContext();
   mediaPreviewOpen.value = false;
   activeMenuKey.value = menu.key;
   activeMenuLabel.value = menu.label;
@@ -4991,438 +4110,6 @@ function onNotifySocketMessage(data) {
   }
 }
 
-async function loadProfileUser({ withWorks = false } = {}) {
-  if (!getToken()) {
-    return;
-  }
-  profileLoading.value = true;
-  profileMsg.value = "";
-  try {
-    const me = normalizeUserProfile(await getUserInfo());
-    selfUserProfile.value = me;
-    if (me?.id != null) {
-      currentUserId.value = me.id;
-    }
-    if (profileTargetUserId.value == null) {
-      profileUser.value = me;
-      profileTargetFollowed.value = false;
-    } else {
-      profileUser.value = normalizeUserProfile(await getUserInfoById(profileTargetUserId.value));
-    }
-  } catch (error) {
-    profileMsg.value = `加载用户信息失败：${error.message}`;
-  } finally {
-    profileLoading.value = false;
-    applyCropsFromStorage();
-  }
-  void refreshProfileTargetFollowState();
-  if (withWorks) {
-    void loadProfileWorks();
-  }
-}
-
-async function refreshProfileTargetFollowState() {
-  if (!getToken() || profileTargetUserId.value == null) {
-    profileTargetFollowed.value = false;
-    return;
-  }
-  if (currentUserId.value != null && String(profileTargetUserId.value) === String(currentUserId.value)) {
-    profileTargetFollowed.value = false;
-    return;
-  }
-  try {
-    profileTargetFollowed.value = await isFollowed(profileTargetUserId.value);
-  } catch {
-    profileTargetFollowed.value = false;
-  }
-}
-
-async function onProfileWorksChatClick() {
-  if (!isAuthed.value) {
-    pushToast("请先登录", "info");
-    return;
-  }
-  if (profileTargetUserId.value == null || isViewingSelf.value) {
-    return;
-  }
-  const aid = profileTargetUserId.value;
-  if (currentUserId.value != null && String(aid) === String(currentUserId.value)) {
-    return;
-  }
-  const u = profileUser.value;
-  const peerId =
-    parseDigitSnowflakeId(u?.id) ?? parseDigitSnowflakeId(aid) ?? safeSnowflakeId(u?.id) ?? safeSnowflakeId(aid);
-  const name = stripUserIdLikeName(u?.nickName || u?.nickname || "") || `用户 ${peerId}`;
-  const avatar = sanitizeImageUrl(u?.avatarUrl) || profileAvatar;
-  profileChatBusy.value = true;
-  try {
-    await startSingleChat(peerId, { name, avatar });
-    pushToast("已打开会话", "success");
-  } catch (e) {
-    pushToast(e?.message || "发起聊天失败", "error");
-  } finally {
-    profileChatBusy.value = false;
-  }
-}
-
-async function toggleProfileTargetFollow() {
-  if (!isAuthed.value || profileTargetUserId.value == null) {
-    pushToast("请先登录", "info");
-    return;
-  }
-  if (isViewingSelf.value) {
-    return;
-  }
-  const aid = profileTargetUserId.value;
-  profileFollowBusy.value = true;
-  try {
-    if (profileTargetFollowed.value) {
-      await unfollowAuthor(aid);
-      profileTargetFollowed.value = false;
-      const key = String(aid);
-      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: false };
-      patchIsFollowForAuthor(aid, false);
-      pushToast("已取消关注", "success");
-    } else {
-      await followAuthor(aid);
-      profileTargetFollowed.value = true;
-      const key = String(aid);
-      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: true };
-      patchIsFollowForAuthor(aid, true);
-      pushToast("关注成功", "success");
-    }
-  } catch (e) {
-    pushToast(e?.message || "操作失败", "error");
-  } finally {
-    profileFollowBusy.value = false;
-  }
-}
-
-async function loadProfileWorks() {
-  profileWorksFilter.value = "ALL";
-  const uid = profileTargetUserId.value ?? currentUserId.value;
-  if (!uid) {
-    profileWorksRows.value = [];
-    return;
-  }
-  profileWorksLoading.value = true;
-  try {
-    const isSelf = profileTargetUserId.value == null;
-    const worksRes = isSelf
-      ? await fetchMyVideos({ pageNo: 1, pageSize: 24 })
-      : await fetchOtherUserVideos(uid, { pageNo: 1, pageSize: 24 });
-    const map = new Map();
-    const fallbackNick = stripUserIdLikeName(profileUser.value?.nickName || profileUser.value?.nickname);
-    for (const item of worksRes?.list || []) {
-      if (!item?.id) continue;
-      const row = { ...item };
-      row.authorNickname =
-        stripUserIdLikeName(row.authorNickname) ||
-        stripUserIdLikeName(row.author) ||
-        fallbackNick ||
-        row.authorNickname ||
-        row.author;
-      map.set(String(item.id), row);
-    }
-    profileWorksRows.value = Array.from(map.values());
-  } catch {
-    profileWorksRows.value = [];
-  } finally {
-    profileWorksLoading.value = false;
-  }
-}
-
-function openMediaPreview(type) {
-  clearPendingCropUpload();
-  mediaPreviewType.value = type;
-  const crop = type === "bg" ? cropRectBg.value : cropRectAvatar.value;
-  cropRectDraft.value = { ...crop };
-  cropNaturalSize.value = { w: 0, h: 0 };
-  mediaPreviewOpen.value = true;
-}
-
-function closeMediaPreview() {
-  if (isViewingSelf.value && !pendingCropUploadFile.value) {
-    applyDraftCrop();
-  }
-  clearPendingCropUpload();
-  mediaPreviewOpen.value = false;
-}
-
-function pickMediaFromPreview() {
-  const type = mediaPreviewType.value;
-  closeMediaPreview();
-  nextTick(() => {
-    if (type === "avatar") {
-      triggerAvatarPick();
-    } else {
-      triggerBgPick();
-    }
-  });
-}
-
-async function downloadMediaPreview() {
-  const url = mediaPreviewSrc.value;
-  if (!url) {
-    return;
-  }
-  const base = mediaPreviewType.value === "avatar" ? "avatar" : "background";
-  try {
-    const res = await fetch(url, { mode: "cors" });
-    if (!res.ok) {
-      throw new Error("fetch failed");
-    }
-    const blob = await res.blob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${base}-${Date.now()}.jpg`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  } catch {
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.click();
-  }
-}
-
-function triggerAvatarPick() {
-  avatarFileInput.value?.click();
-}
-
-function triggerBgPick() {
-  bgFileInput.value?.click();
-}
-
-function clearPendingCropUpload() {
-  pendingCropUploadFile.value = null;
-  pendingCropUploadType.value = null;
-  if (pendingCropUploadUrl.value) {
-    try {
-      URL.revokeObjectURL(pendingCropUploadUrl.value);
-    } catch {
-      /* ignore */
-    }
-  }
-  pendingCropUploadUrl.value = "";
-}
-
-function beginCropUpload(type, file) {
-  clearPendingCropUpload();
-  pendingCropUploadFile.value = file;
-  pendingCropUploadType.value = type;
-  pendingCropUploadUrl.value = URL.createObjectURL(file);
-  mediaPreviewType.value = type;
-  cropRectDraft.value = { L: 0, T: 0, W: 1, H: 1 };
-  mediaPreviewOpen.value = true;
-}
-
-function imageFromUrl(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("图片解码失败"));
-    img.src = url;
-  });
-}
-
-async function buildCroppedUploadFile(sourceUrl, type, rect, fallbackName) {
-  const img = await imageFromUrl(sourceUrl);
-  const nw = img.naturalWidth || 0;
-  const nh = img.naturalHeight || 0;
-  if (nw <= 0 || nh <= 0) {
-    throw new Error("无法读取图片尺寸");
-  }
-  const r = normalizeRect(rect);
-  const sx = Math.round(r.L * nw);
-  const sy = Math.round(r.T * nh);
-  const sw = Math.max(1, Math.round(r.W * nw));
-  const sh = Math.max(1, Math.round(r.H * nh));
-  const outW = type === "avatar" ? 640 : 1600;
-  const outH = type === "avatar" ? 640 : 500;
-  const canvas = document.createElement("canvas");
-  canvas.width = outW;
-  canvas.height = outH;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("浏览器不支持画布裁剪");
-  }
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
-  const blob = await new Promise((resolve, reject) => {
-    canvas.toBlob((b) => {
-      if (b) resolve(b);
-      else reject(new Error("导出裁剪图片失败"));
-    }, "image/jpeg", 0.92);
-  });
-  const safeName = String(fallbackName || `${type}-${Date.now()}.jpg`).replace(/\.[^.]+$/, "");
-  return new File([blob], `${safeName}-crop.jpg`, { type: "image/jpeg" });
-}
-
-async function submitCropUploadFromPreview() {
-  if (!pendingCropUploadFile.value || !pendingCropUploadType.value) {
-    return;
-  }
-  profileUploadBusy.value = true;
-  profileMsg.value = "";
-  try {
-    const rect = normalizeRect({ ...cropRectDraft.value });
-    const cropped = await buildCroppedUploadFile(
-      pendingCropUploadUrl.value,
-      pendingCropUploadType.value,
-      rect,
-      pendingCropUploadFile.value?.name
-    );
-    if (pendingCropUploadType.value === "avatar") {
-      const url = await updateUserAvatar(cropped);
-      if (profileUser.value) {
-        profileUser.value = normalizeUserProfile({ ...profileUser.value, avatarUrl: url });
-      }
-      cropRectAvatar.value = { L: 0, T: 0, W: 1, H: 1 };
-      profileMsg.value = "头像已裁剪并上传";
-    } else {
-      const url = await updateUserBgImage(cropped);
-      if (profileUser.value) {
-        profileUser.value = normalizeUserProfile({ ...profileUser.value, bgImage: url });
-      }
-      cropRectBg.value = { L: 0, T: 0, W: 1, H: 1 };
-      profileMsg.value = "背景图已裁剪并上传";
-    }
-    clearPendingCropUpload();
-    mediaPreviewOpen.value = false;
-  } catch (error) {
-    profileMsg.value = `裁剪上传失败：${error.message}`;
-  } finally {
-    profileUploadBusy.value = false;
-  }
-}
-
-async function onAvatarFileChange(event) {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  if (!file) {
-    return;
-  }
-  beginCropUpload("avatar", file);
-  profileMsg.value = "请先裁剪头像后再上传";
-}
-
-async function onBgFileChange(event) {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  if (!file) {
-    return;
-  }
-  beginCropUpload("bg", file);
-  profileMsg.value = "请先裁剪背景图后再上传";
-}
-
-function onSidebarOpenMyProfile() {
-  if (!isAuthed.value) {
-    pushToast("请先登录", "info");
-    return;
-  }
-  onProfile();
-}
-
-function onProfile() {
-  searchActive.value = false;
-  teardownSearchVideoObserver();
-  if (activeMenuKey.value === "home") {
-    saveHomeFeedSnapshot();
-  }
-  if (activeMenuKey.value === "shorts") {
-    void flushShortsHistoryQueue();
-  }
-  if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
-    pauseShortsFeedVideos({ muteForeground: true });
-  }
-  profileReturnContextRef.value = captureProfileReturnContext();
-  persistProfileReturnContext(profileReturnContextRef.value);
-  if (profileFeedOpen.value) {
-    closeProfileFeed();
-  }
-  if (shortPlayerOpen.value) {
-    closeShortPlayer();
-  }
-  showStudio.value = false;
-  uploadModalOpen.value = false;
-  if (!showVideoDetail.value) {
-    clearVideoDetailFromAddressBar();
-  }
-  showVideoDetail.value = false;
-  videoDetail.value = null;
-  profileTargetUserId.value = null;
-  showProfileCenter.value = true;
-  try {
-    history.pushState({ myyoutubeProfile: "self" }, "", window.location.href);
-  } catch {
-    /* ignore */
-  }
-  activeMenuLabel.value = "个人中心";
-  pageHint.value = "这里展示用户主页、作品和数据概览。";
-  loadProfileUser({ withWorks: true });
-}
-
-/** 进入他人主页（可从视频作者、关注列表等调用 userId；此处提供顶部「Ta」演示入口） */
-function openOtherUserProfile(userId) {
-  if (searchActive.value) {
-    searchActive.value = false;
-    teardownSearchVideoObserver();
-    if (searchExpandOpen.value) {
-      closeSearchExpand();
-    }
-  }
-  if (activeMenuKey.value === "home") {
-    saveHomeFeedSnapshot();
-  }
-  if (activeMenuKey.value === "shorts") {
-    void flushShortsHistoryQueue();
-  }
-  if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
-    pauseShortsFeedVideos({ muteForeground: true });
-  }
-  profileReturnContextRef.value = captureProfileReturnContext();
-  persistProfileReturnContext(profileReturnContextRef.value);
-  if (profileFeedOpen.value) {
-    closeProfileFeed();
-  }
-  if (shortPlayerOpen.value) {
-    closeShortPlayer();
-  }
-  closeRelationTable();
-  showStudio.value = false;
-  uploadModalOpen.value = false;
-  if (!showVideoDetail.value) {
-    clearVideoDetailFromAddressBar();
-  }
-  showVideoDetail.value = false;
-  videoDetail.value = null;
-  profileTargetUserId.value = userId;
-  showProfileCenter.value = true;
-  try {
-    history.pushState({ myyoutubeProfile: String(userId) }, "", window.location.href);
-  } catch {
-    /* ignore */
-  }
-  activeMenuLabel.value = "个人中心";
-  pageHint.value = "正在查看他人主页。";
-  loadProfileUser({ withWorks: true });
-}
-
-function onAuthorAvatarClick(event, authorId) {
-  event?.stopPropagation?.();
-  if (authorId == null || authorId === "") {
-    return;
-  }
-  const current = currentUserId.value != null ? String(currentUserId.value) : "";
-  if (current && String(authorId) === current) {
-    onProfile();
-    return;
-  }
-  openOtherUserProfile(authorId);
-}
-
 /** 搜索「用户」Tab：整行进入主页（排除关注按钮） */
 function pickSearchUserSnowflakeId(u) {
   const raw = u?.id;
@@ -5444,136 +4131,6 @@ function onSearchUserRowActivate(u, ev) {
   onAuthorAvatarClick(ev, id);
 }
 
-function openRelationTable(type) {
-  // 他人主页不允许查看关注/粉丝列表，也不请求对应接口
-  if (!isViewingSelf.value) {
-    return;
-  }
-  relationFollowerMenuId.value = null;
-  if (type === "following") {
-    relationTableKind.value = "following";
-    relationTableTitle.value = "关注列表";
-    relationTableUsers.value = followingRows.value;
-    followingPageNo.value = 1;
-    followingHasMore.value = true;
-    void loadFollowingMore({ reset: true });
-  } else {
-    relationTableKind.value = "followers";
-    relationTableTitle.value = "粉丝列表";
-    relationTableUsers.value = followerRows.value;
-    followerPageNo.value = 1;
-    followerHasMore.value = true;
-    void loadFollowersMore({ reset: true });
-  }
-  relationTableOpen.value = true;
-}
-
-function closeRelationTable() {
-  relationTableOpen.value = false;
-  relationFollowerMenuId.value = null;
-}
-
-function toggleFollowerMenu(userId) {
-  relationFollowerMenuId.value = relationFollowerMenuId.value === userId ? null : userId;
-}
-
-function onFollowerRemove(user) {
-  relationFollowerMenuId.value = null;
-  void (async () => {
-    try {
-      await removeFan(user.id);
-      followerRows.value = followerRows.value.filter((x) => String(x.id) !== String(user.id));
-      if (relationTableKind.value === "followers") {
-        relationTableUsers.value = followerRows.value;
-      }
-      if (profileUser.value && isViewingSelf.value) {
-        const n = Number(profileUser.value.fans);
-        if (!Number.isNaN(n) && n > 0) {
-          profileUser.value = normalizeUserProfile({ ...profileUser.value, fans: n - 1 });
-        }
-      }
-      pushToast(`已移除粉丝「${user.nickName || "该用户"}」`, "success");
-    } catch (e) {
-      pushToast(`移除失败：${e.message || e}`, "error");
-    }
-  })();
-}
-
-function onFollowerFollowBack(user) {
-  relationFollowerMenuId.value = null;
-  void (async () => {
-    try {
-      await followAuthor(user.id);
-      pushToast(`已回关「${user.nickName || "该用户"}」`, "success");
-    } catch (e) {
-      pushToast(`回关失败：${e.message || e}`, "error");
-    }
-  })();
-}
-
-function onFollowingUnfollow(user) {
-  void (async () => {
-    try {
-      await unfollowAuthor(user.id);
-      followingRows.value = followingRows.value.filter((x) => String(x.id) !== String(user.id));
-      if (relationTableKind.value === "following") {
-        relationTableUsers.value = followingRows.value;
-      }
-      pushToast(`已取关「${user.nickName || "该用户"}」`, "success");
-    } catch (e) {
-      pushToast(`取关失败：${e.message || e}`, "error");
-    }
-  })();
-}
-
-function openProfileEdit() {
-  if (!isViewingSelf.value || !profileUser.value) {
-    return;
-  }
-  profileEditForm.value = {
-    nickName: profileUser.value.nickName || "",
-    introduction: profileUser.value.introduction || "",
-  };
-  profileEditOpen.value = true;
-}
-
-function closeProfileEdit() {
-  profileEditOpen.value = false;
-}
-
-async function saveProfileEdit() {
-  if (!profileUser.value) {
-    return;
-  }
-  profileEditSaving.value = true;
-  profileMsg.value = "";
-  const nick = profileEditForm.value.nickName.trim();
-  const intro = profileEditForm.value.introduction.trim();
-  const uid = profileUser.value.id;
-  try {
-    if (uid == null || uid === "") {
-      throw new Error("缺少用户 ID，无法请求后端");
-    }
-    const data = await updateUserProfile(uid, { nickname: nick, introduction: intro });
-    const merged = data && typeof data === "object" ? { ...profileUser.value, ...data } : { ...profileUser.value };
-    profileUser.value = normalizeUserProfile({
-      ...merged,
-      nickName: nick,
-      introduction: intro,
-    });
-    profileMsg.value = "资料已保存";
-  } catch (error) {
-    profileUser.value = normalizeUserProfile({
-      ...profileUser.value,
-      nickName: nick,
-      introduction: intro,
-    });
-    profileMsg.value = `已保存到本地展示（接口未就绪或失败：${error.message}）`;
-  } finally {
-    profileEditSaving.value = false;
-    profileEditOpen.value = false;
-  }
-}
 
 /** 仅从列表项取播放地址，不再请求 /videos/detail */
 
@@ -5794,7 +4351,7 @@ async function submitUploadVideo() {
       void loadStudioVideos();
     }
     if (showProfileCenter.value) {
-      void loadProfileWorks();
+      void profileStore.loadWorks();
     }
   } catch (e) {
     uploadMsg.value = `发布失败：${e.message || e}`;
@@ -5937,26 +4494,6 @@ watch(
 );
 
 /** 从 video 元素读取有效时长，避免 NaN / Infinity / 未缓冲导致进度条错乱 */
-function readVideoDurationFromVideoEl(v) {
-  if (!v) {
-    return 0;
-  }
-  let d = Number(v.duration);
-  if (Number.isFinite(d) && d > 0 && d !== Number.POSITIVE_INFINITY) {
-    return d;
-  }
-  try {
-    if (v.seekable && v.seekable.length > 0) {
-      const end = Number(v.seekable.end(v.seekable.length - 1));
-      if (Number.isFinite(end) && end > 0 && end !== Number.POSITIVE_INFINITY) {
-        return end;
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return 0;
-}
 
 /**
  * 进度条：duration 未就绪时若 max 过小（曾用 0.01），而 currentTime 仍为上一段或中间值，
@@ -6442,14 +4979,6 @@ function shortsFeedNext() {
   shortsFeedIndex.value = (shortsFeedIndex.value + 1) % n;
 }
 
-function formatShortsTime(sec) {
-  if (!Number.isFinite(sec) || sec < 0) {
-    return "0:00";
-  }
-  const s = Math.floor(sec % 60);
-  const m = Math.floor(sec / 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
 
 function onShortsFeedFgLoadStart() {
   scheduleShortsBufferingOverlay();
@@ -6712,15 +5241,15 @@ function closeTopMostOverlayByEsc() {
     return true;
   }
   if (mediaPreviewOpen.value) {
-    closeMediaPreview();
+    profileStore.closeMediaPreview();
     return true;
   }
-  if (relationTableOpen.value) {
-    closeRelationTable();
+  if (profileStore.relationOpen) {
+    profileStore.closeRelationTable();
     return true;
   }
-  if (profileEditOpen.value) {
-    closeProfileEdit();
+  if (profileStore.editOpen) {
+    profileStore.closeEdit();
     return true;
   }
   if (shortPlayerOpen.value) {
@@ -7196,10 +5725,6 @@ function onProfileFeedKeydown(ev) {
   }
 }
 
-function onWorkCardClick(item) {
-  void openProfileWorkFeed(item);
-}
-
 function onShortPlayerKeydown(ev) {
   if (ev.key === "Escape") {
     closeShortPlayer();
@@ -7455,7 +5980,7 @@ async function submitLogin() {
     await nextTick();
 
     const loadAfterLogin = async () => {
-      await loadProfileUser();
+      await profileStore.loadUser();
       const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
       if (v) {
         const ok = await restoreVideoDetailFromUrl(v);
@@ -7530,18 +6055,13 @@ function logout() {
   shortsHistorySeenSet.clear();
   homeFeedSnapshot.value = null;
   cards.value = [];
-  showProfileCenter.value = false;
+  profileStore.close();
   showStudio.value = false;
   studioHistoryPushed.value = false;
   uploadModalOpen.value = false;
   clearVideoDetailFromAddressBar();
   showVideoDetail.value = false;
   videoDetail.value = null;
-  profileUser.value = null;
-  currentUserId.value = null;
-  profileTargetUserId.value = null;
-  mediaPreviewOpen.value = false;
-  clearCapturedProfileReturnContext();
   authMessage.value = "你已退出登录。";
   pushToast("已退出登录", "info");
   try {
@@ -7588,11 +6108,10 @@ function onAuthExpired(event) {
   authStore.signOut();
   hideDetailBufferingOverlay();
   showVideoDetail.value = false;
-  showProfileCenter.value = false;
+  profileStore.close();
   showStudio.value = false;
   uploadModalOpen.value = false;
   profileFeedOpen.value = false;
-  clearCapturedProfileReturnContext();
   clearVideoDetailFromAddressBar();
   authMessage.value = msg;
 }
@@ -7612,11 +6131,11 @@ function onWindowPopState() {
   if (showProfileCenter.value || activeMenuKey.value !== "home") {
     const vParam = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
     const hadProfile = showProfileCenter.value;
-    const returnCtx = profileReturnContextRef.value || readPersistedProfileReturnContext();
+    const returnCtx = profileStore.readReturnContext();
     showProfileCenter.value = false;
     profileTargetUserId.value = null;
     if (hadProfile && returnCtx?.kind === "shortsFeed") {
-      clearCapturedProfileReturnContext();
+      profileStore.clearReturnContext();
       void restoreProfileReturnContext(returnCtx);
       return;
     }
@@ -7625,11 +6144,11 @@ function onWindowPopState() {
       if (returnCtx?.menuKey) {
         applyMenuKeyIfKnown(returnCtx.menuKey);
       }
-      clearCapturedProfileReturnContext();
+      profileStore.clearReturnContext();
       void restoreVideoDetailFromUrl(vidRestore);
       return;
     }
-    clearCapturedProfileReturnContext();
+    profileStore.clearReturnContext();
     if (hadProfile) {
       const ui = loadUiStateFromSession();
       if (ui?.activeMenuKey) {
@@ -7753,51 +6272,20 @@ watch(
   { immediate: true }
 );
 
-/** 过渡桥接: SearchView 依赖的交互函数仍在本组件, 拆分完成前经 provide 注入 */
+/** SearchView 残余桥: 跨列表同步/点赞系统/进全屏与主页仍依赖 App 级状态 */
 provide("searchBridge", {
-  selectSearchTab,
   onSearchTagNavigate,
-  toggleSearchUserFollow,
   onSearchUserRowActivate,
   searchUserRowIsSelf,
   searchUserRowIsFollowed,
+  toggleSearchUserFollow,
   onAuthorAvatarClick,
-  resolveVideoUrl,
-  cardAuthorAvatar,
-  cardAuthorLabel,
-  parseSearchTagsArray,
-  formatSearchRelTime,
-  formatShortsTime,
-  formatHomeShortStat,
-  searchFeedBindMainVideo,
-  searchFeedBindMediaWrap,
-  searchFeedListMuted,
-  searchFeedListVolValue,
-  searchFeedListScrubMax,
-  searchFeedListScrubDisplay,
-  searchFeedListDurationReady,
-  searchFeedListCurrent,
-  searchFeedListDuration,
-  searchFeedListShowPaused,
-  onSearchFeedListScrubInput,
-  searchFeedListToggleMute,
-  onSearchFeedListVolumeInput,
-  searchFeedListRequestPip,
-  searchFeedListRequestFullscreen,
-  searchFeedListTogglePlay,
-  onSearchFeedListTimeUpdate,
-  onSearchFeedListLoadedMetadata,
-  onSearchFeedListSeeked,
-  onSearchFeedListVideoPlay,
-  onSearchFeedListVideoPause,
+  onSearchFeedForwardClick,
   onSearchFeedMainVideoClick,
   onSearchFeedLikeClick,
-  onSearchFeedForwardClick,
-  openSearchListCommentPanel,
 });
 
-/** 过渡桥接: HistoryView/LikedView 依赖的卡片/翻页/悬停预览函数与预览源仍在本组件 */
-/** HistoryView/LikedView 残余桥: 进他人主页与赞过连播(依赖 App 级 overlay/列表查找) */
+/** HistoryView/LikedView 残余桥: 进他人主页与赞过连播依赖 App 级 overlay/列表查找 */
 provide("cardsBridge", {
   onAuthorAvatarClick,
   onLikedWorkClick,
@@ -8359,7 +6847,7 @@ watch(searchActive, (v) => {
 });
 
 
-/** 过渡桥接: ShortsView 的状态/函数/DOM ref 全量注入(ref 直传保持响应式) */
+/** ShortsView 残余桥: 状态/函数/DOM ref 全量注入(ref 直传保持响应式) */
 provide("shortsBridge", {
   activeCommentVideo,
   activeCommentVideoAllowsComment,
@@ -8508,8 +6996,7 @@ provide("shortsBridge", {
   toggleShortsPanelThread,
   topbarAvatarSrc,
 });
-/** 过渡桥接: HomeView 的状态/函数/DOM ref 注入 */
-/** HomeView 残余桥: 短视频条滚动加载/进短视频流/卡片进详情(App 级逻辑) */
+/** HomeView 残余桥: 短视频条滚动加载/进短视频流/卡片进详情仍依赖 App 级逻辑 */
 provide("homeBridge", {
   showProfileCenter,
   homeShortsStripRef,
@@ -8519,7 +7006,7 @@ provide("homeBridge", {
   onVideoCardClick,
   onAuthorAvatarClick,
 });
-/** 过渡桥接: VideoDetailView 的状态/函数/DOM ref 注入 */
+/** VideoDetailView 残余桥: 状态/函数/DOM ref 注入 */
 provide("detailBridge", {
   applyDetailPlaybackResumeIfNeeded,
   cardAuthorLabel,
@@ -8591,7 +7078,7 @@ provide("detailBridge", {
 });
 /** StudioView 残余桥: 依赖 App 级上传弹窗/删除确认/个人资料计算属性 */
 provide("studioBridge", {
-  displayNickname,
+  displayNickname: selfDisplayNickname,
   topbarAvatarSrc,
   openUploadModal,
   onStudioRowRequestDelete,
@@ -8600,7 +7087,7 @@ provide("studioBridge", {
 // 创作中心 store 的跨域依赖接线(App 拥有 profile 加载与跨列表补丁)
 registerStudioHooks({
   getUserId: () => currentUserId.value,
-  ensureProfile: loadProfileUser,
+  ensureProfile: () => profileStore.loadUser(),
   patchFeedById: patchFeedVideoById,
 });
 
@@ -8653,49 +7140,46 @@ registerLikedHooks({ getUserId: () => currentUserId.value });
 registerHomeHooks({ reloadHome: () => loadModuleCards(primaryMenus[0]) });
 registerShortsFeedPlayerRefs({ fg: shortsFeedFgRef, bg: shortsFeedBgRef });
 
-/** 过渡桥接: profileBridge 注入 */
-provide("profileBridge", {
-  activePreviewVideoUrl,
-  avatarFileInput,
-  avatarImgStyle,
-  avatarImgUsePrecise,
-  bgFileInput,
-  displayNickname,
-  formatHomeShortStat,
-  heroCropContainerRef,
-  heroImgStyle,
-  heroImgUsePrecise,
-  introDisplayText,
-  isAuthed,
-  isCardPreviewPlaying,
-  isViewingSelf,
-  onAvatarFileChange,
-  onBgFileChange,
-  onCardHoverEnter,
-  onCardHoverLeave,
-  onProfileAvatarImgError,
-  onProfileAvatarNaturalLoad,
-  onProfileBgImgError,
-  onProfileHeroBgLoad,
-  onProfileWorksChatClick,
-  onWorkCardClick,
-  openMediaPreview,
-  openProfileEdit,
-  openRelationTable,
-  profileChatBusy,
-  profileDisplayAvatar,
-  profileDisplayBg,
-  profileFollowBusy,
-  profileLoading,
-  profileMsg,
-  profileTargetFollowed,
-  profileUser,
-  profileWorksDisplay,
-  profileWorksFilter,
-  profileWorksLoading,
-  resolveVideoUrl,
-  showProfileCenter,
-  toggleProfileTargetFollow,
+/** profileStore 的宿主依赖：打开主页要收起 App 级遮罩，作品卡要进全屏短视频流 */
+registerProfileHooks({
+  prepareOpen: () => {
+    searchActive.value = false;
+    teardownSearchVideoObserver();
+    if (activeMenuKey.value === "home") {
+      saveHomeFeedSnapshot();
+    }
+    if (activeMenuKey.value === "shorts") {
+      void flushShortsHistoryQueue();
+    }
+    if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
+      pauseShortsFeedVideos({ muteForeground: true });
+    }
+    const returnCtx = captureProfileReturnContext();
+    if (profileFeedOpen.value) {
+      closeProfileFeed();
+    }
+    if (shortPlayerOpen.value) {
+      closeShortPlayer();
+    }
+    showStudio.value = false;
+    uploadModalOpen.value = false;
+    if (!showVideoDetail.value) {
+      clearVideoDetailFromAddressBar();
+    }
+    showVideoDetail.value = false;
+    videoDetail.value = null;
+    activeMenuLabel.value = "个人中心";
+    return returnCtx;
+  },
+  pushHistory: (key) => {
+    try {
+      history.pushState({ myyoutubeProfile: key }, "", window.location.href);
+    } catch {
+      /* ignore */
+    }
+  },
+  openWorkFeed: (item) => void openProfileWorkFeed(item),
+  patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
 });
 
 onMounted(async () => {
@@ -8745,7 +7229,7 @@ onMounted(async () => {
   if (!isAuthed.value) {
     return;
   }
-  await loadProfileUser();
+  await profileStore.loadUser();
   const homeMenu = primaryMenus[0];
   const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
   if (v) {
@@ -8767,7 +7251,7 @@ onMounted(async () => {
       profileTargetUserId.value = state.profileTargetUserId ?? null;
       showProfileCenter.value = true;
       activeMenuLabel.value = "个人中心";
-      await loadProfileUser({ withWorks: true });
+      await profileStore.loadUser({ withWorks: true });
       return;
     }
     if (state?.showStudio) {
@@ -8819,10 +7303,6 @@ onBeforeUnmount(() => {
   if (loginCaptchaTimer) clearInterval(loginCaptchaTimer);
   if (registerCaptchaTimer) clearInterval(registerCaptchaTimer);
   if (forgotCaptchaTimer) clearInterval(forgotCaptchaTimer);
-  if (heroResizeObserver) {
-    heroResizeObserver.disconnect();
-    heroResizeObserver = null;
-  }
 });
 </script>
 
@@ -9290,7 +7770,7 @@ onBeforeUnmount(() => {
             class="avatar-btn avatar-btn--img"
             title="个人中心"
             aria-label="个人中心"
-            @click="onProfile"
+            @click="openProfile"
           >
             <img :src="topbarAvatarSrc" alt="" class="topbar-avatar-img" @error="onTopbarAvatarError" />
           </button>
@@ -9414,206 +7894,6 @@ onBeforeUnmount(() => {
         <template v-if="!searchActive">
 
         <ProfileCenterView v-if="showProfileCenter" />
-
-        <div v-if="mediaPreviewOpen" class="modal-overlay modal-overlay--light" @click.self="closeMediaPreview">
-          <div class="modal-card media-preview-card media-preview-card--light" role="dialog" aria-modal="true" @click.stop>
-            <h3 class="media-preview-title media-preview-title--light">
-              {{ mediaPreviewType === "avatar" ? "头像" : "背景图" }}
-            </h3>
-            <div class="media-preview-body media-preview-body--stack">
-              <div class="media-preview-crop-stage">
-                <div class="media-preview-crop-stage-inner">
-                  <img
-                    class="media-preview-full-img"
-                    :src="mediaPreviewSrc"
-                    :alt="mediaPreviewType === 'avatar' ? '头像预览' : '背景预览'"
-                    draggable="false"
-                    @load="onCropImgLoad"
-                    @error="onMediaPreviewImgError"
-                  />
-                  <div
-                    v-if="isViewingSelf && pendingCropUploadFile"
-                    class="crop-box"
-                    :style="cropBoxStyle"
-                    @pointerdown="onCropBoxDragStart"
-                  >
-                    <div class="crop-handle-br" title="调整选区大小" @pointerdown.stop="onCropResizeStart" />
-                  </div>
-                </div>
-              </div>
-              <div class="media-preview-side media-preview-side--light">
-                <button
-                  v-if="isViewingSelf"
-                  type="button"
-                  class="profile-action-btn primary"
-                  :disabled="profileUploadBusy"
-                  @click="pendingCropUploadFile ? submitCropUploadFromPreview() : pickMediaFromPreview()"
-                >
-                  {{
-                    profileUploadBusy
-                      ? "处理中…"
-                      : pendingCropUploadFile
-                        ? "裁剪并上传"
-                        : "更换图片"
-                  }}
-                </button>
-                <button v-else type="button" class="profile-action-btn primary" @click="downloadMediaPreview">
-                  下载图片
-                </button>
-                <button type="button" class="profile-action-btn ghost" @click="closeMediaPreview">关闭</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div
-          v-if="relationTableOpen"
-          class="modal-overlay modal-overlay--light relation-modal-overlay"
-          @click.self="closeRelationTable"
-        >
-          <div class="modal-card relation-table-card relation-table-card--white" @click="relationFollowerMenuId = null">
-            <h3 class="relation-table-heading">{{ relationTableTitle }}</h3>
-            <div class="relation-table-wrap relation-table-wrap--white">
-              <table class="relation-table relation-table--white">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>头像</th>
-                    <th class="relation-th-nick">昵称</th>
-                    <th class="relation-th-intro">简介</th>
-                    <th class="relation-th-action">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(user, relIdx) in relationTableUsers" :key="`rel-${relIdx}-${String(user.id)}`">
-                    <td>{{ user.id }}</td>
-                    <td>
-                      <img
-                        class="relation-avatar"
-                        :src="user.avatarDisplaySrc || profileAvatar"
-                        alt=""
-                        role="button"
-                        title="查看用户主页"
-                        @click.stop="onAuthorAvatarClick($event, user.id)"
-                        @error="(e) => { const t = e.target; if (!t || t.dataset.fallbackApplied === '1') return; t.dataset.fallbackApplied = '1'; t.src = profileAvatar; }"
-                      />
-                    </td>
-                    <td class="relation-nick-cell">
-                      <div
-                        class="relation-name"
-                        role="button"
-                        tabindex="0"
-                        title="查看用户主页"
-                        @click.stop="onAuthorAvatarClick($event, user.id)"
-                        @keyup.enter.stop="onAuthorAvatarClick($event, user.id)"
-                      >
-                        {{ user.nickName }}
-                      </div>
-                    </td>
-                    <td class="relation-intro-cell">
-                      <span class="relation-intro-text">{{ user.introduction?.trim() || "—" }}</span>
-                    </td>
-                    <td class="relation-action-cell">
-                      <template v-if="relationTableKind === 'followers'">
-                        <button
-                          type="button"
-                          class="relation-more-btn"
-                          aria-label="更多操作"
-                          @click.stop="toggleFollowerMenu(user.id)"
-                        >
-                          <i class="ri-more-2-fill"></i>
-                        </button>
-                        <div
-                          v-if="relationFollowerMenuId === user.id"
-                          class="relation-flyout"
-                          @click.stop
-                        >
-                          <button type="button" class="relation-flyout-btn" @click="onFollowerRemove(user)">
-                            移除
-                          </button>
-                          <button type="button" class="relation-flyout-btn relation-flyout-btn--primary" @click="onFollowerFollowBack(user)">
-                            回关
-                          </button>
-                        </div>
-                      </template>
-                      <template v-else>
-                        <button type="button" class="relation-unfollow-btn" @click="onFollowingUnfollow(user)">
-                          取关
-                        </button>
-                      </template>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="relation-table-more">
-              <button
-                v-if="relationTableKind === 'following' && followingHasMore"
-                type="button"
-                class="history-layout-btn"
-                :disabled="followingLoading"
-                @click="loadFollowingNextPage"
-              >
-                {{ followingLoading ? "加载中…" : "加载更多" }}
-              </button>
-              <button
-                v-if="relationTableKind === 'followers' && followerHasMore"
-                type="button"
-                class="history-layout-btn"
-                :disabled="followerLoading"
-                @click="loadFollowersNextPage"
-              >
-                {{ followerLoading ? "加载中…" : "加载更多" }}
-              </button>
-            </div>
-            <button type="button" class="relation-modal-close" @click="closeRelationTable">关闭</button>
-          </div>
-        </div>
-
-        <div
-          v-if="profileEditOpen"
-          class="modal-overlay modal-overlay--light profile-edit-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="profile-edit-title"
-          @click.self="closeProfileEdit"
-        >
-          <div class="modal-card profile-edit-modal" @click.stop>
-            <h3 id="profile-edit-title" class="profile-edit-title">编辑资料</h3>
-            <div class="profile-edit-form">
-              <label class="profile-edit-label">
-                <span>昵称</span>
-                <input
-                  v-model="profileEditForm.nickName"
-                  type="text"
-                  maxlength="64"
-                  autocomplete="nickname"
-                  placeholder="请输入昵称"
-                />
-              </label>
-              <label class="profile-edit-label">
-                <span>个人简介</span>
-                <textarea
-                  v-model="profileEditForm.introduction"
-                  rows="4"
-                  maxlength="500"
-                  placeholder="介绍一下自己…"
-                ></textarea>
-              </label>
-            </div>
-            <div class="profile-edit-actions">
-              <button type="button" class="profile-edit-btn profile-edit-btn--ghost" @click="closeProfileEdit">取消</button>
-              <button
-                type="button"
-                class="profile-edit-btn profile-edit-btn--primary"
-                :disabled="profileEditSaving"
-                @click="saveProfileEdit"
-              >
-                {{ profileEditSaving ? "保存中…" : "保存" }}
-              </button>
-            </div>
-          </div>
-        </div>
 
         <div
           v-if="shortPlayerOpen"

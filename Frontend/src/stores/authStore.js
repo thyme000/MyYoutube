@@ -1,6 +1,5 @@
 /**
- * 认证态：token 与当前用户快照。token 持久化仍走 api/http.js（localStorage myyoutube_token）。
- * 拆 views/ 后各页面从这里取登录态，不再由 App.vue 逐层传递。
+ * 认证态：token 与当前用户。token 持久化走 api/http.js（localStorage myyoutube_token）。
  */
 import { defineStore } from "pinia";
 import { getToken, setToken as persistToken, clearToken } from "../api/http";
@@ -8,10 +7,12 @@ import { getToken, setToken as persistToken, clearToken } from "../api/http";
 export const useAuthStore = defineStore("auth", {
   state: () => ({
     token: getToken() || "",
-    /** 当前登录用户快照（登录/资料更新时填充） */
+    /** 当前登录用户 id（来自 /user/info） */
     userId: null,
     nickName: "",
     avatarUrl: "",
+    /** 当前登录用户资料快照（顶栏头像等），不因进入他人主页而被替换 */
+    selfProfile: null,
   }),
   getters: {
     isAuthed: (s) => Boolean(s.token),
@@ -26,12 +27,16 @@ export const useAuthStore = defineStore("auth", {
       if (user.nickName != null) this.nickName = user.nickName;
       if (user.avatarUrl != null) this.avatarUrl = user.avatarUrl;
     },
+    setSelfProfile(profile) {
+      this.selfProfile = profile || null;
+    },
     signOut() {
       this.token = "";
       clearToken();
       this.userId = null;
       this.nickName = "";
       this.avatarUrl = "";
+      this.selfProfile = null;
     },
     /** 页面重新可见等场景下与 localStorage 对齐 */
     refreshFromStorage() {

@@ -8,7 +8,21 @@ import { computed, inject } from "vue";
 import { storeToRefs } from "pinia";
 import { useSearchStore, SEARCH_UI } from "../stores/searchStore";
 import { useAuthStore } from "../stores/authStore";
+import { useShortsStore } from "../stores/shortsStore";
 import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar } from "../utils/userProfile";
+import {
+  resolveVideoUrl,
+  cardAuthorAvatar,
+  cardAuthorLabel,
+  formatHomeShortStat,
+  formatShortsTime,
+  parseSearchTagsArray,
+  formatSearchRelTime,
+  readVideoDurationFromVideoEl,
+} from "../utils/videoCard.js";
+
+/** 搜索列表进度条：节流 timeupdate，避免每帧整表重绘卡死 */
+const searchFeedProgressThrottleTs = new Map();
 
 defineProps({
   /** App.vue 的 searchFeedScrollRef，滚动容器 DOM 需回传给宿主的观察器 */
@@ -33,6 +47,18 @@ const {
 } = storeToRefs(useSearchStore());
 const { isAuthed } = storeToRefs(useAuthStore());
 
+const searchStore = useSearchStore();
+const {
+  searchFeedMainVideoById,
+  searchFeedMediaWrapById,
+  searchFeedProgressMap,
+  searchFeedListPrefs,
+  searchFeedPausedMap,
+  searchListCommentOpen,
+  searchListCommentCard,
+  searchExpandCommentOpen,
+} = storeToRefs(searchStore);
+
 const searchFeedVideoList = computed(() => {
   if (searchTab.value === "tag") return searchTagRows.value;
   if (searchTab.value === "all" || searchTab.value === "video") return searchVideoRows.value;
@@ -47,46 +73,246 @@ const searchVerticalLoadingMore = computed(() => {
   return searchVideoLoadingMore.value;
 });
 
+/** 残余桥: 标签导航/用户行操作/点赞系统/进全屏(App 级) */
 const {
-  selectSearchTab,
   onSearchTagNavigate,
-  toggleSearchUserFollow,
   onSearchUserRowActivate,
   searchUserRowIsSelf,
   searchUserRowIsFollowed,
+  toggleSearchUserFollow,
   onAuthorAvatarClick,
-  resolveVideoUrl,
-  cardAuthorAvatar,
-  parseSearchTagsArray,
-  formatSearchRelTime,
-  formatShortsTime,
-  formatHomeShortStat,
-  searchFeedBindMainVideo,
-  searchFeedBindMediaWrap,
-  searchFeedListMuted,
-  searchFeedListVolValue,
-  searchFeedListScrubMax,
-  searchFeedListScrubDisplay,
-  searchFeedListDurationReady,
-  searchFeedListCurrent,
-  searchFeedListDuration,
-  searchFeedListShowPaused,
-  onSearchFeedListScrubInput,
-  searchFeedListToggleMute,
-  onSearchFeedListVolumeInput,
-  searchFeedListRequestPip,
-  searchFeedListRequestFullscreen,
-  searchFeedListTogglePlay,
-  onSearchFeedListTimeUpdate,
-  onSearchFeedListLoadedMetadata,
-  onSearchFeedListSeeked,
-  onSearchFeedListVideoPlay,
-  onSearchFeedListVideoPause,
+  onSearchFeedForwardClick,
   onSearchFeedMainVideoClick,
   onSearchFeedLikeClick,
-  onSearchFeedForwardClick,
-  openSearchListCommentPanel,
 } = bridge;
+
+function selectSearchTab(key) {
+  searchStore.selectTab(key);
+}
+
+
+function searchFeedBindMainVideo(cardId, el) {
+  const k = String(cardId);
+  const cur = searchFeedMainVideoById.value[k];
+  if (el) {
+    if (cur === el) return;
+    searchFeedMainVideoById.value = { ...searchFeedMainVideoById.value, [k]: el };
+  } else {
+    if (cur === undefined) return;
+    const next = { ...searchFeedMainVideoById.value };
+    delete next[k];
+    searchFeedMainVideoById.value = next;
+  }
+}
+
+function searchFeedBindMediaWrap(cardId, el) {
+  const k = String(cardId);
+  const cur = searchFeedMediaWrapById.value[k];
+  if (el) {
+    if (cur === el) return;
+    searchFeedMediaWrapById.value = { ...searchFeedMediaWrapById.value, [k]: el };
+  } else {
+    if (cur === undefined) return;
+    const next = { ...searchFeedMediaWrapById.value };
+    delete next[k];
+    searchFeedMediaWrapById.value = next;
+  }
+}
+
+function searchFeedGetMainVideo(id) {
+  return searchFeedMainVideoById.value[String(id)] ?? null;
+}
+
+function searchFeedListMuted(card) {
+  return searchFeedListPrefs.value[String(card.id)]?.muted !== false;
+}
+
+function searchFeedListVolValue(card) {
+  return searchFeedListPrefs.value[String(card.id)]?.volume ?? 0.85;
+}
+
+function searchFeedListScrubMax(cardId) {
+  const d = Number(searchFeedProgressMap.value[String(cardId)]?.d);
+  return Number.isFinite(d) && d > 0 ? d : 1;
+}
+
+function searchFeedListScrubDisplay(cardId) {
+  const p = searchFeedProgressMap.value[String(cardId)];
+  const t = Number(p?.t);
+  const d = Number(p?.d);
+  if (!Number.isFinite(t) || t < 0) return 0;
+  if (Number.isFinite(d) && d > 0) return Math.min(t, d);
+  return 0;
+}
+
+function searchFeedListDurationReady(cardId) {
+  const d = Number(searchFeedProgressMap.value[String(cardId)]?.d);
+  return Number.isFinite(d) && d > 0;
+}
+
+function searchFeedListCurrent(cardId) {
+  return Number(searchFeedProgressMap.value[String(cardId)]?.t) || 0;
+}
+
+function searchFeedListDuration(cardId) {
+  return Number(searchFeedProgressMap.value[String(cardId)]?.d) || 0;
+}
+
+function searchFeedListShowPaused(card) {
+  return searchFeedPausedMap.value[String(card.id)] !== false;
+}
+
+function onSearchFeedListScrubInput(e, card) {
+  const v = searchFeedGetMainVideo(card.id);
+  if (!v) return;
+  const t = Number(e.target.value);
+  if (!Number.isFinite(t)) return;
+  v.currentTime = t;
+  const d = readVideoDurationFromVideoEl(v);
+  searchFeedProgressMap.value = {
+    ...searchFeedProgressMap.value,
+    [String(card.id)]: { t, d: d > 0 ? d : searchFeedProgressMap.value[String(card.id)]?.d ?? 0 },
+  };
+}
+
+function searchFeedListToggleMute(card, ev) {
+  ev?.stopPropagation?.();
+  const k = String(card.id);
+  const next = !searchFeedListMuted(card);
+  searchFeedListPrefs.value = { ...searchFeedListPrefs.value, [k]: { ...searchFeedListPrefs.value[k], muted: next } };
+  const el = searchFeedGetMainVideo(card.id);
+  if (el) el.muted = next;
+}
+
+function onSearchFeedListVolumeInput(e, card) {
+  const vol = Number(e.target.value);
+  const k = String(card.id);
+  searchFeedListPrefs.value = {
+    ...searchFeedListPrefs.value,
+    [k]: { ...searchFeedListPrefs.value[k], volume: vol, muted: vol === 0 },
+  };
+  const v = searchFeedGetMainVideo(card.id);
+  if (v) {
+    v.volume = vol;
+    v.muted = vol === 0;
+  }
+}
+
+async function searchFeedListRequestPip(card, ev) {
+  ev?.stopPropagation?.();
+  const v = searchFeedGetMainVideo(card.id);
+  if (!v?.requestPictureInPicture) return;
+  try {
+    if (document.pictureInPictureElement === v) {
+      await document.exitPictureInPicture();
+    } else {
+      await v.requestPictureInPicture();
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function searchFeedListRequestFullscreen(card, ev) {
+  ev?.stopPropagation?.();
+  const el = searchFeedMediaWrapById.value[String(card.id)];
+  if (!el) return;
+  try {
+    if (document.fullscreenElement === el) {
+      await document.exitFullscreen();
+    } else {
+      await el.requestFullscreen();
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function searchFeedListTogglePlay(card, ev) {
+  ev?.stopPropagation?.();
+  const v = searchFeedGetMainVideo(card.id);
+  if (!v) return;
+  if (v.paused) v.play().catch(() => {});
+  else v.pause();
+}
+
+function onSearchFeedListTimeUpdate(e, cardId) {
+  const v = e.target;
+  const id = String(cardId);
+  const now = Date.now();
+  const last = searchFeedProgressThrottleTs.get(id) ?? 0;
+  if (now - last < 180) {
+    return;
+  }
+  searchFeedProgressThrottleTs.set(id, now);
+  const d = readVideoDurationFromVideoEl(v);
+  const t = Number(v.currentTime) || 0;
+  const prev = searchFeedProgressMap.value[id];
+  const dur = d > 0 ? d : prev?.d ?? 0;
+  if (prev && Math.abs((prev.t ?? 0) - t) < 0.12 && prev.d === dur) {
+    return;
+  }
+  searchFeedProgressMap.value = {
+    ...searchFeedProgressMap.value,
+    [id]: { t, d: dur },
+  };
+  const slide = e.target.closest?.("[data-search-v-slide]");
+  const blur = slide?.querySelector?.(".search-feed-video--blur");
+  if (blur && v && Math.abs(blur.currentTime - v.currentTime) > 0.25) {
+    blur.currentTime = v.currentTime;
+  }
+}
+
+function onSearchFeedListLoadedMetadata(e, cardId) {
+  const v = e.target;
+  const id = String(cardId);
+  const d = readVideoDurationFromVideoEl(v);
+  searchFeedProgressMap.value = {
+    ...searchFeedProgressMap.value,
+    [id]: { t: Number(v.currentTime) || 0, d },
+  };
+  const p = searchFeedListPrefs.value[id];
+  v.volume = p?.volume ?? 0.85;
+  v.muted = p?.muted !== false;
+}
+
+function onSearchFeedListSeeked(e) {
+  const v = e.target;
+  const slide = e.target.closest?.("[data-search-v-slide]");
+  const blur = slide?.querySelector?.(".search-feed-video--blur");
+  if (blur && v) {
+    blur.currentTime = v.currentTime;
+  }
+}
+
+function onSearchFeedListVideoPlay(e, cardId) {
+  onSearchFeedListPlay(e);
+  searchFeedPausedMap.value = { ...searchFeedPausedMap.value, [String(cardId)]: false };
+}
+
+function onSearchFeedListVideoPause(e, cardId) {
+  onSearchFeedListPause(e);
+  searchFeedPausedMap.value = { ...searchFeedPausedMap.value, [String(cardId)]: true };
+}
+
+function openSearchListCommentPanel(card, ev) {
+  ev?.stopPropagation?.();
+  if (!card?.id) return;
+  useShortsStore().shortsCommentPanelOpen = false;
+  searchExpandCommentOpen.value = false;
+  searchListCommentCard.value = card;
+  searchListCommentOpen.value = true;
+}
+
+
+function onSearchFeedListPlay(e) {
+  const blur = e.target?.closest?.("[data-search-v-slide]")?.querySelector?.(".search-feed-video--blur");
+  blur?.play?.().catch(() => {});
+}
+function onSearchFeedListPause(e) {
+  const blur = e.target?.closest?.("[data-search-v-slide]")?.querySelector?.(".search-feed-video--blur");
+  blur?.pause?.();
+}
 </script>
 
 <template>

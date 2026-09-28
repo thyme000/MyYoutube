@@ -36,7 +36,6 @@ node_modules/
 dist/
 .vite/
 *.local
-Frontend/nginx-1.29.6/*_temp/
 
 # ===== 敏感配置 =====
 .env
@@ -50,3 +49,6 @@ README.md
 
 # nginx
 Frontend/nginx-1.29.6/
+
+# workbuddy-ai 工作区数据
+.workbuddy-ai/
