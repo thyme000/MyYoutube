@@ -30,6 +30,7 @@ import {
   parseSearchTagsArray,
   formatSearchRelTime,
   formatShortsTime,
+  resolveVideoUrlFromLists,
 } from "./utils/videoCard.js";
 import {
   formatCommentTime as formatDetailCommentTime,
@@ -49,9 +50,7 @@ import {
 import {
   fetchVideosByModule,
   fetchVideoListPage,
-  fetchOtherUserVideos,
   fetchShortsFeedPage,
-  fetchFollowVideoFeedPage,
   fetchShortHistoryPage,
   fetchLongHistoryPage,
   fetchVideoDetail,
@@ -798,6 +797,14 @@ const toggleSelfVideoActionMenu = () => shortsStore.toggleSelfVideoActionMenu();
 const closeSelfVideoActionMenu = () => shortsStore.closeSelfVideoActionMenu();
 const toggleCurrentSelfVideoVisibility = () => shortsStore.toggleCurrentSelfVideoVisibility();
 const toggleCurrentSelfVideoAllowComment = () => shortsStore.toggleCurrentSelfVideoAllowComment();
+
+/** 关注页数据源与侧栏筛选：实现已移入 shortsStore */
+const loadSubscribedFollowVideos = (opts) => shortsStore.loadSubscribedFollowVideos(opts);
+const loadSubscribedAuthorVideos = (authorId, opts) =>
+  shortsStore.loadSubscribedAuthorVideos(authorId, opts);
+const selectFollowSidebarAll = () => shortsStore.selectFollowSidebarAll();
+const selectFollowSidebarAuthor = (user) => shortsStore.selectFollowSidebarAuthor(user);
+const maybePrefetchFollowFeed = () => shortsStore.maybePrefetchFollowFeed();
 /** 地址栏 ?v= 与 sessionStorage 恢复详情页（刷新不丢） */
 const VIDEO_URL_PARAM = "v";
 
@@ -1239,189 +1246,6 @@ const selfDisplayNickname = computed(() => {
 
 /** 顶栏「我」头像：始终为当前登录用户，不随他人主页 profileUser 变化 */
 const topbarAvatarSrc = computed(() => authStore.selfAvatarUrl);
-
-function mapToFollowPlayableRows(list) {
-  return (Array.isArray(list) ? list : [])
-    .map((x) => {
-      const url =
-        resolveVideoUrl(x) || resolveVideoUrlForListItem(x.id, x) || String(x?.videoUrl || "").trim();
-      return { ...x, videoUrl: url || x.videoUrl, videoType: x.videoType || "SHORT_VIDEO" };
-    })
-    .filter((x) => Boolean(String(resolveVideoUrl(x) || x.videoUrl || "").trim()));
-}
-
-let followFeedLoadSeq = 0;
-let followAuthorLoadSeq = 0;
-
-async function loadSubscribedFollowVideos({ reset = false } = {}) {
-  if (!isAuthed.value) return;
-  const seq = ++followFeedLoadSeq;
-  if (followVideoLoadingMore.value && !reset) return;
-  if (!reset && !followVideoHasMore.value) return;
-  followVideoLoadingMore.value = true;
-  try {
-    const pageNo = reset ? 1 : followVideoPageNo.value;
-    const pageSize = 12;
-    const res = await fetchFollowVideoFeedPage({ pageNo, pageSize });
-    if (seq !== followFeedLoadSeq) return;
-    if (followSubscribedFilterAuthorId.value != null && followSubscribedFilterAuthorId.value !== "") {
-      return;
-    }
-    const list = Array.isArray(res.list) ? res.list : [];
-    const playable = mapToFollowPlayableRows(list);
-    const pages = Number(res.pages || 0);
-    if (reset) {
-      followFeedQueue.value = playable;
-      cards.value = list;
-      followVideoPageNo.value = pageNo + 1;
-    } else {
-      const existing = new Set(followFeedQueue.value.map((x) => String(x.id)));
-      let merged = followFeedQueue.value;
-      for (const p of playable) {
-        if (!existing.has(String(p.id))) {
-          merged = [...merged, p];
-          existing.add(String(p.id));
-        }
-      }
-      followFeedQueue.value = merged;
-      followVideoPageNo.value = pageNo + 1;
-    }
-    followVideoHasMore.value = list.length >= pageSize && (pages <= 0 || pageNo < pages);
-    if (list.length && !playable.length) {
-      pushToast("接口返回了视频但未解析到播放地址，请检查对象存储签名或 videoUrl 字段", "info");
-    }
-  } catch (e) {
-    if (seq !== followFeedLoadSeq) return;
-    if (followSubscribedFilterAuthorId.value != null && followSubscribedFilterAuthorId.value !== "") {
-      return;
-    }
-    if (reset) {
-      followFeedQueue.value = [];
-      cards.value = [];
-    }
-    followVideoHasMore.value = false;
-    pushToast(e?.message || "加载关注视频失败", "error");
-  } finally {
-    if (seq === followFeedLoadSeq) {
-      followVideoLoadingMore.value = false;
-    }
-  }
-}
-
-async function loadSubscribedAuthorVideos(authorId, { reset = false } = {}) {
-  const aid = authorId != null && authorId !== "" ? String(authorId) : "";
-  if (!aid || !isAuthed.value) return;
-  const seq = ++followAuthorLoadSeq;
-  if (followAuthorLoadingMore.value && !reset) return;
-  if (!reset && !followAuthorVideoHasMore.value) return;
-  followAuthorLoadingMore.value = true;
-  try {
-    const pageNo = reset ? 1 : followAuthorVideoPageNo.value;
-    const pageSize = 12;
-    const res = await fetchOtherUserVideos(aid, { pageNo, pageSize });
-    if (seq !== followAuthorLoadSeq) return;
-    if (String(followSubscribedFilterAuthorId.value || "") !== aid) return;
-    const list = Array.isArray(res.list) ? res.list : [];
-    const playable = mapToFollowPlayableRows(list);
-    const pages = Number(res.pages || 0);
-    if (reset) {
-      followAuthorFeedQueue.value = playable;
-      followAuthorVideoPageNo.value = pageNo + 1;
-    } else {
-      const existing = new Set(followAuthorFeedQueue.value.map((x) => String(x.id)));
-      let merged = followAuthorFeedQueue.value;
-      for (const p of playable) {
-        if (!existing.has(String(p.id))) {
-          merged = [...merged, p];
-          existing.add(String(p.id));
-        }
-      }
-      followAuthorFeedQueue.value = merged;
-      followAuthorVideoPageNo.value = pageNo + 1;
-    }
-    followAuthorVideoHasMore.value = list.length >= pageSize && (pages <= 0 || pageNo < pages);
-    if (list.length && !playable.length) {
-      pushToast("该作者的作品暂无可用播放地址", "info");
-    }
-  } catch (e) {
-    if (seq !== followAuthorLoadSeq) return;
-    if (String(followSubscribedFilterAuthorId.value || "") !== aid) return;
-    if (reset) {
-      followAuthorFeedQueue.value = [];
-    }
-    followAuthorVideoHasMore.value = false;
-    pushToast(e?.message || "加载作者视频失败", "error");
-  } finally {
-    if (seq === followAuthorLoadSeq) {
-      followAuthorLoadingMore.value = false;
-    }
-  }
-}
-
-async function selectFollowSidebarAll() {
-  const hadFilter = followSubscribedFilterAuthorId.value != null && followSubscribedFilterAuthorId.value !== "";
-  followAuthorLoadSeq += 1;
-  resetShortsFeedProgressUiForSwitch();
-  followSubscribedFilterAuthorId.value = null;
-  followAuthorFeedQueue.value = [];
-  followAuthorVideoPageNo.value = 1;
-  followAuthorVideoHasMore.value = false;
-  shortsFeedIndex.value = 0;
-  shortsFeedPlayToken += 1;
-  shortsFeedAutoplayPending.value = true;
-  if (hadFilter || followFeedQueue.value.length === 0) {
-    await loadSubscribedFollowVideos({ reset: true });
-  }
-  nextTick(() => {
-    if (followSubscribedFilterAuthorId.value != null && followSubscribedFilterAuthorId.value !== "") return;
-    shortsFeedFgRef.value?.load();
-    shortsFeedBgRef.value?.load();
-  });
-}
-
-async function selectFollowSidebarAuthor(user) {
-  const id = user?.id ?? user?.followeeId;
-  if (id == null || id === "") return;
-  if (String(followSubscribedFilterAuthorId.value) === String(id)) {
-    return;
-  }
-  followFeedLoadSeq += 1;
-  resetShortsFeedProgressUiForSwitch();
-  followSubscribedFilterAuthorId.value = id;
-  followAuthorFeedQueue.value = [];
-  followAuthorVideoPageNo.value = 1;
-  followAuthorVideoHasMore.value = true;
-  shortsFeedIndex.value = 0;
-  shortsFeedPlayToken += 1;
-  shortsFeedAutoplayPending.value = true;
-  await loadSubscribedAuthorVideos(id, { reset: true });
-  nextTick(() => {
-    if (String(followSubscribedFilterAuthorId.value || "") !== String(id)) return;
-    shortsFeedFgRef.value?.load();
-    shortsFeedBgRef.value?.load();
-  });
-}
-
-function maybePrefetchFollowFeed() {
-  if (feedScope.value !== "follow" || activeMenuKey.value !== "subscribed") {
-    return;
-  }
-  const aid = followSubscribedFilterAuthorId.value;
-  const list = aid != null && aid !== "" ? followAuthorFeedQueue.value : followFeedQueue.value;
-  const i = shortsFeedIndex.value;
-  if (!list.length) {
-    return;
-  }
-  const remainToEnd = list.length - 1 - i;
-  if (remainToEnd >= HOME_SHORTS_FEED_PREFETCH_THRESHOLD) {
-    return;
-  }
-  if (aid != null && aid !== "") {
-    void loadSubscribedAuthorVideos(aid, { reset: false });
-  } else {
-    void loadSubscribedFollowVideos({ reset: false });
-  }
-}
 
 /** 仅当 id 为纯数字字符串时可用于 /videos/detail/{id}，全程用字符串避免精度丢失 */
 function parseVideoIdForApi(id) {
@@ -2629,19 +2453,12 @@ function onSearchUserRowActivate(u, ev) {
 /** 仅从列表项取播放地址，不再请求 /videos/detail */
 
 /** 在作品列表 / 关注流 / 赞列表间按 id 查找已有行，避免重复请求详情 */
-function resolveVideoUrlForListItem(videoId, hintItem) {
-  const id = videoId != null ? String(videoId) : "";
-  if (!id) return "";
-  const direct = resolveVideoUrl(hintItem);
-  if (direct) return direct;
-  const fromProfile = profileWorksRows.value.find((x) => String(x.id) === id);
-  if (fromProfile && resolveVideoUrl(fromProfile)) return resolveVideoUrl(fromProfile);
-  const fromCards = cards.value.find((x) => String(x.id) === id);
-  if (fromCards && resolveVideoUrl(fromCards)) return resolveVideoUrl(fromCards);
-  const fromLiked = likedRows.value.find((x) => String(x.id) === id);
-  if (fromLiked && resolveVideoUrl(fromLiked)) return resolveVideoUrl(fromLiked);
-  return "";
-}
+const resolveVideoUrlForListItem = (videoId, hintItem) =>
+  resolveVideoUrlFromLists(videoId, hintItem, [
+    profileWorksRows.value,
+    cards.value,
+    likedRows.value,
+  ]);
 
 /** 点赞接口返回后同步更新各列表中的 likeCount */
 function patchFeedVideoById(videoId, patch) {
@@ -4260,6 +4077,9 @@ registerShortsHooks({
   isShortsMenuActive: () => activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed",
   isSubscribedMenuActive: () => activeMenuKey.value === "subscribed",
   getPlayToken: () => shortsFeedPlayToken,
+  bumpPlayToken: () => {
+    shortsFeedPlayToken += 1;
+  },
 });
 
 /** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，跨列表关注/短视频历史/举报转发弹窗都在 App */

@@ -23,6 +23,25 @@ export function videoCardPlayable(card) {
   return Boolean(resolveVideoUrl(card));
 }
 
+/**
+ * 按 id 在若干份列表里找已有行的播放地址，避免为了一个 URL 再请求 /videos/detail。
+ * 列表由调用方传入，使本函数保持无状态。
+ */
+export function resolveVideoUrlFromLists(videoId, hintItem, lists = []) {
+  const id = videoId != null ? String(videoId) : "";
+  if (!id) return "";
+  const direct = resolveVideoUrl(hintItem);
+  if (direct) return direct;
+  for (const list of lists) {
+    const row = (list || []).find((x) => x && String(x.id) === id);
+    if (row) {
+      const url = resolveVideoUrl(row);
+      if (url) return url;
+    }
+  }
+  return "";
+}
+
 export function cardAuthorAvatar(card) {
   const raw = card?.authorAvatarUrl ?? card?.avatarUrl ?? "";
   const trimmed = String(raw).trim();

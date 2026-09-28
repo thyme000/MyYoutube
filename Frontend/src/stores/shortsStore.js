@@ -6,7 +6,11 @@
  */
 import { defineStore } from "pinia";
 import { nextTick } from "vue";
-import { resolveVideoUrl, readVideoDurationFromVideoEl } from "../utils/videoCard.js";
+import {
+  resolveVideoUrl,
+  resolveVideoUrlFromLists,
+  readVideoDurationFromVideoEl,
+} from "../utils/videoCard.js";
 import { parseDigitSnowflakeId } from "../utils/snowflakeId.js";
 import { formatRelativeTimeText } from "../utils/relativeTime.js";
 import { commentDisplayNickname as commentDisplayNicknameText } from "../utils/comment.js";
@@ -29,6 +33,8 @@ import {
 import {
   fetchVideoDetail,
   normalizeVideoDetail,
+  fetchFollowVideoFeedPage,
+  fetchOtherUserVideos,
   setMyVideoPrivate,
   setMyVideoPublic,
   openMyVideoComment,
@@ -43,6 +49,7 @@ import { useCommentStore } from "./commentStore.js";
 import { useDetailStore } from "./detailStore.js";
 import { useFollowStore } from "./followStore.js";
 import { useHomeStore } from "./homeStore.js";
+import { useLikedStore } from "./likedStore.js";
 import { useProfileStore } from "./profileStore.js";
 import { useSearchStore } from "./searchStore.js";
 
@@ -52,6 +59,9 @@ const SHORTS_BUFFERING_UI_DELAY_MS = 320;
 /** PLAY 上报阈值：累计顺播达总时长比例且排除拖动（单次 timeupdate 跳跃过大不计入） */
 const BEHAVIOR_PLAY_THRESHOLD = 0.7;
 const BEHAVIOR_MAX_PLAY_DELTA_SEC = 3;
+const FOLLOW_FEED_PAGE_SIZE = 12;
+/** 距队列末尾还剩这么少条时预取下一页 */
+const FOLLOW_FEED_PREFETCH_THRESHOLD = 3;
 
 const playerRefs = { fg: null, bg: null, center: null };
 
@@ -66,6 +76,8 @@ let bufferingUITimer = null;
 let wheelCooldown = false;
 let touchStartY = 0;
 let lastLikeClickAt = 0;
+let followFeedLoadSeq = 0;
+let followAuthorLoadSeq = 0;
 let longResumeInFlight = false;
 let longResumeLastSentAtMs = 0;
 let longResumeTickCount = 0;
@@ -84,6 +96,8 @@ const hooks = {
   isSubscribedMenuActive: () => false,
   /** 播放代次：切换视频时自增，用于丢弃旧 video 元素的 loadedmetadata */
   getPlayToken: () => 0,
+  /** 代次自增由 App 持有该变量，store 只请求推进 */
+  bumpPlayToken: () => {},
 };
 
 export function registerShortsHooks(next = {}) {
@@ -944,6 +958,197 @@ export const useShortsStore = defineStore("shorts", {
         }
       } catch (e) {
         pushToast(e?.message || "操作失败", "error");
+      }
+    },
+
+    // ===== 关注页：全部动态 / 按作者筛选 =====
+
+    /** 列表行 → 可播放行：补齐播放地址与 videoType，剔除取不到地址的 */
+    mapToFollowPlayableRows(list) {
+      const sources = [
+        useProfileStore().worksRows,
+        useHomeStore().cards,
+        useLikedStore().rows,
+      ];
+      return (Array.isArray(list) ? list : [])
+        .map((x) => {
+          const url =
+            resolveVideoUrl(x) ||
+            resolveVideoUrlFromLists(x.id, x, sources) ||
+            String(x?.videoUrl || "").trim();
+          return { ...x, videoUrl: url || x.videoUrl, videoType: x.videoType || "SHORT_VIDEO" };
+        })
+        .filter((x) => Boolean(String(resolveVideoUrl(x) || x.videoUrl || "").trim()));
+    },
+
+    async loadSubscribedFollowVideos({ reset = false } = {}) {
+      if (!useAuthStore().isAuthed) return;
+      const seq = ++followFeedLoadSeq;
+      if (this.followVideoLoadingMore && !reset) return;
+      if (!reset && !this.followVideoHasMore) return;
+      this.followVideoLoadingMore = true;
+      try {
+        const pageNo = reset ? 1 : this.followVideoPageNo;
+        const res = await fetchFollowVideoFeedPage({ pageNo, pageSize: FOLLOW_FEED_PAGE_SIZE });
+        if (seq !== followFeedLoadSeq) return;
+        if (this.followSubscribedFilterAuthorId != null && this.followSubscribedFilterAuthorId !== "") {
+          return;
+        }
+        const list = Array.isArray(res.list) ? res.list : [];
+        const playable = this.mapToFollowPlayableRows(list);
+        const pages = Number(res.pages || 0);
+        if (reset) {
+          this.followFeedQueue = playable;
+          useHomeStore().cards = list;
+        } else {
+          const existing = new Set(this.followFeedQueue.map((x) => String(x.id)));
+          let merged = this.followFeedQueue;
+          for (const p of playable) {
+            if (!existing.has(String(p.id))) {
+              merged = [...merged, p];
+              existing.add(String(p.id));
+            }
+          }
+          this.followFeedQueue = merged;
+        }
+        this.followVideoPageNo = pageNo + 1;
+        this.followVideoHasMore =
+          list.length >= FOLLOW_FEED_PAGE_SIZE && (pages <= 0 || pageNo < pages);
+        if (list.length && !playable.length) {
+          pushToast("接口返回了视频但未解析到播放地址，请检查对象存储签名或 videoUrl 字段", "info");
+        }
+      } catch (e) {
+        if (seq !== followFeedLoadSeq) return;
+        if (this.followSubscribedFilterAuthorId != null && this.followSubscribedFilterAuthorId !== "") {
+          return;
+        }
+        if (reset) {
+          this.followFeedQueue = [];
+          useHomeStore().cards = [];
+        }
+        this.followVideoHasMore = false;
+        pushToast(e?.message || "加载关注视频失败", "error");
+      } finally {
+        if (seq === followFeedLoadSeq) {
+          this.followVideoLoadingMore = false;
+        }
+      }
+    },
+
+    async loadSubscribedAuthorVideos(authorId, { reset = false } = {}) {
+      const aid = authorId != null && authorId !== "" ? String(authorId) : "";
+      if (!aid || !useAuthStore().isAuthed) return;
+      const seq = ++followAuthorLoadSeq;
+      if (this.followAuthorLoadingMore && !reset) return;
+      if (!reset && !this.followAuthorVideoHasMore) return;
+      this.followAuthorLoadingMore = true;
+      try {
+        const pageNo = reset ? 1 : this.followAuthorVideoPageNo;
+        const res = await fetchOtherUserVideos(aid, { pageNo, pageSize: FOLLOW_FEED_PAGE_SIZE });
+        if (seq !== followAuthorLoadSeq) return;
+        if (String(this.followSubscribedFilterAuthorId || "") !== aid) return;
+        const list = Array.isArray(res.list) ? res.list : [];
+        const playable = this.mapToFollowPlayableRows(list);
+        const pages = Number(res.pages || 0);
+        if (reset) {
+          this.followAuthorFeedQueue = playable;
+        } else {
+          const existing = new Set(this.followAuthorFeedQueue.map((x) => String(x.id)));
+          let merged = this.followAuthorFeedQueue;
+          for (const p of playable) {
+            if (!existing.has(String(p.id))) {
+              merged = [...merged, p];
+              existing.add(String(p.id));
+            }
+          }
+          this.followAuthorFeedQueue = merged;
+        }
+        this.followAuthorVideoPageNo = pageNo + 1;
+        this.followAuthorVideoHasMore =
+          list.length >= FOLLOW_FEED_PAGE_SIZE && (pages <= 0 || pageNo < pages);
+        if (list.length && !playable.length) {
+          pushToast("该作者的作品暂无可用播放地址", "info");
+        }
+      } catch (e) {
+        if (seq !== followAuthorLoadSeq) return;
+        if (String(this.followSubscribedFilterAuthorId || "") !== aid) return;
+        if (reset) {
+          this.followAuthorFeedQueue = [];
+        }
+        this.followAuthorVideoHasMore = false;
+        pushToast(e?.message || "加载作者视频失败", "error");
+      } finally {
+        if (seq === followAuthorLoadSeq) {
+          this.followAuthorLoadingMore = false;
+        }
+      }
+    },
+
+    /** 侧栏选「全部动态」：清掉作者筛选并回到全部关注流 */
+    async selectFollowSidebarAll() {
+      const hadFilter =
+        this.followSubscribedFilterAuthorId != null && this.followSubscribedFilterAuthorId !== "";
+      followAuthorLoadSeq += 1;
+      this.resetShortsFeedProgressUiForSwitch();
+      this.followSubscribedFilterAuthorId = null;
+      this.followAuthorFeedQueue = [];
+      this.followAuthorVideoPageNo = 1;
+      this.followAuthorVideoHasMore = false;
+      this.shortsFeedIndex = 0;
+      hooks.bumpPlayToken();
+      this.shortsFeedAutoplayPending = true;
+      if (hadFilter || this.followFeedQueue.length === 0) {
+        await this.loadSubscribedFollowVideos({ reset: true });
+      }
+      nextTick(() => {
+        if (this.followSubscribedFilterAuthorId != null && this.followSubscribedFilterAuthorId !== "") {
+          return;
+        }
+        playerRefs.fg?.value?.load();
+        playerRefs.bg?.value?.load();
+      });
+    },
+
+    /** 侧栏选某位作者：右侧只播该作者短视频 */
+    async selectFollowSidebarAuthor(user) {
+      const id = user?.id ?? user?.followeeId;
+      if (id == null || id === "") return;
+      if (String(this.followSubscribedFilterAuthorId) === String(id)) {
+        return;
+      }
+      followFeedLoadSeq += 1;
+      this.resetShortsFeedProgressUiForSwitch();
+      this.followSubscribedFilterAuthorId = id;
+      this.followAuthorFeedQueue = [];
+      this.followAuthorVideoPageNo = 1;
+      this.followAuthorVideoHasMore = true;
+      this.shortsFeedIndex = 0;
+      hooks.bumpPlayToken();
+      this.shortsFeedAutoplayPending = true;
+      await this.loadSubscribedAuthorVideos(id, { reset: true });
+      nextTick(() => {
+        if (String(this.followSubscribedFilterAuthorId || "") !== String(id)) return;
+        playerRefs.fg?.value?.load();
+        playerRefs.bg?.value?.load();
+      });
+    },
+
+    maybePrefetchFollowFeed() {
+      if (this.feedScope !== "follow" || !hooks.isSubscribedMenuActive()) {
+        return;
+      }
+      const aid = this.followSubscribedFilterAuthorId;
+      const list = aid != null && aid !== "" ? this.followAuthorFeedQueue : this.followFeedQueue;
+      if (!list.length) {
+        return;
+      }
+      if (list.length - 1 - this.shortsFeedIndex >= FOLLOW_FEED_PREFETCH_THRESHOLD) {
+        return;
+      }
+      if (aid != null && aid !== "") {
+        void this.loadSubscribedAuthorVideos(aid, { reset: false });
+      } else {
+        void this.loadSubscribedFollowVideos({ reset: false });
       }
     },
 
