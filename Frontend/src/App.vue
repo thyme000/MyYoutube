@@ -4,7 +4,7 @@ import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
 import { useAuthStore } from "./stores/authStore";
-import { useSearchStore, SEARCH_PAGE_SIZE, SEARCH_UI } from "./stores/searchStore";
+import { useSearchStore, registerSearchExpandHooks, registerSearchExpandRefs, SEARCH_PAGE_SIZE, SEARCH_UI } from "./stores/searchStore";
 import { useHistoryStore } from "./stores/historyStore";
 import { useLikedStore, LIKED_PAGE_SIZE } from "./stores/likedStore";
 import { useHomeStore, registerHomeHooks, homeSortOptions, HOME_LONG_HEAD_COUNT_DESKTOP, HOME_LONG_HEAD_COUNT_MOBILE } from "./stores/homeStore";
@@ -38,6 +38,7 @@ import {
   isBlockedComment,
 } from "./utils/comment.js";
 import { getApiBaseUrl, getAuthExpiredEventName, getToken } from "./api/http";
+import { sendPlaybackResumePut } from "./utils/playbackResume";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
   forgotPasswordApi,
@@ -189,6 +190,12 @@ const {
   searchTagLoadingMore,
   searchAllUserStrip,
   searchResultError,
+  searchExpandScrubMax,
+  searchExpandScrubDisplayValue,
+  searchExpandDurationReady,
+  searchExpandLikedDisplay,
+  searchExpandIsSelf,
+  searchExpandIsFollowed,
   searchExpandOpen,
   searchExpandCard,
   searchExpandIndex,
@@ -204,10 +211,8 @@ const {
   searchExpandCurrentTime,
   searchExpandDuration,
   searchExpandPaused,
-  searchExpandAutoplayPending,
   searchExpandMuted,
   searchExpandVolume,
-  searchExpandLikeBusy,
   searchExpandIsPortrait,
 } = storeToRefs(searchStore);
 const searchInputRef = ref(null);
@@ -407,11 +412,6 @@ watch(searchVideoSort, () => {
   }
 });
 
-const searchFeedVideoList = computed(() => {
-  if (searchTab.value === "tag") return searchTagRows.value;
-  if (searchTab.value === "all" || searchTab.value === "video") return searchVideoRows.value;
-  return [];
-});
 
 const searchVerticalLoading = computed(() => {
   if (searchTab.value === "tag") return searchTagLoading.value;
@@ -1470,28 +1470,6 @@ function shouldRecordShortsWatchHistory(item) {
   return item != null && !isLongVideoItem(item);
 }
 
-/** 长视频续播上报（详情页与短视频长视频共用），静默失败不影响播放体验 */
-async function sendPlaybackResumePut(payload, { keepalive = false } = {}) {
-  if (!payload) return;
-  try {
-    const headers = {
-      "Content-Type": "application/json",
-    };
-    const authTok = getToken();
-    if (authTok) {
-      headers["Authorization"] = authTok;
-    }
-    await fetch("/videos/playback/resume", {
-      method: "PUT",
-      headers,
-      body: JSON.stringify(payload),
-      keepalive,
-    });
-  } catch {
-    // 静默失败：续播记录不影响播放体验
-  }
-}
-
 /** 刷新 / 往返缓存后 DOM 就绪较晚，交给详情 store 多补几轮自动播放 */
 function onWindowPageShow() {
   if (isAuthed.value) {
@@ -1668,15 +1646,6 @@ function toggleShortsCommentPanel() {
   shortsCommentPanelOpen.value = !shortsCommentPanelOpen.value;
 }
 
-function toggleSearchExpandCommentPanel() {
-  if (!searchExpandCard.value?.id) {
-    return;
-  }
-  shortsCommentPanelOpen.value = false;
-  searchListCommentOpen.value = false;
-  searchListCommentCard.value = null;
-  searchExpandCommentOpen.value = !searchExpandCommentOpen.value;
-}
 
 function closeShortsCommentPanel() {
   shortsCommentPanelOpen.value = false;
@@ -3233,47 +3202,11 @@ const activeCommentVideo = computed(() => {
 
 const activeCommentVideoAllowsComment = computed(() => Number(activeCommentVideo.value?.allowComment ?? 1) === 1);
 
-const searchExpandScrubMax = computed(() => {
-  const d = Number(searchExpandDuration.value);
-  if (Number.isFinite(d) && d > 0) return d;
-  return 1;
-});
 
-const searchExpandScrubDisplayValue = computed(() => {
-  const t = Number(searchExpandCurrentTime.value);
-  const d = Number(searchExpandDuration.value);
-  if (!Number.isFinite(t) || t < 0) return 0;
-  if (Number.isFinite(d) && d > 0) return Math.min(t, d);
-  return 0;
-});
 
-const searchExpandDurationReady = computed(() => {
-  const d = Number(searchExpandDuration.value);
-  return Number.isFinite(d) && d > 0;
-});
 
-const searchExpandLikedDisplay = computed(() => {
-  const c = searchExpandCard.value;
-  if (!c?.id) return false;
-  return Boolean(c.isLike);
-});
 
-const searchExpandIsSelf = computed(() => {
-  const authorId = searchExpandCard.value?.authorId;
-  const selfId = currentUserId.value;
-  if (authorId == null || selfId == null) return false;
-  return String(authorId) === String(selfId);
-});
 
-const searchExpandIsFollowed = computed(() => {
-  const c = searchExpandCard.value;
-  if (!c?.authorId) return false;
-  const key = String(c.authorId);
-  if (Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)) {
-    return followStateOverrideByAuthorId.value[key];
-  }
-  return Boolean(c.isFollow);
-});
 
 const shortsFeedVideoSrc = computed(() => resolveVideoUrl(shortsFeedCurrent.value));
 
@@ -5071,425 +5004,50 @@ let searchScrollLoadTimer = null;
 
 /** 搜索列表进度条：节流 timeupdate，避免每帧整表重绘卡死 */
 const searchFeedProgressThrottleTs = new Map();
-let lastSearchExpandLikeAt = 0;
-let searchExpandEscapeHandler = null;
-/** 搜索全屏长视频：续播上报节流（与详情页长视频一致，写入 PUT /videos/playback/resume） */
-let searchExpandResumeTickCount = 0;
-let searchExpandResumeInFlight = false;
-let searchExpandResumeLastSentAtMs = 0;
 
-function searchExpandVideoUrl() {
-  const card = searchExpandCard.value;
-  if (!card) return "";
-  return resolveVideoUrl(card);
-}
+const forwardVideoOpen = ref(false);
+const forwardVideoCard = ref(null);
 
-function openSearchExpand(card, index) {
-  searchListCommentOpen.value = false;
-  searchListCommentCard.value = null;
-  searchExpandResumeTickCount = 0;
-  searchExpandResumeInFlight = false;
-  searchExpandResumeLastSentAtMs = 0;
-  searchExpandCard.value = card;
-  searchExpandIndex.value = index;
-  searchExpandOpen.value = true;
-  teardownSearchVideoObserver();
-  if (searchExpandEscapeHandler) {
-    window.removeEventListener("keydown", searchExpandEscapeHandler);
-    searchExpandEscapeHandler = null;
-  }
-  searchExpandEscapeHandler = (e) => {
-    if (e.key === "Escape") closeSearchExpand();
-  };
-  window.addEventListener("keydown", searchExpandEscapeHandler);
-  nextTick(() => {
-    document.querySelectorAll(".search-feed-slide .search-feed-video").forEach((v) => {
-      try {
-        v.pause();
-      } catch {
-        /* ignore */
-      }
-    });
-    const main = searchExpandPlayerRef.value;
-    const blur = searchExpandBlurRef.value;
-    searchExpandCurrentTime.value = 0;
-    searchExpandDuration.value = 0;
-    searchExpandPaused.value = true;
-    searchExpandIsPortrait.value = true;
-    if (main) {
-      try {
-        main.volume = searchExpandVolume.value;
-        main.muted = searchExpandMuted.value;
-      } catch {
-        /* ignore */
-      }
-    }
-    if (blur) blur.play().catch(() => {});
-    if (main) main.play().catch(() => {});
-  });
-}
+const commentReportOpen = ref(false);
+const commentReportTarget = ref(null);
 
-function onSearchExpandFgPlay() {
-  searchExpandPaused.value = false;
-  searchExpandBlurRef.value?.play?.().catch(() => {});
-  /** 搜索列表内预览不写入历史；仅在全屏放大且实际开始播放时上报短视频观看（PUT /videos/shorts/play） */
-  if (searchActive.value) {
-    const card = searchExpandCard.value;
-    if (card) {
-      enqueueShortsHistoryByVideoId(card.id, card);
-    }
-  }
-}
 
-function onSearchExpandFgPause() {
-  if (searchExpandAutoplayPending.value) {
-    return;
-  }
-  searchExpandPaused.value = true;
-  try {
-    searchExpandBlurRef.value?.pause?.();
-  } catch {
-    /* ignore */
-  }
-  if (isLongSearchExpandVideo()) {
-    void flushSearchExpandPlaybackResume("pause");
-  }
-}
-
-function isLongSearchExpandVideo() {
-  return isLongVideoItem(searchExpandCard.value);
-}
-
-function getSearchExpandCurrentPlayTimeMs() {
-  const el = searchExpandPlayerRef.value;
-  if (!el) return 0;
-  const ms = Math.floor((Number(el.currentTime || 0) || 0) * 1000);
-  return ms > 0 ? ms : 0;
-}
-
-function getSearchExpandPlaybackPayload(playTimeMs) {
-  const userId = currentUserId.value;
-  const videoId = searchExpandCard.value?.id;
-  if (!userId || userId === "" || !videoId) return null;
-  if (!Number.isFinite(Number(playTimeMs))) return null;
-  return {
-    videoId,
-    playTime: playTimeMs,
-    userId,
-  };
-}
-
-function flushSearchExpandPlaybackResume(reason) {
-  if (!isLongSearchExpandVideo()) return Promise.resolve();
-  const player = searchExpandPlayerRef.value;
-  if (!player) return Promise.resolve();
-
-  if (reason !== "pause" && player.paused) {
-    return Promise.resolve();
-  }
-
-  const playTimeMs = getSearchExpandCurrentPlayTimeMs();
-  if (
-    reason !== "pause" &&
-    reason !== "switch" &&
-    reason !== "leave" &&
-    reason !== "unload" &&
-    playTimeMs <= 0
-  ) {
-    return Promise.resolve();
-  }
-
-  const payload = getSearchExpandPlaybackPayload(playTimeMs);
-  if (!payload) return Promise.resolve();
-
-  const now = Date.now();
-  if (reason === "tick" && now - searchExpandResumeLastSentAtMs < 8_000) {
-    return Promise.resolve();
-  }
-  if (searchExpandResumeInFlight) {
-    return Promise.resolve();
-  }
-  searchExpandResumeInFlight = true;
-  searchExpandResumeLastSentAtMs = now;
-
-  const keepalive = reason === "unload" || reason === "leave";
-  return sendPlaybackResumePut(payload, { keepalive }).finally(() => {
-    searchExpandResumeInFlight = false;
-  });
-}
-
-function closeSearchExpand() {
-  if (searchExpandEscapeHandler) {
-    window.removeEventListener("keydown", searchExpandEscapeHandler);
-    searchExpandEscapeHandler = null;
-  }
-  searchExpandCommentOpen.value = false;
-  void flushSearchExpandPlaybackResume("leave");
-  searchExpandResumeTickCount = 0;
-  searchExpandOpen.value = false;
-  searchExpandCard.value = null;
-  try {
-    searchExpandPlayerRef.value?.pause?.();
-  } catch {
-    /* ignore */
-  }
-  try {
-    searchExpandBlurRef.value?.pause?.();
-  } catch {
-    /* ignore */
-  }
-  void flushShortsHistoryQueue();
-  nextTick(() => {
-    if (searchActive.value) setupSearchVideoAutoplay();
-  });
-}
-
-function toggleSearchExpandPlay() {
-  const v = searchExpandPlayerRef.value;
-  if (!v) return;
-  if (v.paused) v.play().catch(() => {});
-  else v.pause();
-}
-
-function onSearchExpandVideoTimeUpdate(e) {
-  const v = e.target;
-  searchExpandCurrentTime.value = Number(v.currentTime) || 0;
-  if (!searchExpandAutoplayPending.value) {
-    searchExpandPaused.value = v.paused;
-  }
-  const blur = searchExpandBlurRef.value;
-  if (blur && v && Math.abs(blur.currentTime - v.currentTime) > 0.2) {
-    blur.currentTime = v.currentTime;
-  }
-  if (isLongSearchExpandVideo() && v && !v.paused) {
-    searchExpandResumeTickCount += 1;
-    if (searchExpandResumeTickCount >= 30) {
-      searchExpandResumeTickCount = 0;
-      void flushSearchExpandPlaybackResume("tick");
-    }
-  }
-}
-
-function onSearchExpandFgSeeked(e) {
-  const fg = e.target;
-  const blur = searchExpandBlurRef.value;
-  if (blur && fg) {
-    blur.currentTime = fg.currentTime;
-  }
-}
-
-function onSearchExpandVideoLoadedMetadata(e) {
-  const v = e.target;
-  searchExpandIsPortrait.value =
-    v.videoWidth > 0 && v.videoHeight > 0 && v.videoHeight > v.videoWidth;
-  searchExpandDuration.value = readVideoDurationFromVideoEl(v);
-}
-
-function onSearchExpandScrubInput(e) {
-  const v = searchExpandPlayerRef.value;
-  if (!v) return;
-  const t = Number(e.target.value);
-  if (!Number.isFinite(t)) return;
-  v.currentTime = t;
-  searchExpandCurrentTime.value = t;
-}
-
-async function searchExpandRequestPip() {
-  const v = searchExpandPlayerRef.value;
-  if (!v) return;
-  try {
-    if (document.pictureInPictureElement === v) {
-      await document.exitPictureInPicture();
-    } else if (v.requestPictureInPicture) {
-      await v.requestPictureInPicture();
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-async function searchExpandRequestFullscreen() {
-  const el = searchExpandStageRef.value;
-  if (!el) return;
-  try {
-    if (document.fullscreenElement === el) {
-      await document.exitFullscreen();
-    } else {
-      await el.requestFullscreen();
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-function searchExpandToggleMute() {
-  const v = searchExpandPlayerRef.value;
-  if (!v) return;
-  v.muted = !v.muted;
-  searchExpandMuted.value = v.muted;
-}
-
-function onSearchExpandVolumeInput(e) {
-  const v = searchExpandPlayerRef.value;
-  if (!v) return;
-  const vol = Number(e.target.value);
-  v.volume = vol;
-  v.muted = vol === 0;
-  searchExpandVolume.value = vol;
-  searchExpandMuted.value = v.muted;
-}
-
-function syncSearchExpandPlayerAfterSwitch() {
-  const main = searchExpandPlayerRef.value;
-  const blur = searchExpandBlurRef.value;
-  searchExpandAutoplayPending.value = true;
-  try {
-    main?.load?.();
-    blur?.load?.();
-  } catch {
-    /* ignore */
-  }
-  searchExpandCurrentTime.value = 0;
-  searchExpandDuration.value = 0;
-  searchExpandIsPortrait.value = true;
-  nextTick(() => {
-    try {
-      main.volume = searchExpandVolume.value;
-      main.muted = searchExpandMuted.value;
-    } catch {
-      /* ignore */
-    }
-    blur?.play?.().catch(() => {});
-    const p = main?.play?.();
-    if (p && typeof p.then === "function") {
-      p.then(
-        () => {
-          searchExpandAutoplayPending.value = false;
-        },
-        () => {
-          searchExpandAutoplayPending.value = false;
-          searchExpandPaused.value = true;
-        }
-      );
-    } else {
-      searchExpandAutoplayPending.value = false;
-    }
-  });
-}
-
-function searchExpandPrev() {
-  const list = searchFeedVideoList.value;
-  const i = searchExpandIndex.value;
-  if (i <= 0 || !list.length) return;
-  void flushSearchExpandPlaybackResume("switch");
-  searchExpandResumeTickCount = 0;
-  searchExpandCard.value = list[i - 1];
-  searchExpandIndex.value = i - 1;
-  searchExpandCommentOpen.value = false;
-  nextTick(() => syncSearchExpandPlayerAfterSwitch());
-}
-
-function searchExpandNext() {
-  const list = searchFeedVideoList.value;
-  const i = searchExpandIndex.value;
-  if (!list.length || i >= list.length - 1) return;
-  void flushSearchExpandPlaybackResume("switch");
-  searchExpandResumeTickCount = 0;
-  searchExpandCard.value = list[i + 1];
-  searchExpandIndex.value = i + 1;
-  searchExpandCommentOpen.value = false;
-  nextTick(() => syncSearchExpandPlayerAfterSwitch());
-}
-
-async function onSearchExpandLikeClick() {
-  const cur = searchExpandCard.value;
-  if (!cur?.id) return;
+function openForwardVideoModal(card) {
   if (!isAuthed.value) {
-    pushToast("请先登录后再点赞", "info");
+    pushToast("请先登录后使用转发", "info");
     return;
   }
-  const t = Date.now();
-  if (t - lastSearchExpandLikeAt < 300) return;
-  lastSearchExpandLikeAt = t;
-  if (searchExpandLikeBusy.value) return;
-  const vid = parseVideoIdForApi(cur.id);
-  if (vid == null) return;
-  searchExpandLikeBusy.value = true;
-  try {
-    const wasLiked = Boolean(cur.isLike);
-    if (wasLiked) {
-      await cancelLikeVideoApi(vid);
-      patchFeedVideoById(cur.id, { isLike: false, likeCount: Math.max(0, Number(cur.likeCount ?? 0) - 1) });
-    } else {
-      await likeVideoApi(vid);
-      patchFeedVideoById(cur.id, {
-        isLike: true,
-        likeCount: Number(cur.likeCount ?? 0) + 1,
-      });
-    }
-    const raw = await fetchVideoDetail(vid);
-    const merged = normalizeVideoDetail(raw);
-    if (merged && merged.likeCount != null) {
-      patchFeedVideoById(cur.id, { likeCount: merged.likeCount });
-    }
-    void reportBehaviorSilently(cur.id, "LIKE", Number(searchExpandCurrentTime.value || 0) * 1000);
-  } catch (error) {
-    pushToast(error.message || "点赞失败", "error");
-  } finally {
-    searchExpandLikeBusy.value = false;
+  if (!card?.id) {
+    pushToast("缺少视频信息", "error");
+    return;
   }
+  forwardVideoCard.value = card;
+  forwardVideoOpen.value = true;
 }
 
-async function onSearchExpandDislikeClick() {
-  const cur = searchExpandCard.value;
-  if (!cur?.id) return;
+function openCommentReportModal(comment) {
   if (!isAuthed.value) {
-    pushToast("请先登录", "info");
+    pushToast("请先登录后再举报", "info");
     return;
   }
-  const vid = parseVideoIdForApi(cur.id);
-  if (vid == null) return;
-  try {
-    await dislikeVideoApi(vid);
-    void reportBehaviorSilently(cur.id, "DISLIKE", Number(searchExpandCurrentTime.value || 0) * 1000);
-    pushToast("已标记为不感兴趣", "success");
-  } catch (error) {
-    pushToast(error.message || "操作失败", "error");
+  if (!comment?.id) {
+    pushToast("缺少评论信息", "error");
+    return;
   }
+  if (currentUserId.value != null && String(comment.userId) === String(currentUserId.value)) {
+    pushToast("不能举报自己的评论", "info");
+    return;
+  }
+  if (isBlockedComment(comment)) {
+    pushToast("该评论已被处理，无法举报", "info");
+    return;
+  }
+  commentReportTarget.value = comment;
+  commentReportOpen.value = true;
 }
 
-async function toggleSearchExpandFollow() {
-  const c = searchExpandCard.value;
-  if (!c?.authorId) return;
-  if (!isAuthed.value) {
-    pushToast("请先登录后再关注", "info");
-    return;
-  }
-  const aid = String(c.authorId);
-  if (currentUserId.value != null && aid === String(currentUserId.value)) {
-    return;
-  }
-  const key = aid;
-  const currently = Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)
-    ? followStateOverrideByAuthorId.value[key]
-    : Boolean(c.isFollow);
-  try {
-    if (currently) {
-      await unfollowAuthor(aid);
-      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: false };
-      patchIsFollowForAuthor(aid, false);
-      pushToast("已取消关注", "success");
-    } else {
-      await followAuthor(aid);
-      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: true };
-      patchIsFollowForAuthor(aid, true);
-      pushToast("关注成功", "success");
-    }
-  } catch (e) {
-    pushToast(e?.message || "操作失败", "error");
-  }
-}
 
+/** 搜索结果里的用户行：关注态读同一张乐观覆盖表 */
 function searchUserRowIsSelf(u) {
   if (!u?.id || currentUserId.value == null) return false;
   return String(u.id) === String(currentUserId.value);
@@ -5535,67 +5093,30 @@ async function toggleSearchUserFollow(u) {
   }
 }
 
-async function onSearchExpandShareClick() {
-  const cur = searchExpandCard.value;
-  const url = typeof window !== "undefined" ? window.location.href : "";
-  try {
-    if (navigator.share && cur?.title) {
-      await navigator.share({ title: cur.title, url });
-    } else if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(url);
-      pushToast("链接已复制", "success");
-    } else {
-      pushToast(url || "无法分享", "info");
-    }
-  } catch {
-    /* 用户取消或不可用 */
-  }
-}
-
-const forwardVideoOpen = ref(false);
-const forwardVideoCard = ref(null);
-
-const commentReportOpen = ref(false);
-const commentReportTarget = ref(null);
-
-
-function openForwardVideoModal(card) {
-  if (!isAuthed.value) {
-    pushToast("请先登录后使用转发", "info");
-    return;
-  }
-  if (!card?.id) {
-    pushToast("缺少视频信息", "error");
-    return;
-  }
-  forwardVideoCard.value = card;
-  forwardVideoOpen.value = true;
-}
-
-function openCommentReportModal(comment) {
-  if (!isAuthed.value) {
-    pushToast("请先登录后再举报", "info");
-    return;
-  }
-  if (!comment?.id) {
-    pushToast("缺少评论信息", "error");
-    return;
-  }
-  if (currentUserId.value != null && String(comment.userId) === String(currentUserId.value)) {
-    pushToast("不能举报自己的评论", "info");
-    return;
-  }
-  if (isBlockedComment(comment)) {
-    pushToast("该评论已被处理，无法举报", "info");
-    return;
-  }
-  commentReportTarget.value = comment;
-  commentReportOpen.value = true;
-}
-
-function onSearchExpandForwardClick() {
-  openForwardVideoModal(searchExpandCard.value);
-}
+/** 搜索全屏放大层：播放控制是命令式的，实现已移入 searchStore，这里保留同名薄封装供桥与生命周期调用 */
+const searchExpandVideoUrl = () => searchStore.searchExpandVideoUrl();
+const openSearchExpand = (card, index) => searchStore.openSearchExpand(card, index);
+const closeSearchExpand = () => searchStore.closeSearchExpand();
+const flushSearchExpandPlaybackResume = (reason) => searchStore.flushSearchExpandPlaybackResume(reason);
+const toggleSearchExpandPlay = () => searchStore.toggleSearchExpandPlay();
+const toggleSearchExpandCommentPanel = () => searchStore.toggleSearchExpandCommentPanel();
+const toggleSearchExpandFollow = () => searchStore.toggleSearchExpandFollow();
+const onSearchExpandFgPlay = () => searchStore.onSearchExpandFgPlay();
+const onSearchExpandFgPause = () => searchStore.onSearchExpandFgPause();
+const onSearchExpandFgSeeked = (e) => searchStore.onSearchExpandFgSeeked(e);
+const onSearchExpandVideoTimeUpdate = (e) => searchStore.onSearchExpandVideoTimeUpdate(e);
+const onSearchExpandVideoLoadedMetadata = (e) => searchStore.onSearchExpandVideoLoadedMetadata(e);
+const onSearchExpandScrubInput = (e) => searchStore.onSearchExpandScrubInput(e);
+const onSearchExpandVolumeInput = (e) => searchStore.onSearchExpandVolumeInput(e);
+const onSearchExpandLikeClick = () => searchStore.onSearchExpandLikeClick();
+const onSearchExpandDislikeClick = () => searchStore.onSearchExpandDislikeClick();
+const onSearchExpandShareClick = () => searchStore.onSearchExpandShareClick();
+const onSearchExpandForwardClick = () => searchStore.onSearchExpandForwardClick();
+const searchExpandRequestPip = () => searchStore.searchExpandRequestPip();
+const searchExpandRequestFullscreen = () => searchStore.searchExpandRequestFullscreen();
+const searchExpandToggleMute = () => searchStore.searchExpandToggleMute();
+const searchExpandPrev = () => searchStore.searchExpandPrev();
+const searchExpandNext = () => searchStore.searchExpandNext();
 
 function onShortsForwardClick() {
   openForwardVideoModal(shortsFeedCurrent.value);
@@ -5832,6 +5353,21 @@ function loadLikedPage({ reset = false } = {}) {
 registerLikedHooks({ getUserId: () => currentUserId.value });
 registerHomeHooks({ reloadHome: () => loadModuleCards(primaryMenus[0]) });
 registerShortsFeedPlayerRefs({ fg: shortsFeedFgRef, bg: shortsFeedBgRef });
+registerSearchExpandRefs({
+  main: searchExpandPlayerRef,
+  blur: searchExpandBlurRef,
+  stage: searchExpandStageRef,
+});
+/** searchStore 的宿主依赖：搜索结果列表的内联预览观察器、短视频历史队列、跨列表补丁、转发弹窗都在 App */
+registerSearchExpandHooks({
+  teardownSearchVideoObserver: () => teardownSearchVideoObserver(),
+  setupSearchVideoAutoplay: () => setupSearchVideoAutoplay(),
+  enqueueShortsHistory: (videoIdLike, feedItem) => enqueueShortsHistoryByVideoId(videoIdLike, feedItem),
+  flushShortsHistory: () => flushShortsHistoryQueue(),
+  patchFeedVideoById: (id, patch) => patchFeedVideoById(id, patch),
+  patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
+  openForwardVideo: (card) => openForwardVideoModal(card),
+});
 
 /** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，跨列表关注/短视频历史/举报转发弹窗都在 App */
 registerDetailHooks({
@@ -5992,10 +5528,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   teardownSearchVideoObserver();
-  if (searchExpandEscapeHandler) {
-    window.removeEventListener("keydown", searchExpandEscapeHandler);
-    searchExpandEscapeHandler = null;
-  }
+  searchStore.detachSearchExpandEscape();
   if (searchSuggestBlurTimer) clearTimeout(searchSuggestBlurTimer);
   if (searchPromptDebounceTimer) clearTimeout(searchPromptDebounceTimer);
   clearShortsBufferingUITimer();
