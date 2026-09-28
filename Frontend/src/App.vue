@@ -9,6 +9,7 @@ import { useHistoryStore } from "./stores/historyStore";
 import { useLikedStore, LIKED_PAGE_SIZE } from "./stores/likedStore";
 import { useHomeStore } from "./stores/homeStore";
 import { useShortsStore } from "./stores/shortsStore";
+import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
 import { getApiBaseUrl, getAuthExpiredEventName, getToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
@@ -793,6 +794,21 @@ const authMessage = ref("");
 const activeAuthTab = ref("login");
 const authStore = useAuthStore();
 const { token } = storeToRefs(authStore);
+/** 创作中心域状态在 pinia studioStore */
+const studioStore = useStudioStore();
+const {
+  showStudio: studioShow,
+  studioSideNav,
+  studioContentTab,
+  studioPageNo,
+  studioPageSize,
+  studioRows,
+  studioTotal,
+  studioPages,
+  studioLoading,
+  studioMsg,
+  studioRowMenuOpenId,
+} = storeToRefs(studioStore);
 let activeMenuSwitchSeq = 0;
 
 const loginForm = ref({
@@ -873,7 +889,7 @@ const profileEditOpen = ref(false);
 const profileEditForm = ref({ nickName: "", introduction: "" });
 const profileEditSaving = ref(false);
 /** 创作中心（全屏主区，模拟 YouTube Studio） */
-const showStudio = ref(false);
+const showStudio = studioShow;
 /** 进入创作中心时 pushState，便于浏览器后退与「返回」同步 */
 const studioHistoryPushed = ref(false);
 const homeSortOptions = [
@@ -884,16 +900,6 @@ const homeSortOptions = [
 ];
 const HOME_LONG_HEAD_COUNT_DESKTOP = 9;
 const HOME_LONG_HEAD_COUNT_MOBILE = 6;
-const studioSideNav = ref("info");
-/** 频道内容子 tab：video=长视频 shorts=短视频 live=直播（直播接口未就绪时仅占位） */
-const studioContentTab = ref("video");
-const studioPageNo = ref(1);
-const studioPageSize = ref(10);
-const studioRows = ref([]);
-const studioTotal = ref(0);
-const studioPages = ref(0);
-const studioLoading = ref(false);
-const studioMsg = ref("");
 /** 顶栏通知下拉 */
 const notifyPanelOpen = ref(false);
 const notifyUnreadCount = ref(0);
@@ -1193,7 +1199,6 @@ const selfVideoDeleteConfirmOpen = ref(false);
 /** 删除确认弹窗对应的视频 id（创作中心 / 短视频流共用） */
 const pendingDeleteVideoId = ref(null);
 /** 创作中心表格行「更多」菜单 */
-const studioRowMenuOpenId = ref(null);
 const toasts = ref([]);
 let toastSeed = 0;
 
@@ -1783,11 +1788,6 @@ const topbarAvatarSrc = computed(() => {
   return url || profileAvatar;
 });
 
-const studioTabs = [
-  { key: "video", label: "长视频" },
-  { key: "shorts", label: "短视频" },
-  { key: "live", label: "直播" },
-];
 
 const detailAuthorAvatar = computed(() => {
   const u = videoDetail.value?.authorAvatarUrl;
@@ -4825,12 +4825,6 @@ function closeStudio() {
   void reloadFeedAfterLeavingDetail();
 }
 
-function selectStudioSideNav(key) {
-  studioSideNav.value = key;
-  if (key === "info") {
-    loadStudioVideos();
-  }
-}
 
 function selectHomeCategory(chip) {
   homeCategoryKey.value = chip.key;
@@ -4846,86 +4840,9 @@ function selectHomeSort(sortValue) {
   }
 }
 
-function formatStudioDate(row) {
-  const raw = row?.createTime ?? row?.createAt ?? row?.createdAt ?? row?.publishTime;
-  if (!raw) return "—";
-  if (typeof raw === "string") {
-    if (raw.includes("T")) {
-      return raw.replace("T", " ").slice(0, 19);
-    }
-    return raw.length > 19 ? raw.slice(0, 19) : raw;
-  }
-  try {
-    const d = new Date(raw);
-    if (Number.isNaN(d.getTime())) return "—";
-    const yyyy = d.getFullYear();
-    const MM = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${yyyy}-${MM}-${dd} ${hh}:${mm}`;
-  } catch {
-    return "—";
-  }
-}
 
-function formatStudioVisibility(row) {
-  const v = row?.visibility?.code ?? row?.visibility?.name ?? row?.visibility ?? "PUBLIC";
-  const s = String(v).toUpperCase();
-  if (s.includes("PRIVATE")) return "私有";
-  if (s.includes("UNLISTED")) return "不公开";
-  return "公开";
-}
 
-function switchStudioTab(key) {
-  studioContentTab.value = key;
-  studioPageNo.value = 1;
-  loadStudioVideos();
-}
 
-async function loadStudioVideos() {
-  if (studioSideNav.value !== "info") {
-    return;
-  }
-  if (!getToken()) {
-    studioMsg.value = "请先登录";
-    return;
-  }
-  if (!currentUserId.value) {
-    await loadProfileUser();
-  }
-  const uid = currentUserId.value;
-  if (!uid) {
-    studioMsg.value = "无法获取当前用户 ID";
-    studioRows.value = [];
-    return;
-  }
-  studioLoading.value = true;
-  studioMsg.value = "";
-  try {
-    if (studioContentTab.value === "live") {
-      studioRows.value = [];
-      studioTotal.value = 0;
-      studioPages.value = 0;
-      studioMsg.value = "直播内容尚未接入，敬请期待。";
-      return;
-    }
-    const vt = studioContentTab.value === "shorts" ? "SHORT_VIDEO" : "LONG_VIDEO";
-    const res = await fetchMyVideos({
-      pageNo: studioPageNo.value,
-      pageSize: studioPageSize.value,
-      videoType: vt,
-    });
-    studioRows.value = res.list;
-    studioTotal.value = res.total;
-    studioPages.value = res.pages;
-  } catch (e) {
-    studioRows.value = [];
-    studioMsg.value = `加载失败：${e.message}`;
-  } finally {
-    studioLoading.value = false;
-  }
-}
 
 function openUploadModal() {
   uploadMsg.value = "";
@@ -6603,60 +6520,10 @@ async function confirmDeleteCurrentSelfVideo() {
   pushToast("已删除该视频", "success");
 }
 
-function closeStudioRowMenu() {
-  studioRowMenuOpenId.value = null;
-}
 
-function toggleStudioRowMenu(row, ev) {
-  ev?.stopPropagation?.();
-  const id = row?.id != null ? String(row.id) : "";
-  if (!id) return;
-  studioRowMenuOpenId.value = studioRowMenuOpenId.value === id ? null : id;
-}
 
-function studioRowVisibilityIsPrivate(row) {
-  const v = row?.visibility?.code ?? row?.visibility?.name ?? row?.visibility ?? "";
-  return String(v).toUpperCase().includes("PRIVATE");
-}
 
-async function onStudioRowToggleVisibility(row) {
-  if (!row?.id) return;
-  closeStudioRowMenu();
-  const isPrivate = studioRowVisibilityIsPrivate(row);
-  try {
-    if (isPrivate) {
-      await setMyVideoPublic(row.id);
-      patchFeedVideoById(row.id, { visibility: "PUBLIC" });
-      pushToast("已设为公开", "success");
-    } else {
-      await setMyVideoPrivate(row.id);
-      patchFeedVideoById(row.id, { visibility: "PRIVATE" });
-      pushToast("已设为私密", "success");
-    }
-  } catch (e) {
-    pushToast(e?.message || "操作失败", "error");
-  }
-}
 
-async function onStudioRowToggleComment(row) {
-  if (!row?.id) return;
-  closeStudioRowMenu();
-  const current = Number(row.allowComment ?? 1);
-  const enable = current !== 1;
-  try {
-    if (enable) {
-      await openMyVideoComment(row.id);
-      patchFeedVideoById(row.id, { allowComment: 1 });
-      pushToast("已开启评论", "success");
-    } else {
-      await closeMyVideoComment(row.id);
-      patchFeedVideoById(row.id, { allowComment: 0 });
-      pushToast("已关闭评论", "success");
-    }
-  } catch (e) {
-    pushToast(e?.message || "操作失败", "error");
-  }
-}
 
 function onStudioRowRequestDelete(row) {
   if (!row?.id) return;
@@ -9043,33 +8910,27 @@ provide("detailBridge", {
   tryDetailVideoAutoplay,
   videoDetail,
 });
-/** 过渡桥接: studioBridge 注入 */
+/** StudioView 残余桥: 依赖 App 级上传弹窗/删除确认/个人资料计算属性 */
 provide("studioBridge", {
-  closeStudioRowMenu,
   displayNickname,
-  formatStudioDate,
-  formatStudioVisibility,
-  loadStudioVideos,
-  onStudioRowRequestDelete,
-  onStudioRowToggleComment,
-  onStudioRowToggleVisibility,
-  openUploadModal,
-  selectStudioSideNav,
-  showStudio,
-  studioContentTab,
-  studioLoading,
-  studioMsg,
-  studioPageNo,
-  studioPages,
-  studioRowMenuOpenId,
-  studioRowVisibilityIsPrivate,
-  studioRows,
-  studioSideNav,
-  studioTabs,
-  switchStudioTab,
-  toggleStudioRowMenu,
   topbarAvatarSrc,
+  openUploadModal,
+  onStudioRowRequestDelete,
 });
+
+// 创作中心 store 的跨域依赖接线(App 拥有 profile 加载与跨列表补丁)
+registerStudioHooks({
+  getUserId: () => currentUserId.value,
+  ensureProfile: loadProfileUser,
+  patchFeedById: patchFeedVideoById,
+});
+
+function loadStudioVideos() {
+  return studioStore.load();
+}
+function closeStudioRowMenu() {
+  studioStore.closeRowMenu();
+}
 
 /** 过渡桥接: profileBridge 注入 */
 provide("profileBridge", {

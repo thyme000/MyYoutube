@@ -1,37 +1,27 @@
 <script setup>
 /**
- * 创作中心（视频管理与数据）。
- * 过渡期：状态/函数/DOM ref 经 App.vue provide 的 studioBridge 注入。
+ * 创作中心（视频管理与数据）。状态与动作直连 studioStore；
+ * 残余桥仅含 App 级依赖：资料昵称/顶栏头像/上传弹窗/删除确认。
  */
 import { inject } from "vue";
+import { storeToRefs } from "pinia";
+import { useStudioStore, studioTabs, formatStudioDate, formatStudioVisibility, rowVisibilityIsPrivate } from "../stores/studioStore";
 import { DEFAULT_PROFILE_BG_URL as profileBanner } from "../utils/userProfile";
 
+const { displayNickname, topbarAvatarSrc, openUploadModal, onStudioRowRequestDelete } = inject("studioBridge");
+
+const studioStore = useStudioStore();
 const {
-  closeStudioRowMenu,
-  displayNickname,
-  formatStudioDate,
-  formatStudioVisibility,
-  loadStudioVideos,
-  onStudioRowRequestDelete,
-  onStudioRowToggleComment,
-  onStudioRowToggleVisibility,
-  openUploadModal,
-  selectStudioSideNav,
   showStudio,
+  studioSideNav,
   studioContentTab,
-  studioLoading,
-  studioMsg,
   studioPageNo,
   studioPages,
-  studioRowMenuOpenId,
-  studioRowVisibilityIsPrivate,
   studioRows,
-  studioSideNav,
-  studioTabs,
-  switchStudioTab,
-  toggleStudioRowMenu,
-  topbarAvatarSrc,
-} = inject("studioBridge");
+  studioLoading,
+  studioMsg,
+  studioRowMenuOpenId,
+} = storeToRefs(studioStore);
 </script>
 
 <template>
@@ -49,7 +39,7 @@ const {
                 type="button"
                 class="studio-side-link"
                 :class="{ active: studioSideNav === 'info' }"
-                @click="selectStudioSideNav('info')"
+                @click="studioStore.selectSideNav('info')"
               >
                 <i class="ri-dashboard-3-line"></i> 信息中心
               </button>
@@ -57,7 +47,7 @@ const {
                 type="button"
                 class="studio-side-link"
                 :class="{ active: studioSideNav === 'data' }"
-                @click="selectStudioSideNav('data')"
+                @click="studioStore.selectSideNav('data')"
               >
                 <i class="ri-bar-chart-2-line"></i> 数据分析
               </button>
@@ -65,7 +55,7 @@ const {
                 type="button"
                 class="studio-side-link"
                 :class="{ active: studioSideNav === 'audio' }"
-                @click="selectStudioSideNav('audio')"
+                @click="studioStore.selectSideNav('audio')"
               >
                 <i class="ri-music-2-line"></i> 音频库
               </button>
@@ -81,7 +71,7 @@ const {
                   type="button"
                   class="studio-tab"
                   :class="{ active: studioContentTab === tab.key }"
-                  @click="switchStudioTab(tab.key)"
+                  @click="studioStore.switchTab(tab.key)"
                 >
                   {{ tab.label }}
                 </button>
@@ -128,7 +118,7 @@ const {
                           type="button"
                           class="studio-row-more-btn"
                           aria-label="更多操作"
-                          @click.stop="toggleStudioRowMenu(row, $event)"
+                          @click.stop="studioStore.toggleRowMenu(row, $event)"
                         >
                           <i class="ri-more-2-fill"></i>
                         </button>
@@ -137,10 +127,10 @@ const {
                           class="studio-row-action-menu"
                           @click.stop
                         >
-                          <button type="button" class="studio-row-action-btn" @click="onStudioRowToggleVisibility(row)">
-                            {{ studioRowVisibilityIsPrivate(row) ? "设为公开" : "设为私密" }}
+                          <button type="button" class="studio-row-action-btn" @click="studioStore.toggleRowVisibility(row)">
+                            {{ rowVisibilityIsPrivate(row) ? "设为公开" : "设为私密" }}
                           </button>
-                          <button type="button" class="studio-row-action-btn" @click="onStudioRowToggleComment(row)">
+                          <button type="button" class="studio-row-action-btn" @click="studioStore.toggleRowComment(row)">
                             {{ Number(row.allowComment ?? 1) === 1 ? "关闭评论" : "开启评论" }}
                           </button>
                           <button
