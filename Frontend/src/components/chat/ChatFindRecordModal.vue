@@ -273,10 +273,13 @@ watch(keyword, () => {
                   <span class="chat-find-rec__nick">{{ senderNick(item) }}</span>
                   <span class="chat-find-rec__time">{{ formatRecordTime(item.createdAt) }}</span>
                 </div>
+                <!-- highlightHtml 逐段 escapeHtml，只注入固定的高亮 span，无注入面 -->
+                <!-- eslint-disable vue/no-v-html -->
                 <p
                   class="chat-find-rec__preview"
                   v-html="highlightHtml(recordPreview(item), keyword)"
                 />
+                <!-- eslint-enable vue/no-v-html -->
               </div>
             </li>
           </ul>
