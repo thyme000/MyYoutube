@@ -4,6 +4,24 @@
  */
 import { defineStore } from "pinia";
 
+/** 桌面/移动端首屏长视频张数阈值 */
+export const HOME_LONG_HEAD_COUNT_DESKTOP = 9;
+export const HOME_LONG_HEAD_COUNT_MOBILE = 6;
+
+export const homeSortOptions = [
+  { value: "RECOMMENDED", label: "推荐优先" },
+  { value: "LATEST", label: "最新发布" },
+  { value: "MOST_PLAYED", label: "最多播放" },
+  { value: "MOST_LIKED", label: "最多点赞" },
+];
+
+const hooks = { reloadHome: null };
+
+/** 宿主(App.vue)注册首页重载(走 loadModuleCards 的 home 分支) */
+export function registerHomeHooks({ reloadHome }) {
+  if (reloadHome) hooks.reloadHome = reloadHome;
+}
+
 export const useHomeStore = defineStore("home", {
   state: () => ({
     loading: false,
@@ -18,4 +36,14 @@ export const useHomeStore = defineStore("home", {
     homeCategoryKey: "all",
     homeSortKey: "RECOMMENDED",
   }),
+  actions: {
+    selectCategory(key) {
+      this.homeCategoryKey = key;
+      hooks.reloadHome?.();
+    },
+    selectSort(value) {
+      this.homeSortKey = value;
+      hooks.reloadHome?.();
+    },
+  },
 });

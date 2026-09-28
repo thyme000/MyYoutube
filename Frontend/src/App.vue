@@ -7,7 +7,7 @@ import { useAuthStore } from "./stores/authStore";
 import { useSearchStore, SEARCH_PAGE_SIZE, SEARCH_UI } from "./stores/searchStore";
 import { useHistoryStore } from "./stores/historyStore";
 import { useLikedStore, LIKED_PAGE_SIZE } from "./stores/likedStore";
-import { useHomeStore } from "./stores/homeStore";
+import { useHomeStore, registerHomeHooks, homeSortOptions, HOME_LONG_HEAD_COUNT_DESKTOP, HOME_LONG_HEAD_COUNT_MOBILE } from "./stores/homeStore";
 import { useShortsStore } from "./stores/shortsStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
 import { useHoverPreviewStore, cardPreviewKey } from "./stores/hoverPreviewStore";
@@ -920,14 +920,6 @@ const profileEditSaving = ref(false);
 const showStudio = studioShow;
 /** 进入创作中心时 pushState，便于浏览器后退与「返回」同步 */
 const studioHistoryPushed = ref(false);
-const homeSortOptions = [
-  { value: "RECOMMENDED", label: "推荐优先" },
-  { value: "LATEST", label: "最新发布" },
-  { value: "MOST_PLAYED", label: "最多播放" },
-  { value: "MOST_LIKED", label: "最多点赞" },
-];
-const HOME_LONG_HEAD_COUNT_DESKTOP = 9;
-const HOME_LONG_HEAD_COUNT_MOBILE = 6;
 /** 顶栏通知下拉 */
 const notifyPanelOpen = ref(false);
 const notifyUnreadCount = ref(0);
@@ -1274,27 +1266,6 @@ const likedDisplay = computed(() => {
 });
 
 const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0));
-const moduleEmptyState = computed(() => {
-  if (activeMenuKey.value === "shorts") {
-    return {
-      icon: "ri-video-line",
-      title: "暂无短视频",
-      desc: "当前模块暂无可展示内容",
-    };
-  }
-  if (activeMenuKey.value === "home") {
-    return {
-      icon: "ri-film-line",
-      title: "暂无推荐内容",
-      desc: "稍后刷新或切换分类再试",
-    };
-  }
-  return {
-    icon: "ri-inbox-line",
-    title: "暂无数据",
-    desc: "当前模块暂无可展示内容",
-  };
-});
 
 const uploadTagList = computed(() =>
   String(uploadForm.value.tags || "")
@@ -1321,19 +1292,8 @@ watch(slideshowBgmTargetSec, (sec, oldSec) => {
   }
 });
 
-const homeLongHeadCount = computed(() =>
-  viewportWidth.value >= 1320 ? HOME_LONG_HEAD_COUNT_DESKTOP : HOME_LONG_HEAD_COUNT_MOBILE
-);
 
-const homeLongHeadCards = computed(() => {
-  if (activeMenuKey.value !== "home") return [];
-  return cards.value.slice(0, homeLongHeadCount.value);
-});
 
-const homeLongTailCards = computed(() => {
-  if (activeMenuKey.value !== "home") return [];
-  return cards.value.slice(homeLongHeadCount.value);
-});
 
 function parseTagsToList(raw) {
   if (!raw) return [];
@@ -4612,19 +4572,7 @@ function closeStudio() {
 }
 
 
-function selectHomeCategory(chip) {
-  homeCategoryKey.value = chip.key;
-  if (activeMenuKey.value === "home") {
-    loadModuleCards(primaryMenus[0]);
-  }
-}
 
-function selectHomeSort(sortValue) {
-  homeSortKey.value = sortValue;
-  if (activeMenuKey.value === "home") {
-    loadModuleCards(primaryMenus[0]);
-  }
-}
 
 
 
@@ -8561,37 +8509,15 @@ provide("shortsBridge", {
   topbarAvatarSrc,
 });
 /** 过渡桥接: HomeView 的状态/函数/DOM ref 注入 */
+/** HomeView 残余桥: 短视频条滚动加载/进短视频流/卡片进详情(App 级逻辑) */
 provide("homeBridge", {
-  activeMenuKey,
-  activePreviewVideoUrl,
-  cardAuthorAvatar,
-  cardAuthorLabel,
-  cardCoverSrc,
-  cards,
-  formatHomeShortStat,
-  homeCategoryKey,
-  homeLongHeadCards,
-  homeLongLoadingMore,
-  homeLongTailCards,
-  homeShortsLoadingMore,
-  homeShortsRows,
+  showProfileCenter,
   homeShortsStripRef,
-  homeSortKey,
-  homeSortOptions,
-  isCardPreviewPlaying,
-  loading,
-  moduleEmptyState,
-  onAuthorAvatarClick,
-  onCardHoverEnter,
-  onCardHoverLeave,
-  onHomeShortCardClick,
   onHomeShortsStripScroll,
   onHomeShortsStripWheel,
+  onHomeShortCardClick,
   onVideoCardClick,
-  selectHomeCategory,
-  selectHomeSort,
-  showProfileCenter,
-  videoCardPlayable,
+  onAuthorAvatarClick,
 });
 /** 过渡桥接: VideoDetailView 的状态/函数/DOM ref 注入 */
 provide("detailBridge", {
@@ -8724,6 +8650,7 @@ function loadLikedPage({ reset = false } = {}) {
   return likedStore2.load({ reset });
 }
 registerLikedHooks({ getUserId: () => currentUserId.value });
+registerHomeHooks({ reloadHome: () => loadModuleCards(primaryMenus[0]) });
 registerShortsFeedPlayerRefs({ fg: shortsFeedFgRef, bg: shortsFeedBgRef });
 
 /** 过渡桥接: profileBridge 注入 */

@@ -1,43 +1,89 @@
 <script setup>
 /**
- * 首页：分类栏 + 长短视频混合流。
- * 过渡期：状态/函数/DOM ref 经 App.vue provide 的 homeBridge 注入。
+ * 首页：分类栏 + 长短视频混合流。状态直连 homeStore；
+ * 残余桥仅含 App 级依赖（短视频条滚动加载/进短视频流/卡片进详情/进他人主页）。
  */
-import { inject } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref } from "vue";
+import { storeToRefs } from "pinia";
+import { useRoute } from "vue-router";
+import { useHomeStore, homeSortOptions, HOME_LONG_HEAD_COUNT_DESKTOP, HOME_LONG_HEAD_COUNT_MOBILE } from "../stores/homeStore";
 import { VIDEO_CATEGORY_CHIPS } from "../constants/videoCategories.js";
-
-const {
-  activeMenuKey,
-  activePreviewVideoUrl,
-  cardAuthorAvatar,
-  cardAuthorLabel,
-  cardCoverSrc,
-  cards,
-  formatHomeShortStat,
-  homeCategoryKey,
-  homeLongHeadCards,
-  homeLongLoadingMore,
-  homeLongTailCards,
-  homeShortsLoadingMore,
-  homeShortsRows,
-  homeShortsStripRef,
-  homeSortKey,
-  homeSortOptions,
-  isCardPreviewPlaying,
-  loading,
-  moduleEmptyState,
-  onAuthorAvatarClick,
-  onCardHoverEnter,
-  onCardHoverLeave,
-  onHomeShortCardClick,
-  onHomeShortsStripScroll,
-  onHomeShortsStripWheel,
-  onVideoCardClick,
-  selectHomeCategory,
-  selectHomeSort,
-  showProfileCenter,
+import { useHoverPreviewStore, cardPreviewKey } from "../stores/hoverPreviewStore";
+import {
+  resolveVideoUrl,
   videoCardPlayable,
-} = inject("homeBridge");
+  cardAuthorAvatar,
+  cardCoverSrc,
+  cardAuthorLabel,
+  formatHomeShortStat,
+} from "../utils/videoCard.js";
+
+const bridge = inject("homeBridge");
+const { showProfileCenter, homeShortsStripRef, onHomeShortsStripScroll, onHomeShortsStripWheel, onHomeShortCardClick, onVideoCardClick, onAuthorAvatarClick } = bridge;
+
+const homeStore = useHomeStore();
+const {
+  loading,
+  cards,
+  homeShortsRows,
+  homeShortsPageNo,
+  homeShortsPages,
+  homeShortsLoadingMore,
+  homeLongPageNo,
+  homeLongPages,
+  homeLongLoadingMore,
+  homeCategoryKey,
+  homeSortKey,
+} = storeToRefs(homeStore);
+
+const route = useRoute();
+const activeMenuKey = computed(() => route.meta?.menuKey ?? "home");
+
+/** 视口宽度 → 首屏长视频张数（与原 App 逻辑一致） */
+const viewportWidth = ref(typeof window !== "undefined" ? window.innerWidth : 1440);
+function onViewportResize() {
+  viewportWidth.value = window.innerWidth || 1440;
+}
+onMounted(() => window.addEventListener("resize", onViewportResize));
+onBeforeUnmount(() => window.removeEventListener("resize", onViewportResize));
+const homeLongHeadCount = computed(() =>
+  viewportWidth.value >= 1320 ? HOME_LONG_HEAD_COUNT_DESKTOP : HOME_LONG_HEAD_COUNT_MOBILE
+);
+
+const homeLongHeadCards = computed(() => {
+  if (activeMenuKey.value !== "home") return [];
+  return cards.value.slice(0, homeLongHeadCount.value);
+});
+
+const homeLongTailCards = computed(() => {
+  if (activeMenuKey.value !== "home") return [];
+  return cards.value.slice(homeLongHeadCount.value);
+});
+
+const moduleEmptyState = computed(() => {
+  if (activeMenuKey.value === "shorts") {
+    return {
+      icon: "ri-video-line",
+      title: "暂无短视频",
+      desc: "当前模块暂无可展示内容",
+    };
+  }
+  if (activeMenuKey.value === "home") {
+    return {
+      icon: "ri-film-line",
+      title: "暂无推荐内容",
+      desc: "稍后刷新或切换分类再试",
+    };
+  }
+  return {
+    icon: "ri-inbox-line",
+    title: "暂无数据",
+    desc: "当前模块暂无可展示内容",
+  };
+});
+
+const hoverPreview = useHoverPreviewStore();
+const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
 </script>
 
 <template>
@@ -49,7 +95,7 @@ const {
               type="button"
               class="home-chip"
               :class="{ 'home-chip--active': homeCategoryKey === chip.key }"
-              @click="selectHomeCategory(chip)"
+              @click="homeStore.selectCategory(chip.key)"
             >
               {{ chip.label }}
             </button>
@@ -59,7 +105,7 @@ const {
                 id="home-sort-select"
                 class="home-sort-select"
                 :value="homeSortKey"
-                @change="selectHomeSort($event.target.value)"
+                @change="homeStore.selectSort($event.target.value)"
               >
                 <option v-for="opt in homeSortOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
               </select>
@@ -87,11 +133,11 @@ const {
                 class="video-card"
                 :class="{ 'video-card--playable': videoCardPlayable(card) }"
                 @click="onVideoCardClick(card)"
-                @mouseenter="onCardHoverEnter(card, 'home-head')"
-                @mouseleave="onCardHoverLeave(card, 'home-head')"
+                @mouseenter="hoverPreview.enter(card, 'home-head')"
+                @mouseleave="hoverPreview.leave(card, 'home-head')"
               >
                 <video
-                  v-if="isCardPreviewPlaying(card, 'home-head')"
+                  v-if="hoverPreview.activeId === cardPreviewKey(card, 'home-head')"
                   class="video-cover video-cover--preview"
                   :src="activePreviewVideoUrl"
                   muted
@@ -135,12 +181,12 @@ const {
                   :key="`home-short-${card.id}-${index}`"
                   class="home-short-card"
                   @click="onHomeShortCardClick(card, index)"
-                  @mouseenter="onCardHoverEnter(card, 'home-shorts')"
-                  @mouseleave="onCardHoverLeave(card, 'home-shorts')"
+                  @mouseenter="hoverPreview.enter(card, 'home-shorts')"
+                  @mouseleave="hoverPreview.leave(card, 'home-shorts')"
                 >
                   <div class="home-short-media">
                     <video
-                      v-if="isCardPreviewPlaying(card, 'home-shorts')"
+                      v-if="hoverPreview.activeId === cardPreviewKey(card, 'home-shorts')"
                       class="home-short-cover home-short-cover--video video-cover--preview"
                       :src="activePreviewVideoUrl"
                       muted
@@ -178,11 +224,11 @@ const {
                 class="video-card"
                 :class="{ 'video-card--playable': videoCardPlayable(card) }"
                 @click="onVideoCardClick(card)"
-                @mouseenter="onCardHoverEnter(card, 'home-tail')"
-                @mouseleave="onCardHoverLeave(card, 'home-tail')"
+                @mouseenter="hoverPreview.enter(card, 'home-tail')"
+                @mouseleave="hoverPreview.leave(card, 'home-tail')"
               >
                 <video
-                  v-if="isCardPreviewPlaying(card, 'home-tail')"
+                  v-if="hoverPreview.activeId === cardPreviewKey(card, 'home-tail')"
                   class="video-cover video-cover--preview"
                   :src="activePreviewVideoUrl"
                   muted
