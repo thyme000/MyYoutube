@@ -18,6 +18,7 @@ import { useBehaviorStore } from "./behaviorStore";
 import { useCommentStore } from "./commentStore";
 import { useFollowStore } from "./followStore";
 import { useProfileStore } from "./profileStore";
+import { useShareStore } from "./shareStore";
 import { useStudioStore } from "./studioStore";
 
 const SIDEBAR_PAGE_SIZE = 10;
@@ -42,12 +43,8 @@ const hooks = {
   /** 主页全屏流开着时收起 */
   closeProfileFeedIfOpen: () => {},
   closeUploadModal: () => {},
-  /** 非长视频进详情后记入短视频历史 */
-  enqueueShortsHistory: () => {},
   /** 跨列表同步同一作者的 isFollow */
   patchAuthorFollow: () => {},
-  openCommentReport: () => {},
-  openForwardVideo: () => {},
   onSearchTagNavigate: () => {},
 };
 
@@ -90,6 +87,7 @@ export const useDetailStore = defineStore("detail", () => {
   const comments = useCommentStore();
   const follows = useFollowStore();
   const profile = useProfileStore();
+  const share = useShareStore();
   const studio = useStudioStore();
 
   const open = ref(false);
@@ -393,7 +391,7 @@ export const useDetailStore = defineStore("detail", () => {
     }
     const d = video.value;
     if (d?.id && !isLongVideoItem(d)) {
-      hooks.enqueueShortsHistory(d.id, d);
+      behavior.enqueueShortsHistory(d.id, d);
     }
     if (!isLongDetailVideo()) return;
     // 播放恢复后按 timeupdate 次数上报，这里重置计数避免刚播放就上报
@@ -1111,8 +1109,8 @@ export const useDetailStore = defineStore("detail", () => {
     submitCommentLike,
     onCommentUserClick,
     deleteComment,
-    openCommentReport: (comment) => hooks.openCommentReport(comment),
-    openForwardVideo: (card) => hooks.openForwardVideo(card),
+    openCommentReport: (comment) => share.openCommentReport(comment),
+    openForwardVideo: (card) => share.openForwardVideo(card),
     onSearchTagNavigate: (tag) => hooks.onSearchTagNavigate(tag),
   };
 });

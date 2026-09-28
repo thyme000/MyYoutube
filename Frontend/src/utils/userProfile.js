@@ -29,6 +29,14 @@ export function stripUserIdLikeName(name) {
   return n;
 }
 
+/** 头像图加载失败时回落到默认图；顶栏、评论头像、通知列表共用同一处理 */
+export function applyAvatarFallback(evt, fallback = defaultAvatarUrl) {
+  const el = evt?.target;
+  if (el) {
+    el.src = fallback;
+  }
+}
+
 /**
  * 关注/粉丝等列表接口里用户对象字段名不统一时，尽量取出头像 URL（支持一层嵌套 user / followee）。
  */

@@ -17,6 +17,7 @@ import { useAuthStore } from "./authStore.js";
 import { useBehaviorStore } from "./behaviorStore.js";
 import { useCommentPanelStore } from "./commentPanelStore.js";
 import { useFollowStore } from "./followStore.js";
+import { useShareStore } from "./shareStore.js";
 import { patchRowById, patchRowsByAuthorId, patchRowsById } from "../utils/feedRowPatch.js";
 
 export const SEARCH_PAGE_SIZE = 10;
@@ -53,12 +54,9 @@ const hooks = {
   teardownSearchVideoObserver: () => {},
   /** 关闭放大层后恢复列表内联自动播放 */
   setupSearchVideoAutoplay: () => {},
-  enqueueShortsHistory: () => {},
-  flushShortsHistory: () => {},
   /** 跨多份列表同步点赞数 / 关注态 */
   patchFeedVideoById: () => {},
   patchAuthorFollow: () => {},
-  openForwardVideo: () => {},
 };
 
 export function registerSearchExpandHooks(next = {}) {
@@ -419,9 +417,9 @@ export const useSearchStore = defineStore("search", {
       /** 搜索列表内预览不写入历史；仅在全屏放大且实际开始播放时上报短视频观看（PUT /videos/shorts/play） */
       if (this.searchActive) {
         const card = this.searchExpandCard;
-        if (card) {
-          hooks.enqueueShortsHistory(card.id, card);
-        }
+          if (card) {
+            useBehaviorStore().enqueueShortsHistory(card.id, card);
+          }
       }
     },
 
@@ -515,7 +513,7 @@ export const useSearchStore = defineStore("search", {
       } catch {
         /* ignore */
       }
-      hooks.flushShortsHistory();
+      void useBehaviorStore().flushShortsHistory();
       nextTick(() => {
         if (this.searchActive) hooks.setupSearchVideoAutoplay();
       });
@@ -794,9 +792,9 @@ export const useSearchStore = defineStore("search", {
       }
     },
 
-    onSearchExpandForwardClick() {
-      hooks.openForwardVideo(this.searchExpandCard);
-    },
+  onSearchExpandForwardClick() {
+    useShareStore().openForwardVideo(this.searchExpandCard);
+  },
 
     toggleSearchExpandCommentPanel() {
       if (!this.searchExpandCard?.id) {

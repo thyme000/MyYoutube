@@ -9,7 +9,7 @@ import { useAuthStore } from "../stores/authStore";
 import { useDetailStore, detailSidebarTabs } from "../stores/detailStore";
 import { formatCommentTime, insertGlyphIntoCommentDraft, isBlockedComment } from "../utils/comment.js";
 import { cardAuthorLabel, parseSearchTagsArray } from "../utils/videoCard.js";
-import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar, DEFAULT_PROFILE_BG_URL as profileBanner } from "../utils/userProfile";
+import { applyAvatarFallback, DEFAULT_PROFILE_AVATAR_URL as profileAvatar, DEFAULT_PROFILE_BG_URL as profileBanner } from "../utils/userProfile";
 import ChatEmojiPicker from "../components/chat/ChatEmojiPicker.vue";
 
 const authStore = useAuthStore();
@@ -70,8 +70,7 @@ function onAuthorAvatarClick(ev, authorId) {
 }
 
 function onTopbarAvatarError(e) {
-  const el = e?.target;
-  if (el) el.src = profileAvatar;
+  applyAvatarFallback(e, profileAvatar);
 }
 </script>
 

@@ -16,6 +16,7 @@ import { useCommentStore } from "./stores/commentStore";
 import { useFeedPatchStore } from "./stores/feedPatchStore";
 import { useFollowStore } from "./stores/followStore";
 import { useBehaviorStore } from "./stores/behaviorStore";
+import { useShareStore } from "./stores/shareStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
 import { useHoverPreviewStore, cardPreviewKey } from "./stores/hoverPreviewStore";
 import { registerShortsFeedPlayerRefs, registerShortsHooks } from "./stores/shortsStore";
@@ -27,7 +28,6 @@ import {
   cardCoverSrc,
   formatHomeShortStat,
   formatWorkLikeText,
-  isLongVideoItem,
   parseSearchTagsArray,
   formatSearchRelTime,
   formatShortsTime,
@@ -59,7 +59,6 @@ import {
   publishVideo,
   mergePicturesToVideo,
   getMergePictureJobStatus,
-  reportShortHistoryBatch,
 } from "./api/videoApi";
 import {
   fetchSearchHot,
@@ -87,12 +86,13 @@ import {
   NOTIFICATION_TYPE_LABELS,
 } from "./api/notificationApi";
 import {
+  applyAvatarFallback,
   sanitizeImageUrl,
   stripUserIdLikeName,
   DEFAULT_PROFILE_AVATAR_URL as profileAvatar,
   DEFAULT_PROFILE_BG_URL as profileBanner,
 } from "./utils/userProfile";
-import { parseDigitSnowflakeId, safeSnowflakeId } from "./utils/snowflakeId.js";
+import { parseDigitSnowflakeId } from "./utils/snowflakeId.js";
 /** 短视频无接口数据时的本地 fallback（static 目录下四个 mp4） */
 import appIco from "../static/狗.png?url";
 const MusicView = defineAsyncComponent(() => import("./views/MusicView.vue"));
@@ -444,7 +444,7 @@ function onSearchTagNavigate(tag) {
 
 function onSearchFeedForwardClick(card, ev) {
   ev?.stopPropagation?.();
-  openForwardVideoModal(card);
+  share.openForwardVideo(card);
 }
 
 function onSearchFeedMainVideoClick(card, index) {
@@ -842,16 +842,21 @@ const {
   historyShortPages,
   historyShortExpanded,
 } = storeToRefs(useHistoryStore());
-const SHORTS_HISTORY_BATCH_SIZE = 10;
-let shortsHistoryQueue = [];
-const shortsHistoryQueueSet = new Set();
-const shortsHistorySeenSet = new Set();
-let shortsHistoryFlushInFlight = false;
 /** 按作者 ID 覆盖关注状态（乐观更新后优先于接口返回的 isFollow），状态在 pinia followStore */
 const { overrideByAuthorId: followStateOverrideByAuthorId } = storeToRefs(useFollowStore());
 const behaviorStore = useBehaviorStore();
 const reportBehaviorSilently = (videoIdLike, event, watchDurationMs = 0) =>
   behaviorStore.report(videoIdLike, event, watchDurationMs);
+/** 转发/举报弹窗：搜索、详情、短视频三处共用，弹窗本体仍在本组件渲染 */
+const share = useShareStore();
+const {
+  forwardVideoOpen,
+  forwardVideoCard,
+  commentReportOpen,
+  commentReportTarget,
+} = storeToRefs(share);
+/** 头像加载失败回落默认图，与评论头像、通知列表共用同一实现 */
+const onTopbarAvatarError = (evt) => applyAvatarFallback(evt, profileAvatar);
 const UI_STATE_STORAGE_KEY = "myyoutube_ui_state_v1";
 
 /** 仅音乐歌词「全屏」时隐藏右侧会话条；普通音乐页仍显示 */
@@ -1253,11 +1258,6 @@ const selfDisplayNickname = computed(() => {
 /** 仅当 id 为纯数字字符串时可用于 /videos/detail/{id}，全程用字符串避免精度丢失 */
 function parseVideoIdForApi(id) {
   return parseDigitSnowflakeId(id);
-}
-
-/** 仅短视频写入 /videos/shorts/play；长视频在竖屏流里走续播，不得混入 shortIds */
-function shouldRecordShortsWatchHistory(item) {
-  return item != null && !isLongVideoItem(item);
 }
 
 /** 刷新 / 往返缓存后 DOM 就绪较晚，交给详情 store 多补几轮自动播放 */
@@ -1869,7 +1869,7 @@ async function setActiveMenu(menu) {
     }
   }
   if (prevMenuKey === "shorts" && menu.key !== "shorts") {
-    void flushShortsHistoryQueue();
+    void behaviorStore.flushShortsHistory();
   }
   if (profileFeedOpen.value) {
     closeProfileFeed();
@@ -1985,7 +1985,7 @@ function onCreate() {
     closeProfileFeed();
   }
   if (activeMenuKey.value === "shorts") {
-    void flushShortsHistoryQueue();
+    void behaviorStore.flushShortsHistory();
   }
   if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
     pauseShortsFeedVideos({ muteForeground: true });
@@ -2207,13 +2207,6 @@ function onUploadInputOrDrop(e) {
   uploadPickedFile.value = f;
   uploadMsg.value = `已选择：${f.name}`;
   void readVideoDuration(f);
-}
-
-function onTopbarAvatarError(evt) {
-  const el = evt?.target;
-  if (el) {
-    el.src = profileAvatar;
-  }
 }
 
 function applyAppFavicon() {
@@ -2746,70 +2739,6 @@ function openFollowFeedFromCard(item) {
   });
 }
 
-function enqueueShortsHistoryByVideoId(videoIdLike, feedItem) {
-  if (!isAuthed.value) return;
-  if (!shouldRecordShortsWatchHistory(feedItem)) return;
-  const videoId = safeSnowflakeId(videoIdLike, "");
-  if (!videoId) return;
-  if (shortsHistorySeenSet.has(videoId) || shortsHistoryQueueSet.has(videoId)) return;
-  shortsHistoryQueueSet.add(videoId);
-  shortsHistoryQueue.push(videoId);
-  if (shortsHistoryQueue.length >= SHORTS_HISTORY_BATCH_SIZE) {
-    void flushShortsHistoryQueue();
-  }
-}
-
-async function sendShortsHistoryBatch(videoIds, { keepalive = false } = {}) {
-  if (!Array.isArray(videoIds) || !videoIds.length) return;
-  const shortIds = videoIds
-    .map((id) => safeSnowflakeId(id))
-    .filter((id) => id !== "" && id != null);
-  if (!shortIds.length) return;
-  const payload = {
-    userId: currentUserId.value || undefined,
-    shortIds,
-  };
-  if (payload.userId != null && payload.userId !== "") {
-    payload.userId = safeSnowflakeId(payload.userId);
-  }
-  if (keepalive) {
-    const headers = { "Content-Type": "application/json" };
-    const authTok = getToken();
-    if (authTok) {
-      headers.Authorization = authTok;
-    }
-    await fetch("/videos/shorts/play", {
-      method: "PUT",
-      headers,
-      body: JSON.stringify(payload),
-      keepalive: true,
-    });
-    return;
-  }
-  await reportShortHistoryBatch(payload);
-}
-
-async function flushShortsHistoryQueue({ keepalive = false } = {}) {
-  if (!shortsHistoryQueue.length || shortsHistoryFlushInFlight) return;
-  shortsHistoryFlushInFlight = true;
-  const batch = [...shortsHistoryQueue];
-  shortsHistoryQueue = [];
-  shortsHistoryQueueSet.clear();
-  try {
-    await sendShortsHistoryBatch(batch, { keepalive });
-    batch.forEach((id) => shortsHistorySeenSet.add(id));
-  } catch {
-    batch.forEach((id) => {
-      if (!shortsHistoryQueueSet.has(id)) {
-        shortsHistoryQueueSet.add(id);
-        shortsHistoryQueue.push(id);
-      }
-    });
-  } finally {
-    shortsHistoryFlushInFlight = false;
-  }
-}
-
 function closeTopMostOverlayByEsc() {
   if (uploadModalOpen.value) {
     uploadModalOpen.value = false;
@@ -3319,11 +3248,8 @@ async function submitRegister() {
 }
 
 function logout() {
-  void flushShortsHistoryQueue();
+  behaviorStore.resetShortsHistory();
   authStore.signOut();
-  shortsHistoryQueue = [];
-  shortsHistoryQueueSet.clear();
-  shortsHistorySeenSet.clear();
   homeFeedSnapshot.value = null;
   cards.value = [];
   profileStore.close();
@@ -3560,46 +3486,6 @@ let searchScrollLoadTimer = null;
 /** 搜索列表进度条：节流 timeupdate，避免每帧整表重绘卡死 */
 const searchFeedProgressThrottleTs = new Map();
 
-const forwardVideoOpen = ref(false);
-const forwardVideoCard = ref(null);
-
-const commentReportOpen = ref(false);
-const commentReportTarget = ref(null);
-
-function openForwardVideoModal(card) {
-  if (!isAuthed.value) {
-    pushToast("请先登录后使用转发", "info");
-    return;
-  }
-  if (!card?.id) {
-    pushToast("缺少视频信息", "error");
-    return;
-  }
-  forwardVideoCard.value = card;
-  forwardVideoOpen.value = true;
-}
-
-function openCommentReportModal(comment) {
-  if (!isAuthed.value) {
-    pushToast("请先登录后再举报", "info");
-    return;
-  }
-  if (!comment?.id) {
-    pushToast("缺少评论信息", "error");
-    return;
-  }
-  if (currentUserId.value != null && String(comment.userId) === String(currentUserId.value)) {
-    pushToast("不能举报自己的评论", "info");
-    return;
-  }
-  if (isBlockedComment(comment)) {
-    pushToast("该评论已被处理，无法举报", "info");
-    return;
-  }
-  commentReportTarget.value = comment;
-  commentReportOpen.value = true;
-}
-
 /** 搜索结果里的用户行：关注态读同一张乐观覆盖表 */
 function searchUserRowIsSelf(u) {
   if (!u?.id || currentUserId.value == null) return false;
@@ -3671,9 +3557,9 @@ const searchExpandToggleMute = () => searchStore.searchExpandToggleMute();
 const searchExpandPrev = () => searchStore.searchExpandPrev();
 const searchExpandNext = () => searchStore.searchExpandNext();
 
-function onShortsForwardClick() {
-  openForwardVideoModal(shortsFeedCurrent.value);
-}
+/** 转发取当前短视频，举报弹窗直接落到 shareStore；ShortsView 仍按原名从桥取用 */
+const onShortsForwardClick = () => shortsStore.onShortsForwardClick();
+const openCommentReportModal = (comment) => share.openCommentReport(comment);
 
 watch(searchActive, (v) => {
   if (!v && searchExpandOpen.value) closeSearchExpand();
@@ -3914,21 +3800,17 @@ registerSearchExpandRefs({
   blur: searchExpandBlurRef,
   stage: searchExpandStageRef,
 });
-/** searchStore 的宿主依赖：搜索结果列表的内联预览观察器、短视频历史队列、跨列表补丁、转发弹窗都在 App */
+/** searchStore 的宿主依赖：搜索结果列表的内联预览观察器与跨列表补丁仍在 App */
 registerSearchExpandHooks({
   teardownSearchVideoObserver: () => teardownSearchVideoObserver(),
   setupSearchVideoAutoplay: () => setupSearchVideoAutoplay(),
-  enqueueShortsHistory: (videoIdLike, feedItem) => enqueueShortsHistoryByVideoId(videoIdLike, feedItem),
-  flushShortsHistory: () => flushShortsHistoryQueue(),
   patchFeedVideoById: (id, patch) => patchFeedVideoById(id, patch),
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
-  openForwardVideo: (card) => openForwardVideoModal(card),
 });
-/** shortsStore 的宿主依赖：评论数变更跨多份列表打补丁，观看历史入队，菜单归属与播放代次仍在 App */
+/** shortsStore 的宿主依赖：评论数变更跨多份列表打补丁，菜单归属与播放代次仍在 App */
 registerShortsHooks({
   patchFeedVideoById: (id, patch) => patchFeedVideoById(id, patch),
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
-  enqueueShortsHistory: (videoIdLike, feedItem) => enqueueShortsHistoryByVideoId(videoIdLike, feedItem),
   isShortsMenuActive: () => activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed",
   isSubscribedMenuActive: () => activeMenuKey.value === "subscribed",
   getPlayToken: () => shortsFeedPlayToken,
@@ -3938,7 +3820,7 @@ registerShortsHooks({
   removeVideoById: (id) => feedPatch.removeVideoById(id),
 });
 
-/** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，跨列表关注/短视频历史/举报转发弹窗都在 App */
+/** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，跨列表关注与标签跳转仍在 App */
 registerDetailHooks({
   pauseShortsFeed: () => pauseShortsFeedVideos({ muteForeground: true }),
   closeProfileFeedIfOpen: () => {
@@ -3949,10 +3831,7 @@ registerDetailHooks({
   closeUploadModal: () => {
     uploadModalOpen.value = false;
   },
-  enqueueShortsHistory: (videoIdLike, feedItem) => enqueueShortsHistoryByVideoId(videoIdLike, feedItem),
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
-  openCommentReport: (comment) => openCommentReportModal(comment),
-  openForwardVideo: (card) => openForwardVideoModal(card),
   onSearchTagNavigate: (tag) => onSearchTagNavigate(tag),
 });
 
@@ -3965,7 +3844,7 @@ registerProfileHooks({
       saveHomeFeedSnapshot();
     }
     if (activeMenuKey.value === "shorts") {
-      void flushShortsHistoryQueue();
+      void behaviorStore.flushShortsHistory();
     }
     if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
       pauseShortsFeedVideos({ muteForeground: true });
@@ -4016,7 +3895,7 @@ onMounted(async () => {
   window.addEventListener(getAuthExpiredEventName(), onAuthExpired);
   // 关闭/切走页面兜底：用 keepalive 尽量发送
   window.addEventListener("pagehide", () => {
-    void flushShortsHistoryQueue({ keepalive: true });
+    void behaviorStore.flushShortsHistory({ keepalive: true });
     if (profileFeedOpen.value) {
       void flushShortsLongPlaybackResume("unload");
     }
@@ -4028,7 +3907,7 @@ onMounted(async () => {
   });
   window.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
-      void flushShortsHistoryQueue({ keepalive: true });
+      void behaviorStore.flushShortsHistory({ keepalive: true });
       if (profileFeedOpen.value) {
         void flushShortsLongPlaybackResume("unload");
       }
@@ -4110,7 +3989,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("popstate", onWindowPopState);
   window.removeEventListener("pageshow", onWindowPageShow);
   window.removeEventListener(getAuthExpiredEventName(), onAuthExpired);
-  void flushShortsHistoryQueue({ keepalive: true });
+  void behaviorStore.flushShortsHistory({ keepalive: true });
   if (loginCaptchaTimer) clearInterval(loginCaptchaTimer);
   if (registerCaptchaTimer) clearInterval(registerCaptchaTimer);
   if (forgotCaptchaTimer) clearInterval(forgotCaptchaTimer);

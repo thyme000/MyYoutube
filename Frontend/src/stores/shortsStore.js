@@ -54,6 +54,7 @@ import { useHomeStore } from "./homeStore.js";
 import { useLikedStore } from "./likedStore.js";
 import { useProfileStore } from "./profileStore.js";
 import { useSearchStore } from "./searchStore.js";
+import { useShareStore } from "./shareStore.js";
 
 const SHORTS_COMMENT_PAGE_SIZE = 10;
 /** 切换很快时不显示加载层，先等这么久再亮出遮罩 */
@@ -88,11 +89,9 @@ let longResumeAppliedVideoId = "";
 const hooks = {
   /** 跨多份列表同步点赞数/评论数 */
   patchFeedVideoById: () => {},
-  /** 跨列表同步同一作者的 isFollow */
-  patchAuthorFollow: () => {},
-  /** 观看历史入队（队列与上报在 App，属历史域） */
-  enqueueShortsHistory: () => {},
-  /** 当前是否停留在短视频 Tab（shorts / subscribed）——菜单状态机仍在 App */
+    /** 跨列表同步同一作者的 isFollow */
+    patchAuthorFollow: () => {},
+    /** 当前是否停留在短视频 Tab（shorts / subscribed）——菜单状态机仍在 App */
   isShortsMenuActive: () => false,
   /** 当前是否停留在「关注」Tab——关注态判定要区分全部动态与按作者筛选 */
   isSubscribedMenuActive: () => false,
@@ -432,7 +431,7 @@ export const useShortsStore = defineStore("shorts", {
         void this.flushShortsLongPlaybackResume("switch");
       }
       if (cur?.id) {
-        hooks.enqueueShortsHistory(cur.id, cur);
+        useBehaviorStore().enqueueShortsHistory(cur.id, cur);
       }
       if (cur?.id && dur > 0 && now / dur < 0.95) {
         void useBehaviorStore().report(cur.id, "SKIP", now * 1000);
@@ -452,7 +451,7 @@ export const useShortsStore = defineStore("shorts", {
         void this.flushShortsLongPlaybackResume("switch");
       }
       if (cur?.id) {
-        hooks.enqueueShortsHistory(cur.id, cur);
+        useBehaviorStore().enqueueShortsHistory(cur.id, cur);
       }
       if (cur?.id && dur > 0 && now / dur < 0.95) {
         void useBehaviorStore().report(cur.id, "SKIP", now * 1000);
@@ -572,7 +571,7 @@ export const useShortsStore = defineStore("shorts", {
     onShortsFeedFgPlay() {
       this.shortsFeedPaused = false;
       const cur = this.shortsFeedCurrent;
-      hooks.enqueueShortsHistory(cur?.id, cur);
+      useBehaviorStore().enqueueShortsHistory(cur?.id, cur);
       if (this.isLongShortsFeedVideo()) {
         longResumeTickCount = 0;
       }
@@ -890,6 +889,10 @@ export const useShortsStore = defineStore("shorts", {
       } catch (error) {
         pushToast(error.message || "操作失败", "error");
       }
+    },
+
+    onShortsForwardClick() {
+      useShareStore().openForwardVideo(this.shortsFeedCurrent);
     },
 
     async toggleShortsFollow() {
