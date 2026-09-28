@@ -21,11 +21,26 @@ import {
   deleteComment as deleteCommentApi,
   publishComment as publishCommentApi,
 } from "../api/commentApi.js";
+import {
+  likeVideo as likeVideoApi,
+  cancelLikeVideo as cancelLikeVideoApi,
+  dislikeVideo as dislikeVideoApi,
+} from "../api/likeApi.js";
+import {
+  fetchVideoDetail,
+  normalizeVideoDetail,
+  setMyVideoPrivate,
+  setMyVideoPublic,
+  openMyVideoComment,
+  closeMyVideoComment,
+} from "../api/videoApi.js";
+import { followAuthor, unfollowAuthor } from "../api/followApi.js";
 import { toast as pushToast } from "../utils/toast.js";
 import { useAuthStore } from "./authStore.js";
 import { useBehaviorStore } from "./behaviorStore.js";
 import { useCommentPanelStore } from "./commentPanelStore.js";
 import { useCommentStore } from "./commentStore.js";
+import { useDetailStore } from "./detailStore.js";
 import { useFollowStore } from "./followStore.js";
 import { useHomeStore } from "./homeStore.js";
 import { useProfileStore } from "./profileStore.js";
@@ -50,6 +65,7 @@ export function registerShortsFeedPlayerRefs({ fg, bg, center }) {
 let bufferingUITimer = null;
 let wheelCooldown = false;
 let touchStartY = 0;
+let lastLikeClickAt = 0;
 let longResumeInFlight = false;
 let longResumeLastSentAtMs = 0;
 let longResumeTickCount = 0;
@@ -58,6 +74,8 @@ let longResumeAppliedVideoId = "";
 const hooks = {
   /** 跨多份列表同步点赞数/评论数 */
   patchFeedVideoById: () => {},
+  /** 跨列表同步同一作者的 isFollow */
+  patchAuthorFollow: () => {},
   /** 观看历史入队（队列与上报在 App，属历史域） */
   enqueueShortsHistory: () => {},
   /** 当前是否停留在短视频 Tab（shorts / subscribed）——菜单状态机仍在 App */
@@ -118,6 +136,8 @@ export const useShortsStore = defineStore("shorts", {
 
     /** 短视频流点赞：切换条时重置 */
     shortsLikeBusy: false,
+    /** 自己的视频在全屏短视频里显示更多操作（三点） */
+    selfVideoActionOpen: false,
     /** 顺播累计秒数 + 当前条 id */
     shortsPlaybackAccSec: 0,
     shortsLastTimeSec: null,
@@ -766,6 +786,165 @@ export const useShortsStore = defineStore("shorts", {
       this.shortsFeedAutoplayPending = true;
       this.shortsFeedDuration = 0;
       this.shortsFeedCurrentTime = 0;
+    },
+
+    // ===== 点赞 / 不感兴趣 / 关注 =====
+
+    async onShortsLikeClick() {
+      const cur = this.shortsFeedCurrent;
+      if (!cur?.id) return;
+      if (!useAuthStore().isAuthed) {
+        pushToast("请先登录后再点赞", "info");
+        return;
+      }
+      const t = Date.now();
+      if (t - lastLikeClickAt < 300) return;
+      lastLikeClickAt = t;
+      if (this.shortsLikeBusy) return;
+      const vid = parseDigitSnowflakeId(cur.id);
+      if (vid == null) return;
+      this.shortsLikeBusy = true;
+      try {
+        const wasLiked = this.shortsFeedLikedDisplay;
+        if (wasLiked) {
+          await cancelLikeVideoApi(vid);
+          hooks.patchFeedVideoById(cur.id, {
+            isLike: false,
+            likeCount: Math.max(0, Number(cur.likeCount ?? 0) - 1),
+          });
+        } else {
+          await likeVideoApi(vid);
+          hooks.patchFeedVideoById(cur.id, {
+            isLike: true,
+            likeCount: Number(cur.likeCount ?? 0) + 1,
+          });
+        }
+        const raw = await fetchVideoDetail(vid);
+        const merged = normalizeVideoDetail(raw);
+        if (merged && merged.likeCount != null) {
+          hooks.patchFeedVideoById(cur.id, { likeCount: merged.likeCount });
+        }
+        void useBehaviorStore().report(cur.id, "LIKE", Number(this.shortsFeedCurrentTime || 0) * 1000);
+      } catch (error) {
+        pushToast(error.message || "点赞失败", "error");
+      } finally {
+        this.shortsLikeBusy = false;
+      }
+    },
+
+    async onShortsDislikeClick() {
+      const cur = this.shortsFeedCurrent;
+      if (!cur?.id) return;
+      if (!useAuthStore().isAuthed) {
+        pushToast("请先登录", "info");
+        return;
+      }
+      const vid = parseDigitSnowflakeId(cur.id);
+      if (vid == null) return;
+      try {
+        await dislikeVideoApi(vid);
+        void useBehaviorStore().report(cur.id, "DISLIKE", Number(this.shortsFeedCurrentTime || 0) * 1000);
+        pushToast("已标记为不感兴趣", "success");
+      } catch (error) {
+        pushToast(error.message || "操作失败", "error");
+      }
+    },
+
+    async toggleShortsFollow() {
+      const c = this.shortsFeedCurrent;
+      if (!c?.authorId) {
+        return;
+      }
+      const auth = useAuthStore();
+      if (!auth.isAuthed) {
+        pushToast("请先登录后再关注", "info");
+        return;
+      }
+      const aid = String(c.authorId);
+      if (auth.userId != null && aid === String(auth.userId)) {
+        return;
+      }
+      const follow = useFollowStore();
+      const override = follow.overrideByAuthorId;
+      const currently = Object.prototype.hasOwnProperty.call(override, aid)
+        ? override[aid]
+        : Boolean(c.isFollow);
+      try {
+        if (currently) {
+          await unfollowAuthor(aid);
+          follow.overrideByAuthorId = { ...override, [aid]: false };
+          hooks.patchAuthorFollow(aid, false);
+          pushToast("已取消关注", "success");
+        } else {
+          await followAuthor(aid);
+          follow.overrideByAuthorId = { ...override, [aid]: true };
+          hooks.patchAuthorFollow(aid, true);
+          pushToast("关注成功", "success");
+        }
+      } catch (e) {
+        pushToast(e?.message || "操作失败", "error");
+      }
+    },
+
+    // ===== 自己的视频：三点菜单 =====
+
+    toggleSelfVideoActionMenu() {
+      this.selfVideoActionOpen = !this.selfVideoActionOpen;
+    },
+
+    closeSelfVideoActionMenu() {
+      this.selfVideoActionOpen = false;
+    },
+
+    /** 同时把补丁打到详情页副本，避免全屏流与详情页显示不一致 */
+    patchCurrentSelfVideo(partial) {
+      const id = this.shortsFeedCurrent?.id;
+      if (!id) return;
+      hooks.patchFeedVideoById(id, partial);
+      const detail = useDetailStore();
+      if (detail.video?.id && String(detail.video.id) === String(id)) {
+        detail.video = { ...detail.video, ...partial };
+      }
+    },
+
+    async toggleCurrentSelfVideoVisibility() {
+      const cur = this.shortsFeedCurrent;
+      if (!cur?.id) return;
+      const goingPrivate = String(cur.visibility || "").toUpperCase() !== "PRIVATE";
+      this.closeSelfVideoActionMenu();
+      try {
+        if (goingPrivate) {
+          await setMyVideoPrivate(cur.id);
+          this.patchCurrentSelfVideo({ visibility: "PRIVATE" });
+          pushToast("已设为私密", "success");
+        } else {
+          await setMyVideoPublic(cur.id);
+          this.patchCurrentSelfVideo({ visibility: "PUBLIC" });
+          pushToast("已设为公开", "success");
+        }
+      } catch (e) {
+        pushToast(e?.message || "操作失败", "error");
+      }
+    },
+
+    async toggleCurrentSelfVideoAllowComment() {
+      const cur = this.shortsFeedCurrent;
+      if (!cur?.id) return;
+      const enable = Number(cur.allowComment ?? 1) !== 1;
+      this.closeSelfVideoActionMenu();
+      try {
+        if (enable) {
+          await openMyVideoComment(cur.id);
+          this.patchCurrentSelfVideo({ allowComment: 1 });
+          pushToast("已开启评论", "success");
+        } else {
+          await closeMyVideoComment(cur.id);
+          this.patchCurrentSelfVideo({ allowComment: 0 });
+          pushToast("已关闭评论", "success");
+        }
+      } catch (e) {
+        pushToast(e?.message || "操作失败", "error");
+      }
     },
 
     // ===== 长视频续播 =====

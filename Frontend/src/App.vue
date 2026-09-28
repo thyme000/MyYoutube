@@ -61,10 +61,6 @@ import {
   getMergePictureJobStatus,
   reportShortHistoryBatch,
   deleteMyVideo,
-  setMyVideoPrivate,
-  setMyVideoPublic,
-  openMyVideoComment,
-  closeMyVideoComment,
 } from "./api/videoApi";
 import {
   fetchSearchHot,
@@ -81,7 +77,6 @@ import {
   likeComment as likeCommentApi,
   cancelLikeComment as cancelLikeCommentApi,
   cancelLikeVideo as cancelLikeVideoApi,
-  dislikeVideo as dislikeVideoApi,
   fetchLikedVideosPage,
 } from "./api/likeApi";
 import { followAuthor, unfollowAuthor } from "./api/followApi";
@@ -746,6 +741,7 @@ const {
   shortsPanelThreadByRootId,
   shortsPanelExpandedRoots,
   shortsLikeBusy,
+  selfVideoActionOpen,
   shortsPlaybackAccSec,
   shortsLastTimeSec,
   shortsAccVideoId,
@@ -793,6 +789,15 @@ const restoreShortsFeedForegroundMuteFromState = () =>
 const resetShortsFeedProgressUiForSwitch = () => shortsStore.resetShortsFeedProgressUiForSwitch();
 const isLongShortsFeedVideo = (item) => shortsStore.isLongShortsFeedVideo(item);
 const flushShortsLongPlaybackResume = (reason) => shortsStore.flushShortsLongPlaybackResume(reason);
+
+/** 短视频互动：点赞/不感兴趣/关注与自视频三点菜单的实现已移入 shortsStore */
+const onShortsLikeClick = () => shortsStore.onShortsLikeClick();
+const onShortsDislikeClick = () => shortsStore.onShortsDislikeClick();
+const toggleShortsFollow = () => shortsStore.toggleShortsFollow();
+const toggleSelfVideoActionMenu = () => shortsStore.toggleSelfVideoActionMenu();
+const closeSelfVideoActionMenu = () => shortsStore.closeSelfVideoActionMenu();
+const toggleCurrentSelfVideoVisibility = () => shortsStore.toggleCurrentSelfVideoVisibility();
+const toggleCurrentSelfVideoAllowComment = () => shortsStore.toggleCurrentSelfVideoAllowComment();
 /** 地址栏 ?v= 与 sessionStorage 恢复详情页（刷新不丢） */
 const VIDEO_URL_PARAM = "v";
 
@@ -852,10 +857,6 @@ const {
   likedLoading,
   likedLoadingMore,
 } = storeToRefs(useLikedStore());
-let lastShortsLikeAt = 0;
-/** 仅当「当前短视频 id」变化时同步爱心 UI，避免 patch 列表导致 watch 反复把已取消赞设回 true */
-/** 自己的视频在全屏短视频里显示更多操作（三点） */
-const selfVideoActionOpen = ref(false);
 const selfVideoDeleteConfirmOpen = ref(false);
 /** 删除确认弹窗对应的视频 id（创作中心 / 短视频流共用） */
 const pendingDeleteVideoId = ref(null);
@@ -2886,99 +2887,6 @@ watch(
   },
 );
 
-async function toggleShortsFollow() {
-  const c = shortsFeedCurrent.value;
-  if (!c?.authorId) {
-    return;
-  }
-  if (!isAuthed.value) {
-    pushToast("请先登录后再关注", "info");
-    return;
-  }
-  const aid = String(c.authorId);
-  if (currentUserId.value != null && aid === String(currentUserId.value)) {
-    return;
-  }
-  const key = aid;
-  const currently = Object.prototype.hasOwnProperty.call(followStateOverrideByAuthorId.value, key)
-    ? followStateOverrideByAuthorId.value[key]
-    : Boolean(c.isFollow);
-  try {
-    if (currently) {
-      await unfollowAuthor(aid);
-      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: false };
-      patchIsFollowForAuthor(aid, false);
-      pushToast("已取消关注", "success");
-    } else {
-      await followAuthor(aid);
-      followStateOverrideByAuthorId.value = { ...followStateOverrideByAuthorId.value, [key]: true };
-      patchIsFollowForAuthor(aid, true);
-      pushToast("关注成功", "success");
-    }
-  } catch (e) {
-    pushToast(e?.message || "操作失败", "error");
-  }
-}
-
-function toggleSelfVideoActionMenu() {
-  selfVideoActionOpen.value = !selfVideoActionOpen.value;
-}
-
-function closeSelfVideoActionMenu() {
-  selfVideoActionOpen.value = false;
-}
-
-function patchCurrentSelfVideo(partial) {
-  const id = shortsFeedCurrent.value?.id;
-  if (!id) return;
-  patchFeedVideoById(id, partial);
-  if (videoDetail.value?.id && String(videoDetail.value.id) === String(id)) {
-    videoDetail.value = { ...videoDetail.value, ...partial };
-  }
-}
-
-async function toggleCurrentSelfVideoVisibility() {
-  const cur = shortsFeedCurrent.value;
-  if (!cur?.id) return;
-  const v = String(cur.visibility || "").toUpperCase();
-  const goingPrivate = v !== "PRIVATE";
-  closeSelfVideoActionMenu();
-  try {
-    if (goingPrivate) {
-      await setMyVideoPrivate(cur.id);
-      patchCurrentSelfVideo({ visibility: "PRIVATE" });
-      pushToast("已设为私密", "success");
-    } else {
-      await setMyVideoPublic(cur.id);
-      patchCurrentSelfVideo({ visibility: "PUBLIC" });
-      pushToast("已设为公开", "success");
-    }
-  } catch (e) {
-    pushToast(e?.message || "操作失败", "error");
-  }
-}
-
-async function toggleCurrentSelfVideoAllowComment() {
-  const cur = shortsFeedCurrent.value;
-  if (!cur?.id) return;
-  const current = Number(cur.allowComment ?? 1);
-  const enable = current !== 1;
-  closeSelfVideoActionMenu();
-  try {
-    if (enable) {
-      await openMyVideoComment(cur.id);
-      patchCurrentSelfVideo({ allowComment: 1 });
-      pushToast("已开启评论", "success");
-    } else {
-      await closeMyVideoComment(cur.id);
-      patchCurrentSelfVideo({ allowComment: 0 });
-      pushToast("已关闭评论", "success");
-    }
-  } catch (e) {
-    pushToast(e?.message || "操作失败", "error");
-  }
-}
-
 function requestDeleteCurrentSelfVideo() {
   if (!shortsIsSelfCurrent.value) {
     pushToast("只能删除自己的视频", "info");
@@ -3265,63 +3173,6 @@ function onGlobalKeydown(ev) {
   }
 
   detailStore.handleKeydown(ev);
-}
-
-async function onShortsLikeClick() {
-  const cur = shortsFeedCurrent.value;
-  if (!cur?.id) return;
-  if (!isAuthed.value) {
-    pushToast("请先登录后再点赞", "info");
-    return;
-  }
-  const t = Date.now();
-  if (t - lastShortsLikeAt < 300) return;
-  lastShortsLikeAt = t;
-  if (shortsLikeBusy.value) return;
-  const vid = parseVideoIdForApi(cur.id);
-  if (vid == null) return;
-  shortsLikeBusy.value = true;
-  try {
-    const wasLiked = shortsFeedLikedDisplay.value;
-    if (wasLiked) {
-      await cancelLikeVideoApi(vid);
-      patchFeedVideoById(cur.id, { isLike: false, likeCount: Math.max(0, Number(cur.likeCount ?? 0) - 1) });
-    } else {
-      await likeVideoApi(vid);
-      patchFeedVideoById(cur.id, {
-        isLike: true,
-        likeCount: Number(cur.likeCount ?? 0) + 1,
-      });
-    }
-    const raw = await fetchVideoDetail(vid);
-    const merged = normalizeVideoDetail(raw);
-    if (merged && merged.likeCount != null) {
-      patchFeedVideoById(cur.id, { likeCount: merged.likeCount });
-    }
-    void reportBehaviorSilently(cur.id, "LIKE", Number(shortsFeedCurrentTime.value || 0) * 1000);
-  } catch (error) {
-    pushToast(error.message || "点赞失败", "error");
-  } finally {
-    shortsLikeBusy.value = false;
-  }
-}
-
-async function onShortsDislikeClick() {
-  const cur = shortsFeedCurrent.value;
-  if (!cur?.id) return;
-  if (!isAuthed.value) {
-    pushToast("请先登录", "info");
-    return;
-  }
-  const vid = parseVideoIdForApi(cur.id);
-  if (vid == null) return;
-  try {
-    await dislikeVideoApi(vid);
-    void reportBehaviorSilently(cur.id, "DISLIKE", Number(shortsFeedCurrentTime.value || 0) * 1000);
-    pushToast("已标记为不感兴趣", "success");
-  } catch (error) {
-    pushToast(error.message || "操作失败", "error");
-  }
 }
 
 async function openProfileWorkFeed(item) {
@@ -4404,6 +4255,7 @@ registerSearchExpandHooks({
 /** shortsStore 的宿主依赖：评论数变更跨多份列表打补丁，观看历史入队，菜单归属与播放代次仍在 App */
 registerShortsHooks({
   patchFeedVideoById: (id, patch) => patchFeedVideoById(id, patch),
+  patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
   enqueueShortsHistory: (videoIdLike, feedItem) => enqueueShortsHistoryByVideoId(videoIdLike, feedItem),
   isShortsMenuActive: () => activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed",
   isSubscribedMenuActive: () => activeMenuKey.value === "subscribed",
