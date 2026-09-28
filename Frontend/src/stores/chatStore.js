@@ -1,7 +1,8 @@
 /**
  * 聊天模块状态：会话列表、当前会话消息、未读、WebSocket 增量合并。
  */
-import { ref, computed } from "vue";
+import { computed } from "vue";
+import { defineStore } from "pinia";
 import * as chatApi from "../api/chatApi.js";
 import { safeSnowflakeId, parseDigitSnowflakeId } from "../utils/snowflakeId.js";
 import { toObjectKeyOrPath } from "../utils/chatMediaKey.js";
@@ -28,17 +29,41 @@ export function getChatSelfUserId() {
   return selfCtx?.userId ?? null;
 }
 
-export const chatConversations = ref(/** @type {any[]} */ ([]));
-export const chatConversationsLoading = ref(false);
-export const chatConversationsError = ref("");
-export const chatConversationsPage = ref(1);
-export const chatConversationsPages = ref(1);
-export const chatTotalUnread = ref(0);
+export const chatConversations = computed({
+  get: () => st().chatConversations,
+  set: (v) => { st().chatConversations = v; },
+});
+export const chatConversationsLoading = computed({
+  get: () => st().chatConversationsLoading,
+  set: (v) => { st().chatConversationsLoading = v; },
+});
+export const chatConversationsError = computed({
+  get: () => st().chatConversationsError,
+  set: (v) => { st().chatConversationsError = v; },
+});
+export const chatConversationsPage = computed({
+  get: () => st().chatConversationsPage,
+  set: (v) => { st().chatConversationsPage = v; },
+});
+export const chatConversationsPages = computed({
+  get: () => st().chatConversationsPages,
+  set: (v) => { st().chatConversationsPages = v; },
+});
+export const chatTotalUnread = computed({
+  get: () => st().chatTotalUnread,
+  set: (v) => { st().chatTotalUnread = v; },
+});
 
-export const chatActiveConversationId = ref(/** @type {string|null} */ (null));
+export const chatActiveConversationId = computed({
+  get: () => st().chatActiveConversationId,
+  set: (v) => { st().chatActiveConversationId = v; },
+});
 
 /** @type {import('vue').Ref<Record<string, any>>} */
-const threadsRef = ref({});
+const threadsRef = computed({
+  get: () => st().threadsRef,
+  set: (v) => { st().threadsRef = v; },
+});
 
 const THREAD_DEFAULT = () => ({
   items: [],
@@ -61,6 +86,30 @@ function getThread(id) {
     threadsRef.value = { ...cur, [k]: { ...THREAD_DEFAULT() } };
   }
   return threadsRef.value[k];
+}
+
+
+/**
+ * pinia 状态容器：聊天会话/消息线程/未读。
+ * 导出同名 ref 为可写 computed 门面（.value 读写直通 store），消费方零改动。
+ */
+const useChatState = defineStore("chat", {
+  state: () => ({
+    chatConversations: ([]),
+    chatConversationsLoading: false,
+    chatConversationsError: "",
+    chatConversationsPage: 1,
+    chatConversationsPages: 1,
+    chatTotalUnread: 0,
+    chatActiveConversationId: (null),
+    threadsRef: {},
+  }),
+});
+
+let _state = null;
+function st() {
+  if (!_state) _state = useChatState();
+  return _state;
 }
 
 export const chatActiveThread = computed(() => {
