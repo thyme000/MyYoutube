@@ -10,7 +10,6 @@ import { useHomeStore, homeSortOptions, HOME_LONG_HEAD_COUNT_DESKTOP, HOME_LONG_
 import { VIDEO_CATEGORY_CHIPS } from "../constants/videoCategories.js";
 import { useHoverPreviewStore, cardPreviewKey } from "../stores/hoverPreviewStore";
 import {
-  resolveVideoUrl,
   videoCardPlayable,
   cardAuthorAvatar,
   cardCoverSrc,
@@ -26,11 +25,7 @@ const {
   loading,
   cards,
   homeShortsRows,
-  homeShortsPageNo,
-  homeShortsPages,
   homeShortsLoadingMore,
-  homeLongPageNo,
-  homeLongPages,
   homeLongLoadingMore,
   homeCategoryKey,
   homeSortKey,

@@ -13,6 +13,7 @@ import { useHomeStore } from "../stores/homeStore";
 import { useNavigationStore } from "../stores/navigationStore";
 import { useProfileStore } from "../stores/profileStore";
 import { useShareStore } from "../stores/shareStore";
+import ChatEmojiPicker from "../components/chat/ChatEmojiPicker.vue";
 import {
   formatCommentTime as formatDetailCommentTime,
   insertGlyphIntoCommentDraft,

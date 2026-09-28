@@ -4,30 +4,25 @@ import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
 import { useAuthStore } from "./stores/authStore";
-import { useSearchStore, registerSearchExpandHooks, SEARCH_PAGE_SIZE, SEARCH_UI } from "./stores/searchStore";
+import { useSearchStore, registerSearchExpandHooks, SEARCH_UI } from "./stores/searchStore";
 import { useHistoryStore } from "./stores/historyStore";
-import { useLikedStore, LIKED_PAGE_SIZE } from "./stores/likedStore";
-import { useHomeStore, registerHomeHooks, homeSortOptions, HOME_LONG_HEAD_COUNT_DESKTOP, HOME_LONG_HEAD_COUNT_MOBILE } from "./stores/homeStore";
+import { useLikedStore } from "./stores/likedStore";
+import { useHomeStore, registerHomeHooks, homeSortOptions } from "./stores/homeStore";
 import { useShortsStore } from "./stores/shortsStore";
 import { useProfileStore, registerProfileHooks } from "./stores/profileStore";
 import { useDetailStore, registerDetailHooks } from "./stores/detailStore";
 import { useCommentPanelStore } from "./stores/commentPanelStore";
-import { useCommentStore } from "./stores/commentStore";
 import { useFeedPatchStore } from "./stores/feedPatchStore";
 import { useFollowStore } from "./stores/followStore";
 import { useBehaviorStore } from "./stores/behaviorStore";
 import { useNavigationStore, registerNavigationHooks } from "./stores/navigationStore";
 import { useShareStore } from "./stores/shareStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
-import { useHoverPreviewStore, cardPreviewKey } from "./stores/hoverPreviewStore";
+import { useHoverPreviewStore } from "./stores/hoverPreviewStore";
 import { registerShortsHooks } from "./stores/shortsStore";
 import { registerLikedHooks } from "./stores/likedStore";
 import {
   resolveVideoUrl,
-  videoCardPlayable,
-  cardCoverSrc,
-  formatHomeShortStat,
-  formatWorkLikeText,
   resolveVideoUrlFromLists,
 } from "./utils/videoCard.js";
 import { getAuthExpiredEventName, getToken } from "./api/http";
@@ -44,8 +39,6 @@ import {
   fetchVideosByModule,
   fetchVideoListPage,
   fetchShortsFeedPage,
-  fetchShortHistoryPage,
-  fetchLongHistoryPage,
   fetchVideoDetail,
   normalizeVideoDetail,
   publishVideo,
@@ -53,21 +46,14 @@ import {
   getMergePictureJobStatus,
 } from "./api/videoApi";
 import {
-  fetchSearchHot,
   fetchSearchPrompt,
-  fetchSearchTag,
-  fetchSearchUser,
-  fetchSearchVideo,
 } from "./api/searchApi";
 import { STORAGE_BIZ_WORK } from "./api/otherApi";
 import { uploadFileWithPresign } from "./utils/presignUpload.js";
 import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
 import {
   likeVideo as likeVideoApi,
-  likeComment as likeCommentApi,
-  cancelLikeComment as cancelLikeCommentApi,
   cancelLikeVideo as cancelLikeVideoApi,
-  fetchLikedVideosPage,
 } from "./api/likeApi";
 import { followAuthor, unfollowAuthor } from "./api/followApi";
 import {
@@ -82,7 +68,6 @@ import {
   sanitizeImageUrl,
   stripUserIdLikeName,
   DEFAULT_PROFILE_AVATAR_URL as profileAvatar,
-  DEFAULT_PROFILE_BG_URL as profileBanner,
 } from "./utils/userProfile";
 import { parseDigitSnowflakeId } from "./utils/snowflakeId.js";
 /** 短视频无接口数据时的本地 fallback（static 目录下四个 mp4） */
@@ -100,7 +85,6 @@ const ChatView = defineAsyncComponent(() => import("./views/ChatView.vue"));
 const StudioView = defineAsyncComponent(() => import("./views/StudioView.vue"));
 const ProfileCenterView = defineAsyncComponent(() => import("./views/ProfileCenterView.vue"));
 import ChatFloatingRail from "./components/chat/ChatFloatingRail.vue";
-import ChatEmojiPicker from "./components/chat/ChatEmojiPicker.vue";
 import ChatForwardVideoModal from "./components/chat/ChatForwardVideoModal.vue";
 import CommentReportModal from "./components/CommentReportModal.vue";
 import SlideshowMusicPicker from "./components/SlideshowMusicPicker.vue";
@@ -115,7 +99,6 @@ import {
   tryIngestChatWebSocket,
   initChatWhenAuthed,
   openConversation as openChatConversation,
-  startSingleChat,
   getChatSelfUserId,
   chatActiveConversationId,
   chatTotalUnread,
@@ -156,31 +139,10 @@ const {
   searchHotRows,
   searchPromptLoading,
   searchHotLoading,
-  searchVideoRows,
-  searchVideoPageNo,
-  searchVideoPages,
-  searchVideoLoading,
-  searchVideoLoadingMore,
   searchVideoSort,
-  searchUserRows,
-  searchUserPageNo,
-  searchUserPages,
-  searchUserLoading,
-  searchUserLoadingMore,
-  searchTagRows,
-  searchTagPageNo,
-  searchTagPages,
-  searchTagLoading,
-  searchTagLoadingMore,
-  searchAllUserStrip,
   searchResultError,
   searchExpandOpen,
-  searchFeedProgressMap,
   searchFeedLikeBusyId,
-  searchFeedPausedMap,
-  searchFeedListPrefs,
-  searchFeedMainVideoById,
-  searchFeedMediaWrapById,
 } = storeToRefs(searchStore);
 const searchInputRef = ref(null);
 const searchFeedScrollRef = ref(null);
@@ -289,9 +251,6 @@ function loadSearchVideoPage({ reset }) {
   return searchStore.loadVideoPage({ reset });
 }
 
-function loadSearchUserStrip({ reset }) {
-  return searchStore.loadUserStrip({ reset });
-}
 
 function loadSearchUserPage({ reset }) {
   return searchStore.loadUserPage({ reset });
@@ -305,9 +264,6 @@ function loadSearchTabResults({ reset }) {
   return searchStore.loadTabResults({ reset });
 }
 
-function selectSearchTab(key) {
-  searchStore.selectTab(key);
-}
 
 function onSearchInputFocus() {
   searchInputFocused.value = true;
@@ -376,15 +332,7 @@ watch(searchVideoSort, () => {
   }
 });
 
-const searchVerticalLoading = computed(() => {
-  if (searchTab.value === "tag") return searchTagLoading.value;
-  return searchVideoLoading.value;
-});
 
-const searchVerticalLoadingMore = computed(() => {
-  if (searchTab.value === "tag") return searchTagLoadingMore.value;
-  return searchVideoLoadingMore.value;
-});
 
 /** 标签跳搜索的跨域编排在 navigationStore；App 只保留同名薄封装供桥与 detailStore 钩子调用 */
 const onSearchTagNavigate = (tag) => navigationStore.navigateToTag(tag);
@@ -466,22 +414,11 @@ const {
 /** 创作中心域状态在 pinia studioStore */
 const hoverPreview = useHoverPreviewStore();
 const {
-  hoveringId: hoveringPreviewCardId,
   activeId: activePreviewCardId,
-  videoUrl: activePreviewVideoUrl,
 } = storeToRefs(hoverPreview);
 
 function stopCardHoverPreview() {
   hoverPreview.stop();
-}
-function onCardHoverEnter(card, listKey = "") {
-  hoverPreview.enter(card, listKey);
-}
-function onCardHoverLeave(card, listKey = "") {
-  hoverPreview.leave(card, listKey);
-}
-function isCardPreviewPlaying(card, listKey = "") {
-  return hoverPreview.activeId === cardPreviewKey(card, listKey);
 }
 
 const studioStore = useStudioStore();
@@ -490,13 +427,6 @@ const {
   studioSideNav,
   studioContentTab,
   studioPageNo,
-  studioPageSize,
-  studioRows,
-  studioTotal,
-  studioPages,
-  studioLoading,
-  studioMsg,
-  studioRowMenuOpenId,
 } = storeToRefs(studioStore);
 let activeMenuSwitchSeq = 0;
 
@@ -545,7 +475,6 @@ const {
   open: showProfileCenter,
   targetUserId: profileTargetUserId,
   user: profileUser,
-  targetFollowed: profileTargetFollowed,
   worksRows: profileWorksRows,
   /** 关注列表同时供「关注」页侧栏与粉丝/关注弹窗使用 */
   mediaPreviewOpen,
@@ -624,7 +553,6 @@ const uploadVisibilityOptions = [
 ];
 /** 视频详情域状态在 pinia detailStore；App 只需判断「是否在详情」与读卡片数据 */
 const detailStore = useDetailStore();
-const commentStore = useCommentStore();
 const {
   open: showVideoDetail,
   video: videoDetail,
@@ -650,10 +578,8 @@ const {
   followAuthorFeedQueue,
   followAuthorVideoPageNo,
   followAuthorVideoHasMore,
-  followAuthorLoadingMore,
   followVideoPageNo,
   followVideoHasMore,
-  followVideoLoadingMore,
   profileFeedOpen,
   /** 队列推导出的当前条与「当前评论目标」，播放器与评论侧栏共用 */
   unifiedFeedList,
@@ -664,23 +590,16 @@ const {
   shortsFeedIndex,
   shortsFeedPaused,
   shortsFeedAutoplayPending,
-  shortsLikeBusy,
   selfVideoActionOpen,
   selfVideoDeleteConfirmOpen,
-  pendingDeleteVideoId,
-  shortsPlaybackAccSec,
-  shortsLastTimeSec,
-  shortsAccVideoId,
 } = storeToRefs(shortsStore);
 /** 评论面板开关在 commentPanelStore：短视频侧栏 / 搜索放大层 / 搜索列表三个入口互斥 */
 const {
   shortsCommentPanelOpen,
   searchExpandCommentOpen,
   searchListCommentOpen,
-  searchListCommentCard,
 } = storeToRefs(useCommentPanelStore());
 /** 播放缓冲遮罩：实现已移入 shortsStore，这里保留同名薄封装供桥与生命周期调用 */
-const scheduleShortsBufferingOverlay = () => shortsStore.scheduleShortsBufferingOverlay();
 const hideShortsBufferingOverlay = () => shortsStore.hideShortsBufferingOverlay();
 
 /**
@@ -695,14 +614,11 @@ const pauseShortsFeedVideos = (opts) => shortsStore.pauseShortsFeedVideos(opts);
 const restoreShortsFeedForegroundMuteFromState = () =>
   shortsStore.restoreShortsFeedForegroundMuteFromState();
 const resetShortsFeedProgressUiForSwitch = () => shortsStore.resetShortsFeedProgressUiForSwitch();
-const isLongShortsFeedVideo = (item) => shortsStore.isLongShortsFeedVideo(item);
 const flushShortsLongPlaybackResume = (reason) => shortsStore.flushShortsLongPlaybackResume(reason);
 
 
 /** 关注页数据源与侧栏筛选：实现已移入 shortsStore */
 const loadSubscribedFollowVideos = (opts) => shortsStore.loadSubscribedFollowVideos(opts);
-const loadSubscribedAuthorVideos = (authorId, opts) =>
-  shortsStore.loadSubscribedAuthorVideos(authorId, opts);
 const maybePrefetchFollowFeed = () => shortsStore.maybePrefetchFollowFeed();
 /** 地址栏 ?v= 与 sessionStorage 恢复详情页（刷新不丢） */
 const VIDEO_URL_PARAM = "v";
@@ -716,15 +632,11 @@ const shortFgVideoRef = ref(null);
 const shortBgVideoRef = ref(null);
 const {
   historyLongRows,
-  historyLongLoading,
   historyLongPageNo,
   historyLongPages,
-  historyLongExpanded,
   historyShortRows,
-  historyShortLoading,
   historyShortPageNo,
   historyShortPages,
-  historyShortExpanded,
 } = storeToRefs(useHistoryStore());
 /** 按作者 ID 覆盖关注状态（乐观更新后优先于接口返回的 isFollow），状态在 pinia followStore */
 const { overrideByAuthorId: followStateOverrideByAuthorId } = storeToRefs(useFollowStore());
@@ -759,33 +671,11 @@ const {
   likedPageNo,
   likedPages,
   likedTotal,
-  likedLoading,
-  likedLoadingMore,
 } = storeToRefs(useLikedStore());
 /** 创作中心表格行「更多」菜单 */
 const toasts = ref([]);
 let toastSeed = 0;
 
-/** 首页 Shorts 卡片：播放量 / 点赞展示 */
-
-const likedDisplay = computed(() => {
-  return likedRows.value.map((item) => ({
-    id: item.id,
-    title: item.title || "未命名视频",
-    image: item.coverUrl || item.avatarUrl || profileBanner,
-    likes: formatWorkLikeText(item),
-    playCount: item.playCount,
-    videoUrl: resolveVideoUrl(item),
-    authorNickname: item.authorNickname || item.author || "",
-    description: item.description || "",
-    tags: item.tags || "",
-    authorAvatarUrl: sanitizeImageUrl(item.authorAvatarUrl || item.authorAvatar || "") || profileAvatar,
-    videoType: item.videoType,
-    ...item,
-  }));
-});
-
-const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0));
 
 const uploadTagList = computed(() =>
   String(uploadForm.value.tags || "")
@@ -3319,8 +3209,6 @@ let searchPromptDebounceTimer = null;
 let searchVideoObserver = null;
 let searchScrollLoadTimer = null;
 
-/** 搜索列表进度条：节流 timeupdate，避免每帧整表重绘卡死 */
-const searchFeedProgressThrottleTs = new Map();
 
 /** 搜索结果里的用户行：关注态读同一张乐观覆盖表 */
 function searchUserRowIsSelf(u) {
@@ -3420,33 +3308,6 @@ function loadHistoryLongPage({ reset = false } = {}) {
 }
 function loadHistoryShortsPage({ reset = false } = {}) {
   return historyStore2.loadShortPage({ reset });
-}
-function toggleHistoryLongExpanded() {
-  return historyStore2.toggleLongExpanded();
-}
-function toggleHistoryShortExpanded() {
-  return historyStore2.toggleShortExpanded();
-}
-function onHistoryLongPrevPage() {
-  return historyStore2.longPrevPage();
-}
-function onHistoryLongNextPage() {
-  return historyStore2.longNextPage();
-}
-function onHistoryShortPrevPage() {
-  return historyStore2.shortPrevPage();
-}
-function onHistoryShortNextPage() {
-  return historyStore2.shortNextPage();
-}
-function onHistoryShortCardClick(card, index) {
-  historyStore2.openShortCard(index);
-}
-function onHistoryLongCardClick(card, index) {
-  historyStore2.openLongCard(index);
-}
-function openHistoryFeedFullscreen(sourceList, index, { forceVideoType = "" } = {}) {
-  useShortsStore().openProfileFeed(sourceList, index, { forceVideoType });
 }
 const likedStore2 = useLikedStore();
 function loadLikedPage({ reset = false } = {}) {

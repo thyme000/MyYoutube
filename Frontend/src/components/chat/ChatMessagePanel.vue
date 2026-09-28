@@ -96,7 +96,8 @@ async function onRetrySend(m) {
   } catch (e) {
     toast(e?.message || "重发失败", "error");
   } finally {
-    const { [key]: _drop, ...rest } = retrySendBusy.value;
+    const rest = { ...retrySendBusy.value };
+    delete rest[key];
     retrySendBusy.value = rest;
   }
 }

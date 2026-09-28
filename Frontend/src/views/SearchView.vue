@@ -13,7 +13,6 @@ import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar } from "../utils/userProfil
 import {
   resolveVideoUrl,
   cardAuthorAvatar,
-  cardAuthorLabel,
   formatHomeShortStat,
   formatShortsTime,
   parseSearchTagsArray,

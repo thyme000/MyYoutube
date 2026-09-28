@@ -16,17 +16,8 @@ export default [
       globals: { ...globals.browser },
     },
     rules: {
-      "no-unused-vars": ["warn", { args: "none" }],
-      "no-empty": "warn",
-    },
-  },
-  {
-    // 历史遗留：万行单体在拆分完成前不作为 lint 阻塞项
-    files: ["src/App.vue"],
-    rules: {
-      "no-unused-vars": "off",
-      "no-empty": "off",
-      "vue/no-use-v-if-with-v-for": "warn",
+      "no-unused-vars": ["error", { args: "none" }],
+      "no-empty": "error",
     },
   },
   {

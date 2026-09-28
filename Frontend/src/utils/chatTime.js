@@ -27,11 +27,6 @@ export function toTimeMs(v) {
   }
 }
 
-function dayKey(ms) {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-
 function isSameDay(a, b) {
   if (!a || !b) return false;
   const da = new Date(a);
