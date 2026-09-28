@@ -36,6 +36,7 @@ node_modules/
 dist/
 .vite/
 *.local
+frontend/.env
 
 # ===== 敏感配置 =====
 .env
