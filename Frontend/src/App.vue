@@ -16,6 +16,7 @@ import { useCommentStore } from "./stores/commentStore";
 import { useFeedPatchStore } from "./stores/feedPatchStore";
 import { useFollowStore } from "./stores/followStore";
 import { useBehaviorStore } from "./stores/behaviorStore";
+import { useNavigationStore, registerNavigationHooks } from "./stores/navigationStore";
 import { useShareStore } from "./stores/shareStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
 import { useHoverPreviewStore, cardPreviewKey } from "./stores/hoverPreviewStore";
@@ -38,7 +39,7 @@ import {
   insertGlyphIntoCommentDraft,
   isBlockedComment,
 } from "./utils/comment.js";
-import { getApiBaseUrl, getAuthExpiredEventName, getToken } from "./api/http";
+import { getAuthExpiredEventName, getToken } from "./api/http";
 import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
 import {
   forgotPasswordApi,
@@ -143,11 +144,11 @@ const exploreMenus = [
   { key: "chat", label: "聊天", icon: "ri-chat-3-line" },
 ];
 
-const activeMenuKey = ref("home");
-const activeMenuLabel = ref("首页");
 const route = useRoute();
 const router = useRouter();
-const pageHint = ref(`欢迎来到 THYME。请选择左侧模块查看内容。API 基础地址：${getApiBaseUrl()}`);
+/** 导航域状态在 pinia navigationStore，同名解构保持既有引用零改动 */
+const navigationStore = useNavigationStore();
+const { activeMenuKey, activeMenuLabel, pageHint } = storeToRefs(navigationStore);
 /** 搜索域状态在 pinia searchStore，同名解构保持既有引用零改动；拆 SearchView 时随之搬出 */
 const searchStore = useSearchStore();
 // 列表加载后由 store 通知 App 挂自动播放观察器（依赖本组件的 DOM 引用）
@@ -411,36 +412,8 @@ const searchVerticalLoadingMore = computed(() => {
   return searchVideoLoadingMore.value;
 });
 
-/** 解析为可点击标签（不含 # 前缀，便于搜索） */
-function onSearchTagNavigate(tag) {
-  const t = String(tag ?? "")
-    .replace(/^#/, "")
-    .trim();
-  if (!t) return;
-  if (searchExpandOpen.value) {
-    closeSearchExpand();
-  }
-  closeShortsCommentPanel();
-  uploadModalOpen.value = false;
-  showStudio.value = false;
-  if (shortPlayerOpen.value) {
-    closeShortPlayer();
-  }
-  if (profileFeedOpen.value) {
-    closeProfileFeed();
-  }
-  if (showVideoDetail.value) {
-    closeVideoDetail();
-  }
-  searchKeyword.value = t;
-  searchSubmittedKeyword.value = t;
-  searchActive.value = true;
-  searchTab.value = "tag";
-  searchResultError.value = "";
-  activeMenuLabel.value = `标签：${t}`;
-  pageHint.value = `按标签搜索：「${t}」`;
-  void loadSearchTabResults({ reset: true });
-}
+/** 标签跳搜索的跨域编排在 navigationStore；App 只保留同名薄封装供桥与 detailStore 钩子调用 */
+const onSearchTagNavigate = (tag) => navigationStore.navigateToTag(tag);
 
 function onSearchFeedForwardClick(card, ev) {
   ev?.stopPropagation?.();
@@ -3790,6 +3763,16 @@ function loadLikedPage({ reset = false } = {}) {
 }
 registerLikedHooks({ getUserId: () => currentUserId.value });
 registerHomeHooks({ reloadHome: () => loadModuleCards(primaryMenus[0]) });
+/** navigationStore 的宿主依赖：上传弹窗 / 创作中心 / 竖屏短播放器的开关仍在 App */
+registerNavigationHooks({
+  closeAppOverlays: () => {
+    uploadModalOpen.value = false;
+    showStudio.value = false;
+    if (shortPlayerOpen.value) {
+      closeShortPlayer();
+    }
+  },
+});
 registerShortsFeedPlayerRefs({
   fg: shortsFeedFgRef,
   bg: shortsFeedBgRef,
