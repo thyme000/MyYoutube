@@ -3,6 +3,12 @@ import vue from "@vitejs/plugin-vue";
 
 export default defineConfig({
   plugins: [vue()],
+  test: {
+    // 刻意不用 jsdom：本机 jsdom 环境初始化要 50 秒以上（纯 util 用例从 3.9s 涨到 57s）。
+    // store 单测真正需要的浏览器 API 只有 localStorage，由 setup 文件给桩。
+    // 注：test 是 Vitest 的扩展键，若要开 vite.config.js 的 @ts-check，defineConfig 需改从 vitest/config 引入。
+    setupFiles: ["./vitest.setup.js"],
+  },
   server: {
     proxy: {
       /** 必须排在 /search 等前缀之前，避免 dev 环境下路径匹配歧义；见 src/api/musicApi.js */
