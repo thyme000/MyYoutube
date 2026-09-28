@@ -2,7 +2,8 @@
  * 全局音乐播放状态：切换侧栏「音乐」以外的界面时队列与播放不丢失。
  * 队列最多 20 首，超出时按 FIFO 移除最早一首。
  */
-import { ref, shallowRef, computed, watch, nextTick } from "vue";
+import { shallowRef, computed, watch, nextTick } from "vue";
+import { defineStore } from "pinia";
 import { parseLyricsText } from "../utils/lyricsParser.js";
 import { musicResolveSong } from "../api/musicApi.js";
 
@@ -10,30 +11,125 @@ export const MAX_MUSIC_QUEUE = 20;
 
 export const audioRef = shallowRef(null);
 
+
+/**
+ * pinia 状态容器：音乐播放器的可序列化状态。
+ * 导出的同名 ref 是可写 computed 门面（内部 .value 读写直通 store），消费方零改动。
+ */
+const useMusicPlayerState = defineStore("musicPlayer", {
+  state: () => ({
+    playQueue: [],
+    currentQueueKey: "",
+    remoteAudioUrl: "",
+    remoteCoverUrl: "",
+    titleText: "音乐",
+    artistText: "在「云端音乐」中搜索并播放，歌曲将加入队列",
+    lyricsLines: [],
+    currentSec: 0,
+    durationSec: 0,
+    playing: false,
+    lyricsClockMs: 0,
+    activeLineIndex: -1,
+    karaokeLineIndex: -1,
+    activeWordIndex: -1,
+    volumePct: 100,
+    volumeBeforeMute: 100,
+    gradientSeed: 0.42,
+    musicLyricsFullscreen: false,
+  }),
+});
+
+let _state = null;
+let _watched = false;
+function st() {
+  if (!_state) {
+    _state = useMusicPlayerState();
+    if (!_watched) {
+      _watched = true;
+      installStoreWatches();
+    }
+  }
+  return _state;
+}
+
 export function setAudioElement(el) {
   audioRef.value = el || null;
 }
 
-export const playQueue = ref([]);
-export const currentQueueKey = ref("");
-export const remoteAudioUrl = ref("");
-export const remoteCoverUrl = ref("");
-export const titleText = ref("音乐");
-export const artistText = ref("在「云端音乐」中搜索并播放，歌曲将加入队列");
-export const lyricsLines = ref([]);
-export const currentSec = ref(0);
-export const durationSec = ref(0);
-export const playing = ref(false);
-export const lyricsClockMs = ref(0);
-export const activeLineIndex = ref(-1);
-export const karaokeLineIndex = ref(-1);
-export const activeWordIndex = ref(-1);
-export const volumePct = ref(100);
-export const volumeBeforeMute = ref(100);
-export const gradientSeed = ref(0.42);
+export const playQueue = computed({
+  get: () => st().playQueue,
+  set: (v) => { st().playQueue = v; },
+});
+export const currentQueueKey = computed({
+  get: () => st().currentQueueKey,
+  set: (v) => { st().currentQueueKey = v; },
+});
+export const remoteAudioUrl = computed({
+  get: () => st().remoteAudioUrl,
+  set: (v) => { st().remoteAudioUrl = v; },
+});
+export const remoteCoverUrl = computed({
+  get: () => st().remoteCoverUrl,
+  set: (v) => { st().remoteCoverUrl = v; },
+});
+export const titleText = computed({
+  get: () => st().titleText,
+  set: (v) => { st().titleText = v; },
+});
+export const artistText = computed({
+  get: () => st().artistText,
+  set: (v) => { st().artistText = v; },
+});
+export const lyricsLines = computed({
+  get: () => st().lyricsLines,
+  set: (v) => { st().lyricsLines = v; },
+});
+export const currentSec = computed({
+  get: () => st().currentSec,
+  set: (v) => { st().currentSec = v; },
+});
+export const durationSec = computed({
+  get: () => st().durationSec,
+  set: (v) => { st().durationSec = v; },
+});
+export const playing = computed({
+  get: () => st().playing,
+  set: (v) => { st().playing = v; },
+});
+export const lyricsClockMs = computed({
+  get: () => st().lyricsClockMs,
+  set: (v) => { st().lyricsClockMs = v; },
+});
+export const activeLineIndex = computed({
+  get: () => st().activeLineIndex,
+  set: (v) => { st().activeLineIndex = v; },
+});
+export const karaokeLineIndex = computed({
+  get: () => st().karaokeLineIndex,
+  set: (v) => { st().karaokeLineIndex = v; },
+});
+export const activeWordIndex = computed({
+  get: () => st().activeWordIndex,
+  set: (v) => { st().activeWordIndex = v; },
+});
+export const volumePct = computed({
+  get: () => st().volumePct,
+  set: (v) => { st().volumePct = v; },
+});
+export const volumeBeforeMute = computed({
+  get: () => st().volumeBeforeMute,
+  set: (v) => { st().volumeBeforeMute = v; },
+});
+export const gradientSeed = computed({
+  get: () => st().gradientSeed,
+  set: (v) => { st().gradientSeed = v; },
+});
 
 /** 音乐歌词页全屏（Teleport 到 body）时为 true；供 App 隐藏会话悬浮条等，避免 z-index 叠在全屏层之上 */
-export const musicLyricsFullscreen = ref(false);
+export const musicLyricsFullscreen = computed({
+  get: () => st().musicLyricsFullscreen,
+  set: (v) => { st().musicLyricsFullscreen = v; },
+});
 
 export const playSrc = computed(() => remoteAudioUrl.value || undefined);
 export const currentQueueIndex = computed(() =>
@@ -92,6 +188,7 @@ function pumpLyricsClock() {
   }
 }
 
+function installStoreWatches() {
 watch(playing, (p) => {
   if (lyricsRafId) {
     cancelAnimationFrame(lyricsRafId);
@@ -113,6 +210,7 @@ watch(playSrc, () => {
     if (a) a.volume = Math.min(1, Math.max(0, volumePct.value / 100));
   });
 });
+}
 
 export function makeQueueKey() {
   return `q-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
