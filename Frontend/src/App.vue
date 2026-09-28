@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
@@ -99,16 +99,16 @@ import {
 import { parseDigitSnowflakeId, safeSnowflakeId } from "./utils/snowflakeId.js";
 /** 短视频无接口数据时的本地 fallback（static 目录下四个 mp4） */
 import appIco from "../static/狗.png?url";
-import MusicView from "./views/MusicView.vue";
-import SearchView from "./views/SearchView.vue";
-import HistoryView from "./views/HistoryView.vue";
-import ShortsView from "./views/ShortsView.vue";
-import HomeView from "./views/HomeView.vue";
-import VideoDetailView from "./views/VideoDetailView.vue";
-import LikedView from "./views/LikedView.vue";
+const MusicView = defineAsyncComponent(() => import("./views/MusicView.vue"));
+const SearchView = defineAsyncComponent(() => import("./views/SearchView.vue"));
+const HistoryView = defineAsyncComponent(() => import("./views/HistoryView.vue"));
+const ShortsView = defineAsyncComponent(() => import("./views/ShortsView.vue"));
+const HomeView = defineAsyncComponent(() => import("./views/HomeView.vue"));
+const VideoDetailView = defineAsyncComponent(() => import("./views/VideoDetailView.vue"));
+const LikedView = defineAsyncComponent(() => import("./views/LikedView.vue"));
 import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
 import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
-import ChatView from "./views/ChatView.vue";
+const ChatView = defineAsyncComponent(() => import("./views/ChatView.vue"));
 import ChatFloatingRail from "./components/chat/ChatFloatingRail.vue";
 import ChatEmojiPicker from "./components/chat/ChatEmojiPicker.vue";
 import ChatForwardVideoModal from "./components/chat/ChatForwardVideoModal.vue";

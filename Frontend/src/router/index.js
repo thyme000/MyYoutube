@@ -1,6 +1,4 @@
 import { createRouter, createWebHistory } from "vue-router";
-import ChatView from "../views/ChatView.vue";
-import MusicView from "../views/MusicView.vue";
 
 /**
  * 阶段一：路由仅承载 URL <-> 菜单 key 的映射，页面仍由 App.vue 状态机托管。
@@ -23,8 +21,8 @@ const routes = [
     meta: { menuKey: r.key },
     // 已拆出 views/ 的菜单挂真实组件，其余仍由 App.vue 状态机托管；
     // 页面改为 <RouterView> 渲染后再切懒加载
-    component: r.key === "chat" ? ChatView
-      : r.key === "music" ? MusicView
+    component: r.key === "chat" ? () => import("../views/ChatView.vue")
+      : r.key === "music" ? () => import("../views/MusicView.vue")
       : { render: () => null },
   })),
 ];
