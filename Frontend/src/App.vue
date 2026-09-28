@@ -16,7 +16,7 @@ import { useFollowStore } from "./stores/followStore";
 import { useBehaviorStore } from "./stores/behaviorStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
 import { useHoverPreviewStore, cardPreviewKey } from "./stores/hoverPreviewStore";
-import { registerShortsFeedPlayerRefs } from "./stores/shortsStore";
+import { registerShortsFeedPlayerRefs, registerShortsHooks } from "./stores/shortsStore";
 import { registerLikedHooks } from "./stores/likedStore";
 import {
   resolveVideoUrl,
@@ -32,7 +32,6 @@ import {
   readVideoDurationFromVideoEl,
 } from "./utils/videoCard.js";
 import {
-  commentDisplayNickname as formatCommentNickname,
   formatCommentTime as formatDetailCommentTime,
   insertGlyphIntoCommentDraft,
   isBlockedComment,
@@ -75,7 +74,6 @@ import {
   fetchSearchUser,
   fetchSearchVideo,
 } from "./api/searchApi";
-import { fetchCommentPage, publishComment as publishCommentApi, deleteComment as deleteCommentApi } from "./api/commentApi";
 import { STORAGE_BIZ_WORK } from "./api/otherApi";
 import { uploadFileWithPresign } from "./utils/presignUpload.js";
 import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
@@ -412,7 +410,6 @@ watch(searchVideoSort, () => {
   }
 });
 
-
 const searchVerticalLoading = computed(() => {
   if (searchTab.value === "tag") return searchTagLoading.value;
   return searchVideoLoading.value;
@@ -454,34 +451,10 @@ function onSearchTagNavigate(tag) {
   void loadSearchTabResults({ reset: true });
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 function onSearchFeedForwardClick(card, ev) {
   ev?.stopPropagation?.();
   openForwardVideoModal(card);
 }
-
-
-
-
-
-
-
 
 function onSearchFeedMainVideoClick(card, index) {
   openSearchExpand(card, index);
@@ -523,8 +496,6 @@ async function onSearchFeedLikeClick(card, ev) {
     searchFeedLikeBusyId.value = null;
   }
 }
-
-
 
 const sidebarCollapsed = ref(false);
 const exploreExpanded = ref(true);
@@ -728,6 +699,7 @@ const restoreVideoDetailFromUrl = (vidRaw) => detailStore.restoreFromUrl(vidRaw)
 const clearVideoDetailFromAddressBar = () => detailStore.clearFromAddressBar();
 const hideDetailBufferingOverlay = () => detailStore.hideBufferingOverlay();
 /** 短视频播放器域状态在 pinia shortsStore（含历史/赞过/主页/关注共用的全屏队列），同名解构零引用改动 */
+const shortsStore = useShortsStore();
 const {
   feedScope,
   profileFeedQueue,
@@ -742,6 +714,11 @@ const {
   followVideoHasMore,
   followVideoLoadingMore,
   profileFeedOpen,
+  /** 队列推导出的当前条与「当前评论目标」，播放器与评论侧栏共用 */
+  unifiedFeedList,
+  shortsFeedCurrent,
+  activeCommentVideo,
+  activeCommentVideoAllowsComment,
   shortsFeedIndex,
   shortsFeedIsPortrait,
   shortsFeedDuration,
@@ -754,8 +731,6 @@ const {
   shortsCommentPanelOpen,
   shortsPanelTopComments,
   shortsPanelCommentsLoading,
-  shortsPanelCommentsPageNo,
-  shortsPanelCommentsPages,
   shortsPanelCommentDraft,
   shortsPanelCommentSubmitting,
   shortsPanelReplyTarget,
@@ -765,7 +740,7 @@ const {
   shortsPlaybackAccSec,
   shortsLastTimeSec,
   shortsAccVideoId,
-} = storeToRefs(useShortsStore());
+} = storeToRefs(shortsStore);
 const SHORTS_BUFFERING_UI_DELAY_MS = 320;
 let shortsBufferingUITimer = null;
 
@@ -805,7 +780,6 @@ const shortsFeedBgRef = ref(null);
 const shortsFeedCenterRef = ref(null);
 let shortsFeedPlayToken = 0;
 const shortsPanelCommentInputRef = ref(null);
-const SHORTS_COMMENT_PAGE_SIZE = 10;
 const {
   historyLongRows,
   historyLongLoading,
@@ -871,8 +845,6 @@ let toastSeed = 0;
 
 /** 首页 Shorts 卡片：播放量 / 点赞展示 */
 
-
-
 const likedDisplay = computed(() => {
   return likedRows.value.map((item) => ({
     id: item.id,
@@ -916,9 +888,6 @@ watch(slideshowBgmTargetSec, (sec, oldSec) => {
     pushToast("图片张数已变更，请重新选择背景音乐", "info");
   }
 });
-
-
-
 
 function stripUserIdLikeName(name) {
   const n = String(name || "").trim();
@@ -1623,198 +1592,6 @@ function onShortsPanelCommentEmojiPick(glyph) {
   insertGlyphIntoCommentDraft(shortsPanelCommentDraft, shortsPanelCommentInputRef, glyph);
 }
 
-
-function resetShortsPanelCommentsState() {
-  shortsPanelTopComments.value = [];
-  shortsPanelCommentsLoading.value = false;
-  shortsPanelCommentsPageNo.value = 1;
-  shortsPanelCommentsPages.value = 0;
-  shortsPanelCommentDraft.value = "";
-  shortsPanelCommentSubmitting.value = false;
-  shortsPanelReplyTarget.value = null;
-  shortsPanelThreadByRootId.value = {};
-  shortsPanelExpandedRoots.value = {};
-}
-
-function toggleShortsCommentPanel() {
-  if (!shortsFeedCurrent.value?.id) {
-    return;
-  }
-  searchExpandCommentOpen.value = false;
-  searchListCommentOpen.value = false;
-  searchListCommentCard.value = null;
-  shortsCommentPanelOpen.value = !shortsCommentPanelOpen.value;
-}
-
-
-function closeShortsCommentPanel() {
-  shortsCommentPanelOpen.value = false;
-  searchExpandCommentOpen.value = false;
-  searchListCommentOpen.value = false;
-  searchListCommentCard.value = null;
-}
-
-async function loadShortsPanelTopComments(reset, opts = {}) {
-  const preserveThreadUi = opts.preserveThreadUi === true;
-  const savedExpanded =
-    preserveThreadUi && reset ? { ...shortsPanelExpandedRoots.value } : null;
-
-  const vid = parseVideoIdForApi(activeCommentVideo.value?.id);
-  if (!vid) {
-    return;
-  }
-  if (reset) {
-    shortsPanelCommentsPageNo.value = 1;
-    shortsPanelTopComments.value = [];
-    if (!preserveThreadUi) {
-      shortsPanelThreadByRootId.value = {};
-      shortsPanelExpandedRoots.value = {};
-    }
-  }
-  shortsPanelCommentsLoading.value = true;
-  try {
-    const { pages, list } = await fetchCommentPage({
-      videoId: vid,
-      parentId: 0,
-      pageNo: shortsPanelCommentsPageNo.value,
-      pageSize: SHORTS_COMMENT_PAGE_SIZE,
-    });
-    shortsPanelCommentsPages.value = pages || 0;
-    if (reset) {
-      shortsPanelTopComments.value = list;
-    } else {
-      shortsPanelTopComments.value = [...shortsPanelTopComments.value, ...list];
-    }
-
-    if (savedExpanded) {
-      const topIds = new Set(shortsPanelTopComments.value.map((x) => String(x.id)));
-      const nextExpanded = {};
-      for (const k of Object.keys(savedExpanded)) {
-        if (savedExpanded[k] && topIds.has(k)) {
-          nextExpanded[k] = true;
-        }
-      }
-      shortsPanelExpandedRoots.value = nextExpanded;
-      const nextThreads = { ...shortsPanelThreadByRootId.value };
-      for (const k of Object.keys(nextExpanded)) {
-        delete nextThreads[k];
-      }
-      shortsPanelThreadByRootId.value = nextThreads;
-      for (const k of Object.keys(nextExpanded)) {
-        void ensureShortsPanelThreadLoaded(k);
-      }
-    }
-  } catch (e) {
-    pushToast(e?.message || "评论加载失败", "error");
-  } finally {
-    shortsPanelCommentsLoading.value = false;
-  }
-}
-
-function shortsPanelCommentHasMore() {
-  return shortsPanelCommentsPageNo.value < shortsPanelCommentsPages.value;
-}
-
-async function loadMoreShortsPanelComments() {
-  if (shortsPanelCommentsLoading.value || !shortsPanelCommentHasMore()) {
-    return;
-  }
-  shortsPanelCommentsPageNo.value += 1;
-  await loadShortsPanelTopComments(false);
-}
-
-async function ensureShortsPanelThreadLoaded(rootId) {
-  const vid = parseVideoIdForApi(activeCommentVideo.value?.id);
-  const k = String(rootId);
-  if (!vid || shortsPanelThreadByRootId.value[k]?.loaded) {
-    return;
-  }
-  shortsPanelThreadByRootId.value = {
-    ...shortsPanelThreadByRootId.value,
-    [k]: { ...(shortsPanelThreadByRootId.value[k] || {}), loading: true, list: [] },
-  };
-  try {
-    const { list } = await fetchCommentPage({
-      videoId: vid,
-      parentId: rootId,
-      rootId,
-      pageNo: 1,
-      pageSize: 100,
-    });
-    shortsPanelThreadByRootId.value = {
-      ...shortsPanelThreadByRootId.value,
-      [k]: { loaded: true, loading: false, list },
-    };
-  } catch (e) {
-    shortsPanelThreadByRootId.value = {
-      ...shortsPanelThreadByRootId.value,
-      [k]: { loaded: false, loading: false, list: [] },
-    };
-    pushToast(e?.message || "回复加载失败", "error");
-  }
-}
-
-function toggleShortsPanelThread(rootId) {
-  const k = String(rootId);
-  if (shortsPanelExpandedRoots.value[k]) {
-    const next = { ...shortsPanelExpandedRoots.value };
-    delete next[k];
-    shortsPanelExpandedRoots.value = next;
-  } else {
-    shortsPanelExpandedRoots.value = { ...shortsPanelExpandedRoots.value, [k]: true };
-    void ensureShortsPanelThreadLoaded(rootId);
-  }
-}
-
-function setShortsPanelReplyTarget(row) {
-  if (!row) {
-    shortsPanelReplyTarget.value = null;
-    return;
-  }
-  shortsPanelReplyTarget.value = {
-    id: row.id,
-    nickname: row.nickname || "用户",
-  };
-}
-
-async function submitShortsPanelComment() {
-  const text = shortsPanelCommentDraft.value.trim();
-  if (!text) {
-    return;
-  }
-  const cur = activeCommentVideo.value;
-  const vid = parseVideoIdForApi(cur?.id);
-  if (!vid) {
-    return;
-  }
-  if (!isAuthed.value) {
-    pushToast("请先登录后再评论", "info");
-    return;
-  }
-  if (!activeCommentVideoAllowsComment.value) {
-    pushToast("作者已关闭评论", "info");
-    return;
-  }
-  const wasTopLevel = shortsPanelReplyTarget.value == null;
-  const parentId = wasTopLevel ? 0 : shortsPanelReplyTarget.value.id;
-  shortsPanelCommentSubmitting.value = true;
-  try {
-    await publishCommentApi({ videoId: vid, content: text, parentId });
-    shortsPanelCommentDraft.value = "";
-    shortsPanelReplyTarget.value = null;
-    if (cur?.id && wasTopLevel) {
-      patchFeedVideoById(cur.id, {
-        commentCount: Number(cur.commentCount ?? 0) + 1,
-      });
-    }
-    await loadShortsPanelTopComments(true, { preserveThreadUi: true });
-  } catch (e) {
-    pushToast(e?.message || "发送失败", "error");
-  } finally {
-    shortsPanelCommentSubmitting.value = false;
-  }
-}
-
 function onShortsPanelCommentUserClick(ev, userId) {
   if (userId == null || userId === "") {
     return;
@@ -1822,49 +1599,20 @@ function onShortsPanelCommentUserClick(ev, userId) {
   onAuthorAvatarClick(ev, userId);
 }
 
-async function onDeleteShortsPanelComment(c) {
-  if (!c?.id || !isAuthed.value) {
-    return;
-  }
-  if (String(c.userId) !== String(currentUserId.value)) {
-    return;
-  }
-  const cur = activeCommentVideo.value;
-  try {
-    await deleteCommentApi(c.id);
-    pushToast("已删除", "success");
-    await loadShortsPanelTopComments(true, { preserveThreadUi: true });
-    const pid = c.parentId;
-    if (cur?.id && (pid === 0 || pid === "0")) {
-      const n = Math.max(0, Number(cur.commentCount ?? 0) - 1);
-      patchFeedVideoById(cur.id, { commentCount: n });
-    }
-  } catch (e) {
-    pushToast(e?.message || "删除失败", "error");
-  }
-}
-
-// 短视频评论面板的共用件：昵称/点赞仍复用评论域公共层，详情页已改为直连 detailStore
-const commentDisplayNickname = (userId, nickname) =>
-  formatCommentNickname(userId, nickname, currentUserId.value);
-const isCommentLikeBusy = (id) => commentStore.isLikeBusy(id);
-
-async function submitCommentLike(row) {
-  const patch = await commentStore.toggleLike(row);
-  if (!patch) return;
-  const sid = String(row.id);
-  const merge = (r) => (String(r.id) === sid ? { ...r, ...patch } : r);
-  shortsPanelTopComments.value = shortsPanelTopComments.value.map(merge);
-  const threads = { ...shortsPanelThreadByRootId.value };
-  for (const k of Object.keys(threads)) {
-    const t = threads[k];
-    if (t?.list?.length) {
-      threads[k] = { ...t, list: t.list.map(merge) };
-    }
-  }
-  shortsPanelThreadByRootId.value = threads;
-}
-
+/** 短视频评论面板：状态与请求已移入 shortsStore，这里保留同名薄封装供桥调用 */
+const resetShortsPanelCommentsState = () => shortsStore.resetShortsPanelCommentsState();
+const toggleShortsCommentPanel = () => shortsStore.toggleShortsCommentPanel();
+const closeShortsCommentPanel = () => shortsStore.closeShortsCommentPanel();
+const loadShortsPanelTopComments = (reset, opts) => shortsStore.loadShortsPanelTopComments(reset, opts);
+const shortsPanelCommentHasMore = () => shortsStore.shortsPanelCommentHasMore();
+const loadMoreShortsPanelComments = () => shortsStore.loadMoreShortsPanelComments();
+const toggleShortsPanelThread = (rootId) => shortsStore.toggleShortsPanelThread(rootId);
+const setShortsPanelReplyTarget = (row) => shortsStore.setShortsPanelReplyTarget(row);
+const submitShortsPanelComment = () => shortsStore.submitShortsPanelComment();
+const onDeleteShortsPanelComment = (c) => shortsStore.onDeleteShortsPanelComment(c);
+const commentDisplayNickname = (userId, nickname) => shortsStore.commentDisplayNickname(userId, nickname);
+const isCommentLikeBusy = (id) => shortsStore.isCommentLikeBusy(id);
+const submitCommentLike = (row) => shortsStore.submitCommentLike(row);
 function onShortsFeedFgEnded() {
   const cur = shortsFeedCurrent.value;
   const now = Number(shortsFeedCurrentTime.value || 0);
@@ -2040,17 +1788,6 @@ function onHomeShortCardClick(card, index) {
   openHomeShortVideoInFeed(card, index);
 }
 
-
-
-
-
-
-
-
-
-
-
-
 async function loadHomeLongMore() {
   if (homeLongLoadLock.value || homeLongLoadingMore.value) return;
   if (!homeLongHasMore.value) return;
@@ -2137,7 +1874,6 @@ function onContentScroll(e) {
     void loadHomeLongMore();
   }
 }
-
 
 async function loadModuleCards(menu, { fallback = true } = {}) {
   loading.value = true;
@@ -2488,13 +2224,6 @@ function closeStudio() {
   void reloadFeedAfterLeavingDetail();
 }
 
-
-
-
-
-
-
-
 function openUploadModal() {
   uploadMsg.value = "";
   uploadProgress.value = 0;
@@ -2704,7 +2433,6 @@ function applyAppFavicon() {
   link.setAttribute("type", "image/png");
   link.setAttribute("href", appIco);
 }
-
 
 /** 与轮询配合：未读数基准，避免 WS 已推过仍重复提示 */
 let notifyUnreadPollBaseline = -1;
@@ -2929,7 +2657,6 @@ function onSearchUserRowActivate(u, ev) {
   onAuthorAvatarClick(ev, id);
 }
 
-
 /** 仅从列表项取播放地址，不再请求 /videos/detail */
 
 /** 在作品列表 / 关注流 / 赞列表间按 id 查找已有行，避免重复请求详情 */
@@ -3011,7 +2738,6 @@ function patchIsFollowForAuthor(authorId, isFollow) {
     searchExpandCard.value = { ...searchExpandCard.value, isFollow };
   }
 }
-
 
 function readVideoDuration(file) {
   return new Promise((resolve) => {
@@ -3160,53 +2886,7 @@ async function submitUploadVideo() {
   }
 }
 
-const unifiedFeedList = computed(() => {
-  if (feedScope.value === "profile") {
-    return profileFeedQueue.value;
-  }
-  if (feedScope.value === "liked") {
-    return likedFeedQueue.value;
-  }
-  if (feedScope.value === "follow") {
-    const aid = followSubscribedFilterAuthorId.value;
-    if (aid != null && aid !== "") {
-      return followAuthorFeedQueue.value;
-    }
-    return followFeedQueue.value;
-  }
-  if (feedScope.value === "home") {
-    return homeShortsRows.value;
-  }
-  return cards.value;
-});
-
-const shortsFeedCurrent = computed(() => {
-  const list = unifiedFeedList.value;
-  if (!list.length) {
-    return null;
-  }
-  const i = Math.min(Math.max(0, shortsFeedIndex.value), list.length - 1);
-  return list[i];
-});
-
 /** 评论侧栏：短视频流、搜索全屏放大或搜索列表共用同一套列表与接口 */
-const activeCommentVideo = computed(() => {
-  if (searchExpandCommentOpen.value && searchExpandCard.value) {
-    return searchExpandCard.value;
-  }
-  if (searchListCommentOpen.value && searchListCommentCard.value) {
-    return searchListCommentCard.value;
-  }
-  return shortsFeedCurrent.value;
-});
-
-const activeCommentVideoAllowsComment = computed(() => Number(activeCommentVideo.value?.allowComment ?? 1) === 1);
-
-
-
-
-
-
 
 const shortsFeedVideoSrc = computed(() => resolveVideoUrl(shortsFeedCurrent.value));
 
@@ -3539,11 +3219,6 @@ async function confirmDeleteCurrentSelfVideo() {
   pushToast("已删除该视频", "success");
 }
 
-
-
-
-
-
 function onStudioRowRequestDelete(row) {
   if (!row?.id) return;
   pendingDeleteVideoId.value = String(row.id);
@@ -3740,7 +3415,6 @@ function shortsFeedNext() {
   }
   shortsFeedIndex.value = (shortsFeedIndex.value + 1) % n;
 }
-
 
 function onShortsFeedFgLoadStart() {
   scheduleShortsBufferingOverlay();
@@ -3953,7 +3627,6 @@ function onShortsFeedKeydown(ev) {
   }
 }
 
-
 function closeTopMostOverlayByEsc() {
   if (uploadModalOpen.value) {
     uploadModalOpen.value = false;
@@ -4114,23 +3787,6 @@ function applyShortsLongPlaybackResumeIfNeeded(player) {
   shortsLongResumeAppliedVideoId = vid;
 }
 
-async function sendShortsLongPlaybackResume(payload, { keepalive = false } = {}) {
-  if (!payload) return;
-  try {
-    const headers = { "Content-Type": "application/json" };
-    const authTok = getToken();
-    if (authTok) headers.Authorization = authTok;
-    await fetch("/videos/playback/resume", {
-      method: "PUT",
-      headers,
-      body: JSON.stringify(payload),
-      keepalive,
-    });
-  } catch {
-    /* ignore */
-  }
-}
-
 function flushShortsLongPlaybackResume(reason) {
   const cur = shortsFeedCurrent.value;
   const player = shortsFeedFgRef.value;
@@ -4150,11 +3806,10 @@ function flushShortsLongPlaybackResume(reason) {
   shortsLongResumeInFlight = true;
   shortsLongResumeLastSentAtMs = now;
   const keepalive = reason === "unload" || reason === "leave";
-  return sendShortsLongPlaybackResume(payload, { keepalive }).finally(() => {
+  return sendPlaybackResumePut(payload, { keepalive }).finally(() => {
     shortsLongResumeInFlight = false;
   });
 }
-
 
 async function onShortsLikeClick() {
   const cur = shortsFeedCurrent.value;
@@ -5011,7 +4666,6 @@ const forwardVideoCard = ref(null);
 const commentReportOpen = ref(false);
 const commentReportTarget = ref(null);
 
-
 function openForwardVideoModal(card) {
   if (!isAuthed.value) {
     pushToast("请先登录后使用转发", "info");
@@ -5045,7 +4699,6 @@ function openCommentReportModal(comment) {
   commentReportTarget.value = comment;
   commentReportOpen.value = true;
 }
-
 
 /** 搜索结果里的用户行：关注态读同一张乐观覆盖表 */
 function searchUserRowIsSelf(u) {
@@ -5129,7 +4782,6 @@ watch(searchActive, (v) => {
     searchScrollLoadTimer = null;
   }
 });
-
 
 /** ShortsView 残余桥: 状态/函数/DOM ref 全量注入(ref 直传保持响应式) */
 provide("shortsBridge", {
@@ -5367,6 +5019,10 @@ registerSearchExpandHooks({
   patchFeedVideoById: (id, patch) => patchFeedVideoById(id, patch),
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
   openForwardVideo: (card) => openForwardVideoModal(card),
+});
+/** shortsStore 的宿主依赖：评论数变更要跨多份列表打补丁 */
+registerShortsHooks({
+  patchFeedVideoById: (id, patch) => patchFeedVideoById(id, patch),
 });
 
 /** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，跨列表关注/短视频历史/举报转发弹窗都在 App */
@@ -6183,7 +5839,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-
 
         <template v-if="!showProfileCenter && activeMenuKey !== 'shorts' && activeMenuKey !== 'subscribed'">
           <HistoryView v-if="activeMenuKey === 'history'" />
