@@ -3232,16 +3232,16 @@ function closeStudioRowMenu() {
   studioStore.closeRowMenu();
 }
 
-const historyStore2 = useHistoryStore();
+const historyStore = useHistoryStore();
 function loadHistoryLongPage({ reset = false } = {}) {
-  return historyStore2.loadLongPage({ reset });
+  return historyStore.loadLongPage({ reset });
 }
 function loadHistoryShortsPage({ reset = false } = {}) {
-  return historyStore2.loadShortPage({ reset });
+  return historyStore.loadShortPage({ reset });
 }
-const likedStore2 = useLikedStore();
+const likedStore = useLikedStore();
 function loadLikedPage({ reset = false } = {}) {
-  return likedStore2.load({ reset });
+  return likedStore.load({ reset });
 }
 registerLikedHooks({ getUserId: () => currentUserId.value });
 registerHomeHooks({
