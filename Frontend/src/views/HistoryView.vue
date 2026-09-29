@@ -1,11 +1,10 @@
 <script setup>
 /**
- * 历史播放记录页（长视频 + 短视频两个区块）。
- * 过渡期：状态取自 historyStore，交互函数经 App.vue provide 的 cardsBridge 注入。
+ * 历史播放记录页（长视频 + 短视频两个区块）。状态取自 historyStore，不再经 App 注入。
  */
-import { inject } from "vue";
 import { storeToRefs } from "pinia";
 import { useHistoryStore } from "../stores/historyStore";
+import { useProfileStore } from "../stores/profileStore";
 import { useHoverPreviewStore, cardPreviewKey } from "../stores/hoverPreviewStore";
 import {
   videoCardPlayable,
@@ -15,7 +14,6 @@ import {
   formatHomeShortStat,
 } from "../utils/videoCard.js";
 
-const bridge = inject("cardsBridge");
 const {
   historyLongRows,
   historyLongLoading,
@@ -30,9 +28,7 @@ const {
 } = storeToRefs(useHistoryStore());
 const historyStore = useHistoryStore();
 const hoverPreview = useHoverPreviewStore();
-
-/** 残余桥: 进他人主页(App 级 overlay) */
-const { onAuthorAvatarClick } = bridge;
+const profile = useProfileStore();
 </script>
 
 <template>
@@ -95,7 +91,7 @@ const { onAuthorAvatarClick } = bridge;
                       alt=""
                       role="button"
                       title="查看作者主页"
-                      @click.stop="onAuthorAvatarClick($event, card.authorId)"
+                      @click.stop="profile.openByAuthorId(card.authorId)"
                       @error="(e) => (e.target.src = profileAvatar)"
                     />
                     <div class="video-info-text">

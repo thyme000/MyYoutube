@@ -1,11 +1,12 @@
 <script setup>
 /**
- * 「赞过的视频」页。
- * 过渡期：状态取自 likedStore，交互函数经 App.vue provide 的 cardsBridge 注入。
+ * 「赞过的视频」页。状态与连播入口都取自 store，不再经 App 注入。
  */
-import { computed, inject } from "vue";
+import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import { useLikedStore } from "../stores/likedStore";
+import { useProfileStore } from "../stores/profileStore";
+import { useShortsStore } from "../stores/shortsStore";
 import { useHoverPreviewStore, cardPreviewKey } from "../stores/hoverPreviewStore";
 import { resolveVideoUrl, formatHomeShortStat, formatWorkLikeText } from "../utils/videoCard.js";
 import { useAuthStore } from "../stores/authStore";
@@ -15,8 +16,9 @@ import {
   DEFAULT_PROFILE_BG_URL as profileBanner,
 } from "../utils/userProfile";
 
-const bridge = inject("cardsBridge");
 const likedStore = useLikedStore();
+const profile = useProfileStore();
+const shorts = useShortsStore();
 const { likedRows, likedTotal, likedLoading, likedLoadingMore, likedPageNo, likedPages } = storeToRefs(likedStore);
 const { isAuthed } = storeToRefs(useAuthStore());
 const hoverPreview = useHoverPreviewStore();
@@ -39,10 +41,6 @@ const likedDisplay = computed(() => {
   }));
 });
 const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0));
-
-
-/** 残余桥: 进他人主页(App 级 overlay)与赞过连播(App 级列表查找) */
-const { onAuthorAvatarClick, onLikedWorkClick } = bridge;
 </script>
 
 <template>
@@ -72,7 +70,7 @@ const { onAuthorAvatarClick, onLikedWorkClick } = bridge;
                 :key="`liked-${item.id}`"
                 class="work-card"
                 :class="{ 'work-card--playable': resolveVideoUrl(item) }"
-                @click="onLikedWorkClick(item)"
+                @click="shorts.openLikedFeed(item)"
                 @mouseenter="hoverPreview.enter(item, 'liked-work')"
                 @mouseleave="hoverPreview.leave(item, 'liked-work')"
               >
@@ -99,7 +97,7 @@ const { onAuthorAvatarClick, onLikedWorkClick } = bridge;
                     alt=""
                     role="button"
                     title="查看作者主页"
-                    @click.stop="onAuthorAvatarClick($event, item.authorId)"
+                    @click.stop="profile.openByAuthorId(item.authorId)"
                   />
                   <div class="work-meta-main">
                     <div class="work-title-row">

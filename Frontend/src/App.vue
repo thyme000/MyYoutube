@@ -2579,43 +2579,7 @@ async function openProfileWorkFeed(item) {
   });
 }
 
-async function openLikedWorkFeed(item) {
-  const source = likedRows.value;
-  if (!source.length) {
-    pageHint.value = "暂无赞过的视频";
-    return;
-  }
-  const selectedUrl = resolveVideoUrl(item) || resolveVideoUrlForListItem(item.id, item);
-  if (!selectedUrl) {
-    pageHint.value = "该内容暂无视频地址";
-    return;
-  }
-  const playableQueue = source
-    .map((x) => {
-      const url = resolveVideoUrl(x) || resolveVideoUrlForListItem(x.id, x);
-      return { ...x, videoUrl: url };
-    })
-    .filter((x) => x.videoUrl);
-  if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
-    playableQueue.unshift({ ...item, videoUrl: selectedUrl });
-  }
-  if (!playableQueue.length && selectedUrl) {
-    playableQueue.push({ ...item, videoUrl: selectedUrl });
-  }
-  const idx = playableQueue.findIndex((x) => String(x.id) === String(item.id));
-  feedScope.value = "liked";
-  likedFeedQueue.value = playableQueue;
-  shortsFeedIndex.value = idx >= 0 ? idx : 0;
-  shortsFeedAutoplayPending.value = true;
-  profileFeedOpen.value = true;
-  nextTick(() => {
-    shortsStore.reloadFeedPlayers();
-  });
-}
-
-function onLikedWorkClick(item) {
-  void openLikedWorkFeed(item);
-}
+/** 赞过连播：实现已移入 shortsStore.openLikedFeed */
 
 /** 退出全屏流：实现已移入 shortsStore */
 const closeProfileFeed = () => shortsStore.closeProfileFeed();
@@ -3190,12 +3154,6 @@ provide("searchBridge", {
   onSearchFeedLikeClick,
 });
 
-/** HistoryView/LikedView 残余桥: 进他人主页与赞过连播依赖 App 级 overlay/列表查找 */
-provide("cardsBridge", {
-  onAuthorAvatarClick,
-  onLikedWorkClick,
-});
-
 /** 搜索页文案与分页常量已移至 stores/searchStore.js */
 
 let searchSuggestBlurTimer = null;
@@ -3333,6 +3291,10 @@ registerShortsHooks({
   isShortsMenuActive: () => activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed",
   isSubscribedMenuActive: () => activeMenuKey.value === "subscribed",
   removeVideoById: (id) => feedPatch.removeVideoById(id),
+  notify: (msg) => {
+    pageHint.value = msg;
+  },
+  resolveUrlFallback: (id, item) => resolveVideoUrlForListItem(id, item),
 });
 
 /** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，跨列表关注与标签跳转仍在 App */

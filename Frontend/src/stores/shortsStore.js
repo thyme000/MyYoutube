@@ -94,6 +94,8 @@ let longResumeAppliedVideoId = "";
  *   isShortsMenuActive: () => boolean,
  *   isSubscribedMenuActive: () => boolean,
  *   removeVideoById: (id: string) => void,
+ *   notify: (msg: string) => void,
+ *   resolveUrlFallback: (id: any, item: any) => string,
  * }}
  */
 const hooks = {
@@ -107,6 +109,10 @@ const hooks = {
   isSubscribedMenuActive: () => false,
   /** 删除视频后从各列表移除（feedPatchStore 负责广播） */
   removeVideoById: () => {},
+  /** 页面提示文案：pageHint 在 navigationStore，而它反向依赖本 store，只能经宿主回写 */
+  notify: () => {},
+  /** 跨列表兜底取播放地址：赞过/历史等列表的行可能缺 url，宿主还看得见作品列表与首页卡片 */
+  resolveUrlFallback: () => "",
 };
 
 export function registerShortsHooks(next = {}) {
@@ -423,6 +429,38 @@ export const useShortsStore = defineStore("shorts", {
       this.feedScope = "profile";
       this.profileFeedQueue = playableQueue;
       this.shortsFeedIndex = Math.min(Math.max(0, Number(index) || 0), playableQueue.length - 1);
+      this.shortsFeedAutoplayPending = true;
+      this.profileFeedOpen = true;
+      nextTick(() => {
+        this.reloadFeedPlayers();
+      });
+    },
+
+    /** 「赞过的视频」连播：队列与开关都在本 store，跨列表取址与提示文案由宿主提供 */
+    openLikedFeed(item) {
+      const source = useLikedStore().likedRows;
+      if (!source.length) {
+        hooks.notify("暂无赞过的视频");
+        return;
+      }
+      const selectedUrl = resolveVideoUrl(item) || hooks.resolveUrlFallback(item?.id, item);
+      if (!selectedUrl) {
+        hooks.notify("该内容暂无视频地址");
+        return;
+      }
+      const playableQueue = source
+        .map((x) => ({ ...x, videoUrl: resolveVideoUrl(x) || hooks.resolveUrlFallback(x.id, x) }))
+        .filter((x) => x.videoUrl);
+      if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
+        playableQueue.unshift({ ...item, videoUrl: selectedUrl });
+      }
+      if (!playableQueue.length && selectedUrl) {
+        playableQueue.push({ ...item, videoUrl: selectedUrl });
+      }
+      const idx = playableQueue.findIndex((x) => String(x.id) === String(item.id));
+      this.feedScope = "liked";
+      this.likedFeedQueue = playableQueue;
+      this.shortsFeedIndex = idx >= 0 ? idx : 0;
       this.shortsFeedAutoplayPending = true;
       this.profileFeedOpen = true;
       nextTick(() => {
