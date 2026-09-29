@@ -5,9 +5,8 @@ import { RouterView, useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
 import { useAuthStore } from "./stores/authStore";
 import { useSearchStore, registerSearchExpandHooks, registerSearchBridgeHooks, SEARCH_UI } from "./stores/searchStore";
-import { useHistoryStore } from "./stores/historyStore";
-import { useLikedStore } from "./stores/likedStore";
-import { useHomeStore, registerHomeHooks, homeSortOptions } from "./stores/homeStore";
+import { useLikedStore, registerLikedHooks } from "./stores/likedStore";
+import { useHomeStore, registerHomeHooks } from "./stores/homeStore";
 import { useShortsStore } from "./stores/shortsStore";
 import { useProfileStore, registerProfileHooks } from "./stores/profileStore";
 import { useDetailStore, registerDetailHooks } from "./stores/detailStore";
@@ -16,11 +15,11 @@ import { useFeedPatchStore } from "./stores/feedPatchStore";
 import { useFollowStore } from "./stores/followStore";
 import { useBehaviorStore } from "./stores/behaviorStore";
 import { useNavigationStore, registerNavigationHooks } from "./stores/navigationStore";
+import { registerMenuOrchestrationHooks, useMenuOrchestrationStore } from "./stores/menuOrchestrationStore";
 import { useShareStore } from "./stores/shareStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
 import { useHoverPreviewStore } from "./stores/hoverPreviewStore";
 import { registerShortsHooks } from "./stores/shortsStore";
-import { registerLikedHooks } from "./stores/likedStore";
 import {
   resolveVideoUrl,
   resolveVideoUrlFromLists,
@@ -30,14 +29,7 @@ import { reconnectNotifyWebSocketIfNeeded } from "./utils/notifyWebSocket";
 import { useNotificationStore } from "./stores/notificationStore";
 import { useToastStore } from "./stores/toastStore";
 import { loginApi } from "./api/authApi";
-import {
-  fetchVideosByModule,
-  fetchVideoListPage,
-  fetchShortsFeedPage,
-  fetchVideoDetail,
-  normalizeVideoDetail,
-} from "./api/videoApi";
-import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
+import { fetchVideoDetail, normalizeVideoDetail } from "./api/videoApi";
 import { primaryMenus, exploreMenus } from "./constants/menus";
 import {
   likeVideo as likeVideoApi,
@@ -87,6 +79,8 @@ const router = useRouter();
 /** 导航域状态在 pinia navigationStore，同名解构保持既有引用零改动 */
 const navigationStore = useNavigationStore();
 const { activeMenuKey, activeMenuLabel, pageHint } = storeToRefs(navigationStore);
+/** 菜单数据装载与切换编排下沉在 menuOrchestrationStore，这里保留同名薄封装供模板/钩子调用 */
+const menuOrch = useMenuOrchestrationStore();
 /** 搜索域状态在 pinia searchStore，同名解构保持既有引用零改动；拆 SearchView 时随之搬出 */
 const searchStore = useSearchStore();
 // 列表加载后由 store 通知 App 挂自动播放观察器（依赖本组件的 DOM 引用）
@@ -215,7 +209,7 @@ async function onSearchFeedLikeClick(card, ev) {
 }
 
 const homeStore = useHomeStore();
-const { loading, cards, homeShortsRows, homeShortsPageNo, homeShortsPages, homeLongPageNo, homeLongPages, homeCategoryKey, homeSortKey } = storeToRefs(homeStore);
+const { loading, cards, homeShortsRows, homeCategoryKey, homeSortKey } = storeToRefs(homeStore);
 const homeShortsStripRef = ref(null);
 /** 离开首页或打开个人中心前保存，回到首页时可无请求恢复，减少列表跳动 */
 /** 登录成功后全屏 LOADING 立方体动画，与首屏数据加载并行 */
@@ -251,7 +245,6 @@ const {
   studioContentTab,
   studioPageNo,
 } = storeToRefs(studioStore);
-let activeMenuSwitchSeq = 0;
 
 /** 个人主页域状态在 pinia profileStore；同名解构保持既有引用零改动 */
 const profileStore = useProfileStore();
@@ -311,10 +304,6 @@ const {
   followFeedQueue,
   followSubscribedFilterAuthorId,
   followAuthorFeedQueue,
-  followAuthorVideoPageNo,
-  followAuthorVideoHasMore,
-  followVideoPageNo,
-  followVideoHasMore,
   profileFeedOpen,
   /** 队列推导出的当前条与「当前评论目标」，播放器与评论侧栏共用 */
   unifiedFeedList,
@@ -323,7 +312,6 @@ const {
   /** 当前条的展示值：模板与桥直接消费，推导逻辑在 store */
   shortsFeedVideoSrc,
   shortsFeedIndex,
-  shortsFeedPaused,
   shortsFeedAutoplayPending,
   selfVideoActionOpen,
   selfVideoDeleteConfirmOpen,
@@ -353,18 +341,9 @@ const flushShortsLongPlaybackResume = (reason) => shortsStore.flushShortsLongPla
 
 
 /** 关注页数据源与侧栏筛选：实现已移入 shortsStore */
-const loadSubscribedFollowVideos = (opts) => shortsStore.loadSubscribedFollowVideos(opts);
 const maybePrefetchFollowFeed = () => shortsStore.maybePrefetchFollowFeed();
 /** 详情深链/刷新恢复经 route watcher 与 sessionStorage 快照（detailStore.restoreFromUrl） */
 
-const {
-  historyLongRows,
-  historyLongPageNo,
-  historyLongPages,
-  historyShortRows,
-  historyShortPageNo,
-  historyShortPages,
-} = storeToRefs(useHistoryStore());
 /** 按作者 ID 覆盖关注状态（乐观更新后优先于接口返回的 isFollow），状态在 pinia followStore */
 const { overrideByAuthorId: followStateOverrideByAuthorId } = storeToRefs(useFollowStore());
 const behaviorStore = useBehaviorStore();
@@ -392,12 +371,7 @@ const chatRailSuppress = computed(
 );
 
 /** 赞过的视频列表（GET /like/{userId}/list），状态在 pinia likedStore */
-const {
-  likedRows,
-  likedPageNo,
-  likedPages,
-  likedTotal,
-} = storeToRefs(useLikedStore());
+const { likedRows } = storeToRefs(useLikedStore());
 /** 创作中心表格行「更多」菜单 */
 function pauseAllDomVideos() {
   try {
@@ -795,269 +769,12 @@ function onContentScroll(e) {
   }
 }
 
-async function loadModuleCards(menu, { fallback = true } = {}) {
-  loading.value = true;
-  try {
-    if (menu.key === "home") {
-      const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === homeCategoryKey.value);
-      const [longRes, shortRes] = await Promise.all([
-        fetchVideoListPage({
-          pageNo: 1,
-          pageSize: 24,
-          category: chip?.code || undefined,
-          sort: homeSortKey.value,
-          videoType: "LONG_VIDEO",
-        }),
-        fetchShortsFeedPage({
-          pageNo: 1,
-          pageSize: 18,
-          category: chip?.code || undefined,
-        }),
-      ]);
-      cards.value = longRes.list.length ? longRes.list : [];
-      homeLongPageNo.value = 1;
-      homeLongPages.value = longRes.pages ?? 0;
-      homeShortsRows.value = shortRes.list.length ? shortRes.list : [];
-      homeShortsPageNo.value = 1;
-      homeShortsPages.value = shortRes.pages ?? 0;
-      const sortLabel = homeSortOptions.find((x) => x.value === homeSortKey.value)?.label || "排序";
-      pageHint.value = `首页 · 长视频(/videos/list) + 短视频(/videos/shorts/feed) · ${chip?.label ?? "全部"} · ${sortLabel}`;
-      nextTick(() => {
-        homeStore.maybeLoadMoreLongByWindow();
-      });
-      homeStore.saveSnapshot();
-      return;
-    }
-    if (menu.key === "history") {
-      historyLongPageNo.value = 1;
-      historyShortPageNo.value = 1;
-      await Promise.all([loadHistoryLongPage({ reset: true }), loadHistoryShortsPage({ reset: true })]);
-      cards.value = [];
-      pageHint.value = "历史播放记录 · 长视频与短视频（分页）";
-      return;
-    }
-    if (menu.key === "liked") {
-      homeShortsRows.value = [];
-      homeShortsPageNo.value = 1;
-      homeShortsPages.value = 0;
-      homeLongPageNo.value = 1;
-      homeLongPages.value = 0;
-      cards.value = [];
-      if (!currentUserId.value) {
-        likedRows.value = [];
-        likedPageNo.value = 1;
-        likedPages.value = 0;
-        likedTotal.value = 0;
-        pageHint.value = "请先登录后查看「赞过的视频」。";
-        return;
-      }
-      await loadLikedPage({ reset: true });
-      pageHint.value = `赞过的视频 · 共 ${likedTotal.value} 条（GET /like/{userId}/list）`;
-      return;
-    }
-    if (menu.key === "subscribed") {
-      homeShortsRows.value = [];
-      homeShortsPageNo.value = 1;
-      homeShortsPages.value = 0;
-      homeLongPageNo.value = 1;
-      homeLongPages.value = 0;
-      followSubscribedFilterAuthorId.value = null;
-      followAuthorFeedQueue.value = [];
-      followAuthorVideoPageNo.value = 1;
-      followAuthorVideoHasMore.value = false;
-      followVideoPageNo.value = 1;
-      followVideoHasMore.value = true;
-      cards.value = [];
-      if (!isAuthed.value) {
-        followFeedQueue.value = [];
-        pageHint.value = "请先登录后查看「关注」视频流。";
-        return;
-      }
-      feedScope.value = "follow";
-      shortsFeedIndex.value = 0;
-      shortsFeedAutoplayPending.value = true;
-      await profileStore.loadRelationPage("following", { reset: true });
-      await loadSubscribedFollowVideos({ reset: true });
-      pageHint.value = "关注 · 左侧为关注列表，右侧为关注作者的短视频推荐（GET /videos/follow/list）";
-      return;
-    }
-    if (menu.key === "music") {
-      loading.value = false;
-      cards.value = [];
-      homeShortsRows.value = [];
-      homeShortsPageNo.value = 1;
-      homeShortsPages.value = 0;
-      homeLongPageNo.value = 1;
-      homeLongPages.value = 0;
-      pageHint.value = "音乐 · 本地播放与全屏歌词（前端演示）";
-      return;
-    }
-    if (menu.key === "chat") {
-      loading.value = false;
-      cards.value = [];
-      homeShortsRows.value = [];
-      homeShortsPageNo.value = 1;
-      homeShortsPages.value = 0;
-      homeLongPageNo.value = 1;
-      homeLongPages.value = 0;
-      pageHint.value = "聊天 · 会话与消息（对接后端 /chat/*）";
-      return;
-    }
-    homeShortsRows.value = [];
-    homeShortsPageNo.value = 1;
-    homeShortsPages.value = 0;
-    homeLongPageNo.value = 1;
-    homeLongPages.value = 0;
-    const list =
-      menu.key === "shorts"
-        ? (await fetchShortsFeedPage({ pageNo: 1, pageSize: 24 })).list
-        : await fetchVideosByModule(menu.key);
-    if (menu.key === "shorts") {
-      cards.value = list.length ? list : [];
-    } else {
-      cards.value = list.length ? list : [];
-    }
-    pageHint.value = `你正在查看「${menu.label}」模块。当前数据来源：Spring Boot 接口。`;
-  } catch (error) {
-    if (!fallback) {
-      throw error;
-    }
-    if (menu.key === "home") {
-      cards.value = [];
-      homeLongPageNo.value = 1;
-      homeLongPages.value = 0;
-      homeShortsRows.value = [];
-      homeShortsPageNo.value = 1;
-      homeShortsPages.value = 0;
-      homeStore.saveSnapshot();
-    } else {
-      if (menu.key === "history") {
-        historyLongRows.value = [];
-        historyLongPageNo.value = 1;
-        historyLongPages.value = 0;
-        historyShortRows.value = [];
-        historyShortPageNo.value = 1;
-        historyShortPages.value = 0;
-        cards.value = [];
-      } else if (menu.key === "liked") {
-        likedRows.value = [];
-        likedPageNo.value = 1;
-        likedPages.value = 0;
-        likedTotal.value = 0;
-        cards.value = [];
-      } else if (menu.key === "subscribed") {
-        followFeedQueue.value = [];
-        followAuthorFeedQueue.value = [];
-        cards.value = [];
-      } else {
-        cards.value = [];
-      }
-      homeShortsRows.value = [];
-      homeShortsPageNo.value = 1;
-      homeShortsPages.value = 0;
-    }
-    pageHint.value = `接口暂不可用，当前显示为空数据。错误信息：${error.message}`;
-  } finally {
-    loading.value = false;
-  }
+function loadModuleCards(menu, opts) {
+  return menuOrch.loadModuleCards(menu, opts);
 }
 
-async function setActiveMenu(menu) {
-  const switchSeq = ++activeMenuSwitchSeq;
-  searchActive.value = false;
-  teardownSearchVideoObserver();
-  const prevMenuKey = activeMenuKey.value;
-  const prevShowProfile = showProfileCenter.value;
-  const switchingShortsTabs =
-    prevMenuKey !== menu.key &&
-    (prevMenuKey === "shorts" || prevMenuKey === "subscribed") &&
-    (menu.key === "shorts" || menu.key === "subscribed");
-  if (switchingShortsTabs) {
-    shortsStore.bumpPlayToken();
-    pauseShortsFeedVideos({ muteForeground: true });
-    shortsFeedPaused.value = true;
-    resetShortsFeedProgressUiForSwitch();
-    shortsStore.resetFeedPlayersToStart();
-  }
-  if (prevMenuKey === "shorts" && menu.key !== "shorts") {
-    void behaviorStore.flushShortsHistory();
-  }
-  if (profileFeedOpen.value) {
-    closeProfileFeed();
-  }
-  showStudio.value = false;
-  uploadModalOpen.value = false;
-  showVideoDetail.value = false;
-  videoDetail.value = null;
-  showProfileCenter.value = false;
-  profileStore.clearReturnContext();
-  mediaPreviewOpen.value = false;
-  activeMenuKey.value = menu.key;
-  activeMenuLabel.value = menu.label;
-  const targetPath = menuPathFor(menu.key);
-  if (route.path !== targetPath) {
-    void router.push(targetPath);
-  }
-  if (menu.key === "shorts") {
-    shortsStore.bumpPlayToken();
-    feedScope.value = "shorts";
-    shortsFeedIndex.value = 0;
-    shortsFeedAutoplayPending.value = true;
-  }
-  if (menu.key === "subscribed") {
-    shortsStore.bumpPlayToken();
-    feedScope.value = "follow";
-    followSubscribedFilterAuthorId.value = null;
-    followAuthorFeedQueue.value = [];
-    followAuthorVideoPageNo.value = 1;
-    followAuthorVideoHasMore.value = false;
-    followVideoPageNo.value = 1;
-    followVideoHasMore.value = true;
-    shortsFeedIndex.value = 0;
-    shortsFeedAutoplayPending.value = true;
-  }
-
-  if (menu.key === "home") {
-    if (prevMenuKey === "home" && prevShowProfile) {
-      if (homeStore.restoreSnapshot()) {
-        loading.value = false;
-        nextTick(() => {
-          homeStore.maybeLoadMoreLongByWindow();
-        });
-        return;
-      }
-  await loadModuleCards(menu);
-      return;
-    }
-    if (prevMenuKey === "home" && !prevShowProfile) {
-      await loadModuleCards(menu);
-      return;
-    }
-    if (homeStore.restoreSnapshot()) {
-      loading.value = false;
-      nextTick(() => {
-        homeStore.maybeLoadMoreLongByWindow();
-      });
-      return;
-    }
-    await loadModuleCards(menu);
-    return;
-  }
-
-  if (prevMenuKey === "home") {
-    homeStore.saveSnapshot();
-  }
-  await loadModuleCards(menu);
-  if (switchSeq !== activeMenuSwitchSeq) {
-    return;
-  }
-  if (menu.key === "shorts" || menu.key === "subscribed") {
-    nextTick(() => {
-      if (switchSeq !== activeMenuSwitchSeq) return;
-      if (activeMenuKey.value !== menu.key) return;
-      shortsStore.reloadFeedPlayers();
-    });
-  }
+function setActiveMenu(menu) {
+  return menuOrch.setActiveMenu(menu);
 }
 
 async function onSearch() {
@@ -1837,17 +1554,6 @@ function closeStudioRowMenu() {
   studioStore.closeRowMenu();
 }
 
-const historyStore = useHistoryStore();
-function loadHistoryLongPage({ reset = false } = {}) {
-  return historyStore.loadLongPage({ reset });
-}
-function loadHistoryShortsPage({ reset = false } = {}) {
-  return historyStore.loadShortPage({ reset });
-}
-const likedStore = useLikedStore();
-function loadLikedPage({ reset = false } = {}) {
-  return likedStore.load({ reset });
-}
 registerLikedHooks({ getUserId: () => currentUserId.value });
 registerHomeHooks({
   reloadHome: () => loadModuleCards(primaryMenus[0]),
@@ -1857,6 +1563,13 @@ registerHomeHooks({
   openVideoDetail: onVideoCardClick,
   openShortsFeed: onHomeShortCardClick,
   isProfileCenterOpen: () => showProfileCenter.value,
+});
+/** menuOrchestrationStore 的宿主依赖：搜索预览观察器与上传弹窗开关仍在 App */
+registerMenuOrchestrationHooks({
+  teardownSearchVideoObserver: () => teardownSearchVideoObserver(),
+  closeUploadModal: () => {
+    uploadModalOpen.value = false;
+  },
 });
 /** navigationStore 的宿主依赖：上传弹窗 / 创作中心 / 竖屏短播放器的开关仍在 App */
 registerNavigationHooks({
