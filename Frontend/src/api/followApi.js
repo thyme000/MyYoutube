@@ -1,9 +1,13 @@
+// @ts-check
 import { httpRequest } from "./http";
 import { safeSnowflakeId } from "../utils/snowflakeId.js";
+
+/** @typedef {import("./types").PageResult} PageResult */
 
 /**
  * POST /follow/{authorId} 关注（幂等）
  */
+/** @param {any} authorId @returns {Promise<any>} */
 export async function followAuthor(authorId) {
   const id = safeSnowflakeId(authorId);
   if (!id) {
@@ -15,6 +19,7 @@ export async function followAuthor(authorId) {
 /**
  * DELETE /follow/{authorId} 取关（幂等）
  */
+/** @param {any} authorId @returns {Promise<any>} */
 export async function unfollowAuthor(authorId) {
   const id = safeSnowflakeId(authorId);
   if (!id) {
@@ -39,6 +44,7 @@ export async function isFollowed(authorId) {
 /**
  * GET /follow/list 我的关注列表（分页）
  */
+/** @param {Record<string, any>} [query] @returns {Promise<any>} */
 export async function fetchMyFollowingPage(query = {}) {
   return httpRequest("/follow/list", { method: "GET", query });
 }
@@ -46,6 +52,7 @@ export async function fetchMyFollowingPage(query = {}) {
 /**
  * GET /follow/fans 我的粉丝列表（分页）
  */
+/** @param {Record<string, any>} [query] @returns {Promise<any>} */
 export async function fetchMyFansPage(query = {}) {
   return httpRequest("/follow/fans", { method: "GET", query });
 }
@@ -61,6 +68,7 @@ export async function fetchInterrelatedPage(query = {}) {
 /**
  * POST /follow/remove/{followerId} 移除粉丝（当前用户为被关注方）
  */
+/** @param {any} followerId @returns {Promise<any>} */
 export async function removeFan(followerId) {
   const id = safeSnowflakeId(followerId);
   if (!id) {

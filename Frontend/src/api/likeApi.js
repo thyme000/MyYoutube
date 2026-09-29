@@ -1,10 +1,14 @@
+// @ts-check
 import { httpRequest } from "./http";
 import { safeSnowflakeId } from "../utils/snowflakeId.js";
 import { normalizePageResult } from "./videoApi.js";
 
+/** @typedef {import("./types").PageResult} PageResult */
+
 /**
  * POST /like/comment/{commentId} 给评论点赞（后端若未做幂等，前端在已赞状态下不再请求）
  */
+/** @param {any} commentId @returns {Promise<any>} */
 export async function likeComment(commentId) {
   const id = safeSnowflakeId(commentId);
   if (!id) {
@@ -16,6 +20,7 @@ export async function likeComment(commentId) {
 /**
  * DELETE /like/comment/{commentId} 取消评论点赞
  */
+/** @param {any} commentId @returns {Promise<any>} */
 export async function cancelLikeComment(commentId) {
   const id = safeSnowflakeId(commentId);
   if (!id) {
@@ -27,6 +32,7 @@ export async function cancelLikeComment(commentId) {
 /**
  * PUT /like/{videoId} 点赞（幂等）
  */
+/** @param {any} videoId @returns {Promise<any>} */
 export async function likeVideo(videoId) {
   const id = safeSnowflakeId(videoId);
   if (!id) {
@@ -38,6 +44,7 @@ export async function likeVideo(videoId) {
 /**
  * DELETE /like/{videoId} 取消点赞（幂等）
  */
+/** @param {any} videoId @returns {Promise<any>} */
 export async function cancelLikeVideo(videoId) {
   const id = safeSnowflakeId(videoId);
   if (!id) {
@@ -49,6 +56,7 @@ export async function cancelLikeVideo(videoId) {
 /**
  * POST /like/dislike/{videoId} 不感兴趣（Redis）
  */
+/** @param {any} videoId @returns {Promise<any>} */
 export async function dislikeVideo(videoId) {
   const id = safeSnowflakeId(videoId);
   if (!id) {
@@ -60,6 +68,7 @@ export async function dislikeVideo(videoId) {
 /**
  * GET /like/{userId}/list 点赞过的视频分页（ShortsVO 列表）
  */
+/** @param {any} userId @param {Record<string, any>} [query] @returns {Promise<PageResult>} */
 export async function fetchLikedVideosPage(userId, query = {}) {
   const id = safeSnowflakeId(userId);
   if (!id) {
@@ -73,6 +82,7 @@ export async function fetchLikedVideosPage(userId, query = {}) {
  * 当前用户是否已点赞该视频（优先 GET /like/{videoId}/status，无则分页扫点赞列表兜底）
  * @returns {Promise<boolean>}
  */
+/** @param {any} videoId @param {any} currentUserId @returns {Promise<boolean>} */
 export async function fetchVideoLikedStatus(videoId, currentUserId) {
   const vid = safeSnowflakeId(videoId);
   if (!vid) {

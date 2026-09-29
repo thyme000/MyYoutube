@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 本地网易云解析服务（默认 localhost:5000），经 Vite / Nginx 前缀 /music-svc 同源代理。
  * 响应约定：{ status, success, message, data }
@@ -40,11 +41,13 @@ async function parseJsonResponse(res) {
   return json.data;
 }
 
+/** @returns {Promise<any>} */
 export async function musicHealth() {
   const res = await fetch(`${PREFIX}/health`, { method: "GET" });
   return parseJsonResponse(res);
 }
 
+/** @param {string} keyword @param {number} [limit] @returns {Promise<any>} */
 export async function musicSearch(keyword, limit = 30) {
   const res = await fetch(`${PREFIX}/search`, {
     method: "POST",
@@ -70,6 +73,7 @@ export async function musicResolveSong(payload) {
   return parseJsonResponse(res);
 }
 
+/** @param {string} id @returns {Promise<any>} */
 export async function musicPlaylist(id) {
   const res = await fetch(`${PREFIX}/playlist`, {
     method: "POST",
@@ -79,6 +83,7 @@ export async function musicPlaylist(id) {
   return parseJsonResponse(res);
 }
 
+/** @param {string} id @returns {Promise<any>} */
 export async function musicAlbum(id) {
   const res = await fetch(`${PREFIX}/album`, {
     method: "POST",

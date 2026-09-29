@@ -1,9 +1,14 @@
+// @ts-check
 import { httpRequest } from "./http";
+// @ts-check
 import { safeSnowflakeId } from "../utils/snowflakeId.js";
+
+/** @typedef {import("./types").CommentRow} CommentRow */
 
 /**
  * 规范化单条评论（后端 CommentVO）
  */
+/** @param {any} raw @returns {CommentRow|null} */
 export function normalizeCommentVo(raw) {
   if (!raw || typeof raw !== "object") {
     return null;
@@ -31,6 +36,7 @@ export function normalizeCommentVo(raw) {
  * - 一级：parentId=0（不传 rootId），后端 isNull(rootId)
  * - 某楼回复：parentId≠0 且必须传 rootId=楼主评论 id，后端 eq(rootId, rootId)
  */
+/** @param {{ videoId?: any, parentId?: any, rootId?: any, pageNo?: number, pageSize?: number }} query @returns {Promise<{ total: number, pages: number, list: CommentRow[] }>} */
 export async function fetchCommentPage(query = {}) {
   const videoId = safeSnowflakeId(query.videoId);
   if (!videoId) {
@@ -73,6 +79,7 @@ export async function fetchCommentPage(query = {}) {
 /**
  * POST /comment/publish JSON：videoId, content, parentId（0=一级）
  */
+/** @param {{ videoId: any, content: string, parentId?: any }} body @returns {Promise<any>} */
 export async function publishComment(body) {
   const videoId = safeSnowflakeId(body?.videoId);
   if (!videoId) {
@@ -102,6 +109,7 @@ export async function publishComment(body) {
 /**
  * POST /comment/delete?commentId=
  */
+/** @param {any} commentId @returns {Promise<any>} */
 export async function deleteComment(commentId) {
   const id = safeSnowflakeId(commentId);
   if (!id) {
@@ -114,6 +122,7 @@ export async function deleteComment(commentId) {
  * PUT /comment/report
  * body: { commentId, reportType, remark }
  */
+/** @param {{ commentId: any, reportType: string, remark: string }} body @returns {Promise<any>} */
 export async function reportComment(body) {
   const commentId = safeSnowflakeId(body?.commentId);
   if (!commentId) {

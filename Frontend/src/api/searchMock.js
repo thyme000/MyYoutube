@@ -1,6 +1,10 @@
+// @ts-check
 /**
  * 仅开发联调示例（与联调说明一致）。生产勿打包依赖此文件逻辑。
+ * @typedef {import("./types").PageResult} PageResult
  */
+/** @param {string} keyword @returns {string[]} */
+
 import { normalizePageResult } from "./videoApi.js";
 
 export function mockSearchPrompt(keyword) {
@@ -12,10 +16,12 @@ export function mockSearchPrompt(keyword) {
   return [`${k} 相关`, `${k} 教程`, `${k} 合集`];
 }
 
+/** @returns {string[]} */
 export function mockSearchHot() {
   return ["AI编程", "周杰伦", "短剧推荐", "Java面试", "前端性能", "SpringBoot", "旅行vlog"];
 }
 
+/** @param {Record<string, any>} query @returns {Promise<PageResult>} */
 export async function mockSearchVideoPage(query) {
   const keyword = String(query.keyword ?? "").trim();
   const pageNo = Number(query.pageNo) || 1;
@@ -46,6 +52,7 @@ export async function mockSearchVideoPage(query) {
   });
 }
 
+/** @param {Record<string, any>} query @returns {Promise<{ total: number, pages: number, list: any[] }>} */
 export async function mockSearchUserPage(query) {
   const keyword = String(query.keyword ?? "").trim();
   const pageNo = Number(query.pageNo) || 1;
@@ -71,6 +78,7 @@ export async function mockSearchUserPage(query) {
   };
 }
 
+/** @param {Record<string, any>} query @returns {Promise<PageResult>} */
 export async function mockSearchTagPage(query) {
   const tag =
     String(query.tagName ?? query.keyword ?? "").trim() || "标签";

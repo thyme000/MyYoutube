@@ -1,4 +1,7 @@
+// @ts-check
 import { httpRequest } from "./http";
+
+/** @typedef {import("./types").StoragePresign} StoragePresign */
 
 /** 与后端 OtherService：视频等业务 work，聊天附件 chat */
 export const STORAGE_BIZ_WORK = "work";
@@ -28,6 +31,7 @@ function normalizeWrappedPayload(raw) {
  * 获取前端直传预签名 PUT URL
  * GET /storage/presign?bizType=work|chat&filename=xxx
  */
+/** @param {string} bizType @param {string} filename @returns {Promise<StoragePresign>} */
 export async function getStoragePresign(bizType, filename) {
   const bt = String(bizType || "").trim() || STORAGE_BIZ_WORK;
   const raw = await httpRequest("/storage/presign", {

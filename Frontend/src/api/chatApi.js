@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * MyYoutube 聊天模块 HTTP（与后端 Controller 路径一致）。
  * 统一 Result：由 httpRequest 校验 code===200 后返回 data。

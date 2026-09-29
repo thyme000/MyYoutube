@@ -1,4 +1,7 @@
+// @ts-check
 import { httpRequest } from "./http";
+
+/** @typedef {import("./types").NotificationItem} NotificationItem */
 
 /** 与后端 NotificationTypeEnum 的 code / JSON 枚举名一致 */
 export const NOTIFICATION_TYPE_LABELS = {
@@ -12,6 +15,7 @@ export const NOTIFICATION_TYPE_LABELS = {
   CHAT_NOTICE: "群聊通知",
 };
 
+/** @param {any} raw @returns {string} */
 function pickTypeCode(raw) {
   if (raw == null) return "";
   if (typeof raw === "string") return raw;
@@ -21,6 +25,7 @@ function pickTypeCode(raw) {
   return String(raw);
 }
 
+/** @param {any} raw @returns {NotificationItem|null} */
 export function normalizeNotificationItem(raw) {
   if (!raw || typeof raw !== "object") return null;
   const type = pickTypeCode(raw.type);
@@ -80,6 +85,7 @@ export function normalizeNotificationItem(raw) {
  * PUT /notification/list，body: { pageNo, pageSize }
  * 返回 { total, pages, list }
  */
+/** @param {{ pageNo?: number, pageSize?: number }} [payload] @returns {Promise<{ total: number, pages: number, list: NotificationItem[] }>} */
 export async function fetchNotificationPage({ pageNo = 1, pageSize = 15 } = {}) {
   const data = await httpRequest("/notification/list", {
     method: "PUT",
@@ -97,6 +103,7 @@ export async function fetchNotificationPage({ pageNo = 1, pageSize = 15 } = {}) 
 }
 
 /** POST /notification/{id} 标记已读 */
+/** @param {any} notificationId @returns {Promise<any>} */
 export function markNotificationRead(notificationId) {
   const id = notificationId != null ? String(notificationId).trim() : "";
   if (!id) return Promise.resolve();
@@ -104,6 +111,7 @@ export function markNotificationRead(notificationId) {
 }
 
 /** DELETE /notification/{id} 删除通知（仅接收者本人） */
+/** @param {any} notificationId @returns {Promise<any>} */
 export function deleteNotification(notificationId) {
   const id = notificationId != null ? String(notificationId).trim() : "";
   if (!id) return Promise.resolve();
@@ -111,6 +119,7 @@ export function deleteNotification(notificationId) {
 }
 
 /** GET /notification/unread-count */
+/** @returns {Promise<number>} */
 export async function fetchUnreadNotificationCount() {
   const n = await httpRequest("/notification/unread-count", { method: "GET" });
   const c = Number(n);

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Nginx 反代时 API 应与页面同源（如 /captcha、/user/info），否则会跨域直连 :8080，OPTIONS 常 403。
  * - 生产环境：默认强制相对路径，忽略误打包进 dist 的 VITE_API_BASE_URL（除非 VITE_API_ALLOW_CROSS_ORIGIN=true）。
@@ -43,6 +44,7 @@ const AUTH_EXPIRED_EVENT = "myyoutube:auth-expired";
  * - HTTP：请求头 Authorization 值为登录返回的 token 原样（Redis key 为完整 header 值），不要加 Bearer 前缀。
  * - WebSocket /ws/notify：查询串须以 token= 开头，见 buildNotifyWebSocketUrl。
  */
+/** @param {any} raw @returns {string} */
 export function normalizeAuthToken(raw) {
   if (raw == null) return "";
   let s = String(raw).trim();
@@ -75,6 +77,7 @@ function isLikelyAuthExpiredPayload(payload) {
   return false;
 }
 
+/** @param {string} path @param {Record<string, any>} [query] @returns {string} */
 function buildUrl(path, query) {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin);
   if (query && typeof query === "object") {
@@ -89,6 +92,15 @@ function buildUrl(path, query) {
 
 /**
  * multipart/form-data 上传（如头像、背景图），不要手动设置 Content-Type，以便浏览器自动带 boundary。
+ */
+/** @typedef {{ code: number, message: string, data: any }} ApiEnvelope 后端统一响应 */
+/** @typedef {{ query?: Record<string, any>, headers?: Record<string, string>, method?: string }} MultipartOpts */
+
+/**
+ * @param {string} path
+ * @param {FormData} formData
+ * @param {MultipartOpts} [opts]
+ * @returns {Promise<any>}
  */
 export async function uploadMultipart(path, formData, { query, headers, method = "POST" } = {}) {
   const finalUrl = buildUrl(path, query);
@@ -129,6 +141,13 @@ export async function uploadMultipart(path, formData, { query, headers, method =
   return response.text();
 }
 
+/** @typedef {{ method?: string, query?: Record<string, any>, body?: any, headers?: Record<string, string> }} HttpOpts */
+
+/**
+ * @param {string} path
+ * @param {HttpOpts} [opts]
+ * @returns {Promise<any>} 拆包后的 data（非 JSON 响应为文本）
+ */
 export async function httpRequest(path, { method = "GET", query, body, headers } = {}) {
   const finalUrl = buildUrl(path, query);
   const token = getToken();
@@ -168,14 +187,17 @@ export async function httpRequest(path, { method = "GET", query, body, headers }
   return response.text();
 }
 
+/** @returns {string} */
 export function getApiBaseUrl() {
   return API_BASE_URL || "(同源，由 Nginx 反代到后端)";
 }
 
+/** @returns {string} */
 export function getToken() {
   return normalizeAuthToken(localStorage.getItem(TOKEN_KEY) || "");
 }
 
+/** @param {any} token */
 export function setToken(token) {
   const t = normalizeAuthToken(token);
   if (!t) {
@@ -189,6 +211,7 @@ export function setToken(token) {
  * 通知 WebSocket；后端要求 query 以 token= 开头（且宜为唯一参数）。
  * 生产环境 Nginx 需将 `/ws/` 反代到后端并配置 `Upgrade` / `Connection`（与 Vite 里 `/ws` 代理一致）。
  */
+/** @returns {string} */
 export function buildNotifyWebSocketUrl() {
   const t = getToken();
   if (!t) return "";
@@ -201,6 +224,7 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+/** @returns {string} */
 export function getAuthExpiredEventName() {
   return AUTH_EXPIRED_EVENT;
 }
