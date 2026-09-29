@@ -56,3 +56,5 @@ Frontend/scripts/e2e/.snapshots/
 
 # workbuddy-ai 工作区数据
 .workbuddy-ai/
+
+docs
