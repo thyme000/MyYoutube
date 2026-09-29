@@ -148,13 +148,22 @@ const hooks = {
   getUserId: () => null,
   ensureProfile: null,
   patchFeedById: null,
+  /** 打开上传弹窗(App 级，重置上传态) */
+  openUploadModal: () => {},
+  /** 请求删除频道视频(App 级，弹确认框) */
+  requestDeleteRow: () => {},
 };
 
-export function registerStudioHooks({ getUserId, ensureProfile, patchFeedById }) {
+export function registerStudioHooks({ getUserId, ensureProfile, patchFeedById, openUploadModal, requestDeleteRow }) {
   if (getUserId) hooks.getUserId = getUserId;
   if (ensureProfile) hooks.ensureProfile = ensureProfile;
   if (patchFeedById) hooks.patchFeedById = patchFeedById;
+  if (openUploadModal) hooks.openUploadModal = openUploadModal;
+  if (requestDeleteRow) hooks.requestDeleteRow = requestDeleteRow;
 }
+
+/** StudioView 经此取回 App 级交互，避免反向 import App */
+export const studioBridgeHooks = hooks;
 
 export function formatStudioDate(row) {
   const raw = row?.createTime ?? row?.createAt ?? row?.createdAt ?? row?.publishTime;

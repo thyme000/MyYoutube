@@ -4,11 +4,14 @@
  * 过渡期：状态取自 searchStore，交互函数经 App.vue provide 的 searchBridge 注入；
  * 后续将函数逐一迁入 store / 本组件，最终撤掉桥接。
  */
-import { computed, inject } from "vue";
+import { computed } from "vue";
 import { storeToRefs } from "pinia";
-import { useSearchStore, SEARCH_UI } from "../stores/searchStore";
+import { useSearchStore, searchBridgeHooks, SEARCH_UI } from "../stores/searchStore";
 import { useAuthStore } from "../stores/authStore";
 import { useCommentPanelStore } from "../stores/commentPanelStore";
+import { useNavigationStore } from "../stores/navigationStore";
+import { useProfileStore } from "../stores/profileStore";
+import { useShareStore } from "../stores/shareStore";
 import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar } from "../utils/userProfile";
 import {
   resolveVideoUrl,
@@ -28,7 +31,6 @@ defineProps({
   scrollRef: { type: Object, default: null },
 });
 
-const bridge = inject("searchBridge");
 const {
   searchTab,
   searchVideoSort,
@@ -72,18 +74,11 @@ const searchVerticalLoadingMore = computed(() => {
   return searchVideoLoadingMore.value;
 });
 
-/** 残余桥: 标签导航/用户行操作/点赞系统/进全屏(App 级) */
-const {
-  onSearchTagNavigate,
-  onSearchUserRowActivate,
-  searchUserRowIsSelf,
-  searchUserRowIsFollowed,
-  toggleSearchUserFollow,
-  onAuthorAvatarClick,
-  onSearchFeedForwardClick,
-  onSearchFeedMainVideoClick,
-  onSearchFeedLikeClick,
-} = bridge;
+/** 标签导航/用户行操作/点赞/进全屏改为直连 store 或 searchBridgeHooks（App 注册），不再经 inject */
+const navigation = useNavigationStore();
+const profile = useProfileStore();
+const share = useShareStore();
+const sb = searchBridgeHooks;
 
 function selectSearchTab(key) {
   searchStore.selectTab(key);
@@ -340,7 +335,7 @@ function onSearchFeedListPause(e) {
                 :key="'su-' + u.id"
                 class="search-user-card-wide"
               >
-                <button type="button" class="search-user-card-wide__main" @click="onAuthorAvatarClick($event, u.id)">
+                <button type="button" class="search-user-card-wide__main" @click="profile.openByAuthorId(u.id)">
                   <img class="search-user-card-wide__avatar" :src="u.avatarUrl || profileAvatar" alt="" @error="(e) => (e.target.src = profileAvatar)" />
                   <div class="search-user-card-wide__body">
                     <span class="search-user-card-wide__name">{{ u.nickname }}</span>
@@ -354,13 +349,13 @@ function onSearchFeedListPause(e) {
                   </div>
                 </button>
                 <button
-                  v-if="isAuthed && !searchUserRowIsSelf(u)"
+                  v-if="isAuthed && !sb.searchUserRowIsSelf(u)"
                   type="button"
                   class="search-user-follow-pill"
-                  :class="{ 'search-user-follow-pill--followed': searchUserRowIsFollowed(u) }"
-                  @click.stop="toggleSearchUserFollow(u)"
+                  :class="{ 'search-user-follow-pill--followed': sb.searchUserRowIsFollowed(u) }"
+                  @click.stop="sb.toggleSearchUserFollow(u)"
                 >
-                  {{ searchUserRowIsFollowed(u) ? "已关注" : "关注" }}
+                  {{ sb.searchUserRowIsFollowed(u) ? "已关注" : "关注" }}
                 </button>
               </div>
             </div>
@@ -383,7 +378,7 @@ function onSearchFeedListPause(e) {
                       class="shorts-feed-author-avatar search-feed-slide-avatar"
                       :src="cardAuthorAvatar(card, index)"
                       alt=""
-                      @click.stop="onAuthorAvatarClick($event, card.authorId)"
+                      @click.stop="profile.openByAuthorId(card.authorId)"
                       @error="(e) => (e.target.src = profileAvatar)"
                     />
                     <div class="search-feed-slide-meta-text">
@@ -393,7 +388,7 @@ function onSearchFeedListPause(e) {
                           type="button"
                           class="shorts-feed-user-link"
                           title="查看作者主页"
-                          @click.stop="onAuthorAvatarClick($event, card.authorId)"
+                          @click.stop="profile.openByAuthorId(card.authorId)"
                         >
                           @{{ card.authorNickname || card.author }}
                         </button>
@@ -409,7 +404,7 @@ function onSearchFeedListPause(e) {
                             :key="'tg-' + card.id + '-' + tg"
                             type="button"
                             class="search-feed-tag-chip"
-                            @click.stop="onSearchTagNavigate(tg)"
+                            @click.stop="navigation.navigateToTag(tg)"
                           >
                             {{ tg.startsWith("#") ? tg : "#" + tg }}
                           </button>
@@ -440,7 +435,7 @@ function onSearchFeedListPause(e) {
                         playsinline
                         preload="metadata"
                         :poster="card.coverUrl || card.avatarUrl"
-                        @click="onSearchFeedMainVideoClick(card, index)"
+                        @click="searchStore.openSearchExpand(card, index)"
                         @timeupdate="onSearchFeedListTimeUpdate($event, card.id)"
                         @loadedmetadata="onSearchFeedListLoadedMetadata($event, card.id)"
                         @seeked="onSearchFeedListSeeked"
@@ -454,7 +449,7 @@ function onSearchFeedListPause(e) {
                         class="search-feed-stat search-feed-stat--btn"
                         :class="{ 'search-feed-stat--active': card.isLike }"
                         title="点赞"
-                        @click.stop="onSearchFeedLikeClick(card, $event)"
+                        @click.stop="sb.onSearchFeedLikeClick(card, $event)"
                       >
                         <i :class="card.isLike ? 'ri-heart-fill' : 'ri-heart-line'" aria-hidden="true"></i>{{ formatHomeShortStat(card.likeCount) }}
                       </button>
@@ -508,7 +503,7 @@ function onSearchFeedListPause(e) {
                           <button type="button" class="shorts-feed-tool-btn" title="全屏" @click="searchFeedListRequestFullscreen(card, $event)">
                             <i class="ri-fullscreen-line"></i>
                           </button>
-                          <button type="button" class="shorts-feed-tool-btn" title="转发" aria-label="转发" @click="onSearchFeedForwardClick(card, $event)">
+                          <button type="button" class="shorts-feed-tool-btn" title="转发" aria-label="转发" @click="share.openForwardVideo(card)">
                             <i class="ri-share-forward-line"></i>
                           </button>
                           <button
@@ -541,9 +536,9 @@ function onSearchFeedListPause(e) {
                 role="button"
                 tabindex="0"
                 :title="'查看「' + (u.nickname || '用户') + '」的主页'"
-                @click="onSearchUserRowActivate(u, $event)"
-                @keydown.enter.prevent="onSearchUserRowActivate(u, $event)"
-                @keydown.space.prevent="onSearchUserRowActivate(u, $event)"
+                @click="sb.onSearchUserRowActivate(u, $event)"
+                @keydown.enter.prevent="sb.onSearchUserRowActivate(u, $event)"
+                @keydown.space.prevent="sb.onSearchUserRowActivate(u, $event)"
               >
                 <img :src="u.avatarUrl || profileAvatar" alt="" @error="(e) => (e.target.src = profileAvatar)" />
                 <div class="search-user-row-main">
@@ -552,13 +547,13 @@ function onSearchFeedListPause(e) {
                   <span class="search-user-row-meta">粉丝 {{ formatHomeShortStat(u.fans) }} · 获赞 {{ formatHomeShortStat(u.likeCount ?? 0) }}</span>
                 </div>
                 <button
-                  v-if="isAuthed && !searchUserRowIsSelf(u)"
+                  v-if="isAuthed && !sb.searchUserRowIsSelf(u)"
                   type="button"
                   class="search-user-follow-pill"
-                  :class="{ 'search-user-follow-pill--followed': searchUserRowIsFollowed(u) }"
-                  @click.stop="toggleSearchUserFollow(u)"
+                  :class="{ 'search-user-follow-pill--followed': sb.searchUserRowIsFollowed(u) }"
+                  @click.stop="sb.toggleSearchUserFollow(u)"
                 >
-                  {{ searchUserRowIsFollowed(u) ? "已关注" : "关注" }}
+                  {{ sb.searchUserRowIsFollowed(u) ? "已关注" : "关注" }}
                 </button>
               </li>
             </ul>

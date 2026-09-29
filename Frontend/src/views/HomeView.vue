@@ -3,12 +3,13 @@
  * 首页：分类栏 + 长短视频混合流。状态直连 homeStore；
  * 残余桥仅含 App 级依赖（短视频条滚动加载/进短视频流/卡片进详情/进他人主页）。
  */
-import { computed, inject, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
-import { useHomeStore, homeSortOptions, HOME_LONG_HEAD_COUNT_DESKTOP, HOME_LONG_HEAD_COUNT_MOBILE } from "../stores/homeStore";
+import { useHomeStore, homeBridgeHooks, homeSortOptions, HOME_LONG_HEAD_COUNT_DESKTOP, HOME_LONG_HEAD_COUNT_MOBILE } from "../stores/homeStore";
 import { VIDEO_CATEGORY_CHIPS } from "../constants/videoCategories.js";
 import { useHoverPreviewStore, cardPreviewKey } from "../stores/hoverPreviewStore";
+import { useProfileStore } from "../stores/profileStore";
 import {
   videoCardPlayable,
   cardAuthorAvatar,
@@ -17,10 +18,9 @@ import {
   formatHomeShortStat,
 } from "../utils/videoCard.js";
 
-const bridge = inject("homeBridge");
-const { showProfileCenter, homeShortsStripRef, onHomeShortsStripScroll, onHomeShortsStripWheel, onHomeShortCardClick, onVideoCardClick, onAuthorAvatarClick } = bridge;
-
 const homeStore = useHomeStore();
+const profile = useProfileStore();
+const hb = homeBridgeHooks;
 const {
   loading,
   cards,
@@ -82,7 +82,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
 </script>
 
 <template>
-        <div v-if="activeMenuKey === 'home' && !showProfileCenter" class="home-feed-header">
+        <div v-if="activeMenuKey === 'home' && !hb.isProfileCenterOpen()" class="home-feed-header">
           <nav class="home-category-bar" role="navigation" aria-label="视频分类">
             <button
               v-for="chip in VIDEO_CATEGORY_CHIPS"
@@ -127,7 +127,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                 :key="`home-long-head-${card.id}`"
                 class="video-card"
                 :class="{ 'video-card--playable': videoCardPlayable(card) }"
-                @click="onVideoCardClick(card)"
+                @click="hb.openVideoDetail(card)"
                 @mouseenter="hoverPreview.enter(card, 'home-head')"
                 @mouseleave="hoverPreview.leave(card, 'home-head')"
               >
@@ -149,7 +149,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                     alt=""
                     role="button"
                     title="查看作者主页"
-                    @click.stop="onAuthorAvatarClick($event, card.authorId)"
+                    @click.stop="profile.openByAuthorId(card.authorId)"
                     @error="(e) => (e.target.src = profileAvatar)"
                   />
                   <div class="video-info-text">
@@ -166,16 +166,16 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                 <h3><i class="ri-video-line"></i> Shorts</h3>
               </div>
               <div
-                ref="homeShortsStripRef"
+                :ref="(el) => (hb.shortsStripRef.value = el)"
                 class="home-shorts-strip"
-                @wheel.prevent="onHomeShortsStripWheel"
-                @scroll="onHomeShortsStripScroll"
+                @wheel.prevent="hb.onHomeShortsStripWheel"
+                @scroll="hb.onHomeShortsStripScroll"
               >
                 <article
                   v-for="(card, index) in homeShortsRows"
                   :key="`home-short-${card.id}-${index}`"
                   class="home-short-card"
-                  @click="onHomeShortCardClick(card, index)"
+                  @click="hb.openShortsFeed(card, index)"
                   @mouseenter="hoverPreview.enter(card, 'home-shorts')"
                   @mouseleave="hoverPreview.leave(card, 'home-shorts')"
                 >
@@ -218,7 +218,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                 :key="`home-long-tail-${card.id}`"
                 class="video-card"
                 :class="{ 'video-card--playable': videoCardPlayable(card) }"
-                @click="onVideoCardClick(card)"
+                @click="hb.openVideoDetail(card)"
                 @mouseenter="hoverPreview.enter(card, 'home-tail')"
                 @mouseleave="hoverPreview.leave(card, 'home-tail')"
               >
@@ -240,7 +240,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                     alt=""
                     role="button"
                     title="查看作者主页"
-                    @click.stop="onAuthorAvatarClick($event, card.authorId)"
+                    @click.stop="profile.openByAuthorId(card.authorId)"
                     @error="(e) => (e.target.src = profileAvatar)"
                   />
                   <div class="video-info-text">
@@ -293,7 +293,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
               :key="card.id"
               class="video-card"
               :class="{ 'video-card--playable': videoCardPlayable(card) }"
-              @click="onVideoCardClick(card)"
+              @click="hb.openVideoDetail(card)"
             >
               <img class="video-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
               <div class="video-info">
@@ -303,7 +303,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                   alt=""
                   role="button"
                   title="查看作者主页"
-                  @click.stop="onAuthorAvatarClick($event, card.authorId)"
+                  @click.stop="profile.openByAuthorId(card.authorId)"
                   @error="(e) => (e.target.src = profileAvatar)"
                 />
                 <div class="video-info-text">

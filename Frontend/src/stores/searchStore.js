@@ -60,6 +60,11 @@ let expandResumeLastSentAtMs = 0;
  *   setupSearchVideoAutoplay: () => void,
  *   patchFeedVideoById: (id: any, patch: any) => void,
  *   patchAuthorFollow: (authorId: any, isFollow: boolean) => void,
+ *   onSearchUserRowActivate: (u: any, ev: any) => void,
+ *   searchUserRowIsSelf: (u: any) => boolean,
+ *   searchUserRowIsFollowed: (u: any) => boolean,
+ *   toggleSearchUserFollow: (u: any) => void,
+ *   onSearchFeedLikeClick: (card: any, ev: any) => void,
  * }}
  */
 const hooks = {
@@ -70,12 +75,30 @@ const hooks = {
   /** 跨多份列表同步点赞数 / 关注态 */
   patchFeedVideoById: () => {},
   patchAuthorFollow: () => {},
+  /** 搜索用户行：进入主页（App 级个人中心，保留宿主实现） */
+  onSearchUserRowActivate: () => {},
+  /** 搜索用户行是否本人 */
+  searchUserRowIsSelf: () => false,
+  /** 搜索用户行关注态（读 App 乐观覆盖表） */
+  searchUserRowIsFollowed: () => false,
+  /** 搜索用户行关注 / 取关 */
+  toggleSearchUserFollow: () => {},
+  /** 搜索结果竖滑流点赞（复用 App 的 like 编排） */
+  onSearchFeedLikeClick: () => {},
 };
 
 export function registerSearchExpandHooks(next = {}) {
   for (const [key, fn] of Object.entries(next)) {
     if (typeof fn === "function") hooks[key] = fn;
   }
+}
+
+/** SearchView 经此取回 App 级交互（进主页 / 关注 / 点赞），避免反向 import App */
+export const searchBridgeHooks = hooks;
+
+/** 桥接函数与放大层钩子共用同一 hooks 对象，分两个注册入口只为调用点语义清晰 */
+export function registerSearchBridgeHooks(next = {}) {
+  registerSearchExpandHooks(next);
 }
 
 /** 列表加载完成后的观察器钩子，宿主注册；非响应式，不入 state */

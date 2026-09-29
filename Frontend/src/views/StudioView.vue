@@ -3,12 +3,23 @@
  * 创作中心（视频管理与数据）。状态与动作直连 studioStore；
  * 残余桥仅含 App 级依赖：资料昵称/顶栏头像/上传弹窗/删除确认。
  */
-import { inject } from "vue";
+import { computed } from "vue";
 import { storeToRefs } from "pinia";
-import { useStudioStore, studioTabs, formatStudioDate, formatStudioVisibility, rowVisibilityIsPrivate } from "../stores/studioStore";
+import { useStudioStore, studioBridgeHooks, studioTabs, formatStudioDate, formatStudioVisibility, rowVisibilityIsPrivate } from "../stores/studioStore";
 import { DEFAULT_PROFILE_BG_URL as profileBanner } from "../utils/userProfile";
+import { useAuthStore } from "../stores/authStore";
 
-const { displayNickname, topbarAvatarSrc, openUploadModal, onStudioRowRequestDelete } = inject("studioBridge");
+const auth = useAuthStore();
+const sb = studioBridgeHooks;
+/** 侧栏昵称/头像直接取 authStore 的自有资料，与 App 同源 */
+const displayNickname = computed(() => {
+  const u = auth.selfProfile;
+  if (!u) return "加载中…";
+  if (u.nickName?.trim()) return u.nickName.trim();
+  if (u.username?.trim()) return u.username.trim();
+  return "未命名用户";
+});
+const topbarAvatarSrc = computed(() => auth.selfAvatarUrl);
 
 const studioStore = useStudioStore();
 const {
@@ -136,7 +147,7 @@ const {
                           <button
                             type="button"
                             class="studio-row-action-btn studio-row-action-btn--danger"
-                            @click="onStudioRowRequestDelete(row)"
+                            @click="sb.requestDeleteRow(row)"
                           >
                             删除
                           </button>
@@ -165,7 +176,7 @@ const {
                   </button>
                 </div>
                 <p v-if="studioMsg && studioContentTab !== 'live'" class="studio-hint">{{ studioMsg }}</p>
-                <button type="button" class="studio-upload-fab" @click="openUploadModal">上传视频</button>
+                <button type="button" class="studio-upload-fab" @click="sb.openUploadModal">上传视频</button>
               </div>
             </template>
           </div>

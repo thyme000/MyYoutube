@@ -17,12 +17,43 @@ export const homeSortOptions = [
   { value: "MOST_LIKED", label: "最多点赞" },
 ];
 
-const hooks = { reloadHome: null };
+const hooks = {
+  /** 首页重载(走 loadModuleCards 的 home 分支) */
+  reloadHome: null,
+  /** 首页 Shorts 横条 DOM 容器：模板 ref 经此回写，App 的滚轮处理读它 */
+  shortsStripRef: null,
+  /** 横条滚动/滚轮处理(App 级，依赖 hoverPreview 与预拉下一页) */
+  onHomeShortsStripScroll: () => {},
+  onHomeShortsStripWheel: () => {},
+  /** 首页卡片进详情(App 级，含菜单分支) */
+  openVideoDetail: () => {},
+  /** 首页 Shorts 卡片进全屏短视频流(App 级) */
+  openShortsFeed: () => {},
+  /** 个人中心是否展开(App 级状态，HomeView 据此隐藏分类条) */
+  isProfileCenterOpen: () => false,
+};
 
-/** 宿主(App.vue)注册首页重载(走 loadModuleCards 的 home 分支) */
-export function registerHomeHooks({ reloadHome }) {
+/** 宿主(App.vue)注册首页依赖：重载、横条 DOM、进详情/短视频流、个人中心开合 */
+export function registerHomeHooks({
+  reloadHome,
+  shortsStripRef,
+  onHomeShortsStripScroll,
+  onHomeShortsStripWheel,
+  openVideoDetail,
+  openShortsFeed,
+  isProfileCenterOpen,
+}) {
   if (reloadHome) hooks.reloadHome = reloadHome;
+  if (shortsStripRef) hooks.shortsStripRef = shortsStripRef;
+  if (onHomeShortsStripScroll) hooks.onHomeShortsStripScroll = onHomeShortsStripScroll;
+  if (onHomeShortsStripWheel) hooks.onHomeShortsStripWheel = onHomeShortsStripWheel;
+  if (openVideoDetail) hooks.openVideoDetail = openVideoDetail;
+  if (openShortsFeed) hooks.openShortsFeed = openShortsFeed;
+  if (isProfileCenterOpen) hooks.isProfileCenterOpen = isProfileCenterOpen;
 }
+
+/** HomeView 经此取回 App 级交互，避免反向 import App */
+export const homeBridgeHooks = hooks;
 
 export const useHomeStore = defineStore("home", {
   state: () => ({

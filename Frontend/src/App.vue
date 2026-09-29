@@ -1,10 +1,10 @@
 <script setup>
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { RouterView, useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
 import { useAuthStore } from "./stores/authStore";
-import { useSearchStore, registerSearchExpandHooks, SEARCH_UI } from "./stores/searchStore";
+import { useSearchStore, registerSearchExpandHooks, registerSearchBridgeHooks, SEARCH_UI } from "./stores/searchStore";
 import { useHistoryStore } from "./stores/historyStore";
 import { useLikedStore } from "./stores/likedStore";
 import { useHomeStore, registerHomeHooks, homeSortOptions } from "./stores/homeStore";
@@ -331,15 +331,6 @@ watch(searchVideoSort, () => {
 
 /** 标签跳搜索的跨域编排在 navigationStore；App 只保留同名薄封装供桥与 detailStore 钩子调用 */
 const onSearchTagNavigate = (tag) => navigationStore.navigateToTag(tag);
-
-function onSearchFeedForwardClick(card, ev) {
-  ev?.stopPropagation?.();
-  share.openForwardVideo(card);
-}
-
-function onSearchFeedMainVideoClick(card, index) {
-  openSearchExpand(card, index);
-}
 
 async function onSearchFeedLikeClick(card, ev) {
   ev?.stopPropagation?.();
@@ -1007,21 +998,6 @@ async function onNotifyToastClick(t) {
     removeToast(t.id);
   }
 }
-
-/** 创作中心侧栏等：始终展示当前登录用户昵称 */
-const selfDisplayNickname = computed(() => {
-  const u = selfUserProfile.value;
-  if (!u) {
-    return "加载中…";
-  }
-  if (u.nickName?.trim()) {
-    return u.nickName.trim();
-  }
-  if (u.username?.trim()) {
-    return u.username.trim();
-  }
-  return "未命名用户";
-});
 
 /** 仅当 id 为纯数字字符串时可用于 /videos/detail/{id}，全程用字符串避免精度丢失 */
 function parseVideoIdForApi(id) {
@@ -3141,16 +3117,12 @@ watch(
   { immediate: true }
 );
 
-/** SearchView 残余桥: 跨列表同步/点赞系统/进全屏与主页仍依赖 App 级状态 */
-provide("searchBridge", {
-  onSearchTagNavigate,
+/** SearchView 的交互已改经 searchBridgeHooks 取回，不再走 provide/inject */
+registerSearchBridgeHooks({
   onSearchUserRowActivate,
   searchUserRowIsSelf,
   searchUserRowIsFollowed,
   toggleSearchUserFollow,
-  onAuthorAvatarClick,
-  onSearchFeedForwardClick,
-  onSearchFeedMainVideoClick,
   onSearchFeedLikeClick,
 });
 
@@ -3208,8 +3180,7 @@ async function toggleSearchUserFollow(u) {
   }
 }
 
-/** 搜索全屏放大层：播放控制是命令式的，实现已移入 searchStore，这里保留同名薄封装供生命周期调用 */
-const openSearchExpand = (card, index) => searchStore.openSearchExpand(card, index);
+/** 搜索全屏放大层：播放控制是命令式的，实现已移入 searchStore，close/恢复经 store 同名 action */
 const closeSearchExpand = () => searchStore.closeSearchExpand();
 const flushSearchExpandPlaybackResume = (reason) => searchStore.flushSearchExpandPlaybackResume(reason);
 
@@ -3222,29 +3193,16 @@ watch(searchActive, (v) => {
   }
 });
 
-/** HomeView 残余桥: 短视频条滚动加载/进短视频流/卡片进详情仍依赖 App 级逻辑 */
-provide("homeBridge", {
-  showProfileCenter,
-  homeShortsStripRef,
-  onHomeShortsStripScroll,
-  onHomeShortsStripWheel,
-  onHomeShortCardClick,
-  onVideoCardClick,
-  onAuthorAvatarClick,
-});
-/** StudioView 残余桥: 依赖 App 级上传弹窗/删除确认/个人资料计算属性 */
-provide("studioBridge", {
-  displayNickname: selfDisplayNickname,
-  topbarAvatarSrc,
-  openUploadModal,
-  onStudioRowRequestDelete,
-});
+/** HomeView 的交互已改经 homeBridgeHooks 取回，不再走 provide/inject */
+/** StudioView 的昵称/头像改读 authStore，上传/删除经 studioBridgeHooks 取回，不再走 provide/inject */
 
 // 创作中心 store 的跨域依赖接线(App 拥有 profile 加载与跨列表补丁)
 registerStudioHooks({
   getUserId: () => currentUserId.value,
   ensureProfile: () => profileStore.loadUser(),
   patchFeedById: patchFeedVideoById,
+  openUploadModal,
+  requestDeleteRow: onStudioRowRequestDelete,
 });
 
 function loadStudioVideos() {
@@ -3266,7 +3224,15 @@ function loadLikedPage({ reset = false } = {}) {
   return likedStore2.load({ reset });
 }
 registerLikedHooks({ getUserId: () => currentUserId.value });
-registerHomeHooks({ reloadHome: () => loadModuleCards(primaryMenus[0]) });
+registerHomeHooks({
+  reloadHome: () => loadModuleCards(primaryMenus[0]),
+  shortsStripRef: homeShortsStripRef,
+  onHomeShortsStripScroll,
+  onHomeShortsStripWheel,
+  openVideoDetail: onVideoCardClick,
+  openShortsFeed: onHomeShortCardClick,
+  isProfileCenterOpen: () => showProfileCenter.value,
+});
 /** navigationStore 的宿主依赖：上传弹窗 / 创作中心 / 竖屏短播放器的开关仍在 App */
 registerNavigationHooks({
   closeAppOverlays: () => {
