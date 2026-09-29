@@ -1051,14 +1051,35 @@ watch(
       }
     } else if (key && showStudio.value) {
       showStudio.value = false;
-      uploadModalOpen.value = false;
       if (!searchActive.value) {
         void reloadFeedAfterLeavingDetail();
       }
     }
+    if (p === "/profile" || p.startsWith("/profile/")) {
+      enterProfileFromRoute(p);
+    }
   },
   { immediate: true }
 );
+
+/** /profile 与 /profile/:userId 的统一入口：菜单点击已由 _enter 走过，这里兜住深链/刷新/前进 */
+function enterProfileFromRoute(p) {
+  if (!isAuthed.value) return;
+  const uid = p === "/profile" ? null : p.slice("/profile/".length);
+  const alreadyOpen =
+    showProfileCenter.value &&
+    String(profileTargetUserId.value ?? "") === String(uid ?? "");
+  if (alreadyOpen) return;
+  if (uid == null) {
+    profileStore.openSelf();
+    return;
+  }
+  if (currentUserId.value != null && String(uid) === String(currentUserId.value)) {
+    profileStore.openSelf();
+    return;
+  }
+  profileStore.openOther(uid);
+}
 
 /** 进入创作中心（/studio）：菜单点击、深链、刷新统一走这里 */
 function enterStudio() {
@@ -2894,8 +2915,6 @@ function saveUiStateToSession() {
   const state = {
     activeMenuKey: activeMenuKey.value,
     activeMenuLabel: activeMenuLabel.value,
-    showProfileCenter: showProfileCenter.value,
-    profileTargetUserId: profileTargetUserId.value,
     homeCategoryKey: homeCategoryKey.value,
     homeSortKey: homeSortKey.value,
   };
@@ -2937,6 +2956,14 @@ function onWindowPopState() {
     return;
   }
   if (showProfileCenter.value || activeMenuKey.value !== "home") {
+    /** profile 内部自/他切换（/profile ↔ /profile/:id）后退不关主页，return context 保留 */
+    const stillProfile =
+      showProfileCenter.value &&
+      (window.location.pathname === "/profile" ||
+        window.location.pathname.startsWith("/profile/"));
+    if (stillProfile) {
+      return;
+    }
     const vParam = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
     const hadProfile = showProfileCenter.value;
     const returnCtx = profileStore.readReturnContext();
@@ -2999,13 +3026,8 @@ watch(
 watch(
   () => [
     activeMenuKey.value,
-    showProfileCenter.value,
-    profileTargetUserId.value,
-    showStudio.value,
     homeCategoryKey.value,
     homeSortKey.value,
-    studioSideNav.value,
-    studioContentTab.value,
   ],
   () => {
     saveUiStateToSession();
@@ -3255,10 +3277,9 @@ registerProfileHooks({
     return returnCtx;
   },
   pushHistory: (key) => {
-    try {
-      history.pushState({ myyoutubeProfile: key }, "", window.location.href);
-    } catch {
-      /* ignore */
+    const target = key === "self" ? "/profile" : `/profile/${key}`;
+    if (route.path !== target) {
+      void router.push(target);
     }
   },
   openWorkFeed: (item) => void openProfileWorkFeed(item),
@@ -3329,14 +3350,11 @@ onMounted(async () => {
       });
     }
   } else {
-    const state = loadUiStateFromSession();
-    if (state?.showProfileCenter) {
-      profileTargetUserId.value = state.profileTargetUserId ?? null;
-      showProfileCenter.value = true;
-      activeMenuLabel.value = "个人中心";
-      await profileStore.loadUser({ withWorks: true });
+    if (showProfileCenter.value || showStudio.value) {
+      /** 深链/刷新落在 /profile、/studio：view 已由 route watcher 打开，底层菜单数据在离开叠层时再加载 */
       return;
     }
+    const state = loadUiStateFromSession();
     const menuKey = menuKeyForPath(route.path) || state?.activeMenuKey || homeMenu.key;
     const allMenus = [...primaryMenus, ...exploreMenus];
     const menu = allMenus.find((m) => m.key === menuKey) || homeMenu;

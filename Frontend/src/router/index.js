@@ -36,6 +36,19 @@ const routes = [
     meta: { title: "上传视频" },
     component: { render: () => null },
   },
+  /** 个人中心：/profile 自己，/profile/:userId 他人；ProfileCenterView 由 App 叠层渲染 */
+  {
+    path: "/profile",
+    name: "profile-self",
+    meta: { title: "个人中心" },
+    component: { render: () => null },
+  },
+  {
+    path: "/profile/:userId",
+    name: "profile-user",
+    meta: { title: "个人中心" },
+    component: { render: () => null },
+  },
 ];
 
 routes.push({ path: "/:pathMatch(.*)*", redirect: "/" });
