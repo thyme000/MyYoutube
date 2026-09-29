@@ -15,6 +15,10 @@ export const useAuthStore = defineStore("auth", {
     avatarUrl: "",
     /** 当前登录用户资料快照（顶栏头像等），不因进入他人主页而被替换 */
     selfProfile: null,
+    /** 登录场景（AuthScene）与登出/过期提示共用的消息条 */
+    authMessage: "",
+    /** 登录/注册请求进行中 */
+    authLoading: false,
   }),
   getters: {
     isAuthed: (s) => Boolean(s.token),
