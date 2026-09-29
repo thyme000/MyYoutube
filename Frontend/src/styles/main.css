@@ -3694,58 +3694,6 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   }
 }
 
-/* 短视频全屏弹窗：底层同帧模糊填充，前景 contain（纵向视频两侧留边时效果类似抖音） */
-.short-player-overlay {
-  z-index: 1000;
-  background: rgba(0, 0, 0, 0.9);
-  padding: 12px 16px;
-}
-
-.short-player-shell {
-  width: min(1100px, 100%);
-  max-height: 96vh;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.short-player-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: #f2f2f2;
-  flex-shrink: 0;
-}
-
-.short-player-title {
-  font-size: 15px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.short-player-close {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  line-height: 1;
-}
-
-.short-player-close:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
 .short-video-stage {
   position: relative;
   width: 100%;

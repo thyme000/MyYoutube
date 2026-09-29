@@ -608,13 +608,6 @@ const maybePrefetchFollowFeed = () => shortsStore.maybePrefetchFollowFeed();
 /** 地址栏 ?v= 与 sessionStorage 恢复详情页（刷新不丢） */
 const VIDEO_URL_PARAM = "v";
 
-/** 短视频全屏播放（纵向视频两侧模糊填充） */
-const shortPlayerOpen = ref(false);
-const shortPlayerVideoSrc = ref("");
-const shortPlayerTitle = ref("");
-const shortPlayerIsPortrait = ref(false);
-const shortFgVideoRef = ref(null);
-const shortBgVideoRef = ref(null);
 const {
   historyLongRows,
   historyLongPageNo,
@@ -645,7 +638,6 @@ const chatRailSuppress = computed(
   () =>
     searchExpandOpen.value ||
     profileFeedOpen.value ||
-    shortPlayerOpen.value ||
     showVideoDetail.value ||
     musicLyricsFullscreen.value,
 );
@@ -1267,7 +1259,6 @@ function openHomeShortVideoInFeed(card, index) {
   if (activeMenuKey.value === "home") {
     saveHomeFeedSnapshot();
   }
-  closeShortPlayer();
   if (showVideoDetail.value) {
     clearVideoDetailFromAddressBar();
   }
@@ -2353,46 +2344,6 @@ function onStudioRowRequestDelete(row) {
   closeStudioRowMenu();
 }
 
-function closeShortPlayer() {
-  shortPlayerOpen.value = false;
-  shortPlayerVideoSrc.value = "";
-  shortFgVideoRef.value?.pause();
-  shortBgVideoRef.value?.pause();
-}
-
-function onShortFgLoadedMetadata(e) {
-  const v = e.target;
-  shortPlayerIsPortrait.value =
-    v.videoWidth > 0 && v.videoHeight > 0 && v.videoHeight > v.videoWidth;
-}
-
-function onShortFgTimeUpdate(e) {
-  const fg = e.target;
-  const bg = shortBgVideoRef.value;
-  if (!bg || !fg) {
-    return;
-  }
-  if (Math.abs(bg.currentTime - fg.currentTime) > 0.2) {
-    bg.currentTime = fg.currentTime;
-  }
-}
-
-function onShortFgPlay() {
-  shortBgVideoRef.value?.play().catch(() => {});
-}
-
-function onShortFgPause() {
-  shortBgVideoRef.value?.pause();
-}
-
-function onShortFgSeeked(e) {
-  const fg = e.target;
-  const bg = shortBgVideoRef.value;
-  if (bg) {
-    bg.currentTime = fg.currentTime;
-  }
-}
-
 function onVideoCardClick(card) {
   if (activeMenuKey.value === "shorts") {
     return;
@@ -2453,10 +2404,6 @@ function closeTopMostOverlayByEsc() {
   }
   if (profileStore.editOpen) {
     profileStore.closeEdit();
-    return true;
-  }
-  if (shortPlayerOpen.value) {
-    closeShortPlayer();
     return true;
   }
   if (shortsCommentPanelOpen.value || searchExpandCommentOpen.value || searchListCommentOpen.value) {
@@ -2585,20 +2532,6 @@ function onProfileFeedKeydown(ev) {
     shortsTogglePlay();
   }
 }
-
-function onShortPlayerKeydown(ev) {
-  if (ev.key === "Escape") {
-    closeShortPlayer();
-  }
-}
-
-watch(shortPlayerOpen, (open) => {
-  if (open) {
-    window.addEventListener("keydown", onShortPlayerKeydown);
-  } else {
-    window.removeEventListener("keydown", onShortPlayerKeydown);
-  }
-});
 
 watch(unifiedFeedList, (list) => {
   if (!list.length) {
@@ -3238,9 +3171,6 @@ registerNavigationHooks({
   closeAppOverlays: () => {
     uploadModalOpen.value = false;
     showStudio.value = false;
-    if (shortPlayerOpen.value) {
-      closeShortPlayer();
-    }
   },
 });
 /** searchStore 的宿主依赖：搜索结果列表的内联预览观察器与跨列表补丁仍在 App */
@@ -3295,9 +3225,6 @@ registerProfileHooks({
     const returnCtx = captureProfileReturnContext();
     if (profileFeedOpen.value) {
       closeProfileFeed();
-    }
-    if (shortPlayerOpen.value) {
-      closeShortPlayer();
     }
     showStudio.value = false;
     uploadModalOpen.value = false;
@@ -4026,53 +3953,6 @@ onBeforeUnmount(() => {
         <template v-if="!searchActive">
 
         <ProfileCenterView v-if="showProfileCenter" />
-
-        <div
-          v-if="shortPlayerOpen"
-          class="modal-overlay short-player-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label="短视频播放"
-          @click.self="closeShortPlayer"
-        >
-          <div class="short-player-shell" @click.stop>
-            <div class="short-player-head">
-              <span class="short-player-title">{{ shortPlayerTitle }}</span>
-              <button type="button" class="short-player-close" aria-label="关闭" @click="closeShortPlayer">
-                <i class="ri-close-line"></i>
-              </button>
-            </div>
-            <div
-              class="short-video-stage"
-              :class="{
-                'short-video-stage--portrait': shortPlayerIsPortrait,
-                'short-video-stage--landscape': !shortPlayerIsPortrait,
-              }"
-            >
-              <video
-                ref="shortBgVideoRef"
-                class="short-video-bg"
-                muted
-                playsinline
-                preload="metadata"
-                :src="shortPlayerVideoSrc"
-              ></video>
-              <video
-                ref="shortFgVideoRef"
-                class="short-video-fg"
-                controls
-                playsinline
-                preload="metadata"
-                :src="shortPlayerVideoSrc"
-                @loadedmetadata="onShortFgLoadedMetadata"
-                @timeupdate="onShortFgTimeUpdate"
-                @play="onShortFgPlay"
-                @pause="onShortFgPause"
-                @seeked="onShortFgSeeked"
-              ></video>
-            </div>
-          </div>
-        </div>
 
         <template v-if="!showProfileCenter && activeMenuKey !== 'shorts' && activeMenuKey !== 'subscribed'">
           <RouterView />
