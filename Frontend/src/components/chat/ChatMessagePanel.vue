@@ -1,28 +1,28 @@
 <script setup>
 import { ref, watch, nextTick, computed, onMounted, onUnmounted } from "vue";
-import { sanitizeImageUrl, DEFAULT_PROFILE_AVATAR_URL } from "../../utils/userProfile.js";
+import { sanitizeImageUrl } from "../../utils/userProfile.js";
 import { STORAGE_BIZ_CHAT } from "../../api/otherApi.js";
 import { uploadFileWithPresign } from "../../utils/presignUpload.js";
 import {
-  sendChatMediaMessage,
   retryFailedChatMessage,
+  sendChatMediaMessage,
   scheduleAfterChatMediaLoadError,
-  ensureMessageSeqLoaded,
 } from "../../stores/chatStore.js";
 import { toast } from "../../utils/toast.js";
 import ChatEmojiPicker from "./ChatEmojiPicker.vue";
 import BaseModal from "../ui/BaseModal.vue";
 import { annotateChatMessagesWithTime } from "../../utils/chatTime.js";
+import { useChatMessageDisplay } from "../../composables/chat/useChatMessageDisplay.js";
+import { useChatScroll } from "../../composables/chat/useChatScroll.js";
+import { useChatOwnerRecall } from "../../composables/chat/useChatOwnerRecall.js";
+import { useChatMediaPreview } from "../../composables/chat/useChatMediaPreview.js";
 
-/** 聊天附件单文件上限（1 GiB，与常见「1G」表述一致） */
 const CHAT_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024;
-
 const props = defineProps({
   conversationId: { type: String, default: null },
-  conversationName: { type: String, default: "" },
-  /** 会话头像（侧栏与消息头展示，对象存储签名 URL） */
-  conversationAvatar: { type: String, default: "" },
   conversationType: { type: String, default: "" },
+  conversationName: { type: String, default: "" },
+  conversationAvatar: { type: String, default: "" },
   /** 群聊：是否开启全员禁言（由群主在会话信息面板切换） */
   conversationBanned: { type: Boolean, default: false },
   /** 群聊：当前用户是否被单独禁言（来自会话行 banned 字段） */
@@ -46,23 +46,23 @@ const props = defineProps({
 
 const emit = defineEmits(["send", "load-history", "withdraw", "open-info", "open-video"]);
 
-function headAvatarSrc() {
-  const u = sanitizeImageUrl(props.conversationAvatar);
-  return u || DEFAULT_PROFILE_AVATAR_URL;
-}
-
-function onHeadAvatarError(ev) {
-  const t = ev?.target;
-  if (t instanceof HTMLImageElement) {
-    t.onerror = null;
-    t.src = DEFAULT_PROFILE_AVATAR_URL;
-  }
-}
-
-function onOpenInfo() {
-  if (!props.conversationId) return;
-  emit("open-info");
-}
+const {
+  isSelf,
+  isSendFailed,
+  isSending,
+  isWithdrawn,
+  messageMediaKind,
+  isChatGenericFile,
+  fileAttachmentDisplayName,
+  fileAttachmentSizeLabel,
+  withdrawNoticeText,
+  bubbleText,
+  avatarOf,
+  headAvatarSrc,
+  onHeadAvatarError,
+  onMsgRowAvatarError,
+  seqAttr,
+} = useChatMessageDisplay(props);
 
 const inputText = ref("");
 const inputTextRef = ref(null);
@@ -71,19 +71,35 @@ const sending = ref(false);
 const fileInputRef = ref(null);
 const fileUploading = ref(false);
 
+const { mediaPreview, openMediaPreview, closeMediaPreview } = useChatMediaPreview();
+const {
+  isJumpSuppressingAutoScroll,
+  scheduleScrollToBottom,
+  isNearListBottom,
+  onChatMediaLayout,
+  runJumpToSeq,
+} = useChatScroll(props, listRef);
+
+const isSingleChat = computed(() => String(props.conversationType || "").toUpperCase() === "SINGLE");
+
+const isGroupChat = computed(() => String(props.conversationType || "").toUpperCase() === "GROUP");
+
+const {
+  ownerRecallMenuKey,
+  showOwnerRecallAction,
+  onBubbleContextMenu,
+  onOwnerWithdrawClick,
+} = useChatOwnerRecall(
+  props,
+  { isGroupChat, isWithdrawn, isSending, isSendFailed },
+  { onWithdraw: (m) => emit("withdraw", m) }
+);
+
 const downloadConfirmOpen = ref(false);
 const pendingDownload = ref(null);
 
 /** @type {import('vue').Ref<Record<string, boolean>>} */
 const retrySendBusy = ref({});
-
-function isSendFailed(m) {
-  return String(m?.status || "").toUpperCase() === "FAILED";
-}
-
-function isSending(m) {
-  return String(m?.status || "").toUpperCase() === "SENDING";
-}
 
 async function onRetrySend(m) {
   if (!props.conversationId || !isSelf(m) || !isSendFailed(m) || !m.clientMsgId) return;
@@ -135,163 +151,9 @@ function confirmFileDownload() {
   a.remove();
 }
 
-/** 图片 / 视频全屏预览 */
-const mediaPreview = ref(null);
-
-function openMediaPreview(m, kind) {
-  const url = sanitizeImageUrl(m?.content?.objectKey);
-  if (!url) return;
-  mediaPreview.value = { url, kind: kind === "video" ? "video" : "image" };
-}
-
-function closeMediaPreview() {
-  mediaPreview.value = null;
-}
-
-function onGlobalKeydownForPreview(ev) {
-  if (ev.key === "Escape" && mediaPreview.value) {
-    closeMediaPreview();
-  }
-}
-
-const isSelf = (m) => String(m.senderId) === String(props.selfUserId);
-
-function seqAttr(m) {
-  const s = Number(m?.seq);
-  return Number.isFinite(s) && s > 0 ? String(s) : undefined;
-}
-
-function scrollJumpTargetIntoView(seq, behavior, withFlash = true) {
-  const wrap = listRef.value;
-  if (!wrap) return null;
-  const el = wrap.querySelector(`[data-chat-seq="${seq}"]`);
-  if (!(el instanceof HTMLElement)) return null;
-  const beh = behavior === "smooth" ? "smooth" : "auto";
-  el.scrollIntoView({ block: "center", behavior: beh });
-  if (withFlash) {
-    el.classList.add("chat-msg-jump-flash");
-    window.setTimeout(() => el.classList.remove("chat-msg-jump-flash"), 1400);
-  }
-  return el;
-}
-
-async function runJumpToSeq(seq) {
-  const id = String(props.conversationId || "");
-  if (!id) return;
-  const t = Number(seq);
-  if (!Number.isFinite(t) || t <= 0) return;
-  activateJumpScrollAutoScrollSuppress();
-  try {
-    await ensureMessageSeqLoaded(id, t);
-    await nextTick();
-    await nextTick();
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const first = scrollJumpTargetIntoView(t, "smooth");
-    if (!first) {
-      toast("未在已加载消息中找到该条，请稍后再试", "info");
-      return;
-    }
-    // 滚底定时器（最长约 600ms）可能在首次定位之后执行，再在窗口外补一次瞬时对齐
-    window.setTimeout(() => {
-      if (!isJumpSuppressingAutoScroll()) return;
-      scrollJumpTargetIntoView(t, "auto", false);
-    }, 680);
-  } catch (e) {
-    toast(e?.message || "跳转失败", "error");
-  }
-}
-
-/** FILE 中的视频：后端暂无 VIDEO 枚举，上传走 FILE + video mime */
-function messageMediaKind(m) {
-  const ct = String(m?.contentType || "").toUpperCase();
-  const c = m?.content || {};
-  const key = String(c.objectKey || "").trim();
-  if (!key) return null;
-  if (ct === "IMAGE") return "image";
-  if (ct === "FILE" || ct === "VIDEO") {
-    const mime = String(c.mimeType || "").toLowerCase();
-    if (mime.startsWith("video/")) return "video";
-    const name = String(c.fileName || c.objectKey || "").toLowerCase();
-    if (/\.(mp4|webm|ogg|ogv|mov|m4v|mkv|3gp)(\?|#|$)/i.test(name)) return "video";
-    if (ct === "VIDEO") return "video";
-  }
-  return null;
-}
-
-/** 非视频的 FILE（走附件卡片 + 下载确认） */
-function isChatGenericFile(m) {
-  if (String(m?.contentType || "").toUpperCase() !== "FILE") return false;
-  if (!String(m?.content?.objectKey || "").trim()) return false;
-  return messageMediaKind(m) !== "video";
-}
-
-function fileAttachmentDisplayName(m) {
-  const c = m?.content || {};
-  const fn = String(c.fileName || "").trim();
-  if (fn) return fn;
-  const key = String(c.objectKey || "");
-  const base = key.split("?")[0].split("#")[0].split(/[/\\]/).pop() || "";
-  return base || "[文件]";
-}
-
-function fileAttachmentSizeLabel(m) {
-  const n = Number(m?.content?.size);
-  if (!Number.isFinite(n) || n <= 0) return "";
-  const units = ["B", "K", "M", "G"];
-  let v = n;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  if (i === 0) return `${Math.round(v)}${units[i]}`;
-  const decimals = v >= 10 ? 0 : 1;
-  const rounded = decimals === 0 ? Math.round(v) : Math.round(v * 10) / 10;
-  let s = String(rounded);
-  if (s.endsWith(".0")) s = s.slice(0, -2);
-  return `${s}${units[i]}`;
-}
-
-function isWithdrawn(m) {
-  const st = String(m?.status || "").toUpperCase();
-  return st === "WITHDRAWN" || st === "WITHDRAW";
-}
-
-/** 后端 RecallTypeEnum：JSON 可能为 "ADMIN" / { name: "ADMIN" } */
-function normalizeRecallType(v) {
-  if (v == null || v === "") return "";
-  if (typeof v === "string") return String(v).toUpperCase();
-  if (typeof v === "object") {
-    const n = v?.name ?? v?.code;
-    if (n != null) return String(n).toUpperCase();
-  }
-  return String(v).toUpperCase();
-}
-
-/** 居中系统提示：本人撤回 vs 群主撤回成员消息 */
-function withdrawNoticeText(m) {
-  const rt = normalizeRecallType(m?.recallType);
-  const nick = (isSelf(m) ? "我" : String(m?.senderNickName || "").trim() || "对方").trim();
-  // 群主撤自己的消息应为 SENDER；若历史数据误为 ADMIN 且展示为「我」，仍按本人撤回展示
-  if (rt === "ADMIN" && !isSelf(m)) {
-    return `群主撤回了「${nick}」的一条消息`;
-  }
-  return `\u201c${nick}\u201d 撤回了一条消息`;
-}
-
-function bubbleText(m) {
-  const st = String(m.status || "").toUpperCase();
-  if (st === "WITHDRAWN" || st === "WITHDRAW") return "已撤回";
-  const c = m.content || {};
-  const ct = String(m.contentType || "").toUpperCase();
-  if (ct === "TEXT") return c.text || "";
-  if (ct === "SYSTEM") return c.systemText || c.text || "[系统]";
-  if (ct === "FORWARD_VIDEO") return "[转发视频]";
-  if (ct === "IMAGE") return "";
-  if (messageMediaKind(m) === "video") return "";
-  if (isChatGenericFile(m)) return "";
-  if (ct === "FILE") return c.fileName || c.objectKey || "[文件]";
-  return c.text || "[消息]";
+function onOpenInfo() {
+  if (!props.conversationId) return;
+  emit("open-info");
 }
 
 function onForwardVideoClick(m) {
@@ -299,21 +161,6 @@ function onForwardVideoClick(m) {
   const vid = c.forwardVideoId ?? c.forwardVideoID ?? c.videoId;
   if (vid == null || vid === "") return;
   emit("open-video", { videoId: String(vid) });
-}
-
-function avatarOf(m) {
-  const s = sanitizeImageUrl(m.senderAvatarUrl);
-  return s || DEFAULT_PROFILE_AVATAR_URL;
-}
-
-function onMsgRowAvatarError(ev) {
-  const el = ev?.target;
-  if (el instanceof HTMLImageElement) {
-    el.onerror = null;
-    el.src = DEFAULT_PROFILE_AVATAR_URL;
-    el.style.opacity = "1";
-  }
-  scheduleAfterChatMediaLoadError(props.conversationId);
 }
 
 function onBubbleImageError() {
@@ -329,66 +176,53 @@ function onPreviewMediaError() {
   scheduleAfterChatMediaLoadError(props.conversationId);
 }
 
-function scrollToBottomNow() {
-  const el = listRef.value;
-  if (!el) return;
-  el.scrollTop = el.scrollHeight;
-}
-
-/** 搜索结果跳转定位期间，禁止自动滚底（避免 items 变长 + isNearListBottom 触发把条拉到底） */
-let jumpSuppressAutoScrollUntil = 0;
-
-function isJumpSuppressingAutoScroll() {
-  return Date.now() < jumpSuppressAutoScrollUntil;
-}
-
-function activateJumpScrollAutoScrollSuppress() {
-  jumpSuppressAutoScrollUntil = Date.now() + 2000;
-}
-
-/** 布局与图片/视频加载后多次对齐到底部，避免刷新后滚动条停在中间 */
-function scheduleScrollToBottom() {
-  if (isJumpSuppressingAutoScroll()) return;
-  nextTick(() => {
-    scrollToBottomNow();
-    requestAnimationFrame(() => {
-      scrollToBottomNow();
-      requestAnimationFrame(scrollToBottomNow);
-    });
-    window.setTimeout(scrollToBottomNow, 60);
-    window.setTimeout(scrollToBottomNow, 240);
-    window.setTimeout(scrollToBottomNow, 600);
-  });
-}
-
-const STICK_BOTTOM_PX = 120;
-
-function isNearListBottom() {
-  const el = listRef.value;
-  if (!el) return true;
-  const { scrollTop, scrollHeight, clientHeight } = el;
-  if (scrollHeight <= clientHeight + 2) return true;
-  return scrollHeight - scrollTop - clientHeight < STICK_BOTTOM_PX;
-}
-
-let mediaLayoutTimer = null;
-function onChatMediaLayout() {
-  if (mediaLayoutTimer) window.clearTimeout(mediaLayoutTimer);
-  mediaLayoutTimer = window.setTimeout(() => {
-    mediaLayoutTimer = null;
-    if (isJumpSuppressingAutoScroll()) return;
-    if (isNearListBottom()) {
-      scheduleScrollToBottom();
-    }
-  }, 48);
-}
-
 /** 定时递增，使撤回按钮在超过 2 分钟后随渲染隐藏（须在依赖它的 watch 之前声明） */
 const uiClock = ref(0);
 let withdrawUiTimer = null;
 
-/** 群主右击气泡后展示的「撤回」：`senderId::clientMsgId` */
-const ownerRecallMenuKey = ref(/** @type {string|null} */ (null));
+const sendDisabledByBan = computed(
+  () =>
+    isGroupChat.value &&
+    (props.selfBanned || (props.conversationBanned && !props.isGroupOwner))
+);
+
+const canSend = computed(
+  () => inputText.value.trim().length > 0 && !sending.value && !sendDisabledByBan.value
+);
+
+const banPlaceholder = computed(() => {
+  if (!isGroupChat.value) return "";
+  if (props.selfBanned) return "你已被群主禁言";
+  if (props.conversationBanned && !props.isGroupOwner) return "本群已开启全员禁言";
+  return "";
+});
+
+/** 私聊下对方已读游标内，己方消息里最大的 seq（仅一条展示「已读」） */
+const latestReadSelfSeq = computed(() => {
+  const pr = Number(props.peerReadSeq) || 0;
+  if (!pr) return 0;
+  let max = 0;
+  for (const x of props.items || []) {
+    if (String(x.senderId) !== String(props.selfUserId)) continue;
+    const st = String(x?.status || "").toUpperCase();
+    if (st === "WITHDRAWN" || st === "WITHDRAW") continue;
+    const s = Number(x.seq);
+    if (!Number.isFinite(s) || s <= 0 || pr < s) continue;
+    if (s > max) max = s;
+  }
+  return max;
+});
+
+const timeAnnotatedItems = computed(() => annotateChatMessagesWithTime(props.items, Date.now()));
+
+function showReadForMessage(m) {
+  if (!isSingleChat.value || !isSelf(m)) return false;
+  const pr = Number(props.peerReadSeq) || 0;
+  const s = Number(m.seq);
+  if (!Number.isFinite(s) || s <= 0 || pr < s) return false;
+  if (isWithdrawn(m)) return false;
+  return s === latestReadSelfSeq.value;
+}
 
 watch(
   () => props.conversationId,
@@ -437,100 +271,10 @@ watch(
   }
 );
 
-const isSingleChat = computed(() => String(props.conversationType || "").toUpperCase() === "SINGLE");
-
-const isGroupChat = computed(() => String(props.conversationType || "").toUpperCase() === "GROUP");
-
-const sendDisabledByBan = computed(
-  () =>
-    isGroupChat.value &&
-    (props.selfBanned || (props.conversationBanned && !props.isGroupOwner))
-);
-
-const canSend = computed(
-  () => inputText.value.trim().length > 0 && !sending.value && !sendDisabledByBan.value
-);
-
-const banPlaceholder = computed(() => {
-  if (!isGroupChat.value) return "";
-  if (props.selfBanned) return "你已被群主禁言";
-  if (props.conversationBanned && !props.isGroupOwner) return "本群已开启全员禁言";
-  return "";
-});
-
-/** 私聊下对方已读游标内，己方消息里最大的 seq（仅一条展示「已读」） */
-const latestReadSelfSeq = computed(() => {
-  const pr = Number(props.peerReadSeq) || 0;
-  if (!pr) return 0;
-  let max = 0;
-  for (const x of props.items || []) {
-    if (String(x.senderId) !== String(props.selfUserId)) continue;
-    const st = String(x?.status || "").toUpperCase();
-    if (st === "WITHDRAWN" || st === "WITHDRAW") continue;
-    const s = Number(x.seq);
-    if (!Number.isFinite(s) || s <= 0 || pr < s) continue;
-    if (s > max) max = s;
-  }
-  return max;
-});
-
-const timeAnnotatedItems = computed(() => annotateChatMessagesWithTime(props.items, Date.now()));
-
-function showReadForMessage(m) {
-  if (!isSingleChat.value || !isSelf(m)) return false;
-  const pr = Number(props.peerReadSeq) || 0;
-  const s = Number(m.seq);
-  if (!Number.isFinite(s) || s <= 0 || pr < s) return false;
-  if (isWithdrawn(m)) return false;
-  return s === latestReadSelfSeq.value;
-}
-
-function msgRecallKey(m) {
-  return `${String(m?.senderId ?? "")}::${String(m?.clientMsgId ?? "")}`;
-}
-
-function canOwnerRecallMessage(m) {
-  if (!isGroupChat.value || !props.isGroupOwner) return false;
-  if (!m?.clientMsgId || m._local) return false;
-  if (isWithdrawn(m)) return false;
-  const ct = String(m.contentType || "").toUpperCase();
-  if (ct === "SYSTEM") return false;
-  if (isSending(m) || isSendFailed(m)) return false;
-  return true;
-}
-
-function showOwnerRecallAction(m) {
-  const k = msgRecallKey(m);
-  return Boolean(k && ownerRecallMenuKey.value === k);
-}
-
-function onBubbleContextMenu(m, ev) {
-  if (!canOwnerRecallMessage(m)) {
-    return;
-  }
-  ev.preventDefault();
-  ownerRecallMenuKey.value = msgRecallKey(m);
-}
-
-function onDocumentMousedownOwnerRecall(ev) {
-  if (!ownerRecallMenuKey.value) return;
-  const t = ev.target;
-  if (t instanceof Element && t.closest(".chat-msg-owner-recall-wrap")) return;
-  ownerRecallMenuKey.value = null;
-}
-
-function onOwnerWithdrawClick(m) {
-  if (!showOwnerRecallAction(m) || !m.clientMsgId) return;
-  ownerRecallMenuKey.value = null;
-  emit("withdraw", m);
-}
-
 onMounted(() => {
   withdrawUiTimer = window.setInterval(() => {
     uiClock.value++;
   }, 10000);
-  window.addEventListener("keydown", onGlobalKeydownForPreview);
-  document.addEventListener("mousedown", onDocumentMousedownOwnerRecall, true);
   scheduleScrollToBottom();
 });
 
@@ -539,12 +283,6 @@ onUnmounted(() => {
     window.clearInterval(withdrawUiTimer);
     withdrawUiTimer = null;
   }
-  if (mediaLayoutTimer != null) {
-    window.clearTimeout(mediaLayoutTimer);
-    mediaLayoutTimer = null;
-  }
-  window.removeEventListener("keydown", onGlobalKeydownForPreview);
-  document.removeEventListener("mousedown", onDocumentMousedownOwnerRecall, true);
 });
 
 async function onSend() {
