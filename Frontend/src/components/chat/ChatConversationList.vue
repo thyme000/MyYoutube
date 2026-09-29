@@ -309,3 +309,332 @@ async function confirmPicker() {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.chat-conv-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-conv-list--compact .chat-conv-row__ops {
+  display: none;
+}
+
+.chat-conv-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid #eef2f7;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-conv-row:hover {
+  background: #f8fafc;
+}
+
+.chat-conv-row--active {
+  background: #07c160;
+  color: #fff;
+}
+
+.chat-conv-row--active:hover {
+  background: #06ad56;
+}
+
+.chat-conv-row--active .chat-conv-row__preview,
+.chat-conv-row--active .chat-conv-row__time,
+.chat-conv-row--active .chat-conv-row__name {
+  color: #fff;
+}
+
+.chat-conv-row--active .chat-conv-row__preview {
+  opacity: 0.92;
+}
+
+.chat-conv-row__avatar-wrap {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+}
+
+.chat-conv-list--compact .chat-conv-row__avatar-wrap {
+  width: 40px;
+  height: 40px;
+}
+
+.chat-conv-row__avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #e2e8f0;
+}
+
+.chat-conv-row__badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.chat-conv-row__ann-dot {
+  position: absolute;
+  bottom: -2px;
+  left: -2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #f97316;
+  border: 2px solid #fff;
+  box-sizing: border-box;
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.35);
+}
+
+.chat-conv-row--active .chat-conv-row__ann-dot {
+  border-color: rgba(30, 41, 59, 0.95);
+  box-shadow: none;
+}
+
+.chat-conv-row__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-conv-row__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.chat-conv-row__name {
+  font-weight: 600;
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.chat-conv-row__time {
+  font-size: 12px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.chat-conv-row__preview {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-conv-row__ops {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chat-conv-ico {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  font-size: 16px;
+}
+
+.chat-conv-ico:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.chat-conv-list__hint,
+.chat-conv-list__empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.chat-conv-list__footer {
+  padding: 8px;
+}
+
+.chat-conv-list__footer--stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 0;
+}
+
+.chat-conv-more {
+  width: 100%;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px dashed #cbd5e1;
+  background: #fff;
+  cursor: pointer;
+  color: #475569;
+}
+
+.chat-mutual-pick-overlay {
+  z-index: 2410;
+}
+
+.chat-mutual-pick__hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.chat-mutual-pick__field {
+  margin-bottom: 12px;
+}
+
+.chat-mutual-pick__label {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.chat-mutual-pick__input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+.chat-mutual-pick__list {
+  flex: 1;
+  min-height: 120px;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.chat-mutual-pick__list-hint {
+  margin: 0;
+  padding: 20px 14px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.chat-mutual-pick__row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid #eef2f7;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: #0f172a;
+  box-sizing: border-box;
+}
+
+.chat-mutual-pick__row:last-child {
+  border-bottom: none;
+}
+
+.chat-mutual-pick__row:hover {
+  background: #f1f5f9;
+}
+
+.chat-mutual-pick__row--on {
+  background: #e0f2fe;
+}
+
+.chat-mutual-pick__check {
+  flex-shrink: 0;
+  width: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: #0ea5e9;
+}
+
+.chat-mutual-pick__av {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #e2e8f0;
+}
+
+.chat-mutual-pick__nick {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.chat-mutual-pick__actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.chat-mutual-pick__btn {
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+
+.chat-mutual-pick__btn--ghost {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.chat-mutual-pick__btn--primary {
+  background: #0ea5e9;
+  color: #fff;
+}
+
+.chat-mutual-pick__btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+</style>

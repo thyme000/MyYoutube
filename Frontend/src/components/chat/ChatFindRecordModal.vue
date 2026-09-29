@@ -297,3 +297,223 @@ watch(keyword, () => {
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+/* —— 查找聊天记录（会话详情入口）—— */
+.chat-find-rec-overlay {
+  z-index: 12060;
+  align-items: flex-start;
+  padding-top: 6vh;
+}
+
+.chat-find-rec {
+  width: min(440px, 94vw);
+  max-height: min(88vh, 720px);
+  margin: 0 auto;
+  background: #f4f6f8;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-find-rec__head {
+  position: relative;
+  padding: 16px 44px 12px;
+  background: #eef1f4;
+  border-bottom: 1px solid #e5e9ef;
+}
+
+.chat-find-rec__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.chat-find-rec__win-btns {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  display: flex;
+  gap: 2px;
+}
+
+.chat-find-rec__win-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #64748b;
+  font-size: 22px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-find-rec__win-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+}
+
+.chat-find-rec__search {
+  margin: 14px 16px 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 44px;
+  border-radius: 8px;
+  border: 1px solid #7dd3b8;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.chat-find-rec__search-ico {
+  flex-shrink: 0;
+  font-size: 18px;
+  color: #94a3b8;
+}
+
+.chat-find-rec__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.chat-find-rec__input::placeholder {
+  color: #94a3b8;
+}
+
+.chat-find-rec__body {
+  flex: 1;
+  min-height: 200px;
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  margin-top: 12px;
+  padding: 0 0 14px;
+}
+
+.chat-find-rec__hint {
+  margin: 0;
+  padding: 28px 20px;
+  text-align: center;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.chat-find-rec__hint--muted {
+  color: #94a3b8;
+}
+
+.chat-find-rec__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  border-top: 1px solid #e8ecf1;
+}
+
+.chat-find-rec__row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef2f7;
+  cursor: pointer;
+  outline: none;
+}
+
+.chat-find-rec__row:hover {
+  background: #f8fafc;
+}
+
+.chat-find-rec__row:focus-visible {
+  background: #f1f5f9;
+}
+
+.chat-find-rec__av {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #e2e8f0;
+}
+
+.chat-find-rec__mid {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-find-rec__meta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.chat-find-rec__nick {
+  font-size: 13px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-find-rec__time {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.chat-find-rec__preview {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #334155;
+  word-break: break-word;
+}
+
+.chat-find-rec__hit {
+  color: #0d9488;
+  font-weight: 600;
+}
+
+.chat-find-rec__more {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 12px auto 0;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chat-find-rec__more:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.chat-find-rec__more:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+</style>

@@ -468,3 +468,366 @@ onBeforeUnmount(() => {
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+/* 幻灯片：云端选曲弹层（高于上传弹窗 1002） */
+.slideshow-music-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.slideshow-music-picker {
+  position: relative;
+  width: min(440px, 100%);
+  max-height: min(86vh, 720px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #eee;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.smp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.smp-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.smp-close {
+  border: none;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+  line-height: 1;
+}
+
+.smp-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.smp-close i {
+  font-size: 22px;
+}
+
+.smp-hint {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #9a9a9a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.smp-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 16px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #252525;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.smp-search i {
+  color: #888;
+  font-size: 18px;
+}
+
+.smp-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+}
+
+.smp-err {
+  margin: 8px 16px 0;
+  font-size: 12px;
+  color: #f88;
+}
+
+.smp-loading,
+.smp-placeholder,
+.smp-empty {
+  margin: 12px 16px;
+  font-size: 13px;
+  color: #999;
+}
+
+.smp-results {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0 8px 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.smp-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.smp-result:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.smp-result--busy {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.smp-pic {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.smp-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.smp-name {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smp-sub {
+  font-size: 12px;
+  color: #888;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smp-spin {
+  font-size: 18px;
+  color: #ccc;
+  animation: smp-spin 0.9s linear infinite;
+}
+
+.smp-trim {
+  padding: 12px 16px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.smp-track-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #ccc;
+  line-height: 1.4;
+}
+
+.smp-dur {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #999;
+}
+
+.smp-range-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.smp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #aaa;
+}
+
+.smp-field input {
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: #111;
+  color: #fff;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.smp-mmss {
+  font-size: 12px;
+  color: #777;
+}
+
+.smp-seglen {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.smp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.smp-btn {
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+
+.smp-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.smp-btn--ghost {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.smp-btn--primary {
+  background: #fff;
+  color: #111;
+}
+
+.smp-audio-el {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.smp-fixed-banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(80, 120, 255, 0.15);
+  border: 1px solid rgba(120, 160, 255, 0.35);
+  font-size: 13px;
+  color: #c8d4ff;
+  text-align: left;
+}
+
+.smp-slider-label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: #aaa;
+  text-align: left;
+}
+
+.smp-slider-label input[type="range"] {
+  width: 100%;
+  accent-color: #8ab4ff;
+}
+
+.smp-lyrics {
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+.smp-lyrics-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #999;
+}
+
+.smp-lyrics-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.smp-lyric-line {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  color: #ddd;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.smp-lyric-line:last-child {
+  border-bottom: none;
+}
+
+.smp-lyric-line:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.smp-lyric-line:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.smp-lyric-t {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: #7a9fff;
+  min-width: 3.2rem;
+}
+
+.smp-lyric-txt {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.smp-lyrics-empty {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #777;
+  text-align: left;
+}
+</style>

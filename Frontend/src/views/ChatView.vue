@@ -24,3 +24,15 @@ const profile = useProfileStore();
     </div>
   </section>
 </template>
+
+<style scoped>
+/* ---------- 聊天模块 ---------- */
+.explore-chat-page {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+</style>

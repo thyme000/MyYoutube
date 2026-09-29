@@ -251,3 +251,143 @@ onBeforeUnmount(() => {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.chat-emoji-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.chat-msg-attach--emoji-on {
+  border-color: #07c160;
+  color: #059669;
+  background: #ecfdf5;
+}
+
+.chat-msg-emoji-pop {
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(340px, 48vh);
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.15);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Teleport 到 body：top/left/width 由 ChatEmojiPicker 内联样式写入 */
+.chat-msg-emoji-pop--portal {
+  position: fixed;
+  margin: 0;
+}
+
+.chat-msg-emoji-tabs {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 8px 8px 6px;
+  overflow-x: auto;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.chat-msg-emoji-tab {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 13px;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chat-msg-emoji-tab:hover {
+  color: #0f172a;
+}
+
+.chat-msg-emoji-tab--active {
+  background: #fff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.chat-msg-emoji-body {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  /* 固定高度，切换分类 / 加载时面板整体不上下跳动 */
+  height: 260px;
+  min-height: 260px;
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+}
+
+.chat-msg-emoji-body--centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-msg-emoji-hint,
+.chat-msg-emoji-err {
+  margin: 0;
+  padding: 12px 8px;
+  font-size: 13px;
+  text-align: center;
+  color: #94a3b8;
+}
+
+.chat-msg-emoji-err {
+  color: #b91c1c;
+}
+
+.chat-msg-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.chat-msg-emoji-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  min-height: 64px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.chat-msg-emoji-cell:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.chat-msg-emoji-glyph {
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.chat-msg-emoji-name {
+  font-size: 10px;
+  line-height: 1.25;
+  color: #64748b;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+</style>

@@ -200,3 +200,74 @@ function onOpenUser(e) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.chat-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 12px;
+  box-sizing: border-box;
+}
+
+.chat-workspace__err {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 14px;
+}
+
+.chat-workspace__main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 8px 28px rgba(15, 23, 42, 0.1),
+    0 24px 48px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.chat-workspace__rail {
+  width: min(320px, 38vw);
+  flex-shrink: 0;
+  border-left: 1px solid #e2e8f0;
+  background: #fff;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .chat-workspace__main {
+    flex-direction: column;
+  }
+
+  .chat-workspace__rail {
+    width: 100%;
+    max-height: 40vh;
+    border-left: none;
+    border-top: 1px solid #e2e8f0;
+  }
+}
+
+@media (max-width: 900px) {
+  .chat-workspace__main {
+    flex-direction: column;
+  }
+
+  .chat-workspace__rail {
+    width: 100%;
+    max-height: 40vh;
+    border-left: none;
+    border-top: 1px solid #e2e8f0;
+  }
+}
+</style>

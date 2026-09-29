@@ -566,3 +566,461 @@ function onSearchFeedListPause(e) {
           </div>
         </section>
 </template>
+
+<style scoped>
+.search-session {
+  width: min(1200px, 75vw);
+  margin-left: 0;
+  margin-right: auto;
+  align-self: flex-start;
+  padding: 12px 16px 48px;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 900px) {
+  .search-session {
+    width: min(96vw, 100%);
+    margin-left: 0;
+    margin-right: auto;
+  }
+}
+
+.search-session-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.search-session-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.search-session-tab {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.search-session-tab.is-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.search-session-sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.search-session-sort select {
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  padding: 4px 8px;
+}
+
+.search-session-msg {
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.search-session-msg--err {
+  color: #dc2626;
+}
+
+.search-user-strip {
+  margin-bottom: 16px;
+}
+
+.search-user-strip-title {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.search-user-strip-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+/* 综合：相关用户 — 约半宽、紧凑横排信息卡，可横向滑动 */
+.search-user-strip-scroll--wide-cards {
+  align-items: stretch;
+  max-width: min(1348px, 100%);
+}
+
+.search-user-card-wide {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  flex: 0 0 calc(50% - 6px);
+  width: calc(50% - 6px);
+  max-width: min(420px, calc(50% - 6px));
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.search-user-card-wide:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+}
+
+.search-user-card-wide__main {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+}
+
+.search-user-card-wide__main:hover .search-user-card-wide__name {
+  color: #2563eb;
+}
+
+.search-user-card-wide__avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.search-user-card-wide__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search-user-card-wide__name {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-user-card-wide__intro {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.search-user-card-wide__intro--muted {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.search-user-card-wide__meta {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-user-card-wide__meta-dot {
+  opacity: 0.65;
+  user-select: none;
+}
+
+.search-feed-loading,
+.search-feed-empty,
+.search-feed-more {
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 24px 12px;
+}
+
+.search-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.search-feed-slide {
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+  scroll-snap-align: start;
+}
+
+.search-feed-slide-top {
+  padding: 12px 14px 10px;
+  flex-shrink: 0;
+}
+
+.search-feed-slide-meta-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.search-feed-slide-meta-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-feed-slide-video-wrap {
+  width: 100%;
+  max-width: min(1348px, 100%);
+  max-height: min(797px, 72vh);
+  aspect-ratio: 1348 / 797;
+  margin: 0 auto 0 0;
+  align-self: flex-start;
+}
+
+.search-feed-slide-media {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.search-feed-slide-video-wrap .search-feed-overlay-actions {
+  z-index: 4;
+}
+
+/* 横向 16:9；竖屏视频居中 contain，两侧由模糊层填充（短视频常见做法） */
+.search-feed-player {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: min(52vh, 560px);
+  background: #0f1419;
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
+}
+
+.search-feed-player__blur {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.search-feed-video--blur {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120%;
+  height: 120%;
+  min-width: 100%;
+  min-height: 100%;
+  transform: translate(-50%, -50%) scale(1.08);
+  object-fit: cover;
+  filter: blur(32px) saturate(1.15);
+  opacity: 0.95;
+}
+
+.search-feed-video--main {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: transparent;
+}
+
+.search-feed-overlay-actions {
+  position: absolute;
+  right: 10px;
+  bottom: 50%;
+  transform: translateY(50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  pointer-events: none;
+  /* 避免子元素 button 使用 color:inherit 时吃到卡片上的深色正文色 */
+  color: #fff;
+}
+
+.search-feed-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+}
+
+.search-feed-stat i {
+  font-size: 24px;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+}
+
+/* 与主短视频右侧操作区一致：默认白、点赞实心高红 */
+.search-feed-overlay-actions .search-feed-stat--btn i {
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+}
+
+.search-feed-overlay-actions .search-feed-stat--btn.search-feed-stat--active,
+.search-feed-overlay-actions .search-feed-stat--btn.search-feed-stat--active i {
+  color: #ff2d4d;
+  -webkit-text-fill-color: #ff2d4d;
+}
+
+.search-feed-stat--btn {
+  pointer-events: auto;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  text-align: center;
+}
+
+.search-feed-stat--btn:hover {
+  opacity: 0.92;
+}
+
+.search-feed-stat--active {
+  color: #ff2d4d;
+}
+
+.search-user-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.search-user-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  cursor: pointer;
+  list-style: none;
+}
+
+.search-user-row:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}
+
+.search-user-row-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.search-user-follow-pill {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid #ff2d4d;
+  background: rgba(255, 45, 77, 0.08);
+  color: #ff2d4d;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.search-user-follow-pill:hover {
+  background: rgba(255, 45, 77, 0.14);
+}
+
+.search-user-follow-pill--followed {
+  border-color: #e2e8f0;
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.search-user-follow-pill--followed:hover {
+  background: #e2e8f0;
+}
+
+.search-user-row img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.search-user-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search-user-row-sub {
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>

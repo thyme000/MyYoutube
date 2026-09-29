@@ -320,3 +320,125 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
             </div>
           </section>
 </template>
+
+<style scoped>
+/* 首页分类条：独立一层，避免 flex 压缩或与卡片 transform 叠层错位 */
+.home-feed-header {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  background: var(--bg);
+  padding: 6px 0 14px;
+  margin: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+  isolation: isolate;
+}
+
+.home-category-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 0;
+  margin: 0;
+  scrollbar-width: thin;
+}
+
+.home-category-bar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.home-chip {
+  flex: 0 0 auto;
+  border: none;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 9px 22px;
+  min-width: 72px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--line);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.home-chip:hover {
+  background: var(--hover);
+}
+
+.home-chip--active {
+  background: var(--active);
+  border-color: #d0d9ea;
+  color: #1a2332;
+}
+
+.home-sort-inline {
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 2px;
+}
+
+.home-sort-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.home-sort-select {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.home-mixed-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.home-shorts-block {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(15, 35, 80, 0.06);
+  padding: 12px;
+}
+
+.home-shorts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.home-shorts-head h3 {
+  margin: 0;
+  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.home-shorts-loading-more {
+  flex: 0 0 100px;
+  align-self: center;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.card-grid--loading-more {
+  opacity: 0.96;
+}
+
+.module-empty--grid {
+  grid-column: 1 / -1;
+}
+</style>

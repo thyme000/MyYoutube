@@ -1086,3 +1086,649 @@ function onShortsPanelCommentUserClick(ev, userId) {
         </div>
 
 </template>
+
+<style scoped>
+.search-expand-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.search-expand-overlay--fullscreen {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+  background: #000;
+  backdrop-filter: none;
+}
+
+/* 搜索全屏：与短视频 feed 同一套 stage（short-video-bg + short-video-fg），非独立卡片 */
+.search-expand-shorts-shell {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+
+.search-expand-overlay--fullscreen .shorts-feed-center.search-expand-shorts-center {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  border: none;
+}
+
+.shorts-feed-bottom-bar--search-expand {
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  padding: 0 12px max(12px, env(safe-area-inset-bottom, 0px));
+  margin-top: auto;
+}
+
+.shorts-feed-comments-panel--floating {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4500;
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.35);
+}
+
+.search-expand-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 20;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.45);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.search-expand-close:hover {
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.search-expand-overlay--fullscreen .shorts-feed-ui {
+  padding-bottom: max(96px, calc(env(safe-area-inset-bottom, 0px) + 72px));
+}
+
+.video-player-loading--shorts {
+  z-index: 3;
+  background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(30, 35, 45, 0.88), rgba(6, 8, 12, 0.94));
+}
+
+.video-player-loading__shimmer--shorts {
+  opacity: 0.35;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 45%,
+    transparent 90%
+  );
+}
+
+.video-player-loading__ring--shorts {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.14);
+  border-top-color: #93c5fd;
+}
+
+.video-player-loading__text--shorts {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.shorts-feed-shell--with-sidebar .shorts-feed--follow-main {
+  min-width: 0;
+}
+
+.follow-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 64px);
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
+}
+
+.follow-sidebar-head {
+  padding: 14px 16px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+.follow-sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 10px 16px;
+}
+
+.follow-sidebar-hint {
+  margin: 12px 8px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.follow-sidebar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.follow-sidebar-row:hover {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.follow-sidebar-row:focus-visible {
+  outline: 2px solid var(--accent, #3b82f6);
+  outline-offset: 2px;
+}
+
+.follow-sidebar-row--active {
+  background: rgba(59, 130, 246, 0.14);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.follow-sidebar-row--all .follow-sidebar-all-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent, #3b82f6);
+  font-size: 20px;
+}
+
+.follow-sidebar-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--line);
+}
+
+.follow-sidebar-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.follow-sidebar-more {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 8px 8px 0;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.follow-sidebar-more:hover:not(:disabled) {
+  border-color: var(--accent, #3b82f6);
+  color: var(--accent, #3b82f6);
+}
+
+.follow-sidebar-more:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 900px) {
+  .shorts-feed-shell--with-sidebar {
+    flex-direction: column;
+  }
+
+  .follow-sidebar {
+    width: 100%;
+    max-height: 200px;
+    min-height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 900px) {
+  .shorts-feed-shell--with-sidebar {
+    flex-direction: column;
+  }
+
+  .follow-sidebar {
+    width: 100%;
+    max-height: 200px;
+    min-height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+.shorts-feed-center {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #1e2430;
+  touch-action: pan-y;
+}
+
+.profile-feed-overlay .shorts-feed-center {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border: none;
+}
+
+.shorts-feed-stage-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-feed-overlay .shorts-feed-stage-wrap {
+  height: 100%;
+}
+
+/* 左侧细线型上下切换，叠在视频上层 */
+.shorts-feed-nav-side {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  pointer-events: auto;
+}
+
+.shorts-feed-nav-line {
+  width: auto;
+  height: auto;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.38);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 300;
+  transition: color 0.2s ease, opacity 0.2s ease;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.65));
+}
+
+.shorts-feed-nav-line:hover {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.shorts-feed-nav-line:active {
+  color: #fff;
+}
+
+.shorts-feed-pause-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.shorts-feed-pause-overlay__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 42px;
+  line-height: 1;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+
+.shorts-feed-ui {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 14px 12px 96px;
+  pointer-events: none;
+  gap: 12px;
+}
+
+.shorts-feed-caption {
+  pointer-events: none;
+  color: #fff;
+  max-width: min(78%, 520px);
+  padding-left: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0 0 0 10px;
+  backdrop-filter: none;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+}
+
+.shorts-feed-action-col {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 4px;
+}
+
+.shorts-feed-author-block {
+  margin-bottom: 2px;
+}
+
+.shorts-feed-author-avatar-wrap {
+  position: relative;
+  width: 48px;
+  height: 48px;
+}
+
+.shorts-feed-follow-btn {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: #e53935;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.shorts-feed-follow-btn:hover {
+  filter: brightness(1.08);
+}
+
+.shorts-feed-follow-btn--followed {
+  background: rgba(255, 255, 255, 0.92);
+  color: #1a1a1a;
+}
+
+.shorts-feed-action-btn {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  line-height: 1;
+  transition: transform 0.15s ease, opacity 0.2s ease;
+  padding: 0;
+}
+
+.shorts-feed-action-btn:hover {
+  opacity: 0.9;
+  transform: scale(1.05);
+}
+
+.shorts-feed-action-btn--active {
+  color: #ff2d4d;
+  filter: drop-shadow(0 0 8px rgba(255, 45, 77, 0.65));
+}
+
+.shorts-feed-action-btn--active i {
+  color: #ff2d4d;
+  -webkit-text-fill-color: #ff2d4d;
+}
+
+.shorts-feed-action-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 58px;
+  position: relative;
+}
+
+.shorts-feed-action-item--menu {
+  overflow: visible;
+}
+
+/* 观看自己的短视频：三点菜单（浅色浮层，与创作中心行内菜单一致） */
+.shorts-self-action-menu {
+  position: absolute;
+  right: 44px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 132px;
+  padding: 6px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 30;
+}
+
+.shorts-self-action-btn {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 500;
+}
+
+.shorts-self-action-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.shorts-self-action-btn--danger {
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.4);
+  background: #fef2f2;
+}
+
+.shorts-self-action-btn--danger:hover {
+  background: #fee2e2;
+  border-color: rgba(185, 28, 28, 0.55);
+}
+
+.shorts-feed-action-count {
+  font-size: 12px;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+
+.shorts-feed-bottom-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  padding: 10px 12px 14px;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.78));
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 个人主页作品：全屏连播 */
+.profile-feed-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1004;
+  background: #0b0f18;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+}
+
+.shorts-feed-player-column {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.shorts-feed-comments-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.shorts-feed-comments-panel-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.shorts-feed-comments-panel-close {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.shorts-feed-comments-panel-close:hover {
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+  color: #1e293b;
+}
+
+.shorts-feed-comments-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 8px;
+  padding-right: 4px;
+}
+
+.profile-feed-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 80;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.58);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.profile-feed-close:hover {
+  background: rgba(0, 0, 0, 0.62);
+}
+
+/* 打开评论侧栏时避免与侧栏右上角关闭钮叠在一起 */
+.profile-feed-close--comments-open {
+  left: 16px;
+  right: auto;
+}
+</style>

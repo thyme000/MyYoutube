@@ -181,3 +181,73 @@ const { onAuthorAvatarClick } = bridge;
             </section>
           </section>
 </template>
+
+<style scoped>
+.history-shorts-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.history-shorts-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-shorts-head h3 {
+  margin: 0;
+  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.history-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-section-head h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.history-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.history-section-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.history-expand-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--text);
+  border-radius: 999px;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+</style>

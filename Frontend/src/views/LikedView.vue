@@ -129,3 +129,25 @@ const { onAuthorAvatarClick, onLikedWorkClick } = bridge;
             </div>
           </section>
 </template>
+
+<style scoped>
+.work-like--liked-list i {
+  color: #ff2d4d !important;
+  -webkit-text-fill-color: #ff2d4d;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.35));
+}
+
+.liked-videos-page {
+  padding: 0 4px 8px;
+}
+
+.liked-load-more-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 28px;
+}
+
+.liked-loading-block {
+  min-height: 120px;
+}
+</style>
