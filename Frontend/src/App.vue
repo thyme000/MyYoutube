@@ -1058,9 +1058,34 @@ watch(
     if (p === "/profile" || p.startsWith("/profile/")) {
       enterProfileFromRoute(p);
     }
+    if (p.startsWith("/feed/")) {
+      enterFeedFromRoute(p);
+    } else if (profileFeedOpen.value) {
+      shortsStore.closeProfileFeed();
+    }
   },
   { immediate: true }
 );
+
+/** /feed/:scope/:id? 入口：打开方已置好队列时跳过；深链/刷新无法重建队列，回退首页 */
+function enterFeedFromRoute(p) {
+  if (profileFeedOpen.value) return;
+  void router.replace("/");
+}
+
+/** 当前 feedScope 对应的路由；主区 feed（home/shorts）不入路由 */
+function feedRouteForCurrentScope() {
+  if (feedScope.value === "liked") return "/feed/liked";
+  if (feedScope.value === "follow") {
+    const aid = followSubscribedFilterAuthorId.value;
+    return aid != null && aid !== "" ? `/feed/follow/${aid}` : "/feed/follow";
+  }
+  if (feedScope.value === "profile") {
+    const tid = profileTargetUserId.value ?? currentUserId.value;
+    return tid != null ? `/feed/profile/${tid}` : "/feed/profile";
+  }
+  return null;
+}
 
 /** /profile 与 /profile/:userId 的统一入口：菜单点击已由 _enter 走过，这里兜住深链/刷新/前进 */
 function enterProfileFromRoute(p) {
@@ -2557,6 +2582,16 @@ async function openProfileWorkFeed(item) {
 /** 退出全屏流：实现已移入 shortsStore */
 const closeProfileFeed = () => shortsStore.closeProfileFeed();
 
+/** 关闭全屏连播后同步 URL：有来路则回退，深链直入则回当前菜单页 */
+function leaveFeedRoute() {
+  if (!route.path.startsWith("/feed/")) return;
+  if (window.history.state?.back) {
+    router.back();
+    return;
+  }
+  void router.push(menuPathFor(activeMenuKey.value));
+}
+
 function onProfileFeedKeydown(ev) {
   if (ev.key === "Escape") {
     if (shortsCommentPanelOpen.value) {
@@ -2596,8 +2631,20 @@ watch(unifiedFeedList, (list) => {
 watch(profileFeedOpen, (open) => {
   if (open) {
     window.addEventListener("keydown", onProfileFeedKeydown);
+    if (!route.path.startsWith("/feed/")) {
+      const target = feedRouteForCurrentScope();
+      if (target) {
+        void router.push(target);
+      }
+    }
   } else {
     window.removeEventListener("keydown", onProfileFeedKeydown);
+    /** 宏任务延迟：让菜单切换/进主页等并发 push 先落地，仅在 URL 仍停留在 /feed 时补离开 */
+    setTimeout(() => {
+      if (!profileFeedOpen.value && route.path.startsWith("/feed/")) {
+        leaveFeedRoute();
+      }
+    }, 0);
   }
 });
 

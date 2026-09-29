@@ -49,6 +49,13 @@ const routes = [
     meta: { title: "个人中心" },
     component: { render: () => null },
   },
+  /** 全屏连播：scope ∈ liked|history|profile|follow；队列在 shortsStore，URL 只承载历史栈 */
+  {
+    path: "/feed/:scope/:id?",
+    name: "feed",
+    meta: { title: "连播" },
+    component: { render: () => null },
+  },
 ];
 
 routes.push({ path: "/:pathMatch(.*)*", redirect: "/" });
