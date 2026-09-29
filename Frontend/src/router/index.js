@@ -1,67 +1,68 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { MENU_ROUTES } from "./menuRoutes.js";
+import {
+  loadMenuView,
+  loadStudioView,
+  loadProfileCenterView,
+  loadVideoDetailView,
+} from "./views.js";
 
 export { MENU_ROUTES };
 
 /**
- * 交给 <RouterView> 渲染的菜单。shorts / subscribed 不在内 —— 它们的 ShortsView 在 App 里常驻
- * （搜索结果页要复用同一个 feed 实例），路由再渲染一份会双开，故给空组件占位。
+ * 菜单路由 /studio /profile 由 <RouterView>（经 App 主区解析器）渲染真实视图。
+ * shorts / subscribed 的 ShortsView 在 App 里常驻（搜索结果页要复用同一个 feed 实例），
+ * /upload 叠在来路视图之上（App 解析器归底），/feed 的连播 UI 在常驻 ShortsView 内 —— 三者给空组件占位。
  */
-const MENU_VIEWS = {
-  home: () => import("../views/HomeView.vue"),
-  history: () => import("../views/HistoryView.vue"),
-  liked: () => import("../views/LikedView.vue"),
-  music: () => import("../views/MusicView.vue"),
-  chat: () => import("../views/ChatView.vue"),
-};
+const NULL_VIEW = { render: () => null };
 
 const routes = [
   ...MENU_ROUTES.map((r) => ({
     path: r.path,
     name: `menu-${r.key}`,
     meta: { menuKey: r.key },
-    component: MENU_VIEWS[r.key] ?? { render: () => null },
+    components: { default: loadMenuView[r.key] ?? NULL_VIEW },
   })),
-  /** 创作中心：App 以叠层渲染 StudioView，路由只承载 URL 与历史栈 */
+  /** 创作中心（YouTube Studio 风格）：路由承载 URL 与历史栈，/upload 可叠其上 */
   {
     path: "/studio",
     name: "studio",
     meta: { title: "创作中心" },
-    component: { render: () => null },
+    components: { default: loadStudioView },
   },
-  /** 上传弹窗：同上，叠层渲染，URL 可深链可后退 */
+  /** 上传弹窗：叠层渲染（归底到来路视图），URL 可深链可后退 */
   {
     path: "/upload",
     name: "upload",
     meta: { title: "上传视频" },
-    component: { render: () => null },
+    components: { default: NULL_VIEW },
   },
-  /** 个人中心：/profile 自己，/profile/:userId 他人；ProfileCenterView 由 App 叠层渲染 */
+  /** 个人中心：/profile 自己，/profile/:userId 他人 */
   {
     path: "/profile",
     name: "profile-self",
     meta: { title: "个人中心" },
-    component: { render: () => null },
+    components: { default: loadProfileCenterView },
   },
   {
     path: "/profile/:userId",
     name: "profile-user",
     meta: { title: "个人中心" },
-    component: { render: () => null },
+    components: { default: loadProfileCenterView },
   },
   /** 全屏连播：scope ∈ liked|history|profile|follow；队列在 shortsStore，URL 只承载历史栈 */
   {
     path: "/feed/:scope/:id?",
     name: "feed",
     meta: { title: "连播" },
-    component: { render: () => null },
+    components: { default: NULL_VIEW },
   },
-  /** 视频详情：VideoDetailView 由 App 叠层渲染；详情内切视频用 replace 不叠历史 */
+  /** 视频详情：命名视图渲染在 main 之外（main 被 v-show 隐藏）；详情内切视频用 replace 不叠历史 */
   {
     path: "/video/:id",
     name: "video",
     meta: { title: "视频详情" },
-    component: { render: () => null },
+    components: { detail: loadVideoDetailView },
   },
 ];
 

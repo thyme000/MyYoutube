@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { RouterView, useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
@@ -47,11 +47,9 @@ import { parseDigitSnowflakeId } from "./utils/snowflakeId.js";
 import appIco from "../static/狗.png?url";
 const SearchView = defineAsyncComponent(() => import("./views/SearchView.vue"));
 const ShortsView = defineAsyncComponent(() => import("./views/ShortsView.vue"));
-const VideoDetailView = defineAsyncComponent(() => import("./views/VideoDetailView.vue"));
 import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
 import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
-const StudioView = defineAsyncComponent(() => import("./views/StudioView.vue"));
-const ProfileCenterView = defineAsyncComponent(() => import("./views/ProfileCenterView.vue"));
+import { MenuView, StudioView, ProfileCenterView } from "./router/views.js";
 import ChatFloatingRail from "./components/chat/ChatFloatingRail.vue";
 import ChatForwardVideoModal from "./components/chat/ChatForwardVideoModal.vue";
 import CommentReportModal from "./components/CommentReportModal.vue";
@@ -436,6 +434,29 @@ function applyMenuKeyIfKnown(key) {
 }
 
 /** 浏览器前进/后退、刷新：以 URL 为准同步菜单与创作中心 */
+/**
+ * 主区视图解析：路由为唯一事实来源（菜单 / studio / profile 由路由表给出真实组件）。
+ * /upload 叠在来路视图之上（目前仅 /studio 入口会进上传），用最近一次非 /upload 的主区视图归底，深链直入则无底层。
+ * 优先级 studio > search（搜索态压掉菜单与 profile，与既有 v-if 链语义一致）。
+ */
+const uploadUnderlyingView = shallowRef(null);
+function mainViewForPath(p) {
+  if (p === "/studio") return StudioView;
+  if (searchActive.value) return null;
+  if (p === "/profile" || p.startsWith("/profile/")) return ProfileCenterView;
+  return MenuView[menuKeyForPath(p)] ?? null;
+}
+const mainView = computed(() =>
+  route.path === "/upload" ? uploadUnderlyingView.value : mainViewForPath(route.path)
+);
+watch(
+  () => route.path,
+  (p) => {
+    if (p !== "/upload") uploadUnderlyingView.value = mainViewForPath(p);
+  },
+  { immediate: true }
+);
+
 watch(
   () => route.path,
   (p) => {
@@ -1820,24 +1841,15 @@ onBeforeUnmount(() => {
             !showProfileCenter && activeMenuKey === 'chat' && !showStudio && !searchActive,
         }"
       >
-        <!-- 创作中心（YouTube Studio 风格） -->
-        <StudioView v-if="showStudio" />
-
-        <template v-else>
-        <SearchView v-if="searchActive" :scroll-ref="searchFeedScrollRef" />
-        <ShortsView />
-        <template v-if="!searchActive">
-
-        <ProfileCenterView v-if="showProfileCenter" />
-
-        <template v-if="!showProfileCenter && activeMenuKey !== 'shorts' && activeMenuKey !== 'subscribed'">
-          <RouterView />
-        </template>
-        </template>
-        </template>
+        <!-- 主区视图由路由解析（菜单 / studio / profile）；/upload 归底到来路视图 -->
+        <component :is="mainView" />
+        <SearchView v-if="searchActive && !showStudio" :scroll-ref="searchFeedScrollRef" />
+        <!-- 常驻：搜索结果页复用同一 feed 实例防双开 -->
+        <ShortsView v-if="!showStudio" />
       </main>
 
-      <VideoDetailView v-if="showVideoDetail" />
+      <!-- 视频详情：路由命名视图，渲染在 main 之外（main 被 v-show 隐藏） -->
+      <RouterView name="detail" />
 
       <UploadModal v-if="uploadModalOpen" />
 
