@@ -24,7 +24,9 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: Frontend/package-lock.json
-      - run: npm ci
+      # gradflow-vue@0.1.3 的 postinstall 跑 `nuxt prepare`，但 nuxt 只在其 devDependencies，
+      # 干净环境必挂（exit 127）；依赖树里没有其它需要安装脚本的包（rolldown 走平台二进制可选包），跳过即可。
+      - run: npm ci --ignore-scripts
       - name: Lint
         run: npm run lint
       - name: Typecheck
