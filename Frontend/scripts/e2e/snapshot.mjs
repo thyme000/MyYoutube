@@ -1,3 +1,17 @@
+/**
+ * 逐路由抓取「DOM 结构 + 计算样式」快照，用于 CSS / 路由改动的前后回归对比。
+ *
+ * 用法:
+ *   npm run e2e:snapshot -- --name base --login test:password   # 首次，自动登录并录 fixtures
+ *   npm run e2e:snapshot -- --name before                       # 改之前
+ *   npm run e2e:snapshot -- --name after                        # 改之后
+ *   npm run e2e:diff before after
+ *
+ * 三种取数模式:
+ *   off     不动 fetch，直连真实后端。要求后端在跑且登录态有效。
+ *   record  同上，额外把每个响应按 "METHOD path?query" 存进 fixtures，供后续离线回放。
+ *   replay  拦截 fetch 回放 fixtures，不依赖后端与登录态，结果完全确定 —— 回归就用它。
+ */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -55,6 +69,18 @@ function parseArgs(argv) {
   return out;
 }
 
+/** 开发态后端不校验验证码，登录即可换取令牌；每次录制都重新登录，避免令牌过期 */
+async function fetchToken(backend, user, pass) {
+  const res = await fetch(`${backend}/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: user, password: pass, captcha: "000000" }),
+  });
+  const body = await res.json();
+  if (body.code !== 200 || !body.data) throw new Error(`登录失败: ${JSON.stringify(body)}`);
+  return body.data;
+}
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const srv = createServer();
@@ -86,14 +112,17 @@ async function waitFor(url, timeoutMs, label) {
 }
 
 /** 注入到每个页面最前面：给登录态，并按模式回放 / 录制接口响应 */
-function runtimeSource(mode, token, fixtures) {
+function runtimeSource(mode, token, fixtures, delay) {
   return `(function () {
   var TOKEN = ${JSON.stringify(token || "")};
   var MODE = ${JSON.stringify(mode)};
   var FIXTURES = ${JSON.stringify(fixtures || {})};
+  var DELAY = ${Number(delay) || 0};
   window.__e2eRecorded = {};
+  window.__e2eMissed = {};
+  window.__e2eSeen = {};
+  window.__e2ePending = 0;
   if (TOKEN) { try { localStorage.setItem("myyoutube_token", TOKEN); } catch (e) { void e; } }
-  if (MODE === "off") { return; }
   function keyOf(input, init) {
     var url = typeof input === "string" ? input : input.url;
     var m = (init && init.method) || (typeof input === "object" && input && input.method) || "GET";
@@ -103,19 +132,28 @@ function runtimeSource(mode, token, fixtures) {
   function json(body) {
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   }
+  function dec() { window.__e2ePending = Math.max(0, (window.__e2ePending || 0) - 1); }
   var real = window.fetch.bind(window);
   window.fetch = function (input, init) {
+    window.__e2ePending = (window.__e2ePending || 0) + 1;
     var key = keyOf(input, init);
+    window.__e2eSeen[key] = true;
     if (MODE === "replay") {
-      if (Object.prototype.hasOwnProperty.call(FIXTURES, key)) { return Promise.resolve(json(FIXTURES[key])); }
-      return Promise.resolve(json({ code: 0, message: "ok", data: null }));
+      var hit = Object.prototype.hasOwnProperty.call(FIXTURES, key);
+      if (!hit) { window.__e2eMissed[key] = true; }
+      // 必须走宏任务: 微任务立即兑现会让应用启动时序塌缩, 路由相关加载被跳过(实测 /liked 会错配成首页)
+      var p = new Promise(function (resolve) { setTimeout(resolve, DELAY); }).then(function () {
+        return hit ? json(FIXTURES[key]) : json({ code: 0, message: "ok", data: null });
+      });
+      return p.then(function (r) { dec(); return r; }, function (e) { dec(); throw e; });
     }
     return real(input, init).then(function (res) {
+      dec();
       if (MODE === "record") {
         res.clone().json().then(function (body) { window.__e2eRecorded[key] = body; }).catch(function (e) { void e; });
       }
       return res;
-    });
+    }, function (e) { dec(); throw e; });
   };
 })()`;
 }
@@ -140,7 +178,7 @@ function captureExpression() {
       style: style
     });
   }
-  var nav = document.querySelector(".sidebar .nav-item.is-active .nav-label");
+  var nav = document.querySelector(".sidebar .nav-item.active .nav-label");
   var main = document.querySelector("main.content");
   return JSON.stringify({
     title: document.title,
@@ -152,17 +190,17 @@ function captureExpression() {
 })()`;
 }
 
-const COUNT_EXPR =
-  "document.querySelectorAll('*').length - document.querySelectorAll('style,script,link').length";
+// 只看元素数会在「请求已发出、DOM 还没补上」时误判稳定，必须把在途请求一起看
+const STABLE_EXPR =
+  "String(window.__e2ePending || 0) + ':' + (document.querySelectorAll('*').length - document.querySelectorAll('style,script,link').length)";
 
-/** 轮询到节点数连续两次一致，避免异步列表未加载完就抓快照造成假差异 */
-async function waitStable(cdp, sessionId, tries = 14, gap = 400) {
-  let prev = -1;
+async function waitStable(cdp, sessionId, tries = 20, gap = 400) {
+  let prev = "";
   for (let i = 0; i < tries; i += 1) {
     await sleep(gap);
-    const n = Number(await evaluate(cdp, sessionId, COUNT_EXPR));
-    if (Number.isFinite(n) && n === prev) return true;
-    prev = n;
+    const snap = String(await evaluate(cdp, sessionId, STABLE_EXPR));
+    if (snap.startsWith("0:") && snap === prev) return true;
+    prev = snap;
   }
   return false;
 }
@@ -172,24 +210,35 @@ async function run() {
   const name = args.name || "snapshot";
   // 默认用 localhost 而不是 127.0.0.1：vite 默认只监听 [::1]，IPv4 回环会拿到 502
   let base = (args.base || "http://localhost:5173").replace(/\/$/, "");
-  const token = args.token || process.env.E2E_TOKEN || "";
+  const backend = (args.backend || "http://localhost:8080").replace(/\/$/, "");
+  let token = args.token || process.env.E2E_TOKEN || "";
+  const login = args.login || process.env.E2E_LOGIN || "";
+  if (!token && login) {
+    const [user, pass] = login.split(":");
+    if (!user || !pass) throw new Error("--login 需形如 user:password");
+    token = await fetchToken(backend, user, pass);
+    console.error(`已登录 ${user}`);
+  }
 
   await mkdir(SNAP_DIR, { recursive: true });
 
   let fixtures = {};
   let mode;
   if (args.record === "true") {
-    if (!token) throw new Error("--record 需要 --token 或环境变量 E2E_TOKEN");
+    if (!token) throw new Error("--record 需要 --token 或 --login");
     mode = "record";
   } else if (existsSync(FIXTURES)) {
     mode = "replay";
     fixtures = JSON.parse(await readFile(FIXTURES, "utf8"));
+  } else if (token) {
+    // 首次运行且能登录：直接录一份，省掉单独再跑一次 --record
+    mode = "record";
   } else {
     mode = "off";
   }
-  if (mode === "off" && !token) {
-    console.error("警告: 既无 fixtures 也无 token，接口会 401 退回登录页，快照几乎没有覆盖。");
-    console.error("      先跑一次: npm run e2e:snapshot -- --name base --record --token <jwt>");
+  if (mode === "off") {
+    console.error("警告: 既无 fixtures 也无法登录，接口会 401 退回登录页，快照几乎没有覆盖。");
+    console.error("      先跑一次: npm run e2e:snapshot -- --name base --login user:password");
   }
 
   const bin = BROWSERS.find((p) => existsSync(p));
@@ -252,11 +301,13 @@ async function run() {
 
     await cdp.send(
       "Page.addScriptToEvaluateOnNewDocument",
-      { source: runtimeSource(mode, token, fixtures) },
+      { source: runtimeSource(mode, token, fixtures, Number(args.delay ?? 40)) },
       sessionId
     );
 
     const routes = [];
+    // 每条路由各自回读：页面导航会重置 window，录制结果不能只在最后读一次
+    const recorded = {};
     for (const route of MENU_ROUTES) {
       errors.length = 0;
       await cdp.send("Page.navigate", { url: base + route.path }, sessionId);
@@ -268,6 +319,20 @@ async function run() {
       } catch (err) {
         status = `抓取失败: ${err.message}`;
       }
+      if (status === "ok") {
+        if (mode === "record") {
+          const chunk = await evaluate(cdp, sessionId, "JSON.stringify(window.__e2eRecorded)", 30000);
+          Object.assign(recorded, JSON.parse(chunk || "{}"));
+        } else if (mode === "replay") {
+          const missed = await evaluate(cdp, sessionId, "JSON.stringify(Object.keys(window.__e2eMissed))", 15000);
+          const list = JSON.parse(missed || "[]");
+          if (list.length) console.error(`  未命中 fixtures ${list.length} 个: ${list.slice(0, 3).join(" | ")}`);
+        }
+        if (args.verbose === "true") {
+          const seen = await evaluate(cdp, sessionId, "JSON.stringify(Object.keys(window.__e2eSeen))", 15000);
+          for (const k of JSON.parse(seen || "[]")) console.error(`    请求过 ${k}`);
+        }
+      }
       routes.push({ key: route.key, path: route.path, status, ...(data || { nodes: [] }), errors: [...errors] });
       console.error(
         `${route.path.padEnd(12)} ${status === "ok" ? `${String(data.nodes.length).padStart(5)} 元素` : status}`
@@ -275,9 +340,8 @@ async function run() {
     }
 
     if (mode === "record") {
-      const recorded = await evaluate(cdp, sessionId, "JSON.stringify(window.__e2eRecorded)", 30000);
-      await writeFile(FIXTURES, JSON.stringify(JSON.parse(recorded || "{}"), null, 2));
-      console.error(`已录制 ${Object.keys(JSON.parse(recorded || "{}")).length} 条接口响应 -> ${FIXTURES}`);
+      await writeFile(FIXTURES, JSON.stringify(recorded, null, 2));
+      console.error(`已录制 ${Object.keys(recorded).length} 条接口响应 -> ${FIXTURES}`);
     }
 
     const out = {
