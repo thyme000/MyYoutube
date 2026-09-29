@@ -1,23 +1,18 @@
 <script setup>
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, watch } from "vue";
 import BaseModal from "../ui/BaseModal.vue";
-import {
-  sanitizeImageUrl,
-  DEFAULT_PROFILE_AVATAR_URL,
-} from "../../utils/userProfile.js";
-import { fetchInterrelatedPage } from "../../api/followApi.js";
-import * as chatApi from "../../api/chatApi.js";
 import {
   toggleMuteRow,
   togglePinRow,
   toggleConversationBanned,
-  removeConversationLocal,
-  refreshConversationList,
-  upsertConversationRow,
-  isGroupAnnouncementUnread,
 } from "../../stores/chatStore.js";
 import { toast } from "../../utils/toast.js";
 import ChatFindRecordModal from "./ChatFindRecordModal.vue";
+import { useChatSessionMeta } from "../../composables/chat/useChatSessionMeta.js";
+import { useChatSessionRoster } from "../../composables/chat/useChatSessionRoster.js";
+import { useChatGroupAdmin } from "../../composables/chat/useChatGroupAdmin.js";
+import { useChatSessionAnnouncement } from "../../composables/chat/useChatSessionAnnouncement.js";
+import { useChatSessionLeave } from "../../composables/chat/useChatSessionLeave.js";
 
 const props = defineProps({
   row: { type: Object, required: true },
@@ -26,156 +21,94 @@ const props = defineProps({
 
 const emit = defineEmits(["close", "jump-to-seq", "open-user"]);
 
-const members = ref(/** @type {any[]} */ ([]));
-const membersLoading = ref(false);
-const membersError = ref("");
+const { isGroup, isSingle, conversationBanned, selfStr, convName } = useChatSessionMeta(props);
+const meta = { isGroup, isSingle, conversationBanned, selfStr, convName };
 
-const inviteOpen = ref(false);
-const inviteLoading = ref(false);
-const inviteSubmitting = ref(false);
-const mutualUsers = ref([]);
-const invitePickId = ref(/** @type {string|null} */ (null));
+const {
+  members,
+  membersLoading,
+  membersError,
+  isGroupOwner,
+  membersRemovable,
+  memberMenuOpen,
+  memberMenuX,
+  memberMenuY,
+  memberMenuBusy,
+  loadMembers,
+  displayNick,
+  onMemberAvatarClick,
+  onMemberAvatarError,
+  onMemberContextMenu,
+  onMemberBanClick,
+} = useChatSessionRoster(props, meta, {
+  onOpenUser: (userId) => emit("open-user", { userId }),
+});
 
-const removeOpen = ref(false);
-const removePickIds = ref(/** @type {string[]} */ ([]));
-const removeSubmitting = ref(false);
-const removeBulkConfirmOpen = ref(false);
+const {
+  inviteOpen,
+  inviteLoading,
+  inviteSubmitting,
+  mutualUsers,
+  invitePickId,
+  removeOpen,
+  removePickIds,
+  removeSubmitting,
+  removeBulkConfirmOpen,
+  renameBusy,
+  renameOpen,
+  renameDraft,
+  renameInputRef,
+  avatarBusy,
+  avatarInputRef,
+  openInvite,
+  closeInvite,
+  pickInviteUser,
+  userPickLabel,
+  userPickAvatar,
+  confirmInvite,
+  openRemove,
+  closeRemove,
+  toggleRemovePick,
+  isRemovePicked,
+  openRemoveBulkConfirm,
+  closeRemoveBulkConfirm,
+  executeRemoveMembers,
+  openRenameModal,
+  closeRenameModal,
+  confirmRename,
+  triggerAvatarPick,
+  onAvatarFile,
+} = useChatGroupAdmin(props, meta, { members, isGroupOwner, loadMembers });
 
-const leaveConfirmOpen = ref(false);
-const leaveBusy = ref(false);
+const {
+  annLoading,
+  annText,
+  annViewOpen,
+  annEditOpen,
+  annDraft,
+  annSaving,
+  annRowSummary,
+  showAnnUnread,
+  loadAnnouncement,
+  openAnnView,
+  closeAnnView,
+  openAnnEditFromView,
+  closeAnnEdit,
+  confirmAnnPublish,
+} = useChatSessionAnnouncement(props, meta);
 
-const findRecordOpen = ref(false);
+const {
+  leaveConfirmOpen,
+  leaveBusy,
+  leaveConfirmTitle,
+  leaveConfirmMessage,
+  openLeaveConfirm,
+  closeLeaveConfirm,
+  submitLeaveConfirm,
+} = useChatSessionLeave(props, meta, { isGroupOwner, onClose: () => emit("close") });
 
-const renameBusy = ref(false);
-const renameOpen = ref(false);
-const renameDraft = ref("");
-const renameInputRef = ref(null);
-const avatarBusy = ref(false);
-const avatarInputRef = ref(null);
 const banBusy = ref(false);
-
-const annLoading = ref(false);
-const annText = ref("");
-const annVersion = ref(0);
-const annViewOpen = ref(false);
-const annEditOpen = ref(false);
-const annDraft = ref("");
-const annSaving = ref(false);
-
-const isGroup = computed(
-  () => String(props.row?.conversationType || "").toUpperCase() === "GROUP"
-);
-
-const isSingle = computed(() => !isGroup.value);
-
-const conversationBanned = computed(
-  () => Boolean(props.row?.conversationBanned ?? props.row?.conversatinoBanned)
-);
-
-const selfStr = computed(() =>
-  props.selfUserId != null ? String(props.selfUserId) : ""
-);
-
-const isGroupOwner = computed(() => {
-  if (!isGroup.value || !selfStr.value) return false;
-  const hit = members.value.find((m) => String(m.userId) === selfStr.value);
-  return Boolean(hit?.isGroupOwner);
-});
-
-const convName = computed(() => String(props.row?.conversationName || "").trim() || "未命名会话");
-
-/** 可移除：非群主（后端 isGroupOwner） */
-const membersRemovable = computed(() => members.value.filter((m) => !m?.isGroupOwner));
-
-function displayNick(m) {
-  const n = String(m?.userName || m?.user_name || "").trim();
-  if (!n) return `用户 ${m?.userId ?? ""}`;
-  return n.length > 6 ? `${n.slice(0, 6)}…` : n;
-}
-
-function onMemberAvatarClick(m) {
-  const uid = m?.userId != null ? String(m.userId) : "";
-  if (!uid) return;
-  emit("open-user", { userId: uid });
-}
-
-async function loadMembers() {
-  if (!isGroup.value) {
-    members.value = [];
-    return;
-  }
-  const id = String(props.row?.conversationId || "");
-  if (!id) return;
-  membersLoading.value = true;
-  membersError.value = "";
-  try {
-    const data = await chatApi.getGroupMembers(id);
-    const list = Array.isArray(data)
-      ? data
-      : Array.isArray(data?.members)
-        ? data.members
-        : Array.isArray(data?.list)
-          ? data.list
-          : [];
-    members.value = list;
-    const convBan = data?.conversationBanned ?? data?.conversatinoBanned;
-    if (convBan != null) {
-      const nextBan = Boolean(convBan);
-      const curBan = Boolean(props.row?.conversationBanned ?? props.row?.conversatinoBanned);
-      if (nextBan !== curBan) {
-        upsertConversationRow({
-          conversationId: id,
-          conversationBanned: nextBan,
-        });
-      }
-    }
-  } catch (e) {
-    members.value = [];
-    membersError.value = e?.message || "加载成员失败";
-  } finally {
-    membersLoading.value = false;
-  }
-}
-
-async function loadAnnouncement() {
-  if (!isGroup.value) {
-    annText.value = "";
-    annVersion.value = 0;
-    return;
-  }
-  const id = String(props.row?.conversationId || "");
-  if (!id) {
-    annText.value = "";
-    annVersion.value = 0;
-    return;
-  }
-  annLoading.value = true;
-  try {
-    const data = await chatApi.getAnnouncement(id);
-    annText.value = data?.text != null ? String(data.text) : "";
-    annVersion.value = Number(data?.version) || 0;
-    if (annVersion.value > 0) {
-      upsertConversationRow({
-        conversationId: id,
-        lastAnnouncementVersion: annVersion.value,
-      });
-    }
-  } catch {
-    annText.value = "";
-    annVersion.value = 0;
-  } finally {
-    annLoading.value = false;
-  }
-}
-
-const annRowSummary = computed(() => {
-  if (annLoading.value) return "加载中…";
-  const t = String(annText.value || "").trim();
-  if (!t) return "暂无公告";
-  return t.length > 28 ? `${t.slice(0, 28)}…` : t;
-});
-
-const showAnnUnread = computed(() => isGroupAnnouncementUnread(props.row));
+const findRecordOpen = ref(false);
 
 watch(
   () => props.row?.conversationId,
@@ -230,84 +163,6 @@ async function onBanToggle() {
   }
 }
 
-const memberMenuOpen = ref(false);
-const memberMenuX = ref(0);
-const memberMenuY = ref(0);
-const memberMenuUserId = ref(/** @type {string|null} */ (null));
-const memberMenuBusy = ref(false);
-
-function closeMemberMenu() {
-  memberMenuOpen.value = false;
-  memberMenuUserId.value = null;
-  memberMenuBusy.value = false;
-}
-
-function canShowMemberBan(m) {
-  if (!isGroupOwner.value) return false;
-  if (conversationBanned.value) return false;
-  const uid = m?.userId != null ? String(m.userId) : "";
-  if (!uid) return false;
-  if (selfStr.value && uid === selfStr.value) return false;
-  return !m?.banned;
-}
-
-function onMemberContextMenu(m, ev) {
-  ev?.preventDefault?.();
-  if (!canShowMemberBan(m)) {
-    closeMemberMenu();
-    return;
-  }
-  memberMenuUserId.value = String(m.userId);
-  memberMenuX.value = Math.max(8, Math.min((ev?.clientX ?? 0) + 2, window.innerWidth - 160));
-  memberMenuY.value = Math.max(8, Math.min((ev?.clientY ?? 0) + 2, window.innerHeight - 80));
-  memberMenuOpen.value = true;
-}
-
-function onGlobalPointerDownForMemberMenu(ev) {
-  if (!memberMenuOpen.value) return;
-  const t = ev?.target;
-  if (t instanceof Element && t.closest(".chat-member-menu")) return;
-  closeMemberMenu();
-}
-
-function onGlobalKeyDownForMemberMenu(ev) {
-  if (ev?.key === "Escape") closeMemberMenu();
-}
-
-watch(
-  () => memberMenuOpen.value,
-  (on) => {
-    if (on) {
-      document.addEventListener("mousedown", onGlobalPointerDownForMemberMenu, true);
-      window.addEventListener("keydown", onGlobalKeyDownForMemberMenu);
-      window.addEventListener("scroll", closeMemberMenu, true);
-    } else {
-      document.removeEventListener("mousedown", onGlobalPointerDownForMemberMenu, true);
-      window.removeEventListener("keydown", onGlobalKeyDownForMemberMenu);
-      window.removeEventListener("scroll", closeMemberMenu, true);
-    }
-  }
-);
-
-async function onMemberBanClick() {
-  if (!memberMenuOpen.value || !memberMenuUserId.value) return;
-  const cid = String(props.row?.conversationId || "");
-  if (!cid || memberMenuBusy.value) return;
-  memberMenuBusy.value = true;
-  try {
-    await chatApi.banGroupMember(cid, memberMenuUserId.value, true);
-    const uid = memberMenuUserId.value;
-    members.value = (members.value || []).map((m) =>
-      String(m?.userId) === String(uid) ? { ...m, banned: true } : m
-    );
-    toast("已禁言该成员", "info");
-    closeMemberMenu();
-  } catch (e) {
-    toast(e?.message || "操作失败", "error");
-    memberMenuBusy.value = false;
-  }
-}
-
 function onSearchChatClick() {
   findRecordOpen.value = true;
 }
@@ -317,337 +172,6 @@ function onFindRecordPick({ seq }) {
   const s = Number(seq);
   if (Number.isFinite(s) && s > 0) {
     emit("jump-to-seq", { seq: s });
-  }
-}
-
-async function openInvite() {
-  if (!isGroup.value) return;
-  inviteOpen.value = true;
-  invitePickId.value = null;
-  inviteLoading.value = true;
-  try {
-    let pageNo = 1;
-    const pageSize = 50;
-    const all = [];
-    while (true) {
-      const data = await fetchInterrelatedPage({ pageNo, pageSize });
-      const list = Array.isArray(data?.list) ? data.list : [];
-      all.push(...list);
-      const pages = Number(data?.pages) || 1;
-      if (pageNo >= pages || !list.length) break;
-      pageNo++;
-    }
-    const existing = new Set(members.value.map((m) => String(m.userId)));
-    mutualUsers.value = all.filter((u) => {
-      const uid = String(u?.userId ?? u?.id ?? "");
-      return uid && !existing.has(uid);
-    });
-  } catch (e) {
-    toast(e?.message || "加载互关列表失败", "error");
-    mutualUsers.value = [];
-  } finally {
-    inviteLoading.value = false;
-  }
-}
-
-function closeInvite() {
-  inviteOpen.value = false;
-}
-
-function openRemove() {
-  if (!isGroupOwner.value) return;
-  removePickIds.value = [];
-  removeOpen.value = true;
-}
-
-function closeRemove() {
-  removeOpen.value = false;
-}
-
-function toggleRemovePick(uid) {
-  const s = String(uid ?? "");
-  if (!s) return;
-  const arr = removePickIds.value;
-  removePickIds.value = arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s];
-}
-
-function isRemovePicked(uid) {
-  return removePickIds.value.includes(String(uid));
-}
-
-function openRemoveBulkConfirm() {
-  const cid = String(props.row?.conversationId || "");
-  const ids = removePickIds.value;
-  if (!cid || !ids.length) {
-    toast("请选择要移除的成员", "info");
-    return;
-  }
-  removeBulkConfirmOpen.value = true;
-}
-
-function closeRemoveBulkConfirm() {
-  if (removeSubmitting.value) return;
-  removeBulkConfirmOpen.value = false;
-}
-
-async function executeRemoveMembers() {
-  const cid = String(props.row?.conversationId || "");
-  const ids = [...removePickIds.value];
-  if (!cid || !ids.length) {
-    toast("请选择要移除的成员", "info");
-    return;
-  }
-  removeBulkConfirmOpen.value = false;
-  removeSubmitting.value = true;
-  const ok = [];
-  const failMsgs = [];
-  try {
-    for (const uid of ids) {
-      try {
-        await chatApi.removeGroupMember(cid, uid);
-        ok.push(uid);
-      } catch (e) {
-        failMsgs.push(String(e?.message || "移除失败"));
-      }
-    }
-    if (ok.length) {
-      await loadMembers();
-      await refreshConversationList(true);
-    }
-    if (!failMsgs.length) {
-      toast("已移除所选成员", "success");
-    } else if (ok.length) {
-      toast(`已移除 ${ok.length} 人；另有 ${failMsgs.length} 人失败：${failMsgs[0]}`, "error");
-    } else {
-      toast(failMsgs[0] || "移除失败", "error");
-    }
-    closeRemove();
-    removePickIds.value = [];
-  } finally {
-    removeSubmitting.value = false;
-  }
-}
-
-function pickInviteUser(u) {
-  const id = String(u?.userId ?? u?.id ?? "");
-  invitePickId.value = invitePickId.value === id ? null : id;
-}
-
-function userPickLabel(u) {
-  return String(u?.nickname || u?.nickName || "用户").trim() || "用户";
-}
-
-function userPickAvatar(u) {
-  return sanitizeImageUrl(u?.avatarUrl) || DEFAULT_PROFILE_AVATAR_URL;
-}
-
-async function confirmInvite() {
-  const cid = String(props.row?.conversationId || "");
-  const uid = invitePickId.value;
-  if (!cid || !uid) {
-    toast("请选择一位互关好友", "info");
-    return;
-  }
-  inviteSubmitting.value = true;
-  try {
-    await chatApi.inviteGroupMember(cid, Number(uid));
-    toast("已发送邀请", "success");
-    closeInvite();
-    await loadMembers();
-    await refreshConversationList(true);
-  } catch (e) {
-    toast(e?.message || "邀请失败", "error");
-  } finally {
-    inviteSubmitting.value = false;
-  }
-}
-
-function openRenameModal() {
-  if (!isGroup.value || !isGroupOwner.value) return;
-  const id = String(props.row?.conversationId || "");
-  if (!id) return;
-  renameDraft.value = convName.value;
-  renameOpen.value = true;
-}
-
-function closeRenameModal() {
-  renameOpen.value = false;
-}
-
-watch(renameOpen, (open) => {
-  if (open) {
-    void nextTick(() => {
-      const el = renameInputRef.value;
-      if (el instanceof HTMLInputElement) {
-        el.focus();
-        el.select();
-      }
-    });
-  }
-});
-
-async function confirmRename() {
-  if (renameBusy.value) return;
-  const id = String(props.row?.conversationId || "");
-  if (!id) return;
-  const name = String(renameDraft.value || "").trim();
-  if (!name) {
-    toast("请输入群名称", "info");
-    return;
-  }
-  if (name === convName.value) {
-    closeRenameModal();
-    return;
-  }
-  renameBusy.value = true;
-  try {
-    await chatApi.updateGroupName(id, name);
-    toast("已更新群名称", "success");
-    closeRenameModal();
-    await refreshConversationList(true);
-  } catch (e) {
-    toast(e?.message || "修改失败", "error");
-  } finally {
-    renameBusy.value = false;
-  }
-}
-
-function triggerAvatarPick() {
-  if (!isGroup.value || !isGroupOwner.value || avatarBusy.value) return;
-  avatarInputRef.value?.click();
-}
-
-async function onAvatarFile(ev) {
-  const input = ev?.target;
-  const file = input?.files?.[0];
-  if (input) input.value = "";
-  if (!file) return;
-  const id = String(props.row?.conversationId || "");
-  if (!id) return;
-  avatarBusy.value = true;
-  try {
-    await chatApi.updateGroupAvatar(id, file);
-    toast("群头像已更新", "success");
-    await refreshConversationList(true);
-  } catch (e) {
-    toast(e?.message || "上传失败", "error");
-  } finally {
-    avatarBusy.value = false;
-  }
-}
-
-function onMemberAvatarError(ev) {
-  const t = ev?.target;
-  if (t instanceof HTMLImageElement) {
-    t.onerror = null;
-    t.src = DEFAULT_PROFILE_AVATAR_URL;
-  }
-}
-
-function openAnnView() {
-  if (!isGroup.value) return;
-  annViewOpen.value = true;
-}
-
-async function closeAnnView() {
-  const cid = String(props.row?.conversationId || "");
-  const ver = annVersion.value;
-  const hasBody = ver > 0 && String(annText.value || "").trim() !== "";
-  annViewOpen.value = false;
-  if (!cid || !isGroup.value || !hasBody) return;
-  try {
-    await chatApi.markAnnouncementRead(cid);
-    upsertConversationRow({
-      conversationId: cid,
-      lastSeenAnnouncementVersion: ver,
-    });
-  } catch {
-    /* 忽略已读同步失败 */
-  }
-}
-
-function openAnnEditFromView() {
-  if (!isGroupOwner.value) return;
-  annDraft.value = String(annText.value || "");
-  annEditOpen.value = true;
-}
-
-function closeAnnEdit() {
-  annEditOpen.value = false;
-}
-
-async function confirmAnnPublish() {
-  const cid = String(props.row?.conversationId || "");
-  if (!cid || !isGroupOwner.value) return;
-  const raw = String(annDraft.value || "");
-  const text = raw.trim();
-  if (!text) {
-    toast("公告内容不能为空", "info");
-    return;
-  }
-  annSaving.value = true;
-  try {
-    const res = await chatApi.publishAnnouncement(cid, text);
-    const v = Number(res?.version) || 0;
-    annText.value = res?.text != null ? String(res.text) : text;
-    annVersion.value = v || annVersion.value;
-    annEditOpen.value = false;
-    toast("已发布公告", "success");
-    upsertConversationRow({
-      conversationId: cid,
-      lastAnnouncementVersion: v,
-      lastSeenAnnouncementVersion: v,
-    });
-    await refreshConversationList(true);
-  } catch (e) {
-    toast(e?.message || "发布失败", "error");
-  } finally {
-    annSaving.value = false;
-  }
-}
-
-const leaveConfirmTitle = computed(() => {
-  if (isSingle.value) return "删除私聊会话";
-  if (isGroupOwner.value) return "解散群聊";
-  return "退出群聊";
-});
-
-const leaveConfirmMessage = computed(() => {
-  if (isSingle.value) {
-    return "确定删除该私聊会话？双方会话列表都会移除。";
-  }
-  if (isGroupOwner.value) {
-    return "确定解散该群？所有成员将移除此会话。";
-  }
-  return "确定退出该群？";
-});
-
-function openLeaveConfirm() {
-  const id = String(props.row?.conversationId || "");
-  if (!id) return;
-  leaveConfirmOpen.value = true;
-}
-
-function closeLeaveConfirm() {
-  if (leaveBusy.value) return;
-  leaveConfirmOpen.value = false;
-}
-
-async function submitLeaveConfirm() {
-  const id = String(props.row?.conversationId || "");
-  if (!id) return;
-  const owner = isGroup.value && isGroupOwner.value;
-  const single = isSingle.value;
-  leaveBusy.value = true;
-  try {
-    await removeConversationLocal(props.row);
-    toast(single ? "已删除会话" : owner ? "已解散群聊" : "已退出群聊", "success");
-    leaveConfirmOpen.value = false;
-    emit("close");
-  } catch (e) {
-    toast(e?.message || "操作失败", "error");
-  } finally {
-    leaveBusy.value = false;
   }
 }
 </script>
