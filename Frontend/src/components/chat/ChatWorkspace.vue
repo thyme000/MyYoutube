@@ -207,15 +207,15 @@ function onOpenUser(e) {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 12px 12px;
+  gap: var(--space-6);
+  padding: var(--space-8) var(--space-12) var(--space-12);
   box-sizing: border-box;
 }
 
 .chat-workspace__err {
   margin: 0;
-  color: #b91c1c;
-  font-size: 14px;
+  color: var(--red-700);
+  font-size: var(--font-size-14);
 }
 
 .chat-workspace__main {
@@ -224,22 +224,22 @@ function onOpenUser(e) {
   display: flex;
   flex-direction: row;
   gap: 0;
-  border-radius: 16px;
+  border-radius: var(--radius-4xl);
   overflow: hidden;
-  background: #fff;
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: var(--color-bg-surface);
+  border: 1px solid rgb(var(--slate-900-rgb) / 0.1);
   box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.06),
-    0 8px 28px rgba(15, 23, 42, 0.1),
-    0 24px 48px rgba(15, 23, 42, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    0 1px 2px rgb(var(--slate-900-rgb) / 0.06),
+    0 8px 28px rgb(var(--slate-900-rgb) / 0.1),
+    0 24px 48px rgb(var(--slate-900-rgb) / 0.08),
+    inset 0 1px 0 rgb(var(--white-rgb) / 0.95);
 }
 
 .chat-workspace__rail {
   width: min(320px, 38vw);
   flex-shrink: 0;
-  border-left: 1px solid #e2e8f0;
-  background: #fff;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -254,7 +254,7 @@ function onOpenUser(e) {
     width: 100%;
     max-height: 40vh;
     border-left: none;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--color-border);
   }
 }
 
@@ -267,7 +267,7 @@ function onOpenUser(e) {
     width: 100%;
     max-height: 40vh;
     border-left: none;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--color-border);
   }
 }
 </style>

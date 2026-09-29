@@ -327,11 +327,11 @@ async function confirmPicker() {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: var(--space-10);
+  padding: var(--space-10) var(--space-12);
   border: none;
-  border-bottom: 1px solid #eef2f7;
-  background: #fff;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-surface);
   text-align: left;
   cursor: pointer;
   width: 100%;
@@ -339,22 +339,22 @@ async function confirmPicker() {
 }
 
 .chat-conv-row:hover {
-  background: #f8fafc;
+  background: var(--color-bg-sunken);
 }
 
 .chat-conv-row--active {
-  background: #07c160;
-  color: #fff;
+  background: var(--wechat);
+  color: var(--color-text-inverse);
 }
 
 .chat-conv-row--active:hover {
-  background: #06ad56;
+  background: var(--green-bright);
 }
 
 .chat-conv-row--active .chat-conv-row__preview,
 .chat-conv-row--active .chat-conv-row__time,
 .chat-conv-row--active .chat-conv-row__name {
-  color: #fff;
+  color: var(--color-text-inverse);
 }
 
 .chat-conv-row--active .chat-conv-row__preview {
@@ -376,9 +376,9 @@ async function confirmPicker() {
 .chat-conv-row__avatar {
   width: 100%;
   height: 100%;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   object-fit: cover;
-  background: #e2e8f0;
+  background: var(--slate-200);
 }
 
 .chat-conv-row__badge {
@@ -387,11 +387,11 @@ async function confirmPicker() {
   right: -4px;
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: #ef4444;
-  color: #fff;
-  font-size: 11px;
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-full);
+  background: var(--red-500);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-11);
   line-height: 18px;
   text-align: center;
   box-sizing: border-box;
@@ -404,14 +404,14 @@ async function confirmPicker() {
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: #f97316;
-  border: 2px solid #fff;
+  background: var(--orange-500);
+  border: 2px solid var(--white);
   box-sizing: border-box;
-  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.35);
+  box-shadow: 0 0 0 1px rgb(var(--orange-500-rgb) / 0.35);
 }
 
 .chat-conv-row--active .chat-conv-row__ann-dot {
-  border-color: rgba(30, 41, 59, 0.95);
+  border-color: rgb(var(--slate-800-rgb) / 0.95);
   box-shadow: none;
 }
 
@@ -423,26 +423,26 @@ async function confirmPicker() {
 .chat-conv-row__top {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-8);
   align-items: baseline;
 }
 
 .chat-conv-row__name {
   font-weight: 600;
-  font-size: 15px;
-  color: #0f172a;
+  font-size: var(--font-size-15);
+  color: var(--color-text-strong);
 }
 
 .chat-conv-row__time {
-  font-size: 12px;
-  color: #94a3b8;
+  font-size: var(--font-size-12);
+  color: var(--color-text-faint);
   flex-shrink: 0;
 }
 
 .chat-conv-row__preview {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #64748b;
+  margin: var(--space-4) 0 0;
+  font-size: var(--font-size-13);
+  color: var(--color-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -451,7 +451,7 @@ async function confirmPicker() {
 .chat-conv-row__ops {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-4);
   justify-content: center;
   flex-shrink: 0;
 }
@@ -459,45 +459,45 @@ async function confirmPicker() {
 .chat-conv-ico {
   border: none;
   background: transparent;
-  color: #64748b;
+  color: var(--color-text-muted);
   cursor: pointer;
-  padding: 4px;
-  border-radius: 6px;
-  font-size: 16px;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-16);
 }
 
 .chat-conv-ico:hover {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: var(--color-bg-hover);
+  color: var(--color-text-strong);
 }
 
 .chat-conv-list__hint,
 .chat-conv-list__empty {
-  padding: 24px 12px;
+  padding: var(--space-24) var(--space-12);
   text-align: center;
-  color: #94a3b8;
-  font-size: 14px;
+  color: var(--color-text-faint);
+  font-size: var(--font-size-14);
 }
 
 .chat-conv-list__footer {
-  padding: 8px;
+  padding: var(--space-8);
 }
 
 .chat-conv-list__footer--stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-8);
   padding-top: 0;
 }
 
 .chat-conv-more {
   width: 100%;
-  padding: 8px;
-  border-radius: 10px;
-  border: 1px dashed #cbd5e1;
-  background: #fff;
+  padding: var(--space-8);
+  border-radius: var(--radius-xl);
+  border: 1px dashed var(--color-border-strong);
+  background: var(--color-bg-surface);
   cursor: pointer;
-  color: #475569;
+  color: var(--color-text-secondary);
 }
 
 .chat-mutual-pick-overlay {
@@ -505,31 +505,31 @@ async function confirmPicker() {
 }
 
 .chat-mutual-pick__hint {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: #64748b;
+  margin: 0 0 var(--space-12);
+  font-size: var(--font-size-13);
+  color: var(--color-text-muted);
   line-height: 1.45;
 }
 
 .chat-mutual-pick__field {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-12);
 }
 
 .chat-mutual-pick__label {
   display: block;
-  font-size: 12px;
-  color: #64748b;
-  margin-bottom: 4px;
+  font-size: var(--font-size-12);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-4);
 }
 
 .chat-mutual-pick__input {
   width: 100%;
   box-sizing: border-box;
   height: 40px;
-  padding: 0 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  font-size: 15px;
+  padding: 0 var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  font-size: var(--font-size-15);
 }
 
 .chat-mutual-pick__list {
@@ -537,33 +537,33 @@ async function confirmPicker() {
   min-height: 120px;
   max-height: min(42vh, 320px);
   overflow-y: auto;
-  border: 1px solid #eef2f7;
-  border-radius: 10px;
-  background: #fafbfc;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-sunken);
 }
 
 .chat-mutual-pick__list-hint {
   margin: 0;
-  padding: 20px 14px;
+  padding: var(--space-20) var(--space-14);
   text-align: center;
-  color: #94a3b8;
-  font-size: 14px;
+  color: var(--color-text-faint);
+  font-size: var(--font-size-14);
 }
 
 .chat-mutual-pick__row {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-10);
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--space-10) var(--space-12);
   border: none;
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid var(--color-border-subtle);
   background: transparent;
   cursor: pointer;
   text-align: left;
   font: inherit;
-  color: #0f172a;
+  color: var(--color-text-strong);
   box-sizing: border-box;
 }
 
@@ -572,11 +572,11 @@ async function confirmPicker() {
 }
 
 .chat-mutual-pick__row:hover {
-  background: #f1f5f9;
+  background: var(--color-bg-hover);
 }
 
 .chat-mutual-pick__row--on {
-  background: #e0f2fe;
+  background: var(--sky-100);
 }
 
 .chat-mutual-pick__check {
@@ -585,52 +585,52 @@ async function confirmPicker() {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
-  color: #0ea5e9;
+  font-size: var(--font-size-20);
+  color: var(--sky-500);
 }
 
 .chat-mutual-pick__av {
   width: 40px;
   height: 40px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   object-fit: cover;
   flex-shrink: 0;
-  background: #e2e8f0;
+  background: var(--slate-200);
 }
 
 .chat-mutual-pick__nick {
   flex: 1;
   min-width: 0;
-  font-size: 15px;
+  font-size: var(--font-size-15);
   font-weight: 500;
 }
 
 .chat-mutual-pick__actions {
-  margin-top: 16px;
+  margin-top: var(--space-16);
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: var(--space-10);
   flex-shrink: 0;
 }
 
 .chat-mutual-pick__btn {
   height: 38px;
-  padding: 0 18px;
-  border-radius: 10px;
-  font-size: 14px;
+  padding: 0 var(--space-18);
+  border-radius: var(--radius-xl);
+  font-size: var(--font-size-14);
   font-weight: 600;
   cursor: pointer;
   border: none;
 }
 
 .chat-mutual-pick__btn--ghost {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
 }
 
 .chat-mutual-pick__btn--primary {
-  background: #0ea5e9;
-  color: #fff;
+  background: var(--sky-500);
+  color: var(--color-text-inverse);
 }
 
 .chat-mutual-pick__btn:disabled {

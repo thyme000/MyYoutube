@@ -300,12 +300,12 @@ onUnmounted(() => {
 
 <style scoped>
 .mp-root {
-  --mp-bg: #ffffff;
-  --mp-fg: #111827;
-  --mp-muted: #6b7280;
-  --mp-border: #e5e7eb;
-  --mp-accent: #0ea5e9;
-  --mp-sweep: #ea580c;
+  --mp-bg: var(--white);
+  --mp-fg: var(--gray-900);
+  --mp-muted: var(--gray-500);
+  --mp-border: var(--gray-200);
+  --mp-accent: var(--sky-500);
+  --mp-sweep: var(--orange-600);
 
   position: fixed;
   z-index: 12020;
@@ -364,10 +364,10 @@ onUnmounted(() => {
 
 .mp-panel {
   width: 100%;
-  border-radius: 14px;
+  border-radius: var(--radius-3xl);
   background: var(--mp-bg);
   color: var(--mp-fg);
-  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.12), 0 0 0 1px var(--mp-border);
+  box-shadow: 0 10px 40px rgb(var(--slate-900-rgb) / 0.12), 0 0 0 1px var(--mp-border);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -376,8 +376,8 @@ onUnmounted(() => {
 
 .mp-head {
   display: flex;
-  gap: 10px;
-  padding: 12px;
+  gap: var(--space-10);
+  padding: var(--space-12);
   align-items: center;
   border-bottom: 1px solid var(--mp-border);
   flex-shrink: 0;
@@ -387,8 +387,8 @@ onUnmounted(() => {
   position: relative;
   width: 52px;
   height: 52px;
-  border-radius: 10px;
-  background: #f3f4f6 center / cover;
+  border-radius: var(--radius-xl);
+  background: var(--gray-100) center / cover;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -397,7 +397,7 @@ onUnmounted(() => {
 }
 
 .mp-cover--empty {
-  color: #9ca3af;
+  color: var(--color-text-faint);
   font-size: 1.35rem;
 }
 
@@ -420,9 +420,9 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 6px 4px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 0.75) 70%, transparent 100%);
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-4);
+  background: linear-gradient(90deg, rgb(var(--white-rgb) / 0.94) 0%, rgb(var(--white-rgb) / 0.75) 70%, transparent 100%);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.18s ease;
@@ -438,8 +438,8 @@ onUnmounted(() => {
   border: none;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
-  background: rgba(17, 24, 39, 0.06);
+  border-radius: var(--radius-lg);
+  background: rgb(var(--gray-900-rgb) / 0.06);
   color: var(--mp-fg);
   cursor: pointer;
   display: flex;
@@ -450,7 +450,7 @@ onUnmounted(() => {
 }
 
 .mp-cbtn:hover {
-  background: rgba(17, 24, 39, 0.1);
+  background: rgb(var(--gray-900-rgb) / 0.1);
 }
 
 .mp-cbtn:disabled {
@@ -463,9 +463,9 @@ onUnmounted(() => {
   height: 34px;
   border-radius: 50%;
   background: var(--mp-accent);
-  color: #fff;
+  color: var(--color-text-inverse);
   font-size: 1.05rem;
-  padding-left: 2px;
+  padding-left: var(--space-2);
 }
 
 .mp-cbtn--play:hover {
@@ -479,7 +479,7 @@ onUnmounted(() => {
   align-items: center;
   cursor: grab;
   touch-action: none;
-  padding: 2px 2px 2px 0;
+  padding: var(--space-2) var(--space-2) var(--space-2) 0;
 }
 
 .mp-root--dragging .mp-head-main {
@@ -491,7 +491,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: var(--space-6);
 }
 
 .mp-head-lyric-wrap {
@@ -532,9 +532,9 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--space-8) var(--space-12);
   border: none;
-  background: #f9fafb;
+  background: var(--gray-50);
   color: var(--mp-muted);
   font-size: 0.72rem;
   font-weight: 600;
@@ -544,13 +544,13 @@ onUnmounted(() => {
 }
 
 .mp-list-toggle:hover {
-  background: #f3f4f6;
+  background: var(--gray-100);
 }
 
 .mp-queue {
   list-style: none;
   margin: 0;
-  padding: 4px 0 8px;
+  padding: var(--space-4) 0 var(--space-8);
   overflow-y: auto;
   flex: 1;
 }
@@ -564,25 +564,25 @@ onUnmounted(() => {
 }
 
 .mp-queue::-webkit-scrollbar-thumb {
-  background: rgba(17, 24, 39, 0.15);
-  border-radius: 4px;
+  background: rgb(var(--gray-900-rgb) / 0.15);
+  border-radius: var(--radius-sm);
 }
 
 .mp-row {
-  padding: 8px 12px;
+  padding: var(--space-8) var(--space-12);
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-2);
   transition: background 0.12s ease;
 }
 
 .mp-row:hover {
-  background: #f3f4f6;
+  background: var(--gray-100);
 }
 
 .mp-row--on {
-  background: rgba(14, 165, 233, 0.1);
+  background: rgb(var(--sky-500-rgb) / 0.1);
 }
 
 .mp-row-t {
@@ -608,11 +608,11 @@ onUnmounted(() => {
 }
 
 .mp-w-base {
-  color: #9ca3af;
+  color: var(--color-text-faint);
 }
 
 .mp-line--on .mp-w-base {
-  color: #a1a1aa;
+  color: var(--color-text-faint);
 }
 
 .mp-w-sweep {

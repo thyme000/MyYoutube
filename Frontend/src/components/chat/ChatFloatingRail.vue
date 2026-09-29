@@ -145,7 +145,7 @@ function onLoadMore() {
   transform: translateX(0);
   /* 收起/展开：偏长、末端明显减速，避免「一下到位」的突兀感 */
   transition: transform 0.62s cubic-bezier(0.16, 1, 0.28, 1);
-  filter: drop-shadow(-4px 0 12px rgba(15, 23, 42, 0.12));
+  filter: drop-shadow(-4px 0 12px rgb(var(--slate-900-rgb) / 0.12));
 }
 
 /* 短视频 / 关注页：缩入后仅留更窄一条，少挡竖屏内容 */
@@ -171,39 +171,39 @@ function onLoadMore() {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border-radius: 12px 0 0 12px;
-  border: 1px solid #e2e8f0;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-2xl) 0 0 var(--radius-2xl);
+  border: 1px solid var(--color-border);
   border-right: none;
   overflow: hidden;
 }
 
 .chat-float__head {
   flex-shrink: 0;
-  padding: 10px 12px;
-  border-bottom: 1px solid #eef2f7;
+  padding: var(--space-10) var(--space-12);
+  border-bottom: 1px solid var(--color-border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  background: linear-gradient(180deg, #f8fafc, #fff);
+  gap: var(--space-8);
+  background: linear-gradient(180deg, var(--slate-50), var(--white));
 }
 
 .chat-float__title {
   font-weight: 600;
-  font-size: 14px;
-  color: #0f172a;
+  font-size: var(--font-size-14);
+  color: var(--color-text-strong);
 }
 
 .chat-float__badge {
   min-width: 20px;
-  padding: 0 6px;
+  padding: 0 var(--space-6);
   height: 20px;
   line-height: 20px;
   text-align: center;
-  border-radius: 999px;
-  background: #ef4444;
-  color: #fff;
-  font-size: 11px;
+  border-radius: var(--radius-full);
+  background: var(--red-500);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-11);
 }
 </style>

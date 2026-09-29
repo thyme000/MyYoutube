@@ -196,18 +196,18 @@ const {
 .studio-sidebar {
   width: 240px;
   flex-shrink: 0;
-  background: #fff;
+  background: var(--color-bg-surface);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  padding: 16px 12px;
-  gap: 16px;
+  padding: var(--space-16) var(--space-12);
+  gap: var(--space-16);
 }
 
 .studio-sidebar-user {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-12);
 }
 
 .studio-sidebar-avatar {
@@ -221,17 +221,17 @@ const {
 .studio-sidebar-meta {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-4);
   min-width: 0;
 }
 
 .studio-sidebar-title {
-  font-size: 12px;
+  font-size: var(--font-size-12);
   color: var(--muted);
 }
 
 .studio-sidebar-name {
-  font-size: 15px;
+  font-size: var(--font-size-15);
   font-weight: 700;
   color: var(--text);
   overflow: hidden;
@@ -242,7 +242,7 @@ const {
 .studio-side-nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-4);
 }
 
 .studio-body {
@@ -250,54 +250,54 @@ const {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 22px 28px;
+  padding: var(--space-20) var(--space-22) var(--space-28);
 }
 
 .studio-body-head {
-  margin-bottom: 18px;
+  margin-bottom: var(--space-18);
 }
 
 .studio-body-title {
-  margin: 0 0 14px;
-  font-size: 22px;
+  margin: 0 0 var(--space-14);
+  font-size: var(--font-size-22);
   font-weight: 800;
 }
 
 .studio-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-8);
   border-bottom: 1px solid var(--line);
-  padding-bottom: 10px;
+  padding-bottom: var(--space-10);
 }
 
 .studio-placeholder-card {
   border: 1px dashed var(--line);
-  border-radius: 12px;
-  padding: 48px 24px;
+  border-radius: var(--radius-2xl);
+  padding: var(--space-48) var(--space-24);
   text-align: center;
   color: var(--muted);
-  background: #fff;
+  background: var(--color-bg-surface);
 }
 
 .studio-table-panel {
   position: relative;
-  background: #fff;
+  background: var(--color-bg-surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 0 0 56px;
+  border-radius: var(--radius-2xl);
+  padding: 0 0 var(--space-56);
   overflow: hidden;
 }
 
 .studio-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--font-size-14);
 }
 
 .studio-table th,
 .studio-table td {
-  padding: 12px 16px;
+  padding: var(--space-12) var(--space-16);
   text-align: left;
   border-bottom: 1px solid var(--line);
 }
@@ -305,19 +305,19 @@ const {
 .studio-table th {
   color: var(--muted);
   font-weight: 600;
-  background: #f8fafc;
+  background: var(--color-bg-sunken);
 }
 
 .studio-table-empty {
   text-align: center;
   color: var(--muted);
-  padding: 36px 16px !important;
+  padding: var(--space-36) var(--space-16) !important;
 }
 
 .studio-td-video {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-12);
   min-width: 0;
 }
 
@@ -331,14 +331,14 @@ const {
   width: 96px;
   height: 54px;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   flex-shrink: 0;
   background: var(--line);
 }
 
 .studio-th-actions {
   width: 52px;
-  padding-right: 12px !important;
+  padding-right: var(--space-12) !important;
   text-align: right;
 }
 
@@ -356,11 +356,11 @@ const {
   width: 36px;
   height: 36px;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-surface);
   color: var(--muted);
   cursor: pointer;
-  font-size: 18px;
+  font-size: var(--font-size-18);
 }
 
 .studio-row-more-btn:hover {
@@ -373,24 +373,24 @@ const {
   right: 0;
   top: calc(100% + 4px);
   min-width: 132px;
-  padding: 6px;
-  border-radius: 12px;
-  background: #fff;
+  padding: var(--space-6);
+  border-radius: var(--radius-2xl);
+  background: var(--color-bg-surface);
   border: 1px solid var(--line);
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-6);
   z-index: 40;
 }
 
 .studio-row-action-btn {
   border: 1px solid var(--line);
-  background: #f8fafc;
+  background: var(--color-bg-sunken);
   color: var(--text);
-  border-radius: 9px;
-  padding: 8px 10px;
-  font-size: 13px;
+  border-radius: var(--radius-xl);
+  padding: var(--space-8) var(--space-10);
+  font-size: var(--font-size-13);
   line-height: 1.2;
   cursor: pointer;
   text-align: left;
@@ -401,31 +401,31 @@ const {
 }
 
 .studio-row-action-btn--danger {
-  color: #b91c1c;
-  border-color: rgba(185, 28, 28, 0.35);
-  background: #fef2f2;
+  color: var(--red-700);
+  border-color: rgb(var(--red-700-rgb) / 0.35);
+  background: var(--red-50);
 }
 
 .studio-row-action-btn--danger:hover {
-  background: #fee2e2;
+  background: var(--red-100);
 }
 
 .studio-pager {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  padding: 14px 16px;
+  gap: var(--space-16);
+  padding: var(--space-14) var(--space-16);
   border-top: 1px solid var(--line);
-  background: #fafbfc;
+  background: var(--color-bg-sunken);
 }
 
 .studio-pager-btn {
   border: 1px solid var(--line);
-  background: #fff;
-  border-radius: 999px;
-  padding: 8px 18px;
-  font-size: 14px;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-full);
+  padding: var(--space-8) var(--space-18);
+  font-size: var(--font-size-14);
   cursor: pointer;
 }
 
@@ -439,14 +439,14 @@ const {
 }
 
 .studio-pager-info {
-  font-size: 14px;
+  font-size: var(--font-size-14);
   color: var(--muted);
 }
 
 .studio-hint {
-  margin: 10px 16px 0;
-  font-size: 13px;
-  color: #b45309;
+  margin: var(--space-10) var(--space-16) 0;
+  font-size: var(--font-size-13);
+  color: var(--amber-700);
 }
 
 .studio-upload-fab {
@@ -454,15 +454,15 @@ const {
   right: 16px;
   bottom: 16px;
   border: none;
-  border-radius: 999px;
-  padding: 10px 20px;
-  font-size: 14px;
+  border-radius: var(--radius-full);
+  padding: var(--space-10) var(--space-20);
+  font-size: var(--font-size-14);
   font-weight: 600;
   cursor: pointer;
-  background: #fff;
+  background: var(--color-bg-surface);
   color: var(--text);
   border: 1px solid var(--line);
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 4px 14px rgb(var(--slate-900-rgb) / 0.08);
 }
 
 .studio-upload-fab:hover {

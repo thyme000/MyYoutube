@@ -130,19 +130,19 @@ const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0))
 
 <style scoped>
 .work-like--liked-list i {
-  color: #ff2d4d !important;
-  -webkit-text-fill-color: #ff2d4d;
-  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.35));
+  color: var(--red-hot) !important;
+  -webkit-text-fill-color: var(--red-hot);
+  filter: drop-shadow(0 0 2px rgb(var(--black-rgb) / 0.35));
 }
 
 .liked-videos-page {
-  padding: 0 4px 8px;
+  padding: 0 var(--space-4) var(--space-8);
 }
 
 .liked-load-more-wrap {
   display: flex;
   justify-content: center;
-  padding: 12px 0 28px;
+  padding: var(--space-12) 0 var(--space-28);
 }
 
 .liked-loading-block {

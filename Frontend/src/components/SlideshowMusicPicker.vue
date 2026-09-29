@@ -475,11 +475,11 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   z-index: 1100;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgb(var(--black-rgb) / 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: var(--space-16);
 }
 
 .slideshow-music-picker {
@@ -489,98 +489,98 @@ onBeforeUnmount(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  border-radius: 16px;
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #eee;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-4xl);
+  background: var(--ink-980);
+  border: 1px solid rgb(var(--white-rgb) / 0.1);
+  color: var(--gray-200);
+  box-shadow: 0 20px 60px rgb(var(--black-rgb) / 0.5);
 }
 
 .smp-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: var(--space-14) var(--space-16);
+  border-bottom: 1px solid rgb(var(--white-rgb) / 0.08);
 }
 
 .smp-head h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-16);
   font-weight: 600;
 }
 
 .smp-close {
   border: none;
   background: transparent;
-  color: #999;
+  color: var(--ink-500);
   cursor: pointer;
-  padding: 4px;
-  border-radius: 8px;
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
   line-height: 1;
 }
 
 .smp-close:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-inverse);
+  background: rgb(var(--white-rgb) / 0.08);
 }
 
 .smp-close i {
-  font-size: 22px;
+  font-size: var(--font-size-22);
 }
 
 .smp-hint {
   margin: 0;
-  padding: 10px 16px;
-  font-size: 12px;
+  padding: var(--space-10) var(--space-16);
+  font-size: var(--font-size-12);
   line-height: 1.45;
-  color: #9a9a9a;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--ink-500);
+  border-bottom: 1px solid rgb(var(--white-rgb) / 0.06);
 }
 
 .smp-search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 12px 16px 0;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: #252525;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  gap: var(--space-8);
+  margin: var(--space-12) var(--space-16) 0;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-xl);
+  background: var(--ink-900);
+  border: 1px solid rgb(var(--white-rgb) / 0.1);
 }
 
 .smp-search i {
-  color: #888;
-  font-size: 18px;
+  color: var(--ink-600);
+  font-size: var(--font-size-18);
 }
 
 .smp-search input {
   flex: 1;
   border: none;
   background: transparent;
-  color: #fff;
-  font-size: 14px;
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-14);
   outline: none;
 }
 
 .smp-err {
-  margin: 8px 16px 0;
-  font-size: 12px;
-  color: #f88;
+  margin: var(--space-8) var(--space-16) 0;
+  font-size: var(--font-size-12);
+  color: var(--red-400);
 }
 
 .smp-loading,
 .smp-placeholder,
 .smp-empty {
-  margin: 12px 16px;
-  font-size: 13px;
-  color: #999;
+  margin: var(--space-12) var(--space-16);
+  font-size: var(--font-size-13);
+  color: var(--ink-500);
 }
 
 .smp-results {
   list-style: none;
-  margin: 8px 0 0;
-  padding: 0 8px 8px;
+  margin: var(--space-8) 0 0;
+  padding: 0 var(--space-8) var(--space-8);
   max-height: 200px;
   overflow-y: auto;
 }
@@ -588,14 +588,14 @@ onBeforeUnmount(() => {
 .smp-result {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 8px;
-  border-radius: 10px;
+  gap: var(--space-10);
+  padding: var(--space-8) var(--space-8);
+  border-radius: var(--radius-xl);
   cursor: pointer;
 }
 
 .smp-result:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgb(var(--white-rgb) / 0.06);
 }
 
 .smp-result--busy {
@@ -606,7 +606,7 @@ onBeforeUnmount(() => {
 .smp-pic {
   width: 40px;
   height: 40px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   object-fit: cover;
   flex-shrink: 0;
 }
@@ -616,11 +616,11 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-2);
 }
 
 .smp-name {
-  font-size: 14px;
+  font-size: var(--font-size-14);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -628,83 +628,83 @@ onBeforeUnmount(() => {
 }
 
 .smp-sub {
-  font-size: 12px;
-  color: #888;
+  font-size: var(--font-size-12);
+  color: var(--ink-600);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .smp-spin {
-  font-size: 18px;
-  color: #ccc;
+  font-size: var(--font-size-18);
+  color: var(--ink-300);
   animation: smp-spin 0.9s linear infinite;
 }
 
 .smp-trim {
-  padding: 12px 16px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.2);
+  padding: var(--space-12) var(--space-16) var(--space-16);
+  border-top: 1px solid rgb(var(--white-rgb) / 0.08);
+  background: rgb(var(--black-rgb) / 0.2);
 }
 
 .smp-track-title {
-  margin: 0 0 6px;
-  font-size: 13px;
-  color: #ccc;
+  margin: 0 0 var(--space-6);
+  font-size: var(--font-size-13);
+  color: var(--ink-300);
   line-height: 1.4;
 }
 
 .smp-dur {
-  margin: 0 0 12px;
-  font-size: 12px;
-  color: #999;
+  margin: 0 0 var(--space-12);
+  font-size: var(--font-size-12);
+  color: var(--ink-500);
 }
 
 .smp-range-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: var(--space-12);
 }
 
 .smp-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 11px;
-  color: #aaa;
+  gap: var(--space-4);
+  font-size: var(--font-size-11);
+  color: var(--ink-400);
 }
 
 .smp-field input {
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: #111;
-  color: #fff;
-  padding: 8px 10px;
-  font-size: 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgb(var(--white-rgb) / 0.15);
+  background: var(--ink-980);
+  color: var(--color-text-inverse);
+  padding: var(--space-8) var(--space-10);
+  font-size: var(--font-size-14);
 }
 
 .smp-mmss {
-  font-size: 12px;
-  color: #777;
+  font-size: var(--font-size-12);
+  color: var(--ink-700);
 }
 
 .smp-seglen {
-  margin: 10px 0 0;
-  font-size: 12px;
-  color: #aaa;
+  margin: var(--space-10) 0 0;
+  font-size: var(--font-size-12);
+  color: var(--ink-400);
 }
 
 .smp-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 14px;
+  gap: var(--space-10);
+  margin-top: var(--space-14);
 }
 
 .smp-btn {
-  border-radius: 999px;
-  padding: 9px 18px;
-  font-size: 13px;
+  border-radius: var(--radius-full);
+  padding: var(--space-9) var(--space-18);
+  font-size: var(--font-size-13);
   font-weight: 600;
   cursor: pointer;
   border: none;
@@ -717,13 +717,13 @@ onBeforeUnmount(() => {
 
 .smp-btn--ghost {
   background: transparent;
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: var(--color-text-inverse);
+  border: 1px solid rgb(var(--white-rgb) / 0.3);
 }
 
 .smp-btn--primary {
-  background: #fff;
-  color: #111;
+  background: var(--color-bg-surface);
+  color: var(--ink-980);
 }
 
 .smp-audio-el {
@@ -735,12 +735,12 @@ onBeforeUnmount(() => {
 }
 
 .smp-fixed-banner {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  margin: 0 0 var(--space-12);
+  padding: var(--space-10) var(--space-12);
+  border-radius: var(--radius-xl);
   background: rgba(80, 120, 255, 0.15);
   border: 1px solid rgba(120, 160, 255, 0.35);
-  font-size: 13px;
+  font-size: var(--font-size-13);
   color: #c8d4ff;
   text-align: left;
 }
@@ -748,10 +748,10 @@ onBeforeUnmount(() => {
 .smp-slider-label {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 14px;
-  font-size: 12px;
-  color: #aaa;
+  gap: var(--space-8);
+  margin-bottom: var(--space-14);
+  font-size: var(--font-size-12);
+  color: var(--ink-400);
   text-align: left;
 }
 
@@ -761,14 +761,14 @@ onBeforeUnmount(() => {
 }
 
 .smp-lyrics {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-12);
   text-align: left;
 }
 
 .smp-lyrics-title {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: #999;
+  margin: 0 0 var(--space-8);
+  font-size: var(--font-size-12);
+  color: var(--ink-500);
 }
 
 .smp-lyrics-list {
@@ -777,22 +777,22 @@ onBeforeUnmount(() => {
   padding: 0;
   max-height: 180px;
   overflow-y: auto;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-xl);
+  border: 1px solid rgb(var(--white-rgb) / 0.1);
+  background: rgb(var(--black-rgb) / 0.25);
 }
 
 .smp-lyric-line {
   display: flex;
-  gap: 10px;
+  gap: var(--space-10);
   align-items: baseline;
   width: 100%;
-  padding: 8px 10px;
+  padding: var(--space-8) var(--space-10);
   border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgb(var(--white-rgb) / 0.06);
   background: transparent;
-  color: #ddd;
-  font-size: 13px;
+  color: var(--gray-300);
+  font-size: var(--font-size-13);
   text-align: left;
   cursor: pointer;
 }
@@ -802,7 +802,7 @@ onBeforeUnmount(() => {
 }
 
 .smp-lyric-line:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgb(var(--white-rgb) / 0.06);
 }
 
 .smp-lyric-line:disabled {
@@ -813,7 +813,7 @@ onBeforeUnmount(() => {
 .smp-lyric-t {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: var(--font-size-12);
   color: #7a9fff;
   min-width: 3.2rem;
 }
@@ -825,9 +825,9 @@ onBeforeUnmount(() => {
 }
 
 .smp-lyrics-empty {
-  margin: 0 0 12px;
-  font-size: 12px;
-  color: #777;
+  margin: 0 0 var(--space-12);
+  font-size: var(--font-size-12);
+  color: var(--ink-700);
   text-align: left;
 }
 </style>

@@ -48,7 +48,7 @@ function onCubeAnimationEnd(event, index) {
   --animation-duration: 1.3s;
   --stagger-step: 0.12s;
   --cube-color: #0000;
-  --highlight-color: #00cc44;
+  --highlight-color: var(--green-bright);
   --cube-width: 76px;
   --cube-height: 76px;
   --font-size: 2.35em;
@@ -59,7 +59,7 @@ function onCubeAnimationEnd(event, index) {
   display: grid;
   grid-template-columns: repeat(5, var(--cube-width));
   grid-template-rows: auto;
-  column-gap: 14px;
+  column-gap: var(--space-14);
 
   width: calc(5 * var(--cube-width) + 4 * 14px);
   height: var(--cube-height);
@@ -91,8 +91,8 @@ function onCubeAnimationEnd(event, index) {
 .face-back,
 .face-front {
   box-shadow:
-    inset 0 0 2px 1px #0001,
-    inset 0 0 12px 1px #fff1;
+    inset 0 0 2px 1px rgb(var(--black-rgb) / 0.066),
+    inset 0 0 12px 1px rgb(var(--white-rgb) / 0.066);
 }
 
 .face-front {
@@ -202,17 +202,17 @@ function onCubeAnimationEnd(event, index) {
 @keyframes llc-face-glow {
   0%,
   22% {
-    color: rgba(255, 255, 255, 0.15);
+    color: rgb(var(--white-rgb) / 0.15);
     filter: none;
   }
   30% {
-    color: #fff;
+    color: var(--color-text-inverse);
     filter: drop-shadow(0 18px 14px var(--highlight-color));
   }
   42%,
   100% {
-    color: rgba(255, 255, 255, 0.92);
-    filter: drop-shadow(0 6px 12px rgba(0, 204, 68, 0.45));
+    color: rgb(var(--white-rgb) / 0.92);
+    filter: drop-shadow(0 6px 12px rgb(var(--green-bright-rgb) / 0.45));
   }
 }
 
@@ -221,8 +221,8 @@ function onCubeAnimationEnd(event, index) {
   40%,
   100% {
     box-shadow:
-      inset 0 0 2px 1px #0001,
-      inset 0 0 12px 1px #fff1;
+      inset 0 0 2px 1px rgb(var(--black-rgb) / 0.066),
+      inset 0 0 12px 1px rgb(var(--white-rgb) / 0.066);
   }
   30% {
     box-shadow: 0 0 2px 0px var(--highlight-color);

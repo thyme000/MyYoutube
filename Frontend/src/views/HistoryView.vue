@@ -182,50 +182,50 @@ const profile = useProfileStore();
 .history-shorts-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-16);
 }
 
 .history-shorts-head {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
+  gap: var(--space-10);
   flex-wrap: wrap;
 }
 
 .history-shorts-head h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-size-18);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
 }
 
 .history-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-10);
 }
 
 .history-section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-10);
   flex-wrap: wrap;
 }
 
 .history-section-head h4 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-16);
 }
 
 .history-pager {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-13);
 }
 
 .history-section-foot {
@@ -235,15 +235,15 @@ const profile = useProfileStore();
 
 .history-expand-btn {
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--color-bg-surface);
   color: var(--text);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   height: 34px;
-  padding: 0 14px;
-  font-size: 13px;
+  padding: 0 var(--space-14);
+  font-size: var(--font-size-13);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-4);
 }
 </style>

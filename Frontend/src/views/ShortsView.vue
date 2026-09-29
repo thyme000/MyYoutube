@@ -1095,9 +1095,9 @@ function onShortsPanelCommentUserClick(ev, userId) {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px;
+  padding: var(--space-24) var(--space-16);
   box-sizing: border-box;
-  background: rgba(15, 23, 42, 0.55);
+  background: rgb(var(--slate-900-rgb) / 0.55);
   backdrop-filter: blur(6px);
 }
 
@@ -1105,7 +1105,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   align-items: stretch;
   justify-content: stretch;
   padding: 0;
-  background: #000;
+  background: var(--black);
   backdrop-filter: none;
 }
 
@@ -1116,7 +1116,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   width: 100%;
   display: flex;
   flex-direction: column;
-  background: #000;
+  background: var(--black);
 }
 
 .search-expand-overlay--fullscreen .shorts-feed-center.search-expand-shorts-center {
@@ -1132,7 +1132,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   position: relative;
   z-index: 10;
   flex-shrink: 0;
-  padding: 0 12px max(12px, env(safe-area-inset-bottom, 0px));
+  padding: 0 var(--space-12) max(var(--space-12), env(safe-area-inset-bottom, 0px));
   margin-top: auto;
 }
 
@@ -1145,7 +1145,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   height: 100vh;
   height: 100dvh;
   max-height: none;
-  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.35);
+  box-shadow: -16px 0 48px rgb(var(--black-rgb) / 0.35);
 }
 
 .search-expand-close {
@@ -1156,23 +1156,23 @@ function onShortsPanelCommentUserClick(ev, userId) {
   width: 40px;
   height: 40px;
   border: none;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.45);
-  color: #fff;
+  border-radius: var(--radius-full);
+  background: rgb(var(--slate-900-rgb) / 0.45);
+  color: var(--color-text-inverse);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  font-size: var(--font-size-22);
   line-height: 1;
 }
 
 .search-expand-close:hover {
-  background: rgba(15, 23, 42, 0.65);
+  background: rgb(var(--slate-900-rgb) / 0.65);
 }
 
 .search-expand-overlay--fullscreen .shorts-feed-ui {
-  padding-bottom: max(96px, calc(env(safe-area-inset-bottom, 0px) + 72px));
+  padding-bottom: max(var(--space-96), calc(env(safe-area-inset-bottom, 0px) + var(--space-72)));
 }
 
 .video-player-loading--shorts {
@@ -1185,7 +1185,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   background: linear-gradient(
     105deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.08) 45%,
+    rgb(var(--white-rgb) / 0.08) 45%,
     transparent 90%
   );
 }
@@ -1193,12 +1193,12 @@ function onShortsPanelCommentUserClick(ev, userId) {
 .video-player-loading__ring--shorts {
   width: 40px;
   height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.14);
-  border-top-color: #93c5fd;
+  border: 3px solid rgb(var(--white-rgb) / 0.14);
+  border-top-color: var(--blue-300);
 }
 
 .video-player-loading__text--shorts {
-  color: rgba(255, 255, 255, 0.78);
+  color: rgb(var(--white-rgb) / 0.78);
 }
 
 .shorts-feed-shell--with-sidebar .shorts-feed--follow-main {
@@ -1218,8 +1218,8 @@ function onShortsPanelCommentUserClick(ev, userId) {
 }
 
 .follow-sidebar-head {
-  padding: 14px 16px 8px;
-  font-size: 12px;
+  padding: var(--space-14) var(--space-16) var(--space-8);
+  font-size: var(--font-size-12);
   font-weight: 700;
   color: var(--muted);
   letter-spacing: 0.06em;
@@ -1228,12 +1228,12 @@ function onShortsPanelCommentUserClick(ev, userId) {
 .follow-sidebar-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0 10px 16px;
+  padding: 0 var(--space-10) var(--space-16);
 }
 
 .follow-sidebar-hint {
-  margin: 12px 8px;
-  font-size: 13px;
+  margin: var(--space-12) var(--space-8);
+  font-size: var(--font-size-13);
   color: var(--muted);
   line-height: 1.5;
 }
@@ -1241,32 +1241,32 @@ function onShortsPanelCommentUserClick(ev, userId) {
 .follow-sidebar-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-10);
   width: 100%;
-  padding: 10px 12px;
-  margin-bottom: 4px;
+  padding: var(--space-10) var(--space-12);
+  margin-bottom: var(--space-4);
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   background: transparent;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--font-size-14);
   text-align: left;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .follow-sidebar-row:hover {
-  background: rgba(59, 130, 246, 0.08);
+  background: rgb(var(--blue-500-rgb) / 0.08);
 }
 
 .follow-sidebar-row:focus-visible {
-  outline: 2px solid var(--accent, #3b82f6);
+  outline: 2px solid var(--accent, var(--blue-500));
   outline-offset: 2px;
 }
 
 .follow-sidebar-row--active {
-  background: rgba(59, 130, 246, 0.14);
-  border-color: rgba(59, 130, 246, 0.35);
+  background: rgb(var(--blue-500-rgb) / 0.14);
+  border-color: rgb(var(--blue-500-rgb) / 0.35);
 }
 
 .follow-sidebar-row--all .follow-sidebar-all-icon {
@@ -1276,9 +1276,9 @@ function onShortsPanelCommentUserClick(ev, userId) {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--accent, #3b82f6);
-  font-size: 20px;
+  background: rgb(var(--blue-500-rgb) / 0.15);
+  color: var(--accent, var(--blue-500));
+  font-size: var(--font-size-20);
 }
 
 .follow-sidebar-avatar {
@@ -1302,19 +1302,19 @@ function onShortsPanelCommentUserClick(ev, userId) {
 .follow-sidebar-more {
   display: block;
   width: calc(100% - 16px);
-  margin: 8px 8px 0;
-  padding: 8px;
-  border-radius: 8px;
+  margin: var(--space-8) var(--space-8) 0;
+  padding: var(--space-8);
+  border-radius: var(--radius-lg);
   border: 1px dashed var(--line);
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-13);
   cursor: pointer;
 }
 
 .follow-sidebar-more:hover:not(:disabled) {
-  border-color: var(--accent, #3b82f6);
-  color: var(--accent, #3b82f6);
+  border-color: var(--accent, var(--blue-500));
+  color: var(--accent, var(--blue-500));
 }
 
 .follow-sidebar-more:disabled {
@@ -1356,8 +1356,8 @@ function onShortsPanelCommentUserClick(ev, userId) {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #000;
-  border-radius: 12px;
+  background: var(--black);
+  border-radius: var(--radius-2xl);
   overflow: hidden;
   border: 1px solid #1e2430;
   touch-action: pan-y;
@@ -1392,31 +1392,31 @@ function onShortsPanelCommentUserClick(ev, userId) {
   z-index: 7;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--space-18);
   pointer-events: auto;
 }
 
 .shorts-feed-nav-line {
   width: auto;
   height: auto;
-  padding: 4px;
+  padding: var(--space-4);
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.38);
+  color: rgb(var(--white-rgb) / 0.38);
   cursor: pointer;
-  font-size: 22px;
+  font-size: var(--font-size-22);
   line-height: 1;
   font-weight: 300;
   transition: color 0.2s ease, opacity 0.2s ease;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.65));
+  filter: drop-shadow(0 1px 2px rgb(var(--black-rgb) / 0.65));
 }
 
 .shorts-feed-nav-line:hover {
-  color: rgba(255, 255, 255, 0.78);
+  color: rgb(var(--white-rgb) / 0.78);
 }
 
 .shorts-feed-nav-line:active {
-  color: #fff;
+  color: var(--color-text-inverse);
 }
 
 .shorts-feed-pause-overlay {
@@ -1428,7 +1428,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   justify-content: center;
   pointer-events: auto;
   cursor: pointer;
-  background: rgba(0, 0, 0, 0.12);
+  background: rgb(var(--black-rgb) / 0.12);
 }
 
 .shorts-feed-pause-overlay__icon {
@@ -1438,12 +1438,12 @@ function onShortsPanelCommentUserClick(ev, userId) {
   width: 76px;
   height: 76px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.42);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  color: rgba(255, 255, 255, 0.95);
+  background: rgb(var(--black-rgb) / 0.42);
+  border: 1px solid rgb(var(--white-rgb) / 0.22);
+  color: rgb(var(--white-rgb) / 0.95);
   font-size: 42px;
   line-height: 1;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 28px rgb(var(--black-rgb) / 0.35);
 }
 
 .shorts-feed-ui {
@@ -1453,35 +1453,35 @@ function onShortsPanelCommentUserClick(ev, userId) {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  padding: 14px 12px 96px;
+  padding: var(--space-14) var(--space-12) var(--space-96);
   pointer-events: none;
-  gap: 12px;
+  gap: var(--space-12);
 }
 
 .shorts-feed-caption {
   pointer-events: none;
-  color: #fff;
+  color: var(--color-text-inverse);
   max-width: min(78%, 520px);
-  padding-left: 28px;
+  padding-left: var(--space-28);
   background: transparent;
   border: none;
   border-radius: 0;
-  padding: 0 0 0 10px;
+  padding: 0 0 0 var(--space-10);
   backdrop-filter: none;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+  text-shadow: 0 1px 4px rgb(var(--black-rgb) / 0.55);
 }
 
 .shorts-feed-action-col {
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-12);
   align-items: center;
-  padding-bottom: 4px;
+  padding-bottom: var(--space-4);
 }
 
 .shorts-feed-author-block {
-  margin-bottom: 2px;
+  margin-bottom: var(--space-2);
 }
 
 .shorts-feed-author-avatar-wrap {
@@ -1500,15 +1500,15 @@ function onShortsPanelCommentUserClick(ev, userId) {
   border-radius: 50%;
   border: none;
   padding: 0;
-  background: #e53935;
-  color: #fff;
+  background: var(--red-600);
+  color: var(--color-text-inverse);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: var(--font-size-13);
   line-height: 1;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 6px rgb(var(--black-rgb) / 0.35);
 }
 
 .shorts-feed-follow-btn:hover {
@@ -1516,8 +1516,8 @@ function onShortsPanelCommentUserClick(ev, userId) {
 }
 
 .shorts-feed-follow-btn--followed {
-  background: rgba(255, 255, 255, 0.92);
-  color: #1a1a1a;
+  background: rgb(var(--white-rgb) / 0.92);
+  color: var(--ink-980);
 }
 
 .shorts-feed-action-btn {
@@ -1526,12 +1526,12 @@ function onShortsPanelCommentUserClick(ev, userId) {
   border-radius: 0;
   border: none;
   background: transparent;
-  color: #fff;
+  color: var(--color-text-inverse);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 30px;
+  font-size: var(--font-size-30);
   line-height: 1;
   transition: transform 0.15s ease, opacity 0.2s ease;
   padding: 0;
@@ -1543,20 +1543,20 @@ function onShortsPanelCommentUserClick(ev, userId) {
 }
 
 .shorts-feed-action-btn--active {
-  color: #ff2d4d;
-  filter: drop-shadow(0 0 8px rgba(255, 45, 77, 0.65));
+  color: var(--red-hot);
+  filter: drop-shadow(0 0 8px rgb(var(--red-hot-rgb) / 0.65));
 }
 
 .shorts-feed-action-btn--active i {
-  color: #ff2d4d;
-  -webkit-text-fill-color: #ff2d4d;
+  color: var(--red-hot);
+  -webkit-text-fill-color: var(--red-hot);
 }
 
 .shorts-feed-action-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   min-height: 58px;
   position: relative;
 }
@@ -1572,24 +1572,24 @@ function onShortsPanelCommentUserClick(ev, userId) {
   top: 50%;
   transform: translateY(-50%);
   min-width: 132px;
-  padding: 6px;
-  border-radius: 12px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+  padding: var(--space-6);
+  border-radius: var(--radius-2xl);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-xl);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-6);
   z-index: 30;
 }
 
 .shorts-self-action-btn {
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
-  color: #0f172a;
-  border-radius: 10px;
-  padding: 8px 10px;
-  font-size: 13px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg-sunken);
+  color: var(--color-text-strong);
+  border-radius: var(--radius-xl);
+  padding: var(--space-8) var(--space-10);
+  font-size: var(--font-size-13);
   line-height: 1.2;
   cursor: pointer;
   text-align: left;
@@ -1597,26 +1597,26 @@ function onShortsPanelCommentUserClick(ev, userId) {
 }
 
 .shorts-self-action-btn:hover {
-  background: #f1f5f9;
-  border-color: #94a3b8;
+  background: var(--color-bg-hover);
+  border-color: var(--slate-400);
 }
 
 .shorts-self-action-btn--danger {
-  color: #b91c1c;
-  border-color: rgba(185, 28, 28, 0.4);
-  background: #fef2f2;
+  color: var(--red-700);
+  border-color: rgb(var(--red-700-rgb) / 0.4);
+  background: var(--red-50);
 }
 
 .shorts-self-action-btn--danger:hover {
-  background: #fee2e2;
-  border-color: rgba(185, 28, 28, 0.55);
+  background: var(--red-100);
+  border-color: rgb(var(--red-700-rgb) / 0.55);
 }
 
 .shorts-feed-action-count {
-  font-size: 12px;
+  font-size: var(--font-size-12);
   line-height: 1;
-  color: #fff;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  color: var(--color-text-inverse);
+  text-shadow: 0 1px 4px rgb(var(--black-rgb) / 0.45);
   white-space: nowrap;
 }
 
@@ -1626,12 +1626,12 @@ function onShortsPanelCommentUserClick(ev, userId) {
   right: 0;
   bottom: 0;
   z-index: 6;
-  padding: 10px 12px 14px;
-  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.78));
+  padding: var(--space-10) var(--space-12) var(--space-14);
+  background: linear-gradient(180deg, transparent, rgb(var(--black-rgb) / 0.78));
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-8);
 }
 
 /* 个人主页作品：全屏连播 */
@@ -1658,17 +1658,17 @@ function onShortsPanelCommentUserClick(ev, userId) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
+  gap: var(--space-10);
+  margin-bottom: var(--space-12);
+  padding-bottom: var(--space-12);
   flex-shrink: 0;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  border-bottom: 1px solid rgb(var(--slate-900-rgb) / 0.07);
+  box-shadow: 0 1px 0 rgb(var(--white-rgb) / 0.75);
 }
 
 .shorts-feed-comments-panel-head h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-16);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--text);
@@ -1677,30 +1677,30 @@ function onShortsPanelCommentUserClick(ev, userId) {
 .shorts-feed-comments-panel-close {
   width: 36px;
   height: 36px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgb(var(--slate-900-rgb) / 0.08);
   border-radius: 50%;
-  background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
-  color: #475569;
+  background: linear-gradient(180deg, var(--white) 0%, var(--slate-100) 100%);
+  color: var(--color-text-secondary);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: var(--font-size-20);
   flex-shrink: 0;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 2px rgb(var(--slate-900-rgb) / 0.06), inset 0 1px 0 rgb(var(--white-rgb) / 0.95);
 }
 
 .shorts-feed-comments-panel-close:hover {
-  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
-  color: #1e293b;
+  background: linear-gradient(180deg, var(--slate-50) 0%, var(--slate-200) 100%);
+  color: var(--color-text-strong);
 }
 
 .shorts-feed-comments-panel-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  margin-top: 8px;
-  padding-right: 4px;
+  margin-top: var(--space-8);
+  padding-right: var(--space-4);
 }
 
 .profile-feed-close {
@@ -1712,18 +1712,18 @@ function onShortsPanelCommentUserClick(ev, userId) {
   height: 44px;
   border-radius: 50%;
   border: none;
-  background: rgba(0, 0, 0, 0.58);
-  color: #fff;
+  background: rgb(var(--black-rgb) / 0.58);
+  color: var(--color-text-inverse);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  font-size: var(--font-size-22);
   line-height: 1;
 }
 
 .profile-feed-close:hover {
-  background: rgba(0, 0, 0, 0.62);
+  background: rgb(var(--black-rgb) / 0.62);
 }
 
 /* 打开评论侧栏时避免与侧栏右上角关闭钮叠在一起 */

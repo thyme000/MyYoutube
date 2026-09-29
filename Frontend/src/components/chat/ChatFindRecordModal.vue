@@ -310,10 +310,10 @@ watch(keyword, () => {
   width: min(440px, 94vw);
   max-height: min(88vh, 720px);
   margin: 0 auto;
-  background: #f4f6f8;
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
-  border: 1px solid #e2e8f0;
+  background: var(--slate-100);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-modal);
+  border: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -321,16 +321,16 @@ watch(keyword, () => {
 
 .chat-find-rec__head {
   position: relative;
-  padding: 16px 44px 12px;
-  background: #eef1f4;
-  border-bottom: 1px solid #e5e9ef;
+  padding: var(--space-16) var(--space-44) var(--space-12);
+  background: var(--slate-100);
+  border-bottom: 1px solid var(--slate-200);
 }
 
 .chat-find-rec__title {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-16);
   font-weight: 600;
-  color: #0f172a;
+  color: var(--color-text-strong);
   text-align: center;
   line-height: 1.35;
 }
@@ -340,17 +340,17 @@ watch(keyword, () => {
   top: 10px;
   right: 8px;
   display: flex;
-  gap: 2px;
+  gap: var(--space-2);
 }
 
 .chat-find-rec__win-btn {
   width: 36px;
   height: 36px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: transparent;
-  color: #64748b;
-  font-size: 22px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-22);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -358,28 +358,28 @@ watch(keyword, () => {
 }
 
 .chat-find-rec__win-btn:hover {
-  background: rgba(15, 23, 42, 0.06);
-  color: #0f172a;
+  background: rgb(var(--slate-900-rgb) / 0.06);
+  color: var(--color-text-strong);
 }
 
 .chat-find-rec__search {
-  margin: 14px 16px 0;
+  margin: var(--space-14) var(--space-16) 0;
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: var(--space-8);
+  padding: 0 var(--space-12);
   height: 44px;
-  border-radius: 8px;
-  border: 1px solid #7dd3b8;
-  background: #fff;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--teal-300);
+  background: var(--color-bg-surface);
   box-sizing: border-box;
 }
 
 .chat-find-rec__search-ico {
   flex-shrink: 0;
-  font-size: 18px;
-  color: #94a3b8;
+  font-size: var(--font-size-18);
+  color: var(--color-text-faint);
 }
 
 .chat-find-rec__input {
@@ -388,12 +388,12 @@ watch(keyword, () => {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 15px;
-  color: #0f172a;
+  font-size: var(--font-size-15);
+  color: var(--color-text-strong);
 }
 
 .chat-find-rec__input::placeholder {
-  color: #94a3b8;
+  color: var(--color-text-faint);
 }
 
 .chat-find-rec__body {
@@ -401,56 +401,56 @@ watch(keyword, () => {
   min-height: 200px;
   max-height: min(58vh, 520px);
   overflow-y: auto;
-  margin-top: 12px;
-  padding: 0 0 14px;
+  margin-top: var(--space-12);
+  padding: 0 0 var(--space-14);
 }
 
 .chat-find-rec__hint {
   margin: 0;
-  padding: 28px 20px;
+  padding: var(--space-28) var(--space-20);
   text-align: center;
-  font-size: 14px;
-  color: #64748b;
+  font-size: var(--font-size-14);
+  color: var(--color-text-muted);
 }
 
 .chat-find-rec__hint--muted {
-  color: #94a3b8;
+  color: var(--color-text-faint);
 }
 
 .chat-find-rec__list {
   list-style: none;
   margin: 0;
   padding: 0;
-  background: #fff;
-  border-top: 1px solid #e8ecf1;
+  background: var(--color-bg-surface);
+  border-top: 1px solid var(--slate-200);
 }
 
 .chat-find-rec__row {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid #eef2f7;
+  gap: var(--space-10);
+  padding: var(--space-12) var(--space-14);
+  border-bottom: 1px solid var(--color-border-subtle);
   cursor: pointer;
   outline: none;
 }
 
 .chat-find-rec__row:hover {
-  background: #f8fafc;
+  background: var(--color-bg-sunken);
 }
 
 .chat-find-rec__row:focus-visible {
-  background: #f1f5f9;
+  background: var(--color-bg-hover);
 }
 
 .chat-find-rec__av {
   width: 40px;
   height: 40px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   object-fit: cover;
   flex-shrink: 0;
-  background: #e2e8f0;
+  background: var(--slate-200);
 }
 
 .chat-find-rec__mid {
@@ -463,13 +463,13 @@ watch(keyword, () => {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: var(--space-8);
+  margin-bottom: var(--space-4);
 }
 
 .chat-find-rec__nick {
-  font-size: 13px;
-  color: #94a3b8;
+  font-size: var(--font-size-13);
+  color: var(--color-text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -477,39 +477,39 @@ watch(keyword, () => {
 
 .chat-find-rec__time {
   flex-shrink: 0;
-  font-size: 12px;
-  color: #94a3b8;
+  font-size: var(--font-size-12);
+  color: var(--color-text-faint);
 }
 
 .chat-find-rec__preview {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-size-15);
   line-height: 1.45;
-  color: #334155;
+  color: var(--color-text-secondary);
   word-break: break-word;
 }
 
 .chat-find-rec__hit {
-  color: #0d9488;
+  color: var(--teal-600);
   font-weight: 600;
 }
 
 .chat-find-rec__more {
   display: block;
   width: calc(100% - 32px);
-  margin: 12px auto 0;
-  padding: 10px;
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #475569;
-  font-size: 14px;
+  margin: var(--space-12) auto 0;
+  padding: var(--space-10);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-14);
   font-weight: 600;
   cursor: pointer;
 }
 
 .chat-find-rec__more:hover:not(:disabled) {
-  background: #f8fafc;
+  background: var(--color-bg-sunken);
 }
 
 .chat-find-rec__more:disabled {

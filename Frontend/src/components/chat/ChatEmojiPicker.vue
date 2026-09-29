@@ -259,18 +259,18 @@ onBeforeUnmount(() => {
 }
 
 .chat-msg-attach--emoji-on {
-  border-color: #07c160;
-  color: #059669;
-  background: #ecfdf5;
+  border-color: var(--wechat);
+  color: var(--emerald-600);
+  background: var(--emerald-50);
 }
 
 .chat-msg-emoji-pop {
   width: min(360px, calc(100vw - 24px));
   max-height: min(340px, 48vh);
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.15);
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  box-shadow: 0 10px 40px rgb(var(--slate-900-rgb) / 0.15);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -287,33 +287,33 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   display: flex;
   flex-wrap: nowrap;
-  gap: 6px;
-  padding: 8px 8px 6px;
+  gap: var(--space-6);
+  padding: var(--space-8) var(--space-8) var(--space-6);
   overflow-x: auto;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-sunken);
 }
 
 .chat-msg-emoji-tab {
   flex: 0 0 auto;
-  padding: 6px 10px;
-  border-radius: 8px;
+  padding: var(--space-6) var(--space-10);
+  border-radius: var(--radius-lg);
   border: 1px solid transparent;
   background: transparent;
-  font-size: 13px;
-  color: #475569;
+  font-size: var(--font-size-13);
+  color: var(--color-text-secondary);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .chat-msg-emoji-tab:hover {
-  color: #0f172a;
+  color: var(--color-text-strong);
 }
 
 .chat-msg-emoji-tab--active {
-  background: #fff;
-  border-color: #e2e8f0;
-  color: #0f172a;
+  background: var(--color-bg-surface);
+  border-color: var(--color-border);
+  color: var(--color-text-strong);
   font-weight: 600;
 }
 
@@ -326,7 +326,7 @@ onBeforeUnmount(() => {
   max-height: 260px;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px;
+  padding: var(--space-8);
 }
 
 .chat-msg-emoji-body--centered {
@@ -338,20 +338,20 @@ onBeforeUnmount(() => {
 .chat-msg-emoji-hint,
 .chat-msg-emoji-err {
   margin: 0;
-  padding: 12px 8px;
-  font-size: 13px;
+  padding: var(--space-12) var(--space-8);
+  font-size: var(--font-size-13);
   text-align: center;
-  color: #94a3b8;
+  color: var(--color-text-faint);
 }
 
 .chat-msg-emoji-err {
-  color: #b91c1c;
+  color: var(--red-700);
 }
 
 .chat-msg-emoji-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
+  gap: var(--space-6);
 }
 
 .chat-msg-emoji-cell {
@@ -359,11 +359,11 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 4px;
-  padding: 8px 4px;
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-4);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
   cursor: pointer;
   min-height: 64px;
   text-align: center;
@@ -371,19 +371,19 @@ onBeforeUnmount(() => {
 }
 
 .chat-msg-emoji-cell:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
 }
 
 .chat-msg-emoji-glyph {
-  font-size: 22px;
+  font-size: var(--font-size-22);
   line-height: 1.2;
 }
 
 .chat-msg-emoji-name {
-  font-size: 10px;
+  font-size: var(--font-size-10);
   line-height: 1.25;
-  color: #64748b;
+  color: var(--color-text-muted);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

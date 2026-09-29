@@ -328,8 +328,8 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
   position: relative;
   z-index: 10;
   background: var(--bg);
-  padding: 6px 0 14px;
-  margin: 0 0 12px;
+  padding: var(--space-6) 0 var(--space-14);
+  margin: 0 0 var(--space-12);
   border-bottom: 1px solid var(--line);
   isolation: isolate;
 }
@@ -337,7 +337,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
 .home-category-bar {
   display: flex;
   flex-wrap: nowrap;
-  gap: 10px;
+  gap: var(--space-10);
   overflow-x: auto;
   padding: 0;
   margin: 0;
@@ -352,13 +352,13 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
   flex: 0 0 auto;
   border: none;
   cursor: pointer;
-  border-radius: 999px;
-  padding: 9px 22px;
+  border-radius: var(--radius-full);
+  padding: var(--space-9) var(--space-22);
   min-width: 72px;
-  font-size: 14px;
+  font-size: var(--font-size-14);
   font-weight: 600;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.92);
+  background: rgb(var(--white-rgb) / 0.92);
   border: 1px solid var(--line);
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
@@ -369,61 +369,61 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
 
 .home-chip--active {
   background: var(--active);
-  border-color: #d0d9ea;
-  color: #1a2332;
+  border-color: var(--color-border-strong);
+  color: var(--color-text-strong);
 }
 
 .home-sort-inline {
-  margin-left: 4px;
+  margin-left: var(--space-4);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px 0 2px;
+  gap: var(--space-8);
+  padding: 0 var(--space-8) 0 var(--space-2);
 }
 
 .home-sort-label {
-  font-size: 12px;
+  font-size: var(--font-size-12);
   color: var(--muted);
   white-space: nowrap;
 }
 
 .home-sort-select {
   border: 1px solid var(--line);
-  border-radius: 999px;
-  background: #fff;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-surface);
   color: var(--text);
-  padding: 8px 12px;
-  font-size: 13px;
+  padding: var(--space-8) var(--space-12);
+  font-size: var(--font-size-13);
   cursor: pointer;
 }
 
 .home-mixed-feed {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-14);
 }
 
 .home-shorts-block {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(15, 35, 80, 0.06);
-  padding: 12px;
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-12);
 }
 
 .home-shorts-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-10);
 }
 
 .home-shorts-head h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-size-18);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
 }
 
 .home-shorts-loading-more {
@@ -431,7 +431,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
   align-self: center;
   text-align: center;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-12);
 }
 
 .card-grid--loading-more {
