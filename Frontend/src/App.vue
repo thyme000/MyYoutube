@@ -214,12 +214,10 @@ async function onSearchFeedLikeClick(card, ev) {
   }
 }
 
-const { loading, cards, homeShortsRows, homeShortsPageNo, homeShortsPages, homeShortsLoadingMore, homeLongPageNo, homeLongPages, homeLongLoadingMore, homeCategoryKey, homeSortKey } = storeToRefs(useHomeStore());
+const homeStore = useHomeStore();
+const { loading, cards, homeShortsRows, homeShortsPageNo, homeShortsPages, homeLongPageNo, homeLongPages, homeCategoryKey, homeSortKey } = storeToRefs(homeStore);
 const homeShortsStripRef = ref(null);
-const homeLongHasMore = computed(() => homeLongPageNo.value < (homeLongPages.value || 0));
-const homeLongLoadLock = ref(false);
 /** 离开首页或打开个人中心前保存，回到首页时可无请求恢复，减少列表跳动 */
-const homeFeedSnapshot = ref(null);
 /** 登录成功后全屏 LOADING 立方体动画，与首屏数据加载并行 */
 const showLoginLoadingOverlay = ref(false);
 /** 登录立方体动画播完（最后一格 llc-translate-z 结束）时 resolve */
@@ -656,77 +654,9 @@ const loadShortsPanelTopComments = (reset, opts) => shortsStore.loadShortsPanelT
 function onWindowResize() {
 }
 
-function saveHomeFeedSnapshot() {
-  if (activeMenuKey.value !== "home") {
-    return;
-  }
-  homeFeedSnapshot.value = {
-    cards: [...cards.value],
-    homeShortsRows: [...homeShortsRows.value],
-    homeLongPageNo: homeLongPageNo.value,
-    homeLongPages: homeLongPages.value,
-    homeShortsPageNo: homeShortsPageNo.value,
-    homeShortsPages: homeShortsPages.value,
-    homeCategoryKey: homeCategoryKey.value,
-    homeSortKey: homeSortKey.value,
-  };
-}
-
-function restoreHomeFeedSnapshot() {
-  const s = homeFeedSnapshot.value;
-  if (!s) {
-    return false;
-  }
-  cards.value = [...s.cards];
-  homeShortsRows.value = [...s.homeShortsRows];
-  homeLongPageNo.value = s.homeLongPageNo;
-  homeLongPages.value = s.homeLongPages;
-  homeShortsPageNo.value = s.homeShortsPageNo;
-  homeShortsPages.value = s.homeShortsPages;
-  homeCategoryKey.value = s.homeCategoryKey;
-  homeSortKey.value = s.homeSortKey;
-  return true;
-}
-
-async function loadHomeShortsMore() {
-  if (homeShortsLoadingMore.value) return;
-  if (homeShortsPageNo.value >= (homeShortsPages.value || 0)) return;
-  homeShortsLoadingMore.value = true;
-  try {
-    const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === homeCategoryKey.value);
-    const nextPage = homeShortsPageNo.value + 1;
-    const res = await fetchShortsFeedPage({
-      pageNo: nextPage,
-      pageSize: 18,
-      category: chip?.code || undefined,
-    });
-    const nextList = Array.isArray(res.list) ? res.list : [];
-    if (nextList.length) {
-      homeShortsRows.value = [...homeShortsRows.value, ...nextList];
-    }
-    homeShortsPages.value = res.pages ?? homeShortsPages.value;
-    homeShortsPageNo.value = nextPage;
-  } catch {
-    // 保持当前列表，避免影响首页主流
-  } finally {
-    homeShortsLoadingMore.value = false;
-    if (activeMenuKey.value === "home") {
-      saveHomeFeedSnapshot();
-    }
-  }
-}
-
-function maybeLoadMoreHomeShortsByElement(el) {
-  if (!el) return;
-  const remain = el.scrollWidth - el.scrollLeft - el.clientWidth;
-  if (remain < 260) {
-    void loadHomeShortsMore();
-  }
-}
-
 function onHomeShortsStripScroll(e) {
   stopCardHoverPreview();
-  maybeLoadMoreHomeShortsByElement(e?.target);
+  homeStore.maybeLoadMoreShortsByElement(e?.target);
 }
 
 function onHomeShortsStripWheel(e) {
@@ -736,7 +666,7 @@ function onHomeShortsStripWheel(e) {
   stopCardHoverPreview();
   const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
   el.scrollLeft += delta;
-  maybeLoadMoreHomeShortsByElement(el);
+  homeStore.maybeLoadMoreShortsByElement(el);
 }
 
 /** 首页 Shorts 条：接近列表末尾时预拉下一页（与横向条共用 loadHomeShortsMore） */
@@ -756,7 +686,7 @@ function maybePrefetchHomeShortsForFeed() {
   }
   const remainToEnd = list.length - 1 - i;
   if (remainToEnd < HOME_SHORTS_FEED_PREFETCH_THRESHOLD) {
-    void loadHomeShortsMore();
+    void homeStore.loadShortsMore();
   }
 }
 
@@ -766,7 +696,7 @@ function maybePrefetchHomeShortsForFeed() {
  */
 function openHomeShortVideoInFeed(card, index) {
   if (activeMenuKey.value === "home") {
-    saveHomeFeedSnapshot();
+    homeStore.saveSnapshot();
   }
   if (showVideoDetail.value) {
     clearVideoDetailFromAddressBar();
@@ -800,54 +730,11 @@ function onHomeShortCardClick(card, index) {
   openHomeShortVideoInFeed(card, index);
 }
 
-async function loadHomeLongMore() {
-  if (homeLongLoadLock.value || homeLongLoadingMore.value) return;
-  if (!homeLongHasMore.value) return;
-  if (activeMenuKey.value !== "home" || showVideoDetail.value || showProfileCenter.value || showStudio.value) return;
-  homeLongLoadLock.value = true;
-  homeLongLoadingMore.value = true;
-  try {
-    const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === homeCategoryKey.value);
-    const nextPage = homeLongPageNo.value + 1;
-    const res = await fetchVideoListPage({
-      pageNo: nextPage,
-      pageSize: 24,
-      category: chip?.code || undefined,
-      sort: homeSortKey.value,
-      videoType: "LONG_VIDEO",
-    });
-    const nextList = Array.isArray(res.list) ? res.list : [];
-    if (nextList.length) {
-      cards.value = [...cards.value, ...nextList];
-    }
-    homeLongPages.value = res.pages ?? homeLongPages.value;
-    homeLongPageNo.value = nextPage;
-  } catch {
-    // 静默失败，不影响当前浏览
-  } finally {
-    homeLongLoadingMore.value = false;
-    homeLongLoadLock.value = false;
-    if (activeMenuKey.value === "home") {
-      saveHomeFeedSnapshot();
-    }
-  }
-}
-
-function maybeLoadMoreHomeLongByWindow() {
-  if (activeMenuKey.value !== "home") return;
-  if (loading.value || homeLongLoadingMore.value) return;
-  const doc = document.documentElement;
-  const remain = doc.scrollHeight - window.scrollY - window.innerHeight;
-  if (remain < 280) {
-    void loadHomeLongMore();
-  }
-}
-
 function onWindowScroll() {
   if (activePreviewCardId.value) {
     stopCardHoverPreview();
   }
-  maybeLoadMoreHomeLongByWindow();
+  homeStore.maybeLoadMoreLongByWindow();
 }
 
 function onContentScroll(e) {
@@ -878,12 +765,12 @@ function onContentScroll(e) {
     }, 200);
     return;
   }
-  if (activeMenuKey.value !== "home" || loading.value || homeLongLoadingMore.value) return;
+  if (activeMenuKey.value !== "home" || loading.value || homeStore.homeLongLoadingMore) return;
   const el = e?.target;
   if (!el) return;
   const remain = el.scrollHeight - el.scrollTop - el.clientHeight;
   if (remain < 260) {
-    void loadHomeLongMore();
+    void homeStore.loadLongMore();
   }
 }
 
@@ -915,9 +802,9 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       const sortLabel = homeSortOptions.find((x) => x.value === homeSortKey.value)?.label || "排序";
       pageHint.value = `首页 · 长视频(/videos/list) + 短视频(/videos/shorts/feed) · ${chip?.label ?? "全部"} · ${sortLabel}`;
       nextTick(() => {
-        maybeLoadMoreHomeLongByWindow();
+        homeStore.maybeLoadMoreLongByWindow();
       });
-      saveHomeFeedSnapshot();
+      homeStore.saveSnapshot();
       return;
     }
     if (menu.key === "history") {
@@ -1021,7 +908,7 @@ async function loadModuleCards(menu, { fallback = true } = {}) {
       homeShortsRows.value = [];
       homeShortsPageNo.value = 1;
       homeShortsPages.value = 0;
-      saveHomeFeedSnapshot();
+      homeStore.saveSnapshot();
     } else {
       if (menu.key === "history") {
         historyLongRows.value = [];
@@ -1114,10 +1001,10 @@ async function setActiveMenu(menu) {
 
   if (menu.key === "home") {
     if (prevMenuKey === "home" && prevShowProfile) {
-      if (restoreHomeFeedSnapshot()) {
+      if (homeStore.restoreSnapshot()) {
         loading.value = false;
         nextTick(() => {
-          maybeLoadMoreHomeLongByWindow();
+          homeStore.maybeLoadMoreLongByWindow();
         });
         return;
       }
@@ -1128,10 +1015,10 @@ async function setActiveMenu(menu) {
       await loadModuleCards(menu);
       return;
     }
-    if (homeFeedSnapshot.value && restoreHomeFeedSnapshot()) {
+    if (homeStore.restoreSnapshot()) {
       loading.value = false;
       nextTick(() => {
-        maybeLoadMoreHomeLongByWindow();
+        homeStore.maybeLoadMoreLongByWindow();
       });
       return;
     }
@@ -1140,7 +1027,7 @@ async function setActiveMenu(menu) {
   }
 
   if (prevMenuKey === "home") {
-    saveHomeFeedSnapshot();
+    homeStore.saveSnapshot();
   }
   await loadModuleCards(menu);
   if (switchSeq !== activeMenuSwitchSeq) {
@@ -1673,7 +1560,6 @@ async function submitLogin(credentials) {
 function logout() {
   behaviorStore.resetShortsHistory();
   authStore.signOut();
-  homeFeedSnapshot.value = null;
   cards.value = [];
   profileStore.close();
   showStudio.value = false;
@@ -2020,7 +1906,7 @@ registerProfileHooks({
     searchActive.value = false;
     teardownSearchVideoObserver();
     if (activeMenuKey.value === "home") {
-      saveHomeFeedSnapshot();
+      homeStore.saveSnapshot();
     }
     if (activeMenuKey.value === "shorts") {
       void behaviorStore.flushShortsHistory();

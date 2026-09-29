@@ -4,7 +4,13 @@
  * App.vue 过渡期用 storeToRefs 同名解构引用；拆 HomeView 时随之整体搬出。
  */
 import { defineStore } from "pinia";
+import { fetchShortsFeedPage, fetchVideoListPage } from "../api/videoApi";
+import { VIDEO_CATEGORY_CHIPS } from "../constants/videoCategories";
 import { patchRowById, patchRowsByAuthorId, removeRowById } from "../utils/feedRowPatch.js";
+import { useNavigationStore } from "./navigationStore";
+import { useDetailStore } from "./detailStore";
+import { useProfileStore } from "./profileStore";
+import { useStudioStore } from "./studioStore";
 
 /** 桌面/移动端首屏长视频张数阈值 */
 export const HOME_LONG_HEAD_COUNT_DESKTOP = 9;
@@ -68,8 +74,132 @@ export const useHomeStore = defineStore("home", {
     homeLongLoadingMore: false,
     homeCategoryKey: "all",
     homeSortKey: "RECOMMENDED",
+    /** 离开首页/进详情前的列表快照，回首页无请求恢复 */
+    homeFeedSnapshot: null,
+    homeLongLoadLock: false,
   }),
   actions: {
+    /** 当前是否停在首页主区（其他叠层打开时暂停分页与快照） */
+    isOnHome() {
+      const detail = useDetailStore();
+      return (
+        useNavigationStore().activeMenuKey === "home" &&
+        !detail.open &&
+        !useProfileStore().open &&
+        !useStudioStore().showStudio
+      );
+    },
+    saveSnapshot() {
+      if (useNavigationStore().activeMenuKey !== "home") {
+        return;
+      }
+      this.homeFeedSnapshot = {
+        cards: [...this.cards],
+        homeShortsRows: [...this.homeShortsRows],
+        homeLongPageNo: this.homeLongPageNo,
+        homeLongPages: this.homeLongPages,
+        homeShortsPageNo: this.homeShortsPageNo,
+        homeShortsPages: this.homeShortsPages,
+        homeCategoryKey: this.homeCategoryKey,
+        homeSortKey: this.homeSortKey,
+      };
+    },
+    /** @returns {boolean} 是否有快照可恢复 */
+    restoreSnapshot() {
+      const s = this.homeFeedSnapshot;
+      if (!s) {
+        return false;
+      }
+      this.cards = [...s.cards];
+      this.homeShortsRows = [...s.homeShortsRows];
+      this.homeLongPageNo = s.homeLongPageNo;
+      this.homeLongPages = s.homeLongPages;
+      this.homeShortsPageNo = s.homeShortsPageNo;
+      this.homeShortsPages = s.homeShortsPages;
+      this.homeCategoryKey = s.homeCategoryKey;
+      this.homeSortKey = s.homeSortKey;
+      return true;
+    },
+    clearSnapshot() {
+      this.homeFeedSnapshot = null;
+    },
+    async loadShortsMore() {
+      if (this.homeShortsLoadingMore) return;
+      if (this.homeShortsPageNo >= (this.homeShortsPages || 0)) return;
+      this.homeShortsLoadingMore = true;
+      try {
+        const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === this.homeCategoryKey);
+        const nextPage = this.homeShortsPageNo + 1;
+        const res = await fetchShortsFeedPage({
+          pageNo: nextPage,
+          pageSize: 18,
+          category: chip?.code || undefined,
+        });
+        const nextList = Array.isArray(res.list) ? res.list : [];
+        if (nextList.length) {
+          this.homeShortsRows = [...this.homeShortsRows, ...nextList];
+        }
+        this.homeShortsPages = res.pages ?? this.homeShortsPages;
+        this.homeShortsPageNo = nextPage;
+      } catch {
+        // 保持当前列表，避免影响首页主流
+      } finally {
+        this.homeShortsLoadingMore = false;
+        if (useNavigationStore().activeMenuKey === "home") {
+          this.saveSnapshot();
+        }
+      }
+    },
+    /** 横条接近末端时续拉下一页 */
+    maybeLoadMoreShortsByElement(el) {
+      if (!el) return;
+      const remain = el.scrollWidth - el.scrollLeft - el.clientWidth;
+      if (remain < 260) {
+        void this.loadShortsMore();
+      }
+    },
+    async loadLongMore() {
+      if (this.homeLongLoadLock || this.homeLongLoadingMore) return;
+      if (this.homeLongPageNo >= (this.homeLongPages || 0)) return;
+      if (!this.isOnHome()) return;
+      this.homeLongLoadLock = true;
+      this.homeLongLoadingMore = true;
+      try {
+        const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === this.homeCategoryKey);
+        const nextPage = this.homeLongPageNo + 1;
+        const res = await fetchVideoListPage({
+          pageNo: nextPage,
+          pageSize: 24,
+          category: chip?.code || undefined,
+          sort: this.homeSortKey,
+          videoType: "LONG_VIDEO",
+        });
+        const nextList = Array.isArray(res.list) ? res.list : [];
+        if (nextList.length) {
+          this.cards = [...this.cards, ...nextList];
+        }
+        this.homeLongPages = res.pages ?? this.homeLongPages;
+        this.homeLongPageNo = nextPage;
+      } catch {
+        // 静默失败，不影响当前浏览
+      } finally {
+        this.homeLongLoadingMore = false;
+        this.homeLongLoadLock = false;
+        if (useNavigationStore().activeMenuKey === "home") {
+          this.saveSnapshot();
+        }
+      }
+    },
+    maybeLoadMoreLongByWindow() {
+      if (useNavigationStore().activeMenuKey !== "home") return;
+      if (this.loading || this.homeLongLoadingMore) return;
+      const doc = document.documentElement;
+      const remain = doc.scrollHeight - window.scrollY - window.innerHeight;
+      if (remain < 280) {
+        void this.loadLongMore();
+      }
+    },
+
     selectCategory(key) {
       this.homeCategoryKey = key;
       hooks.reloadHome?.();
