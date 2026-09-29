@@ -37,10 +37,8 @@ import {
   fetchVideoDetail,
   normalizeVideoDetail,
 } from "./api/videoApi";
-import {
-  fetchSearchPrompt,
-} from "./api/searchApi";
 import { VIDEO_CATEGORY_CHIPS } from "./constants/videoCategories";
+import { primaryMenus, exploreMenus } from "./constants/menus";
 import {
   likeVideo as likeVideoApi,
   cancelLikeVideo as cancelLikeVideoApi,
@@ -70,6 +68,8 @@ import { musicLyricsFullscreen } from "./stores/musicPlayerStore.js";
 import { registerGlobalToast } from "./utils/toast.js";
 import AuthScene from "./components/AuthScene.vue";
 import UploadModal from "./components/UploadModal.vue";
+import TopbarSearch from "./components/TopbarSearch.vue";
+import SideNavbar from "./components/SideNavbar.vue";
 import NotifyPanel from "./components/NotifyPanel.vue";
 import ToastStack from "./components/ToastStack.vue";
 import { registerChatNavigator } from "./utils/chatNavigator.js";
@@ -79,22 +79,8 @@ import {
   initChatWhenAuthed,
   openConversation as openChatConversation,
   chatActiveConversationId,
-  chatTotalUnread,
   refreshConversationList,
 } from "./stores/chatStore.js";
-
-const primaryMenus = [
-  { key: "home", label: "首页", icon: "ri-home-4-line" },
-  { key: "shorts", label: "短视频", icon: "ri-video-line" },
-  { key: "subscribed", label: "关注", icon: "ri-star-line" },
-  { key: "history", label: "历史播放记录", icon: "ri-history-line" },
-  { key: "liked", label: "赞过的视频", icon: "ri-thumb-up-line" },
-];
-
-const exploreMenus = [
-  { key: "music", label: "音乐", icon: "ri-music-2-line" },
-  { key: "chat", label: "聊天", icon: "ri-chat-3-line" },
-];
 
 const route = useRoute();
 const router = useRouter();
@@ -104,66 +90,6 @@ const { activeMenuKey, activeMenuLabel, pageHint } = storeToRefs(navigationStore
 /** 搜索域状态在 pinia searchStore，同名解构保持既有引用零改动；拆 SearchView 时随之搬出 */
 const searchStore = useSearchStore();
 // 列表加载后由 store 通知 App 挂自动播放观察器（依赖本组件的 DOM 引用）
-searchStore.registerLoadedHook(setupSearchVideoAutoplay);
-
-const {
-  searchKeyword,
-  searchActive,
-  searchTab,
-  searchSubmittedKeyword,
-  searchInputFocused,
-  searchDropdownOpen,
-  searchPromptRows,
-  searchHotRows,
-  searchPromptLoading,
-  searchHotLoading,
-  searchVideoSort,
-  searchResultError,
-  searchExpandOpen,
-  searchFeedLikeBusyId,
-} = storeToRefs(searchStore);
-const searchInputRef = ref(null);
-const searchFeedScrollRef = ref(null);
-const contentScrollRef = ref(null);
-
-function dedupeStringsMax10(arr) {
-  const seen = new Set();
-  const out = [];
-  for (const s of arr) {
-    const x = String(s).trim();
-    if (!x || seen.has(x)) continue;
-    seen.add(x);
-    out.push(x);
-    if (out.length >= 10) break;
-  }
-  return out;
-}
-
-function highlightSuggestParts(line) {
-  const kw = searchKeyword.value.trim();
-  const t = String(line);
-  if (!kw) return [{ t, hl: false }];
-  const tL = t.toLowerCase();
-  const kL = kw.toLowerCase();
-  if (tL.startsWith(kL)) {
-    return [
-      { t: t.slice(0, kw.length), hl: true },
-      { t: t.slice(kw.length), hl: false },
-    ];
-  }
-  return [{ t, hl: false }];
-}
-
-const searchDropdownVisible = computed(() => {
-  if (!searchInputFocused.value || !searchDropdownOpen.value) return false;
-  return (
-    searchPromptLoading.value ||
-    searchPromptRows.value.length > 0 ||
-    searchHotLoading.value ||
-    searchHotRows.value.length > 0
-  );
-});
-
 function teardownSearchVideoObserver() {
   try {
     searchVideoObserver?.disconnect();
@@ -221,92 +147,28 @@ function setupSearchVideoAutoplay() {
   });
 }
 
-function loadSearchHotIfNeeded() {
-  return searchStore.loadHotIfNeeded();
-}
+let searchVideoObserver = null;
+searchStore.registerLoadedHook(setupSearchVideoAutoplay);
 
-function loadSearchVideoPage({ reset }) {
-  return searchStore.loadVideoPage({ reset });
-}
-
-
-function loadSearchUserPage({ reset }) {
-  return searchStore.loadUserPage({ reset });
-}
-
-function loadSearchTagPage({ reset }) {
-  return searchStore.loadTagPage({ reset });
-}
-
-function loadSearchTabResults({ reset }) {
-  return searchStore.loadTabResults({ reset });
-}
-
-
-function onSearchInputFocus() {
-  searchInputFocused.value = true;
-  searchDropdownOpen.value = true;
-  if (searchSuggestBlurTimer) {
-    clearTimeout(searchSuggestBlurTimer);
-    searchSuggestBlurTimer = null;
-  }
-  void loadSearchHotIfNeeded();
-}
-
-function onSearchInputBlur() {
-  searchSuggestBlurTimer = setTimeout(() => {
-    searchInputFocused.value = false;
-    searchDropdownOpen.value = false;
-  }, 160);
-}
-
-function selectSearchSuggestion(text) {
-  const t = String(text).trim();
-  if (!t) return;
-  searchKeyword.value = t;
-  searchDropdownOpen.value = false;
-  void onSearch();
-}
-
-function clearSearchKeyword() {
-  searchKeyword.value = "";
-  nextTick(() => {
-    searchInputRef.value?.focus?.();
-  });
-}
-
-watch(
-  () => searchKeyword.value,
-  (q) => {
-    if (searchPromptDebounceTimer) {
-      clearTimeout(searchPromptDebounceTimer);
-      searchPromptDebounceTimer = null;
-    }
-    if (!searchInputFocused.value) return;
-    const kw = String(q).trim();
-    if (!kw) {
-      searchPromptRows.value = [];
-      return;
-    }
-    searchPromptDebounceTimer = setTimeout(async () => {
-      searchPromptLoading.value = true;
-      try {
-        const raw = await fetchSearchPrompt(kw);
-        searchPromptRows.value = dedupeStringsMax10(Array.isArray(raw) ? raw : []);
-      } catch {
-        pushToast(SEARCH_UI.promptError, "error");
-        searchPromptRows.value = [];
-      } finally {
-        searchPromptLoading.value = false;
-      }
-    }, 220);
-  }
-);
+const {
+  searchKeyword,
+  searchActive,
+  searchTab,
+  searchSubmittedKeyword,
+  searchDropdownOpen,
+  searchVideoSort,
+  searchResultError,
+  searchExpandOpen,
+  searchFeedLikeBusyId,
+} = storeToRefs(searchStore);
+const topbarSearchRef = ref(null);
+const searchFeedScrollRef = ref(null);
+const contentScrollRef = ref(null);
 
 watch(searchVideoSort, () => {
   if (!searchActive.value) return;
   if (searchTab.value === "all" || searchTab.value === "video") {
-    void loadSearchVideoPage({ reset: true });
+    void searchStore.loadVideoPage({ reset: true });
   }
 });
 
@@ -352,10 +214,7 @@ async function onSearchFeedLikeClick(card, ev) {
   }
 }
 
-const sidebarCollapsed = ref(false);
-const exploreExpanded = ref(true);
 const { loading, cards, homeShortsRows, homeShortsPageNo, homeShortsPages, homeShortsLoadingMore, homeLongPageNo, homeLongPages, homeLongLoadingMore, homeCategoryKey, homeSortKey } = storeToRefs(useHomeStore());
-const viewportWidth = ref(typeof window !== "undefined" ? window.innerWidth : 1440);
 const homeShortsStripRef = ref(null);
 const homeLongHasMore = computed(() => homeLongPageNo.value < (homeLongPages.value || 0));
 const homeLongLoadLock = ref(false);
@@ -795,7 +654,6 @@ const resetShortsPanelCommentsState = () => shortsStore.resetShortsPanelComments
 const closeShortsCommentPanel = () => shortsStore.closeShortsCommentPanel();
 const loadShortsPanelTopComments = (reset, opts) => shortsStore.loadShortsPanelTopComments(reset, opts);
 function onWindowResize() {
-  viewportWidth.value = window.innerWidth || 1440;
 }
 
 function saveHomeFeedSnapshot() {
@@ -1011,11 +869,11 @@ function onContentScroll(e) {
       if (remain >= 320) return;
       const tab = searchTab.value;
       if (tab === "all" || tab === "video") {
-        void loadSearchVideoPage({ reset: false });
+        void searchStore.loadVideoPage({ reset: false });
       } else if (tab === "user") {
-        void loadSearchUserPage({ reset: false });
+        void searchStore.loadUserPage({ reset: false });
       } else if (tab === "tag") {
-        void loadSearchTagPage({ reset: false });
+        void searchStore.loadTagPage({ reset: false });
       }
     }, 200);
     return;
@@ -1314,7 +1172,7 @@ async function onSearch() {
   searchResultError.value = "";
   activeMenuLabel.value = `搜索：${keyword}`;
   pageHint.value = `搜索：「${keyword}」`;
-  await loadSearchTabResults({ reset: true });
+  await searchStore.loadTabResults({ reset: true });
 }
 
 function onCreate() {
@@ -1559,7 +1417,7 @@ function onGlobalKeydown(ev) {
 
   if (ev.key === "/" && !inEditable && !showVideoDetail.value) {
     ev.preventDefault();
-    searchInputRef.value?.focus?.();
+    topbarSearchRef.value?.focusInput?.();
     return;
   }
 
@@ -2012,9 +1870,6 @@ registerSearchBridgeHooks({
 
 /** 搜索页文案与分页常量已移至 stores/searchStore.js */
 
-let searchSuggestBlurTimer = null;
-let searchPromptDebounceTimer = null;
-let searchVideoObserver = null;
 let searchScrollLoadTimer = null;
 
 
@@ -2285,8 +2140,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   teardownSearchVideoObserver();
   searchStore.detachSearchExpandEscape();
-  if (searchSuggestBlurTimer) clearTimeout(searchSuggestBlurTimer);
-  if (searchPromptDebounceTimer) clearTimeout(searchPromptDebounceTimer);
   shortsStore.clearShortsBufferingUITimer();
   notificationStore.stopSession();
   stopCardHoverPreview();
@@ -2304,124 +2157,15 @@ onBeforeUnmount(() => {
     <AuthScene v-if="!isAuthed" @submit-login="submitLogin" />
 
   <div v-else class="app-layout">
-    <aside v-if="!showStudio && !showVideoDetail" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
-      <div class="sidebar-header">
-        <button class="icon-btn" title="折叠侧边栏" @click="sidebarCollapsed = !sidebarCollapsed">☰</button>
-        <h1 class="brand">THYME</h1>
-      </div>
-
-      <nav class="nav-section">
-        <template v-for="menu in primaryMenus" :key="menu.key">
-        <button
-          class="nav-item"
-          :class="{ active: menu.key === activeMenuKey && !(showProfileCenter && isViewingSelf) }"
-          @click="setActiveMenu(menu)"
-        >
-            <span class="nav-icon"><i :class="menu.icon"></i></span>
-          <span class="nav-label">{{ menu.label }}</span>
-        </button>
-        </template>
-        <button
-          type="button"
-          class="nav-item"
-          :class="{ active: showProfileCenter && isViewingSelf }"
-          title="我的主页"
-          @click="onSidebarOpenMyProfile"
-        >
-          <span class="nav-icon"><i class="ri-user-smile-line"></i></span>
-          <span class="nav-label">我的</span>
-        </button>
-      </nav>
-
-      <section class="nav-section">
-        <button class="section-toggle" :aria-expanded="String(exploreExpanded)" @click="exploreExpanded = !exploreExpanded">
-          <span>探索</span>
-          <span class="arrow">▾</span>
-        </button>
-        <div v-show="exploreExpanded">
-          <button
-            v-for="menu in exploreMenus"
-            :key="menu.key"
-            class="nav-item"
-            :class="{ active: menu.key === activeMenuKey && !(showProfileCenter && isViewingSelf) }"
-            @click="setActiveMenu(menu)"
-          >
-            <span class="nav-icon"><i :class="menu.icon"></i></span>
-            <span class="nav-label">{{ menu.label }}</span>
-            <span
-              v-if="menu.key === 'chat' && isAuthed && (chatTotalUnread ?? 0) > 0"
-              class="nav-item__chat-unread"
-              aria-label="未读聊天消息"
-            >
-              {{ chatTotalUnread > 99 ? "99+" : chatTotalUnread }}
-            </span>
-          </button>
-        </div>
-      </section>
-    </aside>
+    <SideNavbar
+      v-if="!showStudio && !showVideoDetail"
+      @select-menu="setActiveMenu"
+      @open-my-profile="onSidebarOpenMyProfile"
+    />
 
     <div class="main-wrapper">
       <header class="topbar">
-        <div class="search-box search-box--with-dropdown">
-          <div class="search-box__input-wrap">
-          <input
-              ref="searchInputRef"
-            v-model="searchKeyword"
-            type="text"
-              :placeholder="SEARCH_UI.placeholder"
-            aria-label="搜索"
-              autocomplete="off"
-            @keyup.enter="onSearch"
-              @focus="onSearchInputFocus"
-              @blur="onSearchInputBlur"
-            />
-            <button
-              v-show="searchKeyword.trim().length > 0"
-              type="button"
-              class="search-box__clear"
-              aria-label="清空"
-              title="清空"
-              @mousedown.prevent
-              @click="clearSearchKeyword"
-            >
-              <i class="ri-close-line" aria-hidden="true"></i>
-            </button>
-          </div>
-          <button class="icon-btn" type="button" @click="onSearch">搜索</button>
-          <div v-show="searchDropdownVisible" class="search-dropdown" role="listbox" @mousedown.prevent>
-            <div v-if="searchPromptLoading || searchPromptRows.length" class="search-dropdown-block">
-              <div class="search-dropdown-title">{{ SEARCH_UI.promptTitle }}</div>
-              <div v-if="searchPromptLoading" class="search-dropdown-hint">加载中…</div>
-              <button
-                v-for="(line, idx) in searchPromptRows"
-                :key="'p-' + idx + line"
-                type="button"
-                class="search-dropdown-item"
-                role="option"
-                @click="selectSearchSuggestion(line)"
-              >
-                <template v-for="(seg, j) in highlightSuggestParts(line)" :key="j">
-                  <span v-if="seg.hl" class="search-dropdown-hi">{{ seg.t }}</span>
-                  <span v-else>{{ seg.t }}</span>
-                </template>
-              </button>
-            </div>
-            <div v-if="searchHotLoading || searchHotRows.length" class="search-dropdown-block">
-              <div class="search-dropdown-title">{{ SEARCH_UI.hotTitle }}</div>
-              <div v-if="searchHotLoading" class="search-dropdown-hint">加载中…</div>
-              <button
-                v-for="(line, idx) in searchHotRows"
-                :key="'h-' + idx + line"
-                type="button"
-                class="search-dropdown-item"
-                role="option"
-                @click="selectSearchSuggestion(line)"
-              >
-                {{ line }}
-              </button>
-            </div>
-          </div>
-        </div>
+        <TopbarSearch ref="topbarSearchRef" @search="onSearch" />
 
         <div class="top-actions">
           <button v-if="showVideoDetail" type="button" class="action-btn" @click="closeVideoDetail">返回</button>
