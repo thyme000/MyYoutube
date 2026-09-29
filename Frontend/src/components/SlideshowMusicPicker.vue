@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { musicSearch, musicResolveSong } from "../api/musicApi.js";
 import { parseLyricsText } from "../utils/lyricsParser.js";
 import { trimUrlToWavFile } from "../utils/audioTrimWav.js";
+import BaseModal from "./ui/BaseModal.vue";
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -331,16 +332,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      v-if="open"
-      class="slideshow-music-picker-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="选择背景音乐"
-      @click.self="onClose"
-    >
-      <div class="slideshow-music-picker" @click.stop>
+  <BaseModal
+    :open="open"
+    variant="none"
+    overlay-class="slideshow-music-picker-overlay"
+    card-class="slideshow-music-picker"
+    aria-label="选择背景音乐"
+    @close="onClose"
+  >
         <div class="smp-head">
           <h3>云端音乐</h3>
           <button type="button" class="smp-close" aria-label="关闭" @click="onClose">
@@ -464,9 +463,7 @@ onBeforeUnmount(() => {
         </div>
 
         <audio ref="previewAudioRef" class="smp-audio-el" preload="none" />
-      </div>
-    </div>
-  </Teleport>
+  </BaseModal>
 </template>
 
 <style scoped>

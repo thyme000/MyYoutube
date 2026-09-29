@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { reportComment } from "../api/commentApi.js";
 import { toast } from "../utils/toast.js";
+import BaseModal from "./ui/BaseModal.vue";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -77,33 +78,19 @@ async function submit() {
   }
 }
 
-function onGlobalKeyDown(ev) {
-  if (!props.modelValue) return;
-  if (ev?.key === "Escape") close();
-}
-
 watch(
   () => props.modelValue,
   (open) => {
     if (open) {
       reason.value = "";
       remark.value = "";
-      window.addEventListener("keydown", onGlobalKeyDown);
-    } else {
-      window.removeEventListener("keydown", onGlobalKeyDown);
     }
   }
 );
-
-onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onGlobalKeyDown);
-});
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="modelValue" class="modal-overlay modal-overlay--light comment-report-overlay" @click.self="close">
-      <div class="comment-report" role="dialog" aria-modal="true" @click.stop>
+  <BaseModal :open="modelValue" variant="light" overlay-class="comment-report-overlay" card-class="comment-report" @close="close">
         <header class="comment-report__head">
           <h2 class="comment-report__title">{{ commentTitle }}</h2>
           <div class="comment-report__win-btns">
@@ -158,9 +145,7 @@ onBeforeUnmount(() => {
             {{ busy ? "提交中…" : "提交举报" }}
           </button>
         </footer>
-      </div>
-    </div>
-  </Teleport>
+  </BaseModal>
 </template>
 
 

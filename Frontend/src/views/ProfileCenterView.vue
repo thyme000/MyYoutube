@@ -8,6 +8,7 @@ import { storeToRefs } from "pinia";
 import { useAuthStore } from "../stores/authStore";
 import { useProfileStore } from "../stores/profileStore";
 import { useHoverPreviewStore, cardPreviewKey } from "../stores/hoverPreviewStore";
+import BaseModal from "../components/ui/BaseModal.vue";
 import {
   DEFAULT_PROFILE_AVATAR_URL as profileAvatar,
   DEFAULT_PROFILE_BG_URL as profileBanner,
@@ -470,12 +471,13 @@ function onCropResizeStart(event) {
     </section>
 
     <!-- 头像 / 背景 预览与裁剪 -->
-    <div
-      v-if="store.mediaPreviewOpen"
-      class="modal-overlay modal-overlay--light"
-      @click.self="store.closeMediaPreview()"
+    <BaseModal
+      :open="store.mediaPreviewOpen"
+      variant="light"
+      card-class="modal-card media-preview-card media-preview-card--light"
+      :close-on-esc="false"
+      @close="store.closeMediaPreview()"
     >
-      <div class="modal-card media-preview-card media-preview-card--light" role="dialog" aria-modal="true" @click.stop>
         <h3 class="media-preview-title media-preview-title--light">
           {{ store.mediaPreviewType === "avatar" ? "头像" : "背景图" }}
         </h3>
@@ -516,16 +518,19 @@ function onCropResizeStart(event) {
             <button type="button" class="profile-action-btn ghost" @click="store.closeMediaPreview()">关闭</button>
           </div>
         </div>
-      </div>
-    </div>
+    </BaseModal>
 
     <!-- 关注 / 粉丝列表 -->
-    <div
-      v-if="store.relationOpen"
-      class="modal-overlay modal-overlay--light relation-modal-overlay"
-      @click.self="store.closeRelationTable()"
+    <BaseModal
+      :open="store.relationOpen"
+      variant="light"
+      overlay-class="relation-modal-overlay"
+      card-class="modal-card relation-table-card relation-table-card--white"
+      :close-on-esc="false"
+      :stop-card-click="false"
+      @close="store.closeRelationTable()"
+      @card-click="relationFollowerMenuId = null"
     >
-      <div class="modal-card relation-table-card relation-table-card--white" @click="relationFollowerMenuId = null">
         <h3 class="relation-table-heading">{{ relationTableTitle }}</h3>
         <div class="relation-table-wrap relation-table-wrap--white">
           <table class="relation-table relation-table--white">
@@ -621,19 +626,18 @@ function onCropResizeStart(event) {
           </button>
         </div>
         <button type="button" class="relation-modal-close" @click="store.closeRelationTable()">关闭</button>
-      </div>
-    </div>
+    </BaseModal>
 
     <!-- 编辑资料 -->
-    <div
-      v-if="store.editOpen"
-      class="modal-overlay modal-overlay--light profile-edit-overlay"
-      role="dialog"
-      aria-modal="true"
+    <BaseModal
+      :open="store.editOpen"
+      variant="light"
+      overlay-class="profile-edit-overlay"
+      card-class="modal-card profile-edit-modal"
       aria-labelledby="profile-edit-title"
-      @click.self="store.closeEdit()"
+      :close-on-esc="false"
+      @close="store.closeEdit()"
     >
-      <div class="modal-card profile-edit-modal" @click.stop>
         <h3 id="profile-edit-title" class="profile-edit-title">编辑资料</h3>
         <div class="profile-edit-form">
           <label class="profile-edit-label">
@@ -669,8 +673,7 @@ function onCropResizeStart(event) {
             {{ profileEditSaving ? "保存中…" : "保存" }}
           </button>
         </div>
-      </div>
-    </div>
+    </BaseModal>
   </section>
 </template>
 

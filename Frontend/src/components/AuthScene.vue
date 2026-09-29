@@ -1,4 +1,5 @@
 <script setup>
+import BaseModal from "./ui/BaseModal.vue";
 import { onBeforeUnmount, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useAuthStore } from "../stores/authStore";
@@ -375,8 +376,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="forgotOpen" class="modal-overlay" @click.self="closeForgot">
-        <div class="modal-card forgot-modal-card" @click.stop>
+      <BaseModal :open="forgotOpen" card-class="modal-card forgot-modal-card" @close="closeForgot">
           <div class="forgot-modal-grid">
             <div class="forgot-mascot" aria-hidden="true">
               <svg class="forgot-mascot-svg" viewBox="0 0 200 260" xmlns="http://www.w3.org/2000/svg">
@@ -467,8 +467,7 @@ onBeforeUnmount(() => {
               <button type="button" class="modal-close" @click="closeForgot">Close</button>
             </div>
           </div>
-        </div>
-      </div>
+      </BaseModal>
 
       <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
     </section>

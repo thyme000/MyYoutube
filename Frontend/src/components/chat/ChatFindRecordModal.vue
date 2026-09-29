@@ -3,6 +3,7 @@ import { ref, computed, watch } from "vue";
 import * as chatApi from "../../api/chatApi.js";
 import { sanitizeImageUrl, DEFAULT_PROFILE_AVATAR_URL } from "../../utils/userProfile.js";
 import { toast } from "../../utils/toast.js";
+import BaseModal from "../ui/BaseModal.vue";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -223,14 +224,14 @@ watch(keyword, () => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      v-if="modelValue"
-      class="modal-overlay modal-overlay--light chat-find-rec-overlay"
-      role="presentation"
-      @click.self="close"
-    >
-      <div class="chat-find-rec" role="dialog" aria-modal="true" aria-labelledby="chat-find-rec-title" @click.stop>
+  <BaseModal
+    :open="modelValue"
+    variant="light"
+    overlay-class="chat-find-rec-overlay"
+    card-class="chat-find-rec"
+    aria-labelledby="chat-find-rec-title"
+    @close="close"
+  >
         <header class="chat-find-rec__head">
           <h2 id="chat-find-rec-title" class="chat-find-rec__title">{{ titleText }}</h2>
           <div class="chat-find-rec__win-btns">
@@ -293,9 +294,7 @@ watch(keyword, () => {
             {{ loadingMore ? "加载中…" : "加载更多" }}
           </button>
         </div>
-      </div>
-    </div>
-  </Teleport>
+  </BaseModal>
 </template>
 
 <style scoped>

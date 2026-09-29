@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import BaseModal from "./ui/BaseModal.vue";
 import { useNavigationStore } from "../stores/navigationStore";
 import { useStudioStore } from "../stores/studioStore";
 import { useProfileStore } from "../stores/profileStore";
@@ -400,10 +401,11 @@ async function submitUploadVideo() {
 </script>
 
 <template>
-  <div
-    class="modal-overlay upload-modal-overlay"
-    role="dialog"
-    aria-modal="true"
+  <BaseModal
+    :open="true"
+    overlay-class="upload-modal-overlay"
+    :close-on-esc="false"
+    :close-on-backdrop="false"
     aria-label="上传视频"
   >
       <form
@@ -625,7 +627,7 @@ async function submitUploadVideo() {
           </button>
         </div>
       </form>
-    </div>
+  </BaseModal>
   <SlideshowMusicPicker
     :open="uploadMusicPickerOpen"
     :target-segment-sec="slideshowBgmTargetSec"

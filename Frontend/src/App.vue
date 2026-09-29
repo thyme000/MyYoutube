@@ -55,6 +55,7 @@ const ProfileCenterView = defineAsyncComponent(() => import("./views/ProfileCent
 import ChatFloatingRail from "./components/chat/ChatFloatingRail.vue";
 import ChatForwardVideoModal from "./components/chat/ChatForwardVideoModal.vue";
 import CommentReportModal from "./components/CommentReportModal.vue";
+import BaseModal from "./components/ui/BaseModal.vue";
 import LoginLoadingCubes from "./components/LoginLoadingCubes.vue";
 import { musicLyricsFullscreen } from "./stores/musicPlayerStore.js";
 import { registerGlobalToast } from "./utils/toast.js";
@@ -1840,23 +1841,21 @@ onBeforeUnmount(() => {
 
       <UploadModal v-if="uploadModalOpen" />
 
-      <div
-        v-if="selfVideoDeleteConfirmOpen"
-        class="modal-overlay shorts-delete-modal-overlay"
-        role="dialog"
-        aria-modal="true"
+      <BaseModal
+        :open="selfVideoDeleteConfirmOpen"
+        overlay-class="shorts-delete-modal-overlay"
+        card-class="modal-card shorts-delete-modal"
+        :close-on-esc="false"
         aria-label="确认删除视频"
-        @click.self="cancelDeleteCurrentSelfVideo"
+        @close="cancelDeleteCurrentSelfVideo"
       >
-        <div class="modal-card shorts-delete-modal" @click.stop>
-          <h3>删除视频</h3>
-          <p class="shorts-delete-modal-text">确定删除该视频吗？删除后将无法恢复。</p>
-          <div class="shorts-delete-modal-actions">
-            <button type="button" class="action-btn" @click="cancelDeleteCurrentSelfVideo">取消</button>
-            <button type="button" class="action-btn shorts-delete-btn" @click="confirmDeleteCurrentSelfVideo">确认删除</button>
-          </div>
+        <h3>删除视频</h3>
+        <p class="shorts-delete-modal-text">确定删除该视频吗？删除后将无法恢复。</p>
+        <div class="shorts-delete-modal-actions">
+          <button type="button" class="action-btn" @click="cancelDeleteCurrentSelfVideo">取消</button>
+          <button type="button" class="action-btn shorts-delete-btn" @click="confirmDeleteCurrentSelfVideo">确认删除</button>
         </div>
-      </div>
+      </BaseModal>
 
     </div>
 

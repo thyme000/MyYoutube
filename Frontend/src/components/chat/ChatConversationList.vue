@@ -9,6 +9,7 @@ import {
   isGroupAnnouncementUnread,
 } from "../../stores/chatStore.js";
 import { toast } from "../../utils/toast.js";
+import BaseModal from "../ui/BaseModal.vue";
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -252,14 +253,13 @@ async function confirmPicker() {
     </div>
     <p v-if="!sortedItems.length && !loading" class="chat-conv-list__empty">暂无会话</p>
 
-    <Teleport to="body">
-      <div
-        v-if="pickOpen"
-        class="modal-overlay modal-overlay--light chat-mutual-pick-overlay"
-        role="presentation"
-        @click.self="closePicker"
-      >
-        <div class="modal-card chat-mutual-pick" role="dialog" aria-modal="true" @click.stop>
+    <BaseModal
+      :open="pickOpen"
+      variant="light"
+      overlay-class="chat-mutual-pick-overlay"
+      card-class="modal-card chat-mutual-pick"
+      @close="closePicker"
+    >
           <h3 class="chat-mutual-pick__title">{{ pickMode === "single" ? "创建私聊" : "创建群聊" }}</h3>
           <p class="chat-mutual-pick__hint">
             {{ pickMode === "single" ? "从互关好友中选 1 人" : "从互关好友中选择多人（可多选）" }}
@@ -304,9 +304,7 @@ async function confirmPicker() {
               {{ pickSubmitting ? "创建中…" : "创建" }}
             </button>
           </div>
-        </div>
-      </div>
-    </Teleport>
+    </BaseModal>
   </div>
 </template>
 

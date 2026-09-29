@@ -11,6 +11,7 @@ import {
 } from "../../stores/chatStore.js";
 import { toast } from "../../utils/toast.js";
 import ChatEmojiPicker from "./ChatEmojiPicker.vue";
+import BaseModal from "../ui/BaseModal.vue";
 import { annotateChatMessagesWithTime } from "../../utils/chatTime.js";
 
 /** 聊天附件单文件上限（1 GiB，与常见「1G」表述一致） */
@@ -916,14 +917,14 @@ async function onChatFileChange(ev) {
       </div>
     </Teleport>
 
-    <Teleport to="body">
-      <div
-        v-if="downloadConfirmOpen"
-        class="modal-overlay modal-overlay--light chat-file-dl-overlay"
-        role="presentation"
-        @click.self="closeFileDownloadConfirm"
-      >
-        <div class="modal-card chat-file-dl-modal" role="dialog" aria-modal="true" aria-labelledby="chat-file-dl-title" @click.stop>
+    <BaseModal
+      :open="downloadConfirmOpen"
+      variant="light"
+      overlay-class="chat-file-dl-overlay"
+      card-class="modal-card chat-file-dl-modal"
+      aria-labelledby="chat-file-dl-title"
+      @close="closeFileDownloadConfirm"
+    >
           <h3 id="chat-file-dl-title">确认下载</h3>
           <p class="chat-file-dl-modal__msg">
             是否确认下载
@@ -934,9 +935,7 @@ async function onChatFileChange(ev) {
             <button type="button" class="chat-file-dl-btn chat-file-dl-btn--ghost" @click="closeFileDownloadConfirm">取消</button>
             <button type="button" class="chat-file-dl-btn chat-file-dl-btn--primary" @click="confirmFileDownload">确认</button>
           </div>
-        </div>
-      </div>
-    </Teleport>
+    </BaseModal>
   </div>
 </template>
 

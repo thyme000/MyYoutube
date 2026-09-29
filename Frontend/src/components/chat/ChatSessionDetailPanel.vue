@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick } from "vue";
+import BaseModal from "../ui/BaseModal.vue";
 import {
   sanitizeImageUrl,
   DEFAULT_PROFILE_AVATAR_URL,
@@ -819,14 +820,13 @@ async function submitLeaveConfirm() {
       </div>
     </Teleport>
 
-    <Teleport to="body">
-      <div
-        v-if="inviteOpen"
-        class="modal-overlay modal-overlay--light chat-session-invite-overlay"
-        role="presentation"
-        @click.self="closeInvite"
-      >
-        <div class="modal-card chat-session-invite" role="dialog" aria-modal="true" @click.stop>
+        <BaseModal
+      :open="inviteOpen"
+      variant="light"
+      overlay-class="chat-session-invite-overlay"
+      card-class="modal-card chat-session-invite"
+      @close="closeInvite"
+    >
           <h3 class="chat-session-invite__title">邀请互关好友入群</h3>
           <p v-if="inviteLoading" class="chat-session-invite__hint chat-session-invite__hint--block">加载中…</p>
           <div v-else class="chat-session-invite__list">
@@ -858,18 +858,15 @@ async function submitLeaveConfirm() {
               {{ inviteSubmitting ? "邀请中…" : "邀请" }}
             </button>
           </div>
-        </div>
-      </div>
-    </Teleport>
+    </BaseModal>
 
-    <Teleport to="body">
-      <div
-        v-if="removeOpen"
-        class="modal-overlay modal-overlay--light chat-session-invite-overlay"
-        role="presentation"
-        @click.self="closeRemove"
-      >
-        <div class="modal-card chat-session-invite" role="dialog" aria-modal="true" @click.stop>
+        <BaseModal
+      :open="removeOpen"
+      variant="light"
+      overlay-class="chat-session-invite-overlay"
+      card-class="modal-card chat-session-invite"
+      @close="closeRemove"
+    >
           <h3 class="chat-session-invite__title">移除群成员</h3>
           <p class="chat-session-invite__hint">仅群主可操作；以下不包含群主本人，可多选后批量移除。</p>
           <div class="chat-session-invite__list">
@@ -912,18 +909,15 @@ async function submitLeaveConfirm() {
               {{ removeSubmitting ? "移除中…" : "移除" }}
             </button>
           </div>
-        </div>
-      </div>
-    </Teleport>
+    </BaseModal>
 
-    <Teleport to="body">
-      <div
-        v-if="removeBulkConfirmOpen"
-        class="modal-overlay modal-overlay--light chat-session-invite-overlay"
-        role="presentation"
-        @click.self="closeRemoveBulkConfirm"
-      >
-        <div class="modal-card chat-session-invite" role="dialog" aria-modal="true" @click.stop>
+        <BaseModal
+      :open="removeBulkConfirmOpen"
+      variant="light"
+      overlay-class="chat-session-invite-overlay"
+      card-class="modal-card chat-session-invite"
+      @close="closeRemoveBulkConfirm"
+    >
           <h3 class="chat-session-invite__title">移出成员</h3>
           <p class="chat-session-invite__hint">
             确定将已选的 {{ removePickIds.length }} 位成员移出群聊？移出后对方会话列表中将不再显示本群。
@@ -941,18 +935,16 @@ async function submitLeaveConfirm() {
               {{ removeSubmitting ? "移除中…" : "确定移除" }}
             </button>
           </div>
-        </div>
-      </div>
-    </Teleport>
+    </BaseModal>
 
-    <Teleport to="body">
-      <div
-        v-if="leaveConfirmOpen"
-        class="modal-overlay modal-overlay--light chat-session-invite-overlay"
-        role="presentation"
-        @click.self="closeLeaveConfirm"
-      >
-        <div class="modal-card chat-session-invite" role="dialog" aria-modal="true" aria-labelledby="chat-leave-confirm-title" @click.stop>
+        <BaseModal
+      :open="leaveConfirmOpen"
+      variant="light"
+      overlay-class="chat-session-invite-overlay"
+      card-class="modal-card chat-session-invite"
+      aria-labelledby="chat-leave-confirm-title"
+      @close="closeLeaveConfirm"
+    >
           <h3 id="chat-leave-confirm-title" class="chat-session-invite__title">{{ leaveConfirmTitle }}</h3>
           <p class="chat-session-invite__hint">{{ leaveConfirmMessage }}</p>
           <div class="chat-session-invite__actions">
@@ -968,18 +960,16 @@ async function submitLeaveConfirm() {
               {{ leaveBusy ? "处理中…" : "确定" }}
             </button>
           </div>
-        </div>
-      </div>
-    </Teleport>
+    </BaseModal>
 
-    <Teleport to="body">
-      <div
-        v-if="renameOpen"
-        class="modal-overlay modal-overlay--light chat-session-invite-overlay"
-        role="presentation"
-        @click.self="closeRenameModal"
-      >
-        <div class="modal-card chat-session-invite" role="dialog" aria-modal="true" aria-labelledby="chat-rename-title" @click.stop>
+        <BaseModal
+      :open="renameOpen"
+      variant="light"
+      overlay-class="chat-session-invite-overlay"
+      card-class="modal-card chat-session-invite"
+      aria-labelledby="chat-rename-title"
+      @close="closeRenameModal"
+    >
           <h3 id="chat-rename-title" class="chat-session-invite__title">修改群名称</h3>
           <p class="chat-session-invite__hint">请输入新的群聊名称</p>
           <div class="chat-session-rename__field">
@@ -1007,18 +997,15 @@ async function submitLeaveConfirm() {
               {{ renameBusy ? "保存中…" : "确定" }}
             </button>
           </div>
-        </div>
-      </div>
-    </Teleport>
+    </BaseModal>
 
-    <Teleport to="body">
-      <div
-        v-if="annViewOpen"
-        class="modal-overlay modal-overlay--light chat-session-invite-overlay"
-        role="presentation"
-        @click.self="closeAnnView"
-      >
-        <div class="modal-card chat-session-invite chat-session-ann-card" role="dialog" aria-modal="true" @click.stop>
+        <BaseModal
+      :open="annViewOpen"
+      variant="light"
+      overlay-class="chat-session-invite-overlay"
+      card-class="modal-card chat-session-invite chat-session-ann-card"
+      @close="closeAnnView"
+    >
           <h3 class="chat-session-invite__title">群公告</h3>
           <p v-if="annLoading" class="chat-session-invite__hint chat-session-invite__hint--block">加载中…</p>
           <div v-else class="chat-session-ann__body">
@@ -1038,18 +1025,15 @@ async function submitLeaveConfirm() {
               {{ String(annText || '').trim() ? "编辑公告" : "发布公告" }}
             </button>
           </div>
-        </div>
-      </div>
-    </Teleport>
+    </BaseModal>
 
-    <Teleport to="body">
-      <div
-        v-if="annEditOpen"
-        class="modal-overlay modal-overlay--light chat-session-invite-overlay"
-        role="presentation"
-        @click.self="closeAnnEdit"
-      >
-        <div class="modal-card chat-session-invite chat-session-ann-card" role="dialog" aria-modal="true" @click.stop>
+        <BaseModal
+      :open="annEditOpen"
+      variant="light"
+      overlay-class="chat-session-invite-overlay"
+      card-class="modal-card chat-session-invite chat-session-ann-card"
+      @close="closeAnnEdit"
+    >
           <h3 class="chat-session-invite__title">编辑群公告</h3>
           <p class="chat-session-invite__hint">仅群主可见；保存后群内成员将收到更新提示。</p>
           <div class="chat-session-ann__field">
@@ -1075,9 +1059,7 @@ async function submitLeaveConfirm() {
               {{ annSaving ? "发布中…" : "发布" }}
             </button>
           </div>
-        </div>
-      </div>
-    </Teleport>
+    </BaseModal>
 
     <ChatFindRecordModal
       v-model="findRecordOpen"
