@@ -29,6 +29,13 @@ const routes = [
     meta: { title: "创作中心" },
     component: { render: () => null },
   },
+  /** 上传弹窗：同上，叠层渲染，URL 可深链可后退 */
+  {
+    path: "/upload",
+    name: "upload",
+    meta: { title: "上传视频" },
+    component: { render: () => null },
+  },
 ];
 
 routes.push({ path: "/:pathMatch(.*)*", redirect: "/" });

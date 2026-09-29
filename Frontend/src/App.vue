@@ -1037,8 +1037,18 @@ watch(
     if (key) {
       applyMenuKeyIfKnown(key);
     }
+    if (p === "/upload") {
+      if (isAuthed.value) {
+        uploadModalOpen.value = true;
+      }
+    } else if (uploadModalOpen.value) {
+      uploadModalOpen.value = false;
+    }
     if (p === "/studio") {
-      enterStudio();
+      /** 从 /upload 返回时 showStudio 仍为 true，跳过重进以免重置 Tab 与重复加载 */
+      if (!showStudio.value) {
+        enterStudio();
+      }
     } else if (key && showStudio.value) {
       showStudio.value = false;
       uploadModalOpen.value = false;
@@ -1692,7 +1702,7 @@ function onCreate() {
     return;
   }
   if (showStudio.value) {
-    uploadModalOpen.value = true;
+    openUploadModal();
     return;
   }
   if (profileFeedOpen.value) {
@@ -1733,7 +1743,17 @@ function openUploadModal() {
   uploadPickedDuration.value = 0;
   uploadTagEditorOpen.value = false;
   uploadTagDraft.value = "";
-  uploadModalOpen.value = true;
+  void router.push("/upload");
+}
+
+/** 离开 /upload：有来路则回退（创作中心/菜单页原状保留），深链直入则回当前菜单页 */
+function leaveUploadRoute() {
+  uploadModalOpen.value = false;
+  if (window.history.state?.back) {
+    router.back();
+    return;
+  }
+  void router.push(menuPathFor(activeMenuKey.value));
 }
 
 function closeUploadModal() {
@@ -1745,7 +1765,7 @@ function closeUploadModal() {
   uploadSlideshowImages.value = [];
   uploadSlideshowAudioFile.value = null;
   uploadMusicPickerOpen.value = false;
-  uploadModalOpen.value = false;
+  leaveUploadRoute();
 }
 
 function setUploadMode(mode) {
@@ -2280,7 +2300,7 @@ async function submitUploadVideo() {
     uploadMsg.value = "上传成功，等待审核…";
     pushToast("上传成功，等待审核…", "success");
     pageHint.value = `已发布：${title}`;
-    uploadModalOpen.value = false;
+    leaveUploadRoute();
     uploadPickedFile.value = null;
     uploadPickedDuration.value = 0;
     uploadMode.value = "video";
@@ -2400,7 +2420,7 @@ function openFollowFeedFromCard(item) {
 
 function closeTopMostOverlayByEsc() {
   if (uploadModalOpen.value) {
-    uploadModalOpen.value = false;
+    leaveUploadRoute();
     return true;
   }
   if (mediaPreviewOpen.value) {
