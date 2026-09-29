@@ -1,20 +1,21 @@
 <script setup>
 import ChatWorkspace from "../components/chat/ChatWorkspace.vue";
+import { useAuthStore } from "../stores/authStore";
+import { useDetailStore } from "../stores/detailStore";
+import { useProfileStore } from "../stores/profileStore";
 
-defineProps({
-  authed: { type: Boolean, default: false },
-  selfUserId: { type: [String, Number], default: null },
-});
-defineEmits(["open-video", "open-user"]);
+const auth = useAuthStore();
+const detail = useDetailStore();
+const profile = useProfileStore();
 </script>
 
 <template>
   <section class="explore-chat-page">
     <ChatWorkspace
-      v-if="authed"
-      :self-user-id="selfUserId"
-      @open-video="(payload) => $emit('open-video', payload)"
-      @open-user="(payload) => $emit('open-user', payload)"
+      v-if="auth.isAuthed"
+      :self-user-id="auth.userId"
+      @open-video="({ videoId }) => detail.openDetail({ id: videoId })"
+      @open-user="({ userId }) => profile.openOther(userId)"
     />
     <div v-else class="module-empty explore-chat-empty">
       <div class="module-empty-icon"><i class="ri-chat-3-line"></i></div>

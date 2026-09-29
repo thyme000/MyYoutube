@@ -1,7 +1,7 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { useRoute, useRouter } from "vue-router";
+import { RouterView, useRoute, useRouter } from "vue-router";
 import { menuKeyForPath, menuPathFor } from "./router";
 import { useAuthStore } from "./stores/authStore";
 import { useSearchStore, registerSearchExpandHooks, SEARCH_UI } from "./stores/searchStore";
@@ -72,16 +72,11 @@ import {
 import { parseDigitSnowflakeId } from "./utils/snowflakeId.js";
 /** 短视频无接口数据时的本地 fallback（static 目录下四个 mp4） */
 import appIco from "../static/狗.png?url";
-const MusicView = defineAsyncComponent(() => import("./views/MusicView.vue"));
 const SearchView = defineAsyncComponent(() => import("./views/SearchView.vue"));
-const HistoryView = defineAsyncComponent(() => import("./views/HistoryView.vue"));
 const ShortsView = defineAsyncComponent(() => import("./views/ShortsView.vue"));
-const HomeView = defineAsyncComponent(() => import("./views/HomeView.vue"));
 const VideoDetailView = defineAsyncComponent(() => import("./views/VideoDetailView.vue"));
-const LikedView = defineAsyncComponent(() => import("./views/LikedView.vue"));
 import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
 import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
-const ChatView = defineAsyncComponent(() => import("./views/ChatView.vue"));
 const StudioView = defineAsyncComponent(() => import("./views/StudioView.vue"));
 const ProfileCenterView = defineAsyncComponent(() => import("./views/ProfileCenterView.vue"));
 import ChatFloatingRail from "./components/chat/ChatFloatingRail.vue";
@@ -483,7 +478,6 @@ const {
 
 /** 主页入口：供顶栏、头像与桥接消费；打开动作与状态都在 profileStore */
 const openProfile = () => profileStore.openSelf();
-const openOtherUserProfile = (userId) => profileStore.openOther(userId);
 const onAuthorAvatarClick = (event, authorId) => {
   event?.stopPropagation?.();
   profileStore.openByAuthorId(authorId);
@@ -4153,24 +4147,7 @@ onBeforeUnmount(() => {
         </div>
 
         <template v-if="!showProfileCenter && activeMenuKey !== 'shorts' && activeMenuKey !== 'subscribed'">
-          <HistoryView v-if="activeMenuKey === 'history'" />
-
-          <LikedView v-else-if="activeMenuKey === 'liked'" />
-
-          <section v-else-if="activeMenuKey === 'music'">
-            <MusicView />
-          </section>
-
-          <section v-else-if="activeMenuKey === 'chat'" class="explore-chat-page">
-            <ChatView
-              :authed="isAuthed"
-              :self-user-id="currentUserId"
-              @open-video="({ videoId }) => openVideoDetail({ id: videoId })"
-              @open-user="({ userId }) => openOtherUserProfile(userId)"
-            />
-          </section>
-
-          <HomeView v-else-if="activeMenuKey === 'home'" />
+          <RouterView />
         </template>
         </template>
         </template>

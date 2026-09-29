@@ -1,9 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-/**
- * 阶段一：路由仅承载 URL <-> 菜单 key 的映射，页面仍由 App.vue 状态机托管。
- * 拆 views/ 时每个菜单会替换为真实组件路由。
- */
 export const MENU_ROUTES = [
   { key: "home", path: "/", label: "首页" },
   { key: "shorts", path: "/shorts", label: "短视频" },
@@ -14,16 +10,24 @@ export const MENU_ROUTES = [
   { key: "chat", path: "/chat", label: "聊天" },
 ];
 
+/**
+ * 交给 <RouterView> 渲染的菜单。shorts / subscribed 不在内 —— 它们的 ShortsView 在 App 里常驻
+ * （搜索结果页要复用同一个 feed 实例），路由再渲染一份会双开，故给空组件占位。
+ */
+const MENU_VIEWS = {
+  home: () => import("../views/HomeView.vue"),
+  history: () => import("../views/HistoryView.vue"),
+  liked: () => import("../views/LikedView.vue"),
+  music: () => import("../views/MusicView.vue"),
+  chat: () => import("../views/ChatView.vue"),
+};
+
 const routes = [
   ...MENU_ROUTES.map((r) => ({
     path: r.path,
     name: `menu-${r.key}`,
     meta: { menuKey: r.key },
-    // 已拆出 views/ 的菜单挂真实组件，其余仍由 App.vue 状态机托管；
-    // 页面改为 <RouterView> 渲染后再切懒加载
-    component: r.key === "chat" ? () => import("../views/ChatView.vue")
-      : r.key === "music" ? () => import("../views/MusicView.vue")
-      : { render: () => null },
+    component: MENU_VIEWS[r.key] ?? { render: () => null },
   })),
 ];
 
@@ -32,6 +36,12 @@ routes.push({ path: "/:pathMatch(.*)*", redirect: "/" });
 export const router = createRouter({
   history: createWebHistory(),
   routes,
+});
+
+router.beforeEach((to) => {
+  const hit = MENU_ROUTES.find((r) => r.key === to.meta.menuKey);
+  document.title = hit ? `${hit.label} · THYME` : "THYME";
+  return true;
 });
 
 /** /shorts -> "shorts"；未识别路径返回 null（视为首页之外的未知态） */
