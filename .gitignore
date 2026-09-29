@@ -51,5 +51,8 @@ README.md
 # nginx
 Frontend/nginx-1.29.6/
 
+# ===== e2e 回归快照（含录制到的真实接口响应，可能带个人信息） =====
+Frontend/scripts/e2e/.snapshots/
+
 # workbuddy-ai 工作区数据
 .workbuddy-ai/

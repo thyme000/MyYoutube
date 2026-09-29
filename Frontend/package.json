@@ -12,6 +12,8 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e:snapshot": "node scripts/e2e/snapshot.mjs",
+    "e2e:diff": "node scripts/e2e/diff.mjs",
     "prepare": "cd .. && husky .husky"
   },
   "engines": {

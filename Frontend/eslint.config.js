@@ -41,6 +41,19 @@ export default [
     },
   },
   {
+    // e2e 回归脚本跑在 Node 里，需要 node 全局量；WebSocket 是 Node 22 才有的全局，globals 包尚未收录
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: { ...globals.node, WebSocket: "readonly" },
+    },
+    rules: {
+      "no-unused-vars": ["error", { args: "none" }],
+      "no-empty": "error",
+    },
+  },
+  {
     // LRC 歌词解析刻意用控制字符区间识别二进制内容
     files: ["src/utils/lyricsParser.js"],
     rules: {

@@ -1,14 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { MENU_ROUTES } from "./menuRoutes.js";
 
-export const MENU_ROUTES = [
-  { key: "home", path: "/", label: "首页" },
-  { key: "shorts", path: "/shorts", label: "短视频" },
-  { key: "subscribed", path: "/subscribed", label: "关注" },
-  { key: "history", path: "/history", label: "历史播放记录" },
-  { key: "liked", path: "/liked", label: "赞过的视频" },
-  { key: "music", path: "/music", label: "音乐" },
-  { key: "chat", path: "/chat", label: "聊天" },
-];
+export { MENU_ROUTES };
 
 /**
  * 交给 <RouterView> 渲染的菜单。shorts / subscribed 不在内 —— 它们的 ShortsView 在 App 里常驻
