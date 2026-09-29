@@ -299,7 +299,6 @@ const {
 const openVideoDetail = (card, opts) => detailStore.openDetail(card, opts);
 const closeVideoDetail = () => detailStore.closeDetail();
 const restoreVideoDetailFromUrl = (vidRaw) => detailStore.restoreFromUrl(vidRaw);
-const clearVideoDetailFromAddressBar = () => detailStore.clearFromAddressBar();
 const hideDetailBufferingOverlay = () => detailStore.hideBufferingOverlay();
 /** 短视频播放器域状态在 pinia shortsStore（含历史/赞过/主页/关注共用的全屏队列），同名解构零引用改动 */
 const shortsStore = useShortsStore();
@@ -356,8 +355,7 @@ const flushShortsLongPlaybackResume = (reason) => shortsStore.flushShortsLongPla
 /** 关注页数据源与侧栏筛选：实现已移入 shortsStore */
 const loadSubscribedFollowVideos = (opts) => shortsStore.loadSubscribedFollowVideos(opts);
 const maybePrefetchFollowFeed = () => shortsStore.maybePrefetchFollowFeed();
-/** 地址栏 ?v= 与 sessionStorage 恢复详情页（刷新不丢） */
-const VIDEO_URL_PARAM = "v";
+/** 详情深链/刷新恢复经 route watcher 与 sessionStorage 快照（detailStore.restoreFromUrl） */
 
 const {
   historyLongRows,
@@ -496,6 +494,13 @@ watch(
     } else if (profileFeedOpen.value) {
       shortsStore.closeProfileFeed();
     }
+    if (p.startsWith("/video/")) {
+      enterVideoDetailFromRoute(p);
+    } else if (showVideoDetail.value) {
+      /** 离开 /video（后退/前进/深链回退）：route 单向收敛详情状态 */
+      detailStore.closeByHistory();
+      void reloadFeedAfterLeavingDetail();
+    }
   },
   { immediate: true }
 );
@@ -504,6 +509,21 @@ watch(
 function enterFeedFromRoute(p) {
   if (profileFeedOpen.value) return;
   void router.replace("/");
+}
+
+/** /video/:id 入口：详情内切视频（replace 回来）与已开同一视频时跳过；深链/刷新经 sessionStorage 快照恢复 */
+function enterVideoDetailFromRoute(p) {
+  if (!isAuthed.value) return;
+  const vid = p.slice("/video/".length);
+  if (!vid) return;
+  if (
+    showVideoDetail.value &&
+    videoDetail.value?.id != null &&
+    String(videoDetail.value.id) === vid
+  ) {
+    return;
+  }
+  void restoreVideoDetailFromUrl(vid);
 }
 
 /** 当前 feedScope 对应的路由；主区 feed（home/shorts）不入路由 */
@@ -699,7 +719,8 @@ function openHomeShortVideoInFeed(card, index) {
     homeStore.saveSnapshot();
   }
   if (showVideoDetail.value) {
-    clearVideoDetailFromAddressBar();
+    /** 主页短视频全屏流不走路由，详情的 /video 条目就地替换回菜单页 */
+    void router.replace(menuPathFor(activeMenuKey.value));
   }
   showVideoDetail.value = false;
   videoDetail.value = null;
@@ -966,9 +987,6 @@ async function setActiveMenu(menu) {
   }
   showStudio.value = false;
   uploadModalOpen.value = false;
-  if (showVideoDetail.value) {
-    clearVideoDetailFromAddressBar();
-  }
   showVideoDetail.value = false;
   videoDetail.value = null;
   showProfileCenter.value = false;
@@ -1080,9 +1098,6 @@ function onCreate() {
   }
   if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
     pauseShortsFeedVideos({ muteForeground: true });
-  }
-  if (showVideoDetail.value) {
-    clearVideoDetailFromAddressBar();
   }
   showVideoDetail.value = false;
   videoDetail.value = null;
@@ -1515,11 +1530,11 @@ async function submitLogin(credentials) {
 
     const loadAfterLogin = async () => {
       await profileStore.loadUser();
-      const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
-      if (v) {
-        const ok = await restoreVideoDetailFromUrl(v);
+      const vid = route.path.startsWith("/video/") ? String(route.params.id ?? "") : "";
+      if (vid) {
+        const ok = await restoreVideoDetailFromUrl(vid);
         if (!ok) {
-          clearVideoDetailFromAddressBar();
+          void router.replace("/");
           await loadModuleCards(homeMenu);
         }
       } else {
@@ -1564,9 +1579,11 @@ function logout() {
   profileStore.close();
   showStudio.value = false;
   uploadModalOpen.value = false;
-  clearVideoDetailFromAddressBar();
   showVideoDetail.value = false;
   videoDetail.value = null;
+  if (route.path.startsWith("/video/")) {
+    void router.replace(menuPathFor(activeMenuKey.value));
+  }
   authStore.authMessage = "你已退出登录。";
   pushToast("已退出登录", "info");
   try {
@@ -1612,7 +1629,9 @@ function onAuthExpired(event) {
   showStudio.value = false;
   uploadModalOpen.value = false;
   profileFeedOpen.value = false;
-  clearVideoDetailFromAddressBar();
+  if (route.path.startsWith("/video/")) {
+    void router.replace(menuPathFor(activeMenuKey.value));
+  }
   authStore.authMessage = msg;
 }
 
@@ -1621,56 +1640,37 @@ function onWindowPopState() {
     closeProfileFeed();
     return;
   }
-  if (showProfileCenter.value || activeMenuKey.value !== "home") {
-    /** profile 内部自/他切换（/profile ↔ /profile/:id）后退不关主页，return context 保留 */
-    const stillProfile =
-      showProfileCenter.value &&
-      (window.location.pathname === "/profile" ||
-        window.location.pathname.startsWith("/profile/"));
-    if (stillProfile) {
-      return;
-    }
-    const vParam = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
-    const hadProfile = showProfileCenter.value;
-    const returnCtx = profileStore.readReturnContext();
-    showProfileCenter.value = false;
-    profileTargetUserId.value = null;
-    if (hadProfile && returnCtx?.kind === "shortsFeed") {
-      profileStore.clearReturnContext();
-      void restoreProfileReturnContext(returnCtx);
-      return;
-    }
-    const vidRestore = vParam || (returnCtx?.kind === "detail" ? returnCtx.videoId : null);
-    if (hadProfile && vidRestore) {
-      if (returnCtx?.menuKey) {
-        applyMenuKeyIfKnown(returnCtx.menuKey);
-      }
-      profileStore.clearReturnContext();
-      void restoreVideoDetailFromUrl(vidRestore);
-      return;
-    }
-    profileStore.clearReturnContext();
-    if (hadProfile) {
-      const ui = loadUiStateFromSession();
-      if (ui?.activeMenuKey) {
-        applyMenuKeyIfKnown(ui.activeMenuKey);
-        if (ui.homeCategoryKey) {
-          homeCategoryKey.value = ui.homeCategoryKey;
-        }
-        if (ui.homeSortKey) {
-          homeSortKey.value = ui.homeSortKey;
-        }
-        return;
-      }
-    }
-    setActiveMenu(primaryMenus[0]);
+  /** 详情/菜单/创作中心的收敛都交给 route watcher，这里只兜主页的 return context */
+  if (!showProfileCenter.value) return;
+  /** profile 内部自/他切换（/profile ↔ /profile/:id）后退不关主页，return context 保留 */
+  const stillProfile =
+    window.location.pathname === "/profile" ||
+    window.location.pathname.startsWith("/profile/");
+  if (stillProfile) {
     return;
   }
-  const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
-  if (!v && showVideoDetail.value) {
-    detailStore.closeByHistory();
-    void reloadFeedAfterLeavingDetail();
+  const returnCtx = profileStore.readReturnContext();
+  showProfileCenter.value = false;
+  profileTargetUserId.value = null;
+  if (returnCtx?.kind === "shortsFeed") {
+    profileStore.clearReturnContext();
+    void restoreProfileReturnContext(returnCtx);
+    return;
   }
+  profileStore.clearReturnContext();
+  /** 上一个历史条目若是 /video/:id，route watcher 会自动恢复详情 */
+  const ui = loadUiStateFromSession();
+  if (ui?.activeMenuKey) {
+    applyMenuKeyIfKnown(ui.activeMenuKey);
+    if (ui.homeCategoryKey) {
+      homeCategoryKey.value = ui.homeCategoryKey;
+    }
+    if (ui.homeSortKey) {
+      homeSortKey.value = ui.homeSortKey;
+    }
+    return;
+  }
+  setActiveMenu(primaryMenus[0]);
 }
 
 watch(
@@ -1885,7 +1885,7 @@ registerShortsHooks({
   resolveUrlFallback: (id, item) => resolveVideoUrlForListItem(id, item),
 });
 
-/** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，跨列表关注与标签跳转仍在 App */
+/** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，路由进出来自 App（router as history manager） */
 registerDetailHooks({
   pauseShortsFeed: () => pauseShortsFeedVideos({ muteForeground: true }),
   closeProfileFeedIfOpen: () => {
@@ -1898,6 +1898,23 @@ registerDetailHooks({
   },
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
   onSearchTagNavigate: (tag) => onSearchTagNavigate(tag),
+  navigateToVideo: (id, { replace = false } = {}) => {
+    const target = `/video/${id}`;
+    if (route.path === target) return;
+    if (replace) {
+      void router.replace(target);
+    } else {
+      void router.push(target);
+    }
+  },
+  leaveVideoDetail: () => {
+    if (route.path.startsWith("/video/") && window.history.state?.back) {
+      router.back();
+      return;
+    }
+    profileStore.clearReturnContext();
+    void router.replace(menuPathFor(activeMenuKey.value));
+  },
 });
 
 /** profileStore 的宿主依赖：打开主页要收起 App 级遮罩，作品卡要进全屏短视频流 */
@@ -1920,9 +1937,6 @@ registerProfileHooks({
     }
     showStudio.value = false;
     uploadModalOpen.value = false;
-    if (!showVideoDetail.value) {
-      clearVideoDetailFromAddressBar();
-    }
     showVideoDetail.value = false;
     videoDetail.value = null;
     activeMenuLabel.value = "个人中心";
@@ -1987,12 +2001,12 @@ onMounted(async () => {
   }
   await profileStore.loadUser();
   const homeMenu = primaryMenus[0];
-  const v = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
-  if (v) {
-    const ok = await restoreVideoDetailFromUrl(v);
+  const vid = route.path.startsWith("/video/") ? String(route.params.id ?? "") : "";
+  if (vid && !showVideoDetail.value) {
+    const ok = await restoreVideoDetailFromUrl(vid);
     if (!ok) {
-      clearVideoDetailFromAddressBar();
-  await loadModuleCards(homeMenu);
+      void router.replace("/");
+      await loadModuleCards(homeMenu);
     } else {
       await nextTick();
       requestAnimationFrame(() => {
@@ -2001,7 +2015,7 @@ onMounted(async () => {
         setTimeout(() => detailStore.scheduleAutoplayRetries(), 1200);
       });
     }
-  } else {
+  } else if (!vid) {
     if (showProfileCenter.value || showStudio.value) {
       /** 深链/刷新落在 /profile、/studio：view 已由 route watcher 打开，底层菜单数据在离开叠层时再加载 */
       return;

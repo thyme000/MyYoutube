@@ -29,7 +29,6 @@ const BUFFERING_UI_DELAY_MS = 280;
 /** 顺播累计达到总时长该比例即上报 PLAY；单次 timeupdate 跳跃过大视为拖动，不计入 */
 const PLAY_THRESHOLD = 0.7;
 const MAX_PLAY_DELTA_SEC = 3;
-const VIDEO_URL_PARAM = "v";
 const DETAIL_STORAGE_PREFIX = "myyoutube_vdetail_";
 
 export const detailSidebarTabs = [
@@ -45,6 +44,8 @@ export const detailSidebarTabs = [
  *   closeUploadModal: () => void,
  *   patchAuthorFollow: (authorId: any, isFollow: boolean) => void,
  *   onSearchTagNavigate: (tag: any) => void,
+ *   navigateToVideo: (id: string, opts?: { replace?: boolean }) => void,
+ *   leaveVideoDetail: () => void,
  * }}
  */
 const hooks = {
@@ -56,6 +57,10 @@ const hooks = {
   /** 跨列表同步同一作者的 isFollow */
   patchAuthorFollow: () => {},
   onSearchTagNavigate: () => {},
+  /** 进详情 = push /video/:id；详情内切视频 = replace，不叠历史 */
+  navigateToVideo: () => {},
+  /** 关闭详情：有来路 router.back，深链直入则 replace 回菜单页；状态由 route watcher 收敛 */
+  leaveVideoDetail: () => {},
 };
 
 export function registerDetailHooks(next = {}) {
@@ -848,36 +853,11 @@ export const useDetailStore = defineStore("detail", () => {
     }
   }
 
-  /** 从首页进详情：pushState 让浏览器返回能回到无 ?v= 的首页；详情内切换视频用 replaceState */
+  /** 从首页进详情：push /video/:id 让浏览器返回能回到原页；详情内切换视频用 replace */
   function syncToAddressBar(wasAlreadyInDetail) {
     const d = video.value;
     if (!d || d.id == null) return;
-    try {
-      const url = new URL(window.location.href);
-      const nextV = String(d.id);
-      const curV = url.searchParams.get(VIDEO_URL_PARAM);
-      if (curV != null && curV === nextV) return;
-      url.searchParams.set(VIDEO_URL_PARAM, nextV);
-      const next = url.toString();
-      if (wasAlreadyInDetail) {
-        history.replaceState({ myyoutubeVideo: true }, "", next);
-      } else {
-        history.pushState({ myyoutubeVideo: true }, "", next);
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  function clearFromAddressBar() {
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete(VIDEO_URL_PARAM);
-      const q = url.searchParams.toString();
-      history.replaceState({}, "", `${url.pathname}${q ? `?${q}` : ""}${url.hash}`);
-    } catch {
-      /* ignore */
-    }
+    hooks.navigateToVideo(String(d.id), { replace: wasAlreadyInDetail });
   }
 
   async function restoreFromUrl(vidRaw) {
@@ -1000,24 +980,9 @@ export const useDetailStore = defineStore("detail", () => {
     });
   }
 
-  /** 关闭详情；带 ?v= 且历史可回退时优先交给浏览器返回 */
+  /** 关闭详情：只管离开路由，flush/暂停/状态复位由 route watcher 走 closeByHistory 单一路径 */
   function closeDetail() {
-    void flushPlaybackResume("leave");
-    resetPlaybackResumeState();
-    try {
-      playerRef.value?.pause?.();
-    } catch {
-      /* ignore */
-    }
-    const hasV = new URLSearchParams(window.location.search).get(VIDEO_URL_PARAM);
-    if (hasV && typeof window.history.length === "number" && window.history.length > 1) {
-      history.back();
-      return;
-    }
-    resetUi();
-    resetCommentsState();
-    profile.clearReturnContext();
-    clearFromAddressBar();
+    hooks.leaveVideoDetail();
   }
 
   /** 浏览器返回/URL 去掉 ?v= 时收敛状态（不动地址栏，不刷新列表） */
@@ -1089,7 +1054,6 @@ export const useDetailStore = defineStore("detail", () => {
     closeByHistory,
     hideBufferingOverlay,
     restoreFromUrl,
-    clearFromAddressBar,
     snapshotForRestore,
     handleKeydown,
     rescheduleAutoplay,

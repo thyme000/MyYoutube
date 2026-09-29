@@ -56,6 +56,13 @@ const routes = [
     meta: { title: "连播" },
     component: { render: () => null },
   },
+  /** 视频详情：VideoDetailView 由 App 叠层渲染；详情内切视频用 replace 不叠历史 */
+  {
+    path: "/video/:id",
+    name: "video",
+    meta: { title: "视频详情" },
+    component: { render: () => null },
+  },
 ];
 
 routes.push({ path: "/:pathMatch(.*)*", redirect: "/" });
