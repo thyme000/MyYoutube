@@ -25,8 +25,10 @@ import {
   resolveVideoUrl,
   resolveVideoUrlFromLists,
 } from "./utils/videoCard.js";
-import { getAuthExpiredEventName, getToken } from "./api/http";
-import { reconnectNotifyWebSocketIfNeeded, startNotifyWebSocket, stopNotifyWebSocket } from "./utils/notifyWebSocket";
+import { getAuthExpiredEventName } from "./api/http";
+import { reconnectNotifyWebSocketIfNeeded } from "./utils/notifyWebSocket";
+import { useNotificationStore } from "./stores/notificationStore";
+import { useToastStore } from "./stores/toastStore";
 import {
   forgotPasswordApi,
   getLoginCaptcha,
@@ -57,13 +59,6 @@ import {
 } from "./api/likeApi";
 import { followAuthor, unfollowAuthor } from "./api/followApi";
 import {
-  fetchNotificationPage,
-  markNotificationRead,
-  deleteNotification,
-  fetchUnreadNotificationCount,
-  NOTIFICATION_TYPE_LABELS,
-} from "./api/notificationApi";
-import {
   applyAvatarFallback,
   sanitizeImageUrl,
   stripUserIdLikeName,
@@ -86,15 +81,14 @@ import SlideshowMusicPicker from "./components/SlideshowMusicPicker.vue";
 import LoginLoadingCubes from "./components/LoginLoadingCubes.vue";
 import { musicLyricsFullscreen } from "./stores/musicPlayerStore.js";
 import { registerGlobalToast } from "./utils/toast.js";
-import { playNotificationSound } from "./utils/uiSounds.js";
-import { registerChatNavigator, navigateToChat } from "./utils/chatNavigator.js";
+import NotifyPanel from "./components/NotifyPanel.vue";
+import ToastStack from "./components/ToastStack.vue";
+import { registerChatNavigator } from "./utils/chatNavigator.js";
 import {
   setChatUserContext,
   resetChatWhenLogout,
-  tryIngestChatWebSocket,
   initChatWhenAuthed,
   openConversation as openChatConversation,
-  getChatSelfUserId,
   chatActiveConversationId,
   chatTotalUnread,
   refreshConversationList,
@@ -482,16 +476,11 @@ const onSidebarOpenMyProfile = () => {
 };
 /** 创作中心（全屏主区，模拟 YouTube Studio）：URL 由 /studio 路由承载 */
 const showStudio = studioShow;
-/** 顶栏通知下拉 */
-const notifyPanelOpen = ref(false);
-const notifyUnreadCount = ref(0);
-const notifyList = ref([]);
-const notifyLoading = ref(false);
-const notifyPageNo = ref(1);
-const notifyPages = ref(0);
-const notifyTotal = ref(0);
-const notifyErrorMsg = ref("");
-const NOTIFY_PAGE_SIZE = 15;
+
+/** 通知域状态在 pinia notificationStore，toast 渲染在 ToastStack */
+const notificationStore = useNotificationStore();
+const toastStore = useToastStore();
+const { pushToast } = toastStore;
 const uploadModalOpen = ref(false);
 /** 上传弹窗：整段视频 或 多图幻灯片（对象存储合成后再 publishVideo） */
 const uploadMode = ref("video");
@@ -648,10 +637,6 @@ const {
   likedTotal,
 } = storeToRefs(useLikedStore());
 /** 创作中心表格行「更多」菜单 */
-const toasts = ref([]);
-let toastSeed = 0;
-
-
 const uploadTagList = computed(() =>
   String(uploadForm.value.tags || "")
     .split(",")
@@ -677,18 +662,6 @@ watch(slideshowBgmTargetSec, (sec, oldSec) => {
   }
 });
 
-function pushToast(message, type = "info") {
-  const text = String(message || "").trim();
-  if (!text) return;
-  toastSeed += 1;
-  const id = `toast-${Date.now()}-${toastSeed}`;
-  const next = [...toasts.value, { id, message: text, type }];
-  toasts.value = next.slice(-3);
-  window.setTimeout(() => {
-    removeToast(id);
-  }, 3000);
-}
-
 function pauseAllDomVideos() {
   try {
     if (document.pictureInPictureElement) {
@@ -707,285 +680,6 @@ function pauseAllDomVideos() {
     });
   } catch {
     /* ignore */
-  }
-}
-
-/**
- * 从 WS 原始 JSON 文本中提取长整型字段，避免 JSON.parse 把雪花 id 变成 Number 丢精度。
- */
-function extractWsJsonDigitString(rawText, field) {
-  if (typeof rawText !== "string" || !field) return null;
-  const esc = String(field).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  let m = rawText.match(new RegExp(`"${esc}"\\s*:\\s*(\\d+)`));
-  if (m && m[1]) return m[1];
-  m = rawText.match(new RegExp(`"${esc}"\\s*:\\s*"(\\d+)"`));
-  return m && m[1] ? m[1] : null;
-}
-
-/** 通知主键 id（与后端 NotificationForJson.id 一致），从原文提取避免大整数精度问题 */
-function pickNotifyWsNotificationId(rawText, parsed) {
-  const fromText =
-    extractWsJsonDigitString(rawText, "notificationId") ||
-    extractWsJsonDigitString(rawText, "notification_id") ||
-    extractWsJsonDigitString(rawText, "id");
-  if (fromText && /^\d+$/.test(fromText)) return fromText;
-  const o = parsed && typeof parsed === "object" ? parsed : {};
-  const candidates = [o.notificationId, o.notification_id, o.id];
-  for (const c of candidates) {
-    if (c == null || c === "") continue;
-    if (typeof c === "string") {
-      const t = c.trim();
-      if (/^\d+$/.test(t)) return t;
-    }
-    if (typeof c === "number" && Number.isFinite(c)) {
-      const n = Math.trunc(c);
-      if (Number.isSafeInteger(n)) return String(n);
-    }
-  }
-  return null;
-}
-
-function pickNotifyWsVideoId(rawText, parsed) {
-  const fromText =
-    extractWsJsonDigitString(rawText, "videoId") ||
-    extractWsJsonDigitString(rawText, "video_id");
-  if (fromText && /^\d+$/.test(fromText)) return fromText;
-  const o = parsed && typeof parsed === "object" ? parsed : {};
-  const candidates = [o.videoId, o.video_id];
-  for (const c of candidates) {
-    if (c == null || c === "") continue;
-    if (typeof c === "string") {
-      const t = c.trim();
-      if (/^\d+$/.test(t)) return t;
-    }
-    if (typeof c === "number" && Number.isFinite(c)) {
-      const n = Math.trunc(c);
-      if (Number.isSafeInteger(n)) return String(n);
-    }
-  }
-  return null;
-}
-
-/** 聊天类 WS 通知：会话 id 多为 Mongo 字符串，不能用仅数字的 extractWsJsonDigitString */
-function pickNotifyWsConversationId(rawText, parsed) {
-  if (typeof rawText === "string") {
-    const m = rawText.match(/"conversationId"\s*:\s*"([^"]*)"/);
-    if (m && m[1] != null && String(m[1]).trim()) return String(m[1]).trim();
-  }
-  const o = parsed && typeof parsed === "object" ? parsed : {};
-  const v = o.conversationId ?? o.conversation_id;
-  if (v == null || v === "") return null;
-  const s = String(v).trim();
-  return s || null;
-}
-
-function pickNotifyWsContentFromObject(o) {
-  if (!o || typeof o !== "object" || Array.isArray(o)) return "";
-  const keys = ["content", "text", "message", "body", "commentContent", "comment_content", "preview", "snippet"];
-  for (const k of keys) {
-    if (!Object.prototype.hasOwnProperty.call(o, k)) continue;
-    const v = o[k];
-    if (v == null) continue;
-    if (typeof v === "string") {
-      const t = v.trim();
-      if (t) return t;
-    }
-    if (typeof v === "number" && Number.isFinite(v)) {
-      const t = String(v).trim();
-      if (t) return t;
-    }
-    if (typeof v === "boolean") {
-      return v ? "true" : "";
-    }
-  }
-  return "";
-}
-
-function pickNotifyWsContent(parsed) {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
-  let s = pickNotifyWsContentFromObject(parsed);
-  if (s) return s;
-  const nestKeys = ["data", "payload", "notification", "msg"];
-  for (const nk of nestKeys) {
-    const inner = parsed[nk];
-    if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-      s = pickNotifyWsContentFromObject(inner);
-      if (s) return s;
-    }
-  }
-  return "";
-}
-
-function pickNotifyWsAvatarUrl(parsed) {
-  if (!parsed || typeof parsed !== "object") return "";
-  const keys = [
-    "senderAvatarUrl",
-    "sender_avatar_url",
-    "senderAvatar",
-    "avatarUrl",
-    "conversationAvatarUrl",
-    "conversation_avatar_url",
-  ];
-  for (const k of keys) {
-    const v = parsed[k];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "";
-}
-
-function pickNotifyWsNickname(parsed) {
-  if (!parsed || typeof parsed !== "object") return "";
-  const keys = [
-    "senderNickname",
-    "sender_nickname",
-    "nickname",
-    "senderName",
-    "conversationName",
-    "conversation_name",
-  ];
-  for (const k of keys) {
-    const v = parsed[k];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "";
-}
-
-function pickNotifyWsTypeCode(parsed) {
-  if (!parsed || typeof parsed !== "object") return "";
-  const v = parsed.type;
-  if (typeof v === "string" && v.trim()) return v.trim();
-  if (v && typeof v === "object" && typeof v.code === "string") return v.code.trim();
-  if (v && typeof v === "object" && typeof v.name === "string") return v.name.trim();
-  return "";
-}
-
-/** 与 chatStore previewFromSendWs 对齐：WebSocket 下发的 contentType 可能是枚举名或对象 */
-function previewChatIncomingWsBody(o) {
-  if (!o || typeof o !== "object") return "[消息]";
-  let ct = o.contentType;
-  if (ct && typeof ct === "object") {
-    ct = ct.name ?? ct.code ?? ct;
-  }
-  ct = String(ct || "").toUpperCase();
-  if (ct === "TEXT") return String(o.content || "").slice(0, 80);
-  if (ct === "IMAGE") return "[图片]";
-  if (ct === "FILE") return "[文件]";
-  if (ct === "SYSTEM") return "[系统消息]";
-  return "[消息]";
-}
-
-/** 他人发来新消息且当前未打开该会话时，与评论通知同款的实时毛玻璃 Toast */
-function maybePushChatIncomingLiveToast(parsed) {
-  // chatStore 的 self 依赖 setChatUserContext；其 watch 晚于 notify WS 时 getChatSelfUserId 会为空，用 currentUserId 兜底
-  const selfId = String(getChatSelfUserId() ?? currentUserId.value ?? "").trim();
-  const sender = String(parsed?.senderId ?? "").trim();
-  if (!selfId || !sender || sender === selfId) return;
-  const conv = String(parsed?.conversationId || "").trim();
-  if (!conv) return;
-  if (chatActiveConversationId.value === conv) return;
-  const nick = pickNotifyWsNickname(parsed);
-  const title = nick ? `${nick} · 新消息` : "新消息";
-  const content = previewChatIncomingWsBody(parsed);
-  const avatarUrl = typeof parsed?.avatarUrl === "string" ? parsed.avatarUrl.trim() : "";
-  pushNotifyLiveToast({
-    avatarUrl,
-    title,
-    content,
-    videoId: null,
-    notificationId: null,
-    conversationId: conv,
-  });
-}
-
-/** 实时通知（WebSocket）：毛玻璃卡片，含头像与正文，可点进视频 / 标记已读 / 打开聊天 */
-function pushNotifyLiveToast({
-  avatarUrl,
-  title,
-  content,
-  videoId,
-  notificationId,
-  conversationId,
-  notifyKind = null,
-}) {
-  const ttl = String(title || "通知").trim() || "通知";
-  const body = String(content || "").trim();
-  toastSeed += 1;
-  const id = `toast-${Date.now()}-${toastSeed}`;
-  const vidRaw = videoId != null && videoId !== "" ? String(videoId).trim() : null;
-  const nidRaw =
-    notificationId != null && notificationId !== "" ? String(notificationId).trim() : null;
-  const convRaw = conversationId != null && conversationId !== "" ? String(conversationId).trim() : null;
-  const next = [
-    ...toasts.value,
-    {
-      id,
-      type: "live-notify",
-      notify: {
-        avatarUrl: String(avatarUrl || "").trim(),
-        title: ttl,
-        content: body,
-        videoId: vidRaw && /^\d+$/.test(String(vidRaw)) ? String(vidRaw) : null,
-        notificationId: nidRaw && /^\d+$/.test(String(nidRaw)) ? String(nidRaw) : null,
-        conversationId: convRaw || null,
-        notifyKind: notifyKind || null,
-      },
-    },
-  ];
-  toasts.value = next.slice(-3);
-  playNotificationSound();
-  window.setTimeout(() => removeToast(id), 6500);
-}
-
-function removeToast(id) {
-  toasts.value = toasts.value.filter((t) => t.id !== id);
-}
-
-async function onNotifyToastClick(t) {
-  const n = t?.notify;
-  if (!n) return;
-  if (String(n.notifyKind || "") === "CHAT_NOTICE") {
-    removeToast(t.id);
-    pushToast(String(n.content || "该群聊已解散").trim() || "该群聊已解散", "info");
-    return;
-  }
-  const hasConv = n.conversationId != null && String(n.conversationId).trim() !== "";
-  const hasVid = n.videoId != null && n.videoId !== "";
-  const hasNid = n.notificationId != null && n.notificationId !== "";
-  if (!hasVid && !hasNid && !hasConv) return;
-
-  if (hasConv) {
-    removeToast(t.id);
-    navigateToChat(String(n.conversationId).trim());
-    return;
-  }
-
-  if (hasNid) {
-    try {
-      await markNotificationRead(n.notificationId);
-      await refreshNotifyUnreadCount();
-      if (notifyPanelOpen.value) {
-        void loadNotifyListPage(true);
-      }
-      const nid = n.notificationId;
-      notifyList.value = notifyList.value.map((r) =>
-        String(r.id) === String(nid) ? { ...r, isRead: true } : r
-      );
-    } catch (e) {
-      pushToast(e?.message || "标记已读失败", "error");
-    }
-  }
-
-  if (hasVid) {
-    const vid = parseVideoIdForApi(n.videoId);
-    if (vid != null) {
-      removeToast(t.id);
-      await openVideoDetail({ id: vid });
-      return;
-    }
-  }
-
-  if (hasNid) {
-    removeToast(t.id);
   }
 }
 
@@ -1991,208 +1685,6 @@ function applyAppFavicon() {
   link.setAttribute("href", appIco);
 }
 
-/** 与轮询配合：未读数基准，避免 WS 已推过仍重复提示 */
-let notifyUnreadPollBaseline = -1;
-let notifyUnreadPollTimer = null;
-
-async function refreshNotifyUnreadCount() {
-  if (!getToken()) {
-    notifyUnreadCount.value = 0;
-    notifyUnreadPollBaseline = -1;
-    return;
-  }
-  try {
-    const c = await fetchUnreadNotificationCount();
-    notifyUnreadCount.value = c;
-    notifyUnreadPollBaseline = c;
-  } catch {
-    /* ignore */
-  }
-}
-
-function startNotifyUnreadPoll() {
-  stopNotifyUnreadPoll();
-  notifyUnreadPollTimer = window.setInterval(async () => {
-    if (!getToken()) return;
-    try {
-      const c = await fetchUnreadNotificationCount();
-      if (notifyUnreadPollBaseline >= 0 && c > notifyUnreadPollBaseline) {
-        pushToast("您有新的通知，请点击顶部铃铛查看", "info");
-      }
-      notifyUnreadCount.value = c;
-      notifyUnreadPollBaseline = c;
-      reconnectNotifyWebSocketIfNeeded();
-    } catch {
-      /* ignore */
-    }
-  }, 22000);
-}
-
-function stopNotifyUnreadPoll() {
-  if (notifyUnreadPollTimer != null) {
-    window.clearInterval(notifyUnreadPollTimer);
-    notifyUnreadPollTimer = null;
-  }
-  notifyUnreadPollBaseline = -1;
-}
-
-async function loadNotifyListPage(reset) {
-  if (!getToken()) return;
-  notifyLoading.value = true;
-  if (reset) {
-    notifyErrorMsg.value = "";
-  }
-  const page = reset ? 1 : notifyPageNo.value;
-  if (reset) {
-    notifyPageNo.value = 1;
-  }
-  try {
-    const { total, pages, list } = await fetchNotificationPage({
-      pageNo: page,
-      pageSize: NOTIFY_PAGE_SIZE,
-    });
-    notifyPages.value = pages;
-    notifyTotal.value = total;
-    if (reset) {
-      notifyList.value = list;
-    } else {
-      notifyList.value = [...notifyList.value, ...list];
-    }
-  } catch (e) {
-    notifyErrorMsg.value = e?.message || "加载通知失败";
-  } finally {
-    notifyLoading.value = false;
-  }
-}
-
-function toggleNotifyPanel() {
-  notifyPanelOpen.value = !notifyPanelOpen.value;
-  if (notifyPanelOpen.value) {
-    pageHint.value = "通知";
-    void refreshNotifyUnreadCount();
-    void loadNotifyListPage(true);
-  }
-}
-
-function closeNotifyPanel() {
-  notifyPanelOpen.value = false;
-}
-
-async function loadMoreNotifications() {
-  if (notifyLoading.value) return;
-  if (notifyPageNo.value >= notifyPages.value) return;
-  notifyPageNo.value += 1;
-  await loadNotifyListPage(false);
-}
-
-function formatNotifyTime(t) {
-  if (!t) return "";
-  try {
-    const d = new Date(t);
-    if (Number.isNaN(d.getTime())) return String(t);
-    return d.toLocaleString();
-  } catch {
-    return String(t);
-  }
-}
-
-async function onNotifyItemClick(item) {
-  if (!item?.id) return;
-  try {
-    await markNotificationRead(item.id);
-    await refreshNotifyUnreadCount();
-  } catch (e) {
-    pushToast(e?.message || "标记已读失败", "error");
-    return;
-  }
-  const nid = item.id;
-  notifyList.value = notifyList.value.map((r) => (r.id === nid ? { ...r, isRead: true } : r));
-  if (String(item.type || "").toUpperCase() === "CHAT_NOTICE") {
-    closeNotifyPanel();
-    pushToast(String(item.content || "该群聊已解散").trim() || "该群聊已解散", "info");
-    return;
-  }
-  const vid = item.videoId != null ? parseVideoIdForApi(item.videoId) : null;
-  if (vid == null) {
-    pushToast("暂无法跳转到视频（可能评论已删除）", "info");
-    return;
-  }
-  closeNotifyPanel();
-  await openVideoDetail({ id: vid });
-}
-
-async function onNotifyDelete(item) {
-  if (!item?.id) return;
-  try {
-    await deleteNotification(item.id);
-    notifyList.value = notifyList.value.filter((r) => r.id !== item.id);
-    notifyTotal.value = Math.max(0, notifyTotal.value - 1);
-    const ps = Math.max(1, Math.ceil(notifyTotal.value / NOTIFY_PAGE_SIZE) || 1);
-    notifyPages.value = ps;
-    await refreshNotifyUnreadCount();
-  } catch (e) {
-    pushToast(e?.message || "删除失败", "error");
-  }
-}
-
-function onNotifySocketMessage(data) {
-  const raw = typeof data === "string" ? data : String(data);
-  let parsed = null;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    /* 非 JSON：走下方 Toast */
-  }
-  if (parsed && typeof parsed === "object") {
-    const chatKind = tryIngestChatWebSocket(parsed);
-    if (chatKind) {
-      if (chatKind === "send") {
-        maybePushChatIncomingLiveToast(parsed);
-      }
-      return;
-    }
-  }
-  void refreshNotifyUnreadCount();
-  if (notifyPanelOpen.value) {
-    void loadNotifyListPage(true);
-  }
-  try {
-    const o = parsed && typeof parsed === "object" ? parsed : JSON.parse(raw);
-    const nick = pickNotifyWsNickname(o);
-    const typeCode = pickNotifyWsTypeCode(o);
-    const label = NOTIFICATION_TYPE_LABELS[typeCode] || typeCode || "新通知";
-    const title = nick ? `${nick} · ${label}` : label;
-    let content = pickNotifyWsContent(o);
-    if (!String(content || "").trim()) {
-      content = NOTIFICATION_TYPE_LABELS[typeCode] || "";
-    }
-    const avatarUrl = pickNotifyWsAvatarUrl(o);
-    const videoId = pickNotifyWsVideoId(raw, o);
-    const notificationId = pickNotifyWsNotificationId(raw, o);
-    const typeUpper = String(typeCode || "").toUpperCase();
-    const isChatNotice = typeUpper === "CHAT_NOTICE";
-    const conversationId = isChatNotice ? null : pickNotifyWsConversationId(raw, o);
-    pushNotifyLiveToast({
-      avatarUrl,
-      title,
-      content,
-      videoId,
-      notificationId,
-      conversationId,
-      notifyKind: isChatNotice ? "CHAT_NOTICE" : null,
-    });
-    if (isChatNotice) {
-      const dissolvedConvId = pickNotifyWsConversationId(raw, o);
-      if (dissolvedConvId && String(chatActiveConversationId.value || "") === String(dissolvedConvId)) {
-        chatActiveConversationId.value = null;
-      }
-      void refreshConversationList(true);
-    }
-  } catch {
-    pushToast(raw.slice(0, 120), "info");
-  }
-}
-
 /** 搜索「用户」Tab：整行进入主页（排除关注按钮） */
 function pickSearchUserSnowflakeId(u) {
   const raw = u?.id;
@@ -2860,7 +2352,7 @@ async function submitLogin() {
       captcha: loginForm.value.captcha.trim(),
     });
     authStore.signIn(responseToken);
-    void refreshNotifyUnreadCount();
+    void notificationStore.refreshNotifyUnreadCount();
     authMessage.value = "登录成功。";
     pushToast("登录成功", "success");
     const homeMenu = primaryMenus[0];
@@ -3099,21 +2591,10 @@ watch(
   isAuthed,
   async (authed) => {
     if (authed) {
-      await refreshNotifyUnreadCount();
-      startNotifyWebSocket({
-        onMessage: onNotifySocketMessage,
-      });
-      startNotifyUnreadPoll();
+      await notificationStore.startSession();
     } else {
-      stopNotifyUnreadPoll();
-      stopNotifyWebSocket();
+      notificationStore.stopSession();
       hideShortsBufferingOverlay();
-      closeNotifyPanel();
-      notifyUnreadCount.value = 0;
-      notifyList.value = [];
-      notifyPages.value = 0;
-      notifyTotal.value = 0;
-      notifyErrorMsg.value = "";
     }
   },
   { immediate: true }
@@ -3424,8 +2905,7 @@ onBeforeUnmount(() => {
   if (searchSuggestBlurTimer) clearTimeout(searchSuggestBlurTimer);
   if (searchPromptDebounceTimer) clearTimeout(searchPromptDebounceTimer);
   shortsStore.clearShortsBufferingUITimer();
-  stopNotifyUnreadPoll();
-  stopNotifyWebSocket();
+  notificationStore.stopSession();
   stopCardHoverPreview();
   window.removeEventListener("resize", onWindowResize);
   window.removeEventListener("scroll", onWindowScroll);
@@ -3814,91 +3294,7 @@ onBeforeUnmount(() => {
           <button v-if="showVideoDetail" type="button" class="action-btn" @click="closeVideoDetail">返回</button>
           <button v-else-if="showStudio" type="button" class="action-btn" @click="closeStudio">返回</button>
           <button class="action-btn" @click="onCreate">{{ showStudio ? "上传视频" : "创建" }}</button>
-          <div class="notify-shell">
-            <div
-              v-if="notifyPanelOpen"
-              class="notify-backdrop"
-              aria-hidden="true"
-              @click="closeNotifyPanel"
-            />
-            <button
-              type="button"
-              class="action-btn notify-trigger"
-              :class="{ 'notify-trigger--active': notifyPanelOpen }"
-              aria-haspopup="dialog"
-              :aria-expanded="String(notifyPanelOpen)"
-              @click.stop="toggleNotifyPanel"
-            >
-              通知
-              <span v-if="notifyUnreadCount > 0" class="notify-badge" :title="`未读 ${notifyUnreadCount}`">
-                {{ notifyUnreadCount > 99 ? "99+" : notifyUnreadCount }}
-              </span>
-            </button>
-            <div
-              v-if="notifyPanelOpen"
-              class="notify-panel"
-              role="dialog"
-              aria-label="通知列表"
-              @click.stop
-            >
-              <div class="notify-panel__head">
-                <div class="notify-panel__title-wrap">
-                  <span class="notify-panel__title">通知</span>
-                  <span v-if="notifyTotal > 0" class="notify-panel__sub">共 {{ notifyTotal }} 条</span>
-                </div>
-                <button type="button" class="notify-panel__close" aria-label="关闭" @click="closeNotifyPanel">
-                  <i class="ri-close-line" aria-hidden="true"></i>
-                </button>
-              </div>
-              <p v-if="notifyErrorMsg" class="notify-panel__err">{{ notifyErrorMsg }}</p>
-              <div v-if="notifyList.length" class="notify-panel__list">
-                <div
-                  v-for="item in notifyList"
-                  :key="item.id"
-                  class="notify-row"
-                  :class="{ 'notify-row--unread': !item.isRead }"
-                >
-                  <button type="button" class="notify-row__main" @click="onNotifyItemClick(item)">
-                    <img
-                      :src="item.senderAvatarUrl || profileAvatar"
-                      alt=""
-                      class="notify-row__avatar"
-                      @error="onTopbarAvatarError"
-                    />
-                    <div class="notify-row__body">
-                      <div class="notify-row__meta">
-                        <span class="notify-row__nick">{{ item.senderNickname }}</span>
-                        <span class="notify-row__type">{{ item.typeLabel }}</span>
-                        <span v-if="!item.isRead" class="notify-row__unread-badge" title="未读">未读</span>
-                      </div>
-                      <p v-if="item.content" class="notify-row__content">{{ item.content }}</p>
-                      <time class="notify-row__time">{{ formatNotifyTime(item.createTime) }}</time>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    class="notify-row__delete"
-                    title="删除"
-                    aria-label="删除此通知"
-                    @click.stop="onNotifyDelete(item)"
-                  >
-                    <i class="ri-delete-bin-line" aria-hidden="true"></i>
-                  </button>
-                </div>
-                <button
-                  v-if="notifyPages > 0 && notifyPageNo < notifyPages"
-                  type="button"
-                  class="notify-load-more"
-                  :disabled="notifyLoading"
-                  @click="loadMoreNotifications"
-                >
-                  {{ notifyLoading ? "加载中…" : "加载更多" }}
-                </button>
-              </div>
-              <p v-else-if="!notifyLoading" class="notify-panel__empty">暂无通知</p>
-              <p v-else class="notify-panel__loading">加载中…</p>
-            </div>
-          </div>
+          <NotifyPanel />
           <button
             type="button"
             class="avatar-btn avatar-btn--img"
@@ -3912,93 +3308,7 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <div v-if="toasts.length" class="toast-stack" aria-live="polite" aria-atomic="true">
-        <div
-          v-for="t in toasts"
-          :key="t.id"
-          class="toast-item"
-          :class="t.notify ? 'toast-item--live-notify' : `toast-item--${t.type}`"
-        >
-          <template v-if="t.notify">
-            <div
-              class="toast-notify-main"
-              :class="{
-                'toast-notify-main--clickable':
-                  String(t.notify.notifyKind || '') === 'CHAT_NOTICE' ||
-                  (t.notify.conversationId != null && String(t.notify.conversationId).trim() !== '') ||
-                  (t.notify.videoId != null && t.notify.videoId !== '') ||
-                  (t.notify.notificationId != null && t.notify.notificationId !== ''),
-              }"
-              :role="
-                String(t.notify.notifyKind || '') === 'CHAT_NOTICE' ||
-                (t.notify.conversationId != null && String(t.notify.conversationId).trim() !== '') ||
-                (t.notify.videoId != null && t.notify.videoId !== '') ||
-                (t.notify.notificationId != null && t.notify.notificationId !== '')
-                  ? 'button'
-                  : undefined
-              "
-              :tabindex="
-                String(t.notify.notifyKind || '') === 'CHAT_NOTICE' ||
-                (t.notify.conversationId != null && String(t.notify.conversationId).trim() !== '') ||
-                (t.notify.videoId != null && t.notify.videoId !== '') ||
-                (t.notify.notificationId != null && t.notify.notificationId !== '')
-                  ? 0
-                  : undefined
-              "
-              @click="onNotifyToastClick(t)"
-              @keydown.enter.prevent="onNotifyToastClick(t)"
-              @keydown.space.prevent="onNotifyToastClick(t)"
-            >
-              <img
-                :src="t.notify.avatarUrl || profileAvatar"
-                alt=""
-                class="toast-notify-avatar"
-                @error="(e) => (e.target.src = profileAvatar)"
-              />
-              <div class="toast-notify-copy">
-                <div class="toast-notify-title">{{ t.notify.title }}</div>
-                <div v-if="t.notify.content" class="toast-notify-body">{{ t.notify.content }}</div>
-                <div v-else class="toast-notify-body toast-notify-body--muted">（无正文预览）</div>
-                <span v-if="String(t.notify.notifyKind || '') === 'CHAT_NOTICE'" class="toast-notify-cta">
-                  点击查看说明 <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
-                </span>
-                <span
-                  v-else-if="t.notify.conversationId != null && String(t.notify.conversationId).trim() !== ''"
-                  class="toast-notify-cta"
-                >
-                  点击打开聊天 <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
-                </span>
-                <span
-                  v-else-if="t.notify.videoId != null && t.notify.videoId !== ''"
-                  class="toast-notify-cta"
-                >
-                  点击查看视频 <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
-                </span>
-                <span
-                  v-else-if="t.notify.notificationId != null && t.notify.notificationId !== ''"
-                  class="toast-notify-cta"
-                >
-                  点击标记已读 <i class="ri-arrow-right-s-line" aria-hidden="true"></i>
-                </span>
-              </div>
-            </div>
-            <button
-              type="button"
-              class="toast-item__close toast-item__close--glass"
-              aria-label="关闭"
-              @click.stop="removeToast(t.id)"
-            >
-              <i class="ri-close-line"></i>
-            </button>
-          </template>
-          <template v-else>
-            <span class="toast-item__text">{{ t.message }}</span>
-            <button type="button" class="toast-item__close" aria-label="关闭提示" @click="removeToast(t.id)">
-              <i class="ri-close-line"></i>
-            </button>
-          </template>
-        </div>
-      </div>
+      <ToastStack />
 
       <main
         ref="contentScrollRef"
