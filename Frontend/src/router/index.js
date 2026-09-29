@@ -22,6 +22,13 @@ const routes = [
     meta: { menuKey: r.key },
     component: MENU_VIEWS[r.key] ?? { render: () => null },
   })),
+  /** 创作中心：App 以叠层渲染 StudioView，路由只承载 URL 与历史栈 */
+  {
+    path: "/studio",
+    name: "studio",
+    meta: { title: "创作中心" },
+    component: { render: () => null },
+  },
 ];
 
 routes.push({ path: "/:pathMatch(.*)*", redirect: "/" });
@@ -33,7 +40,7 @@ export const router = createRouter({
 
 router.beforeEach((to) => {
   const hit = MENU_ROUTES.find((r) => r.key === to.meta.menuKey);
-  document.title = hit ? `${hit.label} · THYME` : "THYME";
+  document.title = hit ? `${hit.label} · THYME` : to.meta.title ? `${to.meta.title} · THYME` : "THYME";
   return true;
 });
 

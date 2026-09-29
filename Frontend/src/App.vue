@@ -480,10 +480,8 @@ const onSidebarOpenMyProfile = () => {
   }
   profileStore.openSelf();
 };
-/** 创作中心（全屏主区，模拟 YouTube Studio） */
+/** 创作中心（全屏主区，模拟 YouTube Studio）：URL 由 /studio 路由承载 */
 const showStudio = studioShow;
-/** 进入创作中心时 pushState，便于浏览器后退与「返回」同步 */
-const studioHistoryPushed = ref(false);
 /** 顶栏通知下拉 */
 const notifyPanelOpen = ref(false);
 const notifyUnreadCount = ref(0);
@@ -1031,7 +1029,7 @@ function applyMenuKeyIfKnown(key) {
   activeMenuLabel.value = menu.label;
 }
 
-/** 浏览器前进/后退、刷新：以 URL 为准同步菜单状态 */
+/** 浏览器前进/后退、刷新：以 URL 为准同步菜单与创作中心 */
 watch(
   () => route.path,
   (p) => {
@@ -1039,9 +1037,30 @@ watch(
     if (key) {
       applyMenuKeyIfKnown(key);
     }
+    if (p === "/studio") {
+      enterStudio();
+    } else if (key && showStudio.value) {
+      showStudio.value = false;
+      uploadModalOpen.value = false;
+      if (!searchActive.value) {
+        void reloadFeedAfterLeavingDetail();
+      }
+    }
   },
   { immediate: true }
 );
+
+/** 进入创作中心（/studio）：菜单点击、深链、刷新统一走这里 */
+function enterStudio() {
+  if (!isAuthed.value) return;
+  showStudio.value = true;
+  showProfileCenter.value = false;
+  mediaPreviewOpen.value = false;
+  studioSideNav.value = "info";
+  studioContentTab.value = "video";
+  studioPageNo.value = 1;
+  loadStudioVideos();
+}
 
 function captureProfileReturnContext() {
   if (showVideoDetail.value && videoDetail.value?.id != null) {
@@ -1654,7 +1673,9 @@ async function onSearch() {
   }
   // 创作中心/上传弹窗会挡住 v-else 下的搜索区，开始搜索时先退出以便结果可见
   uploadModalOpen.value = false;
-  showStudio.value = false;
+  if (showStudio.value) {
+    void router.push(menuPathFor(activeMenuKey.value));
+  }
   searchDropdownOpen.value = false;
   searchSubmittedKeyword.value = keyword;
   searchActive.value = true;
@@ -1683,7 +1704,6 @@ function onCreate() {
   if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
     pauseShortsFeedVideos({ muteForeground: true });
   }
-  showStudio.value = true;
   if (showVideoDetail.value) {
     clearVideoDetailFromAddressBar();
   }
@@ -1691,26 +1711,15 @@ function onCreate() {
   videoDetail.value = null;
   showProfileCenter.value = false;
   mediaPreviewOpen.value = false;
-  studioSideNav.value = "info";
-  studioContentTab.value = "video";
-  studioPageNo.value = 1;
-  loadStudioVideos();
-  try {
-    history.pushState({ myyoutubeStudio: true }, "", window.location.href);
-    studioHistoryPushed.value = true;
-  } catch {
-    studioHistoryPushed.value = false;
-  }
+  void router.push("/studio");
 }
 
 function closeStudio() {
-  if (studioHistoryPushed.value) {
-    history.back();
+  if (window.history.state?.back) {
+    router.back();
     return;
   }
-  showStudio.value = false;
-  uploadModalOpen.value = false;
-  void reloadFeedAfterLeavingDetail();
+  void router.push(menuPathFor(activeMenuKey.value));
 }
 
 function openUploadModal() {
@@ -2847,7 +2856,6 @@ function logout() {
   cards.value = [];
   profileStore.close();
   showStudio.value = false;
-  studioHistoryPushed.value = false;
   uploadModalOpen.value = false;
   clearVideoDetailFromAddressBar();
   showVideoDetail.value = false;
@@ -2868,11 +2876,8 @@ function saveUiStateToSession() {
     activeMenuLabel: activeMenuLabel.value,
     showProfileCenter: showProfileCenter.value,
     profileTargetUserId: profileTargetUserId.value,
-    showStudio: showStudio.value,
     homeCategoryKey: homeCategoryKey.value,
     homeSortKey: homeSortKey.value,
-    studioSideNav: studioSideNav.value,
-    studioContentTab: studioContentTab.value,
   };
   try {
     sessionStorage.setItem(UI_STATE_STORAGE_KEY, JSON.stringify(state));
@@ -2909,13 +2914,6 @@ function onAuthExpired(event) {
 function onWindowPopState() {
   if (profileFeedOpen.value) {
     closeProfileFeed();
-    return;
-  }
-  if (showStudio.value) {
-    showStudio.value = false;
-    uploadModalOpen.value = false;
-    studioHistoryPushed.value = false;
-    void reloadFeedAfterLeavingDetail();
     return;
   }
   if (showProfileCenter.value || activeMenuKey.value !== "home") {
@@ -3317,14 +3315,6 @@ onMounted(async () => {
       showProfileCenter.value = true;
       activeMenuLabel.value = "个人中心";
       await profileStore.loadUser({ withWorks: true });
-      return;
-    }
-    if (state?.showStudio) {
-      showStudio.value = true;
-      showProfileCenter.value = false;
-      studioSideNav.value = state.studioSideNav || "info";
-      studioContentTab.value = state.studioContentTab || "video";
-      await loadStudioVideos();
       return;
     }
     const menuKey = menuKeyForPath(route.path) || state?.activeMenuKey || homeMenu.key;
