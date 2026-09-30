@@ -77,6 +77,30 @@ function isLikelyAuthExpiredPayload(payload) {
   return false;
 }
 
+/**
+ * 非 2xx 响应：后端异常时返回 JSON 统一格式（{ code, message }），优先取 message；否则回退原始文本。
+ */
+/** @param {Response} response @returns {Promise<never>} */
+async function throwRequestError(response) {
+  if (isLikelyAuthExpiredStatus(response.status)) {
+    emitAuthExpired();
+  }
+  const errorText = await response.text();
+  let payload = null;
+  try {
+    payload = JSON.parse(errorText);
+  } catch {
+    // 非 JSON 响应体
+  }
+  if (payload && typeof payload === "object" && payload.message) {
+    if (isLikelyAuthExpiredPayload(payload)) {
+      emitAuthExpired(payload.message);
+    }
+    throw new Error(payload.message);
+  }
+  throw new Error(errorText || `请求失败：${response.status}`);
+}
+
 /** @param {string} path @param {Record<string, any>} [query] @returns {string} */
 function buildUrl(path, query) {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin);
@@ -117,11 +141,7 @@ export async function uploadMultipart(path, formData, { query, headers, method =
   });
 
   if (!response.ok) {
-    if (isLikelyAuthExpiredStatus(response.status)) {
-      emitAuthExpired();
-    }
-    const errorText = await response.text();
-    throw new Error(errorText || `请求失败：${response.status}`);
+    await throwRequestError(response);
   }
 
   const contentType = response.headers.get("content-type") || "";
@@ -162,11 +182,7 @@ export async function httpRequest(path, { method = "GET", query, body, headers }
   });
 
   if (!response.ok) {
-    if (isLikelyAuthExpiredStatus(response.status)) {
-      emitAuthExpired();
-    }
-    const errorText = await response.text();
-    throw new Error(errorText || `请求失败：${response.status}`);
+    await throwRequestError(response);
   }
 
   const contentType = response.headers.get("content-type") || "";
