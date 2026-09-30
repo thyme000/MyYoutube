@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: my-youtube-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:123456}
   cloud:
     nacos:
       discovery:
@@ -25,7 +30,7 @@ spring:
               order: 5
             - id: user-service
               uri: lb://my-youtube-user-service
-              predicates: [ "Path=/user/**,/login,/register,/captcha,/forget-password,/storage/**" ]
+              predicates: [ "Path=/user/**,/login,/register,/forget-password,/storage/**" ]
               order: 10
             - id: video-service
               uri: lb://my-youtube-video-service
