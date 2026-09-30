@@ -151,7 +151,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             ));
             if (!ids.isEmpty()) {
                 // 用 MySQL 按 ids 批量查详情（保持字段一致）
-                List<Video> videos = listByIds(ids);
+                List<Video> videos = lambdaQuery().in(Video::getId, ids)
+                        .eq(Video::getIsDelete, 0)
+                        .list();
                 // 保持 ES 返回的顺序 (listByIds不保证返回的顺序)
                 Map<Long, Video> map = videos.stream()
                         .collect(Collectors.toMap(Video::getId, v -> v));
@@ -231,7 +233,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         Long userId = getUserId();
         Video video = getById(videoId);
 
-        if (video == null ) {
+        if (video == null || (video.getIsDelete() != null && video.getIsDelete() != 0)) {
             return Result.fail("视频不存在或未发布～");
         }
         if (!PUBLISHED.getCode().equals(video.getStatus().getCode())) {
@@ -303,6 +305,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
         LambdaQueryWrapper<Video> q = new LambdaQueryWrapper<>();
         q.eq(Video::getAuthorId, userId);
+        q.eq(Video::getIsDelete, 0);
         q.orderByDesc(Video::getCreateTime);
         if (pageQuery.getVideoType() != null) {
             q.eq(Video::getVideoType, pageQuery.getVideoType().getCode());
@@ -372,7 +375,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
 
         // 查询视频信息
-        List<Video> videos = listByIds(videoIds);
+        List<Video> videos = lambdaQuery().in(Video::getId, videoIds)
+                .eq(Video::getIsDelete, 0)
+                .list();
         Map<Long, Video> map = videos.stream()
                 .collect(Collectors.toMap(Video::getId, v -> v));
         List<ShortsVO> voList = videoIds.stream()
@@ -572,7 +577,6 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         return Result.success(PageResult.of(total, pages, voList));
     }
 
-    @Transactional
     @Override
     public Result<Void> deleteVideo(Long videoId) {
         Long userId = getUserId();
@@ -582,8 +586,12 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (!success) {
             return Result.fail("删除失败,请稍后再试");
         }
-        // 在es中删除这个文档
-        videoDocPort.deleteDoc(videoId);
+        // ES 尽力删除, 失败不影响 DB 删除, 列表查询以 DB is_delete 为准
+        try {
+            videoDocPort.deleteDoc(videoId);
+        } catch (Exception e) {
+            log.warn("ES 文档删除失败, videoId={}", videoId, e);
+        }
         return Result.success();
     }
 
