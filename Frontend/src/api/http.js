@@ -37,12 +37,13 @@ function resolveApiBaseUrl() {
 
 const API_BASE_URL = resolveApiBaseUrl();
 const TOKEN_KEY = "myyoutube_token";
+const REFRESH_TOKEN_KEY = "myyoutube_refresh_token";
 const AUTH_EXPIRED_EVENT = "myyoutube:auth-expired";
 
 /**
  * 与后端约定：
- * - HTTP：请求头 Authorization 值为登录返回的 token 原样（Redis key 为完整 header 值），不要加 Bearer 前缀。
- * - WebSocket /ws/notify：查询串须以 token= 开头，见 buildNotifyWebSocketUrl。
+ * - HTTP：请求头 Authorization: Bearer <accessToken>（后端签发的 JWT）。
+ * - WebSocket /ws/notify：查询串 token= 直接传裸 accessToken，不加 Bearer，见 buildNotifyWebSocketUrl。
  */
 /** @param {any} raw @returns {string} */
 export function normalizeAuthToken(raw) {
@@ -52,6 +53,102 @@ export function normalizeAuthToken(raw) {
     s = s.replace(/^bearer\s+/i, "").trim();
   }
   return s;
+}
+
+/** @returns {string} */
+export function getRefreshToken() {
+  return localStorage.getItem(REFRESH_TOKEN_KEY) || "";
+}
+
+/** @param {any} token */
+export function setRefreshToken(token) {
+  const t = String(token || "").trim();
+  if (!t) {
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    return;
+  }
+  localStorage.setItem(REFRESH_TOKEN_KEY, t);
+}
+
+/** access JWT 是否已过期(留 30s 余量); 非 JWT 形态视为未过期 */
+/** @param {string} token @returns {boolean} */
+function isAccessTokenExpired(token) {
+  try {
+    const [, payloadB64] = token.split(".");
+    const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+    return Number(payload.exp) * 1000 < Date.now() + 30_000;
+  } catch {
+    return false;
+  }
+}
+
+/** @type {Promise<boolean>|null} 全局单飞: 并发 401 共享同一次 /refresh 调用 */
+let refreshingPromise = null;
+
+/**
+ * 401 后用 refresh token 续签(每次续签后端会轮换 refresh token)。
+ * 成功返回 true 并已更新本地双 token; 失败清空登录态并触发 auth-expired。
+ * @returns {Promise<boolean>}
+ */
+export function refreshAccessToken() {
+  if (!refreshingPromise) {
+    refreshingPromise = doRefreshAccessToken().finally(() => {
+      refreshingPromise = null;
+    });
+  }
+  return refreshingPromise;
+}
+
+/** @returns {Promise<boolean>} */
+async function doRefreshAccessToken() {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+  try {
+    const response = await fetch(buildUrl("/refresh"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    });
+    const payload = await response.json();
+    const data = payload?.data;
+    if (response.ok && payload?.code === 200 && data?.accessToken && data?.refreshToken) {
+      setToken(data.accessToken);
+      setRefreshToken(data.refreshToken);
+      return true;
+    }
+  } catch {
+    // 网络异常按续签失败处理
+  }
+  emitAuthExpired();
+  return false;
+}
+
+/** WebSocket 等场景: access 过期则先续签, 返回可用 token(可能为空) */
+/** @returns {Promise<string>} */
+export async function getValidAccessToken() {
+  let token = getToken();
+  if (token && isAccessTokenExpired(token)) {
+    const ok = await refreshAccessToken();
+    token = getToken();
+    if (!ok || !token) return "";
+  }
+  return token;
+}
+
+/** 登出时尽力通知后端作废 refresh token, 失败不阻塞 */
+export function revokeRefreshToken() {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return;
+  if (typeof window === "undefined" || typeof fetch !== "function") return;
+  try {
+    fetch(buildUrl("/logout"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
 }
 
 function emitAuthExpired(reason = "登录状态已过期，请重新登录") {
@@ -126,7 +223,7 @@ function buildUrl(path, query) {
  * @param {MultipartOpts} [opts]
  * @returns {Promise<any>}
  */
-export async function uploadMultipart(path, formData, { query, headers, method = "POST" } = {}) {
+export async function uploadMultipart(path, formData, { query, headers, method = "POST" } = {}, retried = false) {
   const finalUrl = buildUrl(path, query);
   const token = getToken();
   const m = String(method || "POST").toUpperCase();
@@ -135,10 +232,16 @@ export async function uploadMultipart(path, formData, { query, headers, method =
     method: httpMethod,
     headers: {
       ...headers,
-      ...(token ? { Authorization: token } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: formData,
   });
+
+  if (response.status === 401 && !retried && path !== "/refresh") {
+    if (await refreshAccessToken()) {
+      return uploadMultipart(path, formData, { query, headers, method }, true);
+    }
+  }
 
   if (!response.ok) {
     await throwRequestError(response);
@@ -168,7 +271,7 @@ export async function uploadMultipart(path, formData, { query, headers, method =
  * @param {HttpOpts} [opts]
  * @returns {Promise<any>} 拆包后的 data（非 JSON 响应为文本）
  */
-export async function httpRequest(path, { method = "GET", query, body, headers } = {}) {
+export async function httpRequest(path, { method = "GET", query, body, headers } = {}, retried = false) {
   const finalUrl = buildUrl(path, query);
   const token = getToken();
   const response = await fetch(finalUrl, {
@@ -176,10 +279,17 @@ export async function httpRequest(path, { method = "GET", query, body, headers }
     headers: {
       "Content-Type": "application/json",
       ...headers,
-      ...(token ? { Authorization: token } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+
+  // access 过期: 单飞续签后重放一次; 失败则 refreshAccessToken 内部已触发登出
+  if (response.status === 401 && !retried && path !== "/refresh") {
+    if (await refreshAccessToken()) {
+      return httpRequest(path, { method, query, body, headers }, true);
+    }
+  }
 
   if (!response.ok) {
     await throwRequestError(response);
@@ -224,20 +334,20 @@ export function setToken(token) {
 }
 
 /**
- * 通知 WebSocket；后端要求 query 以 token= 开头（且宜为唯一参数）。
+ * 通知 WebSocket；query 传裸 accessToken（无 Bearer 前缀）。
  * 生产环境 Nginx 需将 `/ws/` 反代到后端并配置 `Upgrade` / `Connection`（与 Vite 里 `/ws` 代理一致）。
  */
-/** @returns {string} */
-export function buildNotifyWebSocketUrl() {
-  const t = getToken();
-  if (!t) return "";
+/** @param {string} [token] @returns {string} */
+export function buildNotifyWebSocketUrl(token = getToken()) {
+  if (!token) return "";
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
-  return `${proto}//${host}/ws/notify?token=${encodeURIComponent(t)}`;
+  return `${proto}//${host}/ws/notify?token=${encodeURIComponent(token)}`;
 }
 
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
 }
 
 /** @returns {string} */

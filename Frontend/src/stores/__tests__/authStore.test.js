@@ -34,9 +34,17 @@ describe("authStore.signIn / signOut", () => {
     expect(auth.isAuthed).toBe(true);
   });
 
-  it("登出清空 token、用户信息与 localStorage", () => {
+  it("signIn 支持双 token 对象, access/refresh 分别持久化", () => {
     const auth = useAuthStore();
-    auth.signIn("abc123");
+    auth.signIn({ accessToken: "acc.jwt", refreshToken: "ref-uuid" });
+    expect(auth.token).toBe("acc.jwt");
+    expect(localStorage.getItem(TOKEN_KEY)).toBe("acc.jwt");
+    expect(localStorage.getItem("myyoutube_refresh_token")).toBe("ref-uuid");
+  });
+
+  it("登出清空双 token、用户信息与 localStorage", () => {
+    const auth = useAuthStore();
+    auth.signIn({ accessToken: "acc.jwt", refreshToken: "ref-uuid" });
     auth.userId = 9001;
     auth.nickName = "某人";
     auth.avatarUrl = "/a.png";
@@ -50,6 +58,7 @@ describe("authStore.signIn / signOut", () => {
     expect(auth.avatarUrl).toBe("");
     expect(auth.selfProfile).toBeNull();
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+    expect(localStorage.getItem("myyoutube_refresh_token")).toBeNull();
     expect(auth.isAuthed).toBe(false);
   });
 

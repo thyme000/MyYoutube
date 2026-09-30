@@ -1,5 +1,5 @@
 // @ts-check
-import { buildNotifyWebSocketUrl, getToken } from "../api/http";
+import { buildNotifyWebSocketUrl, getValidAccessToken, getToken } from "../api/http";
 
 let socket = null;
 /** 用户主动 stop / 登出时为 true */
@@ -76,7 +76,15 @@ function connectOnce(handlers) {
     socket = null;
   }
 
-  const url = buildNotifyWebSocketUrl();
+  // access 过期则先续签再连, 保证重连/切回前台时握手 token 可用
+  void getValidAccessToken().then((token) => {
+    if (intentionalClose || socket != null || !token) return;
+    openSocket(buildNotifyWebSocketUrl(token), handlers);
+  });
+  return null;
+}
+
+function openSocket(url, handlers) {
   if (!url) return null;
 
   wsGeneration += 1;

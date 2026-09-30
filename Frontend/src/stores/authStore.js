@@ -3,7 +3,13 @@
  * 认证态：token 与当前用户。token 持久化走 api/http.js（localStorage myyoutube_token）。
  */
 import { defineStore } from "pinia";
-import { getToken, setToken as persistToken, clearToken } from "../api/http";
+import {
+  getToken,
+  setToken as persistToken,
+  setRefreshToken as persistRefreshToken,
+  clearToken,
+  revokeRefreshToken,
+} from "../api/http";
 import { DEFAULT_PROFILE_AVATAR_URL as defaultAvatar, sanitizeImageUrl } from "../utils/userProfile";
 
 export const useAuthStore = defineStore("auth", {
@@ -29,9 +35,16 @@ export const useAuthStore = defineStore("auth", {
     },
   },
   actions: {
-    signIn(newToken) {
-      this.token = newToken || "";
+    /**
+     * 登录成功: 存双 token。兼容旧签名 signIn(tokenString)（仅 access，无续签能力）。
+     * @param {{ accessToken?: string, refreshToken?: string }|string} tokens
+     */
+    signIn(tokens) {
+      const accessToken = typeof tokens === "string" ? tokens : tokens?.accessToken;
+      const refreshToken = typeof tokens === "string" ? "" : tokens?.refreshToken || "";
+      this.token = accessToken || "";
       persistToken(this.token);
+      persistRefreshToken(refreshToken);
     },
     setCurrentUser(user = {}) {
       if (user.userId != null) this.userId = user.userId;
@@ -42,6 +55,7 @@ export const useAuthStore = defineStore("auth", {
       this.selfProfile = profile || null;
     },
     signOut() {
+      revokeRefreshToken();
       this.token = "";
       clearToken();
       this.userId = null;

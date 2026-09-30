@@ -10,7 +10,7 @@ export async function sendPlaybackResumePut(payload, { keepalive = false } = {})
     };
     const authTok = getToken();
     if (authTok) {
-      headers["Authorization"] = authTok;
+      headers["Authorization"] = `Bearer ${authTok}`;
     }
     await fetch("/videos/playback/resume", {
       method: "PUT",
