@@ -32,6 +32,8 @@
 		<java.version>17</java.version>
 		<spring-cloud.version>2025.0.3</spring-cloud.version>
 		<spring-cloud-alibaba.version>2023.0.3.3</spring-cloud-alibaba.version>
+		<!-- 3.52.0 的 starter 依赖 redisson-spring-data-35, 对应 Spring Data Redis 3.5 (Boot 3.5) -->
+		<redisson.version>3.52.0</redisson.version>
 	</properties>
 
 	<dependencyManagement>
@@ -49,6 +51,18 @@
 				<version>${spring-cloud-alibaba.version}</version>
 				<type>pom</type>
 				<scope>import</scope>
+			</dependency>
+			<!-- 计数落库用 RLock 做整轮互斥; 只有 video/user 引 starter(会换掉 RedisConnectionFactory),
+			     其余模块只拿 core, 不动各自的 Lettuce 连接工厂 -->
+			<dependency>
+				<groupId>org.redisson</groupId>
+				<artifactId>redisson</artifactId>
+				<version>${redisson.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.redisson</groupId>
+				<artifactId>redisson-spring-boot-starter</artifactId>
+				<version>${redisson.version}</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>

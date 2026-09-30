@@ -89,4 +89,20 @@ public class RedisConstants {
     public static final String MERGE_PICTURE_JOB = "merge:pic:job:";
     /** 任务状态在 Redis 中的保留时间（分钟） */
     public static final long MERGE_PICTURE_JOB_EXPIRE_MINUTES = 60L;
+
+    // ==================== 计数落库缓冲 ====================
+    /** 累积增量 pending:{type}:{id}; 每轮落库后 DEL, 故不设 TTL —— 设了反而会在任务停摆时丢增量 */
+    public static final String COUNTER_PENDING = "pending:";
+    /** 已认领未确认 inflight:{type}:{id} */
+    public static final String COUNTER_INFLIGHT = "inflight:";
+    /** 最近被写过的 id 集合 dirty:{type}, 只用于对账自愈 */
+    public static final String COUNTER_DIRTY = "dirty:";
+    /** inflight 租期(秒): 落库任务停摆超过该时长即视为崩溃, 下轮由认领脚本回补退回 pending */
+    public static final long COUNTER_INFLIGHT_TTL_SECONDS = 600L;
+    /** dirty 集合保留时长(秒), 取对账周期(1h)的 2 倍 */
+    public static final long COUNTER_DIRTY_TTL_SECONDS = 7200L;
+    /** 单轮落库处理 id 数上限, 给单轮耗时设上界, 保证短于锁租期 */
+    public static final int COUNTER_MAX_KEYS_PER_ROUND = 1000;
+    /** 整轮锁租期(秒): 显式设租期而不依赖看门狗 —— 长 STW 时看门狗线程同样会停 */
+    public static final long SCHEDULE_LOCK_LEASE_SECONDS = 300L;
 }

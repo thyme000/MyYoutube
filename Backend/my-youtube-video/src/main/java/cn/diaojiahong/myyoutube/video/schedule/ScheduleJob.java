@@ -1,14 +1,18 @@
 package cn.diaojiahong.myyoutube.video.schedule;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.common.counter.CounterFlushService;
+import cn.diaojiahong.myyoutube.common.schedule.ScheduleRoundLock;
 import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -17,7 +21,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * video 域定时任务: 播放量落库 / 观看历史清理 / MySQL→ES 计数同步 / 热搜清理
+ * video 域定时任务: 计数落库与对账 / 播放量落库 / 观看历史清理 / MySQL→ES 计数同步 / 热搜清理
  */
 @Slf4j
 @Component
@@ -26,18 +30,44 @@ public class ScheduleJob {
 
     private static final int ES_COUNT_SYNC_PAGE_SIZE = 500;
 
+    /**
+     * 播放量原子认领
+     */
+    private static final RedisScript<String> CLAIM_PLAY_COUNT_SCRIPT =
+            RedisScript.of(new ClassPathResource("lua/claim-play-count.lua"), String.class);
+
     private final StringRedisTemplate redisTemplate;
     private final IVideoService videoService;
     private final VideoDocPort videoDocPort;
+    private final CounterFlushService counterFlushService;
+    private final ScheduleRoundLock roundLock;
+
+    /**
+     * 每 30s 把点赞缓冲落库。
+     */
+    @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
+    public void flushVideoCounters() {
+        roundLock.run("schedule:lock:video:counter:flush", counterFlushService::flushRound);
+    }
+
+    /**
+     * 每小时用 COUNT(*) 无条件覆盖一次点赞数, 抹平任意方向的累积误差
+     */
+    @Scheduled(cron = "0 20 * * * ?")
+    public void reconcileVideoCounters() {
+        roundLock.run("schedule:lock:video:counter:reconcile", counterFlushService::reconcileRound);
+    }
 
     /**
      * 每小时更新一次播放量：分片刷,避免单 Hash (热点key)过大,影响性能
      */
     @Scheduled(cron = "0 0 * * * ?")
     public void updateVideoPlayCount() {
-        for (int s = 0; s < RedisConstants.VIDEO_PLAY_COUNT_SHARD_COUNT; s++) {
-            flushPendingHash(RedisConstants.videoPlayCountShardKey(s));
-        }
+        roundLock.run("schedule:lock:video:play-count", () -> {
+            for (int s = 0; s < RedisConstants.VIDEO_PLAY_COUNT_SHARD_COUNT; s++) {
+                flushPendingHash(RedisConstants.videoPlayCountShardKey(s));
+            }
+        });
     }
 
     private void flushPendingHash(String redisHashKey) {
@@ -46,14 +76,17 @@ public class ScheduleJob {
             return;
         }
         for (Object videoId : entries.keySet()) {
-            Long playCount = Long.parseLong(entries.get(videoId).toString());
+            String claimed = redisTemplate.execute(CLAIM_PLAY_COUNT_SCRIPT,
+                    List.of(redisHashKey), videoId.toString());
+            if (claimed == null) {
+                continue;
+            }
+            long playCount = Long.parseLong(claimed);
             boolean success = videoService.lambdaUpdate()
                     .setIncrBy(Video::getPlayCount, playCount)
                     .eq(Video::getId, videoId.toString())
                     .update();
-            if (success) {
-                redisTemplate.opsForHash().delete(redisHashKey, videoId);
-            } else {
+            if (!success) {
                 log.warn("更新视频播放量失败, redisKey={}, 视频id:{}", redisHashKey, videoId);
             }
         }
@@ -102,6 +135,10 @@ public class ScheduleJob {
      */
     @Scheduled(cron = "0 */30 * * * *")
     public void flushLikeCountAndPlayCount4ES() {
+        roundLock.run("schedule:lock:video:es-count-sync", this::syncCountsToEs);
+    }
+
+    private void syncCountsToEs() {
         long lastId = readEsSyncCursor();
         List<Video> list = videoService.lambdaQuery()
                 .eq(Video::getIsDelete, 0)

@@ -1,10 +1,13 @@
 package cn.diaojiahong.myyoutube.user.port;
 
+import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
+import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.hutool.core.bean.BeanUtil;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -15,13 +18,14 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * UserPort 本地实现: 过渡期旧单体与 user 服务共用, 代理到本模块 IUserService
+ * UserPort 本地实现
  */
 @Component
 @RequiredArgsConstructor
 public class UserPortAdapter implements UserPort {
 
     private final cn.diaojiahong.myyoutube.user.service.IUserService userService;
+    private final CounterBuffer counterBuffer;
 
     @Override
     public UserSummary getUser(Long id) {
@@ -58,31 +62,28 @@ public class UserPortAdapter implements UserPort {
     @Override
     public void adjustCounters(List<CounterAdjust> adjustments) {
         for (CounterAdjust a : adjustments) {
-            LambdaUpdateChainWrapper<User> w = new LambdaUpdateChainWrapper<>(userService.getBaseMapper())
-                    .eq(User::getId, a.getUserId());
-            boolean decrease = a.getDelta() < 0;
-            Integer delta = Math.abs(a.getDelta());
             switch (a.getField()) {
-                case "fans" -> {
-                    if (decrease) w.gt(User::getFans, 0).setDecrBy(User::getFans, delta);
-                    else w.setIncrBy(User::getFans, delta);
-                }
-                case "attentionCount" -> {
-                    if (decrease) w.gt(User::getAttentionCount, 0).setDecrBy(User::getAttentionCount, delta);
-                    else w.setIncrBy(User::getAttentionCount, delta);
-                }
-                case "likeCount" -> {
-                    if (decrease) w.gt(User::getLikeCount, 0).setDecrBy(User::getLikeCount, delta);
-                    else w.setIncrBy(User::getLikeCount, delta);
-                }
-                case "videoCount" -> {
-                    if (decrease) w.gt(User::getVideoCount, 0).setDecrBy(User::getVideoCount, delta);
-                    else w.setIncrBy(User::getVideoCount, delta);
-                }
+                // 粉丝数/关注数只累加到 Redis, 由 user 模块的落库任务合并成一次 UPDATE。
+                // 大 V 的单行竞争极高, 而这两个字段本来就不是同步可见的
+                case "fans" -> counterBuffer.add(CounterType.USER_FANS, a.getUserId(), a.getDelta());
+                case "attentionCount" -> counterBuffer.add(CounterType.USER_ATTENTION, a.getUserId(), a.getDelta());
+                case "videoCount" -> adjustOne(a, User::getVideoCount);
                 default -> throw new IllegalArgumentException("未知计数字段: " + a.getField());
             }
-            w.update();
         }
+    }
+
+    /** 低频计数(发布数等)不值得缓冲, 直接落库 */
+    private void adjustOne(CounterAdjust a, SFunction<User, ?> column) {
+        LambdaUpdateChainWrapper<User> w = new LambdaUpdateChainWrapper<>(userService.getBaseMapper())
+                .eq(User::getId, a.getUserId());
+        int delta = Math.abs(a.getDelta());
+        if (a.getDelta() < 0) {
+            w.ge(column, delta).setDecrBy(column, delta);
+        } else {
+            w.setIncrBy(column, delta);
+        }
+        w.update();
     }
 
     private static UserSummary toSummary(User user) {

@@ -26,6 +26,14 @@ public interface FollowPort {
     @PostMapping("/interrelated")
     boolean interrelated(@RequestBody InterrelatedQuery query);
 
+    /** 粉丝数权威值: COUNT(user_follow WHERE followee_id=? AND is_deleted=0), 供 user 服务对账覆盖 */
+    @GetMapping("/fans-count")
+    Long fansCount(@RequestParam("userId") Long userId);
+
+    /** 关注数权威值: COUNT(user_follow WHERE follower_id=? AND is_deleted=0) */
+    @GetMapping("/attention-count")
+    Long attentionCount(@RequestParam("userId") Long userId);
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

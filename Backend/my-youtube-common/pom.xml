@@ -60,5 +60,11 @@
 			<artifactId>commons-io</artifactId>
 			<version>2.16.1</version>
 		</dependency>
+		<!--计数落库的整轮锁用 RLock。这里只引 core, 让所有依赖 common 的模块都能编译;
+		     RedissonClient Bean 由各模块自行决定是否引入 starter-->
+		<dependency>
+			<groupId>org.redisson</groupId>
+			<artifactId>redisson</artifactId>
+		</dependency>
 	</dependencies>
 </project>

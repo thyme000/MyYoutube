@@ -78,7 +78,9 @@ CREATE TABLE IF NOT EXISTS `video_like` (
     `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_user_video` (`user_id`, `video_id`),
-    KEY `idx_video_id` (`video_id`)
+    KEY `idx_video_id` (`video_id`),
+    -- 对账 COUNT(*) 需覆盖 is_liked, 否则每行回表
+    KEY `idx_video_liked` (`video_id`, `is_liked`)
 ) ENGINE=InnoDB COMMENT='视频点赞';
 
 -- 视频评论表
@@ -100,6 +102,19 @@ CREATE TABLE IF NOT EXISTS `video_comment` (
     KEY `idx_root_id` (`root_id`)
 ) ENGINE=InnoDB COMMENT='视频评论';
 
+-- 评论点赞表(评论点赞关系的权威来源, 对账与幂等判重都靠它)
+CREATE TABLE IF NOT EXISTS `video_comment_like` (
+    `id`          BIGINT   NOT NULL AUTO_INCREMENT,
+    `user_id`     BIGINT   NOT NULL,
+    `comment_id`  BIGINT   NOT NULL,
+    `is_liked`    TINYINT  NOT NULL DEFAULT 1 COMMENT '1已点赞 0已取消',
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_user_comment` (`user_id`, `comment_id`),
+    KEY `idx_comment_liked` (`comment_id`, `is_liked`)
+) ENGINE=InnoDB COMMENT='评论点赞';
+
 -- 用户关注关系表
 CREATE TABLE IF NOT EXISTS `user_follow` (
     `id`          BIGINT      NOT NULL COMMENT '雪花ID',
@@ -111,7 +126,10 @@ CREATE TABLE IF NOT EXISTS `user_follow` (
     `update_time` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_follower_followee` (`follower_id`, `followee_id`),
-    KEY `idx_followee_id` (`followee_id`)
+    KEY `idx_followee_id` (`followee_id`),
+    -- 粉丝数/关注数对账 COUNT(*) 需覆盖 is_deleted, 否则每行回表
+    KEY `idx_followee_deleted` (`followee_id`, `is_deleted`),
+    KEY `idx_follower_deleted` (`follower_id`, `is_deleted`)
 ) ENGINE=InnoDB COMMENT='关注关系';
 
 -- 站内通知表

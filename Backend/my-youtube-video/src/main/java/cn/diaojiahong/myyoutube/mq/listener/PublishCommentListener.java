@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.chat.api.WsPushPort;
@@ -17,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
+import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -31,7 +31,6 @@ public class PublishCommentListener implements RocketMQListener<CommentMessage> 
 
     private final IUserNotificationService userNotificationService;
     private final UserPort userPort;
-    private final IVideoCommentService videoCommentService;
     private final S3StorageUtil storageUtil;
     private final WsPushPort wsPushPort;
 
@@ -39,16 +38,7 @@ public class PublishCommentListener implements RocketMQListener<CommentMessage> 
     public void onMessage(CommentMessage message) {
         log.info("收到发布评论消息: {}", message);
         // 保存到数据库
-        UserNotification userNotification = new UserNotification();
-        userNotification.setReceiverId(message.getReceiverId());
-        userNotification.setSenderId(message.getSenderId());
-        userNotification.setType(message.getIsVideoComment() ?
-                NotificationTypeEnum.VIDEO_COMMENT.getCode() :
-                NotificationTypeEnum.COMMENT_REPLY.getCode());
-        userNotification.setContent(message.getContent());
-        userNotification.setRefType(RefTypeEnum.COMMENT.getCode());
-        userNotification.setRefId(message.getIsVideoComment() ? message.getVideoId() : message.getCommentId());
-
+        UserNotification userNotification = getUserNotification(message);
         userNotificationService.save(userNotification);
 
         // 实时推送：视频评论与回复评论均推 WebSocket，前端 Toast 依赖此消息
@@ -71,6 +61,19 @@ public class PublishCommentListener implements RocketMQListener<CommentMessage> 
             json.setVideoId(message.getVideoId());
         }
         wsPushPort.sendToUser(message.getReceiverId(), new GsonBuilder().create().toJson(json));
+    }
+
+    private static @NonNull UserNotification getUserNotification(CommentMessage message) {
+        UserNotification userNotification = new UserNotification();
+        userNotification.setReceiverId(message.getReceiverId());
+        userNotification.setSenderId(message.getSenderId());
+        userNotification.setType(message.getIsVideoComment() ?
+                NotificationTypeEnum.VIDEO_COMMENT.getCode() :
+                NotificationTypeEnum.COMMENT_REPLY.getCode());
+        userNotification.setContent(message.getContent());
+        userNotification.setRefType(RefTypeEnum.COMMENT.getCode());
+        userNotification.setRefId(message.getIsVideoComment() ? message.getVideoId() : message.getCommentId());
+        return userNotification;
     }
 
 }

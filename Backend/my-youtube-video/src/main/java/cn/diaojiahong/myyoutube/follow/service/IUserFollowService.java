@@ -29,6 +29,12 @@ public interface IUserFollowService extends IService<UserFollow> {
 
     Boolean interrelated(Long userId, List<Long> memberIds);
 
+    /** 粉丝数权威值, 供 user 服务对 user.fans 做对账覆盖 */
+    Long countFans(Long followeeId);
+
+    /** 关注数权威值, 供 user 服务对 user.attention_count 做对账覆盖 */
+    Long countAttention(Long followerId);
+
     Result<PageResult<UserRelationshipVO>> getFansList(PageQuery pageQuery);
 
     List<Long> getFollowIds(Long userId);

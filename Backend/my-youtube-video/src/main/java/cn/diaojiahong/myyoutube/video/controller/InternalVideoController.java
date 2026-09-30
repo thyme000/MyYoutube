@@ -78,6 +78,16 @@ public class InternalVideoController {
         return userFollowService.interrelated(query.getUserId(), query.getMemberIds());
     }
 
+    @GetMapping("/follow/fans-count")
+    public Long fansCount(@RequestParam("userId") Long userId) {
+        return userFollowService.countFans(userId);
+    }
+
+    @GetMapping("/follow/attention-count")
+    public Long attentionCount(@RequestParam("userId") Long userId) {
+        return userFollowService.countAttention(userId);
+    }
+
     @PostMapping("/notification/create")
     public void createNotification(@RequestBody NotificationPort.NotificationCreate create) {
         UserNotification n = new UserNotification();

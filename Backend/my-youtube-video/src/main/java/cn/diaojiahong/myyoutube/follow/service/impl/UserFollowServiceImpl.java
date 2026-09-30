@@ -130,6 +130,22 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         return baseMapper.interrelated(userId, memberIds, expectedCount);
     }
 
+    @Override
+    public Long countFans(Long followeeId) {
+        return lambdaQuery()
+                .eq(UserFollow::getFolloweeId, followeeId)
+                .eq(UserFollow::getIsDeleted, false)
+                .count();
+    }
+
+    @Override
+    public Long countAttention(Long followerId) {
+        return lambdaQuery()
+                .eq(UserFollow::getFollowerId, followerId)
+                .eq(UserFollow::getIsDeleted, false)
+                .count();
+    }
+
 
     @Override
     public Result<PageResult<UserRelationshipVO>> getFansList(PageQuery pageQuery) {

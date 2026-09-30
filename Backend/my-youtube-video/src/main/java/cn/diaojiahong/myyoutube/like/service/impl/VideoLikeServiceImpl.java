@@ -4,6 +4,8 @@ import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
+import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -12,8 +14,10 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.like.domain.constants.VideoLikeConstants;
+import cn.diaojiahong.myyoutube.like.domain.po.VideoCommentLike;
 import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
 import cn.diaojiahong.myyoutube.like.domain.vo.LikeVideoVO;
+import cn.diaojiahong.myyoutube.like.mapper.VideoCommentLikeMapper;
 import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
 import cn.diaojiahong.myyoutube.like.service.IVideoLikeService;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
@@ -23,6 +27,7 @@ import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,9 +61,11 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final VideoLikeMapper videoLikeMapper;
+    private final VideoCommentLikeMapper videoCommentLikeMapper;
     private final IVideoCommentService videoCommentService;
     private final RocketMQTemplate rocketMQTemplate;
     private final IUserFollowService userFollowService;
+    private final CounterBuffer counterBuffer;
 
     // 24小时后过期
     private static final int STORAGE_EXPIRE = 24 * 60 * 60;
@@ -78,8 +85,11 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
             return Result.success();
         }
 
-        // 修改视频的点赞数
-        videoService.lambdaUpdate().eq(Video::getId, videoId).setIncrBy(Video::getLikeCount, 1).update();
+        // 作者 id 必须在写计数之前取: 原先排在 UPDATE video 之后, 等于把这次额外查询也算进热点行的锁持有时间
+        Long authorId = findAuthorId(videoId);
+
+        // 点赞数只累加到 Redis, 由落库任务合并成一次 UPDATE
+        counterBuffer.add(CounterType.VIDEO_LIKE, videoId, 1);
 
         // 保存点赞记录
         if (like != null) {
@@ -91,10 +101,17 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
             save(new VideoLike().setUserId(userId).setVideoId(videoId).setIsLiked(VideoLikeConstants.LIKE));
         }
         // 更新作者获赞量
-        redisTemplate.opsForValue()
-                .increment(RedisConstants.USER_LIKE_COUNT + videoService.getById(videoId).getAuthorId(), 1);
+        counterBuffer.add(CounterType.USER_LIKE, authorId, 1);
 
         return Result.success();
+    }
+
+    private Long findAuthorId(Long videoId) {
+        Video video = videoService.lambdaQuery().eq(Video::getId, videoId).select(Video::getAuthorId).one();
+        if (video == null) {
+            throw new BizException(BizException.USER_ERROR, "视频不存在");
+        }
+        return video.getAuthorId();
     }
 
     private Long getUserId() {
@@ -121,17 +138,16 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
             return Result.success();
         }
 
-        // 修改视频点赞数
-        videoService.lambdaUpdate()
-                .gt(Video::getLikeCount, 0)
-                .eq(Video::getId, videoId).setIncrBy(Video::getLikeCount, -1).update();
+        Long authorId = findAuthorId(videoId);
+
+        counterBuffer.add(CounterType.VIDEO_LIKE, videoId, -1);
 
         // 修改点赞记录
         like.setIsLiked(VideoLikeConstants.CANCEL_LIKE);
         updateById(like);
 
         // 更新用户获赞量
-        redisTemplate.opsForValue().increment(RedisConstants.USER_LIKE_COUNT + videoService.getById(videoId).getAuthorId(), -1);
+        counterBuffer.add(CounterType.USER_LIKE, authorId, -1);
 
         return Result.success();
     }
@@ -213,21 +229,33 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     public Result<Void> likeComment(Long commentId) {
         // 获取用户id
         Long userId = getUserId();
-        videoCommentService.lambdaUpdate()
-                .eq(VideoComment::getId, commentId)
-                .setIncrBy(VideoComment::getLikeCount, 1)
-                .update();
-        // 更新用户赞过的评论
-        Long size = redisTemplate.opsForZSet().size(RedisConstants.USER_LIKE_COMMENT + userId);
-        redisTemplate.opsForZSet().add(RedisConstants.USER_LIKE_COMMENT + userId, commentId.toString(), size == null ? 1 : size + 1);
-        redisTemplate.expire(RedisConstants.USER_LIKE_COMMENT + userId, RedisConstants.USER_LIKE_COMMENT_EXPIRE, TimeUnit.DAYS);
-        if (size != null && size > 100) {
-            // 超过100条,删除最早的
-            redisTemplate.opsForZSet().removeRangeByScore(RedisConstants.USER_LIKE_COMMENT + userId, 0, size - 100);
+
+        VideoCommentLike like = videoCommentLikeMapper.selectOne(new LambdaQueryWrapper<VideoCommentLike>()
+                .eq(VideoCommentLike::getUserId, userId)
+                .eq(VideoCommentLike::getCommentId, commentId));
+        if (like != null && like.getIsLiked() == VideoLikeConstants.LIKE) {
+            // 已经点过赞了直接返回; 顺手补一下 Redis 展示集合(ZSet 只有 10 天寿命, 过期后会误判成未点赞)
+            markCommentLiked(userId, commentId);
+            return Result.success();
         }
 
-        VideoComment comment = videoCommentService
-                .lambdaQuery().eq(VideoComment::getId, commentId).one();
+        VideoComment comment = videoCommentService.lambdaQuery()
+                .eq(VideoComment::getId, commentId).select(VideoComment::getUserId).one();
+        if (comment == null) {
+            throw new BizException(BizException.USER_ERROR, "评论不存在");
+        }
+
+        // 点赞数只累加到 Redis
+        counterBuffer.add(CounterType.COMMENT_LIKE, commentId, 1);
+        if (like != null) {
+            like.setIsLiked(VideoLikeConstants.LIKE);
+            videoCommentLikeMapper.updateById(like);
+        } else {
+            videoCommentLikeMapper.insert(new VideoCommentLike()
+                    .setUserId(userId).setCommentId(commentId).setIsLiked(VideoLikeConstants.LIKE));
+        }
+        markCommentLiked(userId, commentId);
+
         if (!Objects.equals(comment.getUserId(), userId)) {
             // 发送点赞通知(MQ)
             LikeCommentMessage lc = LikeCommentMessage
@@ -242,21 +270,40 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     public Result<Void> cancelLikeComment(Long commentId) {
         // 获取用户id
         Long userId = getUserId();
-        videoCommentService.lambdaUpdate()
-                .eq(VideoComment::getId, commentId)
-                .setIncrBy(VideoComment::getLikeCount, -1)
-                .update();
-        // 去掉用户点赞过的评论
+
+        VideoCommentLike like = videoCommentLikeMapper.selectOne(new LambdaQueryWrapper<VideoCommentLike>()
+                .eq(VideoCommentLike::getUserId, userId)
+                .eq(VideoCommentLike::getCommentId, commentId));
+        if (like == null || like.getIsLiked() == VideoLikeConstants.CANCEL_LIKE) {
+            // 未点赞或已取消, 直接返回
+            return Result.success();
+        }
+
+        counterBuffer.add(CounterType.COMMENT_LIKE, commentId, -1);
+        like.setIsLiked(VideoLikeConstants.CANCEL_LIKE);
+        videoCommentLikeMapper.updateById(like);
         redisTemplate.opsForZSet().remove(RedisConstants.USER_LIKE_COMMENT + userId, commentId.toString());
+
         // 发送取消点赞通知(MQ)
-        VideoComment comment = videoCommentService
-                .lambdaQuery().eq(VideoComment::getId, commentId).one();
-        if (!Objects.equals(comment.getUserId(), userId)) {
+        VideoComment comment = videoCommentService.lambdaQuery()
+            .eq(VideoComment::getId, commentId).select(VideoComment::getUserId).one();
+        if (comment != null && !Objects.equals(comment.getUserId(), userId)) {
             LikeCommentMessage lc = LikeCommentMessage
                     .builder().senderId(userId).commentId(commentId).build();
             rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_UNLIKE, lc);
         }
 
         return Result.success();
+    }
+
+    /**
+     * 展示用「我赞过的评论」集合。
+     */
+    private void markCommentLiked(Long userId, Long commentId) {
+        String key = RedisConstants.USER_LIKE_COMMENT + userId;
+        redisTemplate.opsForZSet().add(key, commentId.toString(), System.currentTimeMillis());
+        redisTemplate.expire(key, RedisConstants.USER_LIKE_COMMENT_EXPIRE, TimeUnit.DAYS);
+        // 只留最近 100 条: 按 rank 淘汰
+        redisTemplate.opsForZSet().removeRange(key, 0, -101);
     }
 }
