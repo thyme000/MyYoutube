@@ -1,5 +1,8 @@
 package cn.diaojiahong.myyoutube.gateway.filter;
 
+import cn.diaojiahong.myyoutube.security.JwtPayload;
+import cn.diaojiahong.myyoutube.security.JwtUtil;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -17,24 +20,27 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * 网关统一鉴权: 校验 token 后把 userId 透传给下游服务(X-User-Id 头),
- * 下游服务只解析头, 不再各自查 Redis。
+ * 网关统一鉴权: 本地验签 access JWT(不查 token 表), 仅作废时间戳命中时查一次 Redis,
+ * 通过后把 userId 透传给下游服务(X-User-Id 头), 下游服务只解析头。
  */
 @Component
 public class GatewayAuthFilter implements GlobalFilter, Ordered {
 
-    private static final String TOKEN_HEADER = "Authorization";
+    private static final String AUTH_HEADER = "Authorization";
+    private static final String BEARER_PREFIX = "Bearer ";
     private static final String USER_ID_HEADER = "X-User-Id";
-    private static final String TOKEN_KEY_PREFIX = "user:token:";
+    private static final String TOKEN_VER_KEY_PREFIX = "user:token-ver:";
 
     /** 放行接口, 与各服务的公开接口保持一致 */
     private static final List<String> WHITELIST = List.of(
-            "/login", "/register", "/forget-password");
+            "/login", "/register", "/forget-password", "/refresh", "/logout");
 
     private final ReactiveStringRedisTemplate redisTemplate;
 
-    public GatewayAuthFilter(ReactiveStringRedisTemplate redisTemplate) {
+    public GatewayAuthFilter(ReactiveStringRedisTemplate redisTemplate,
+                             @Value("${jwt.secret}") String jwtSecret) {
         this.redisTemplate = redisTemplate;
+        JwtUtil.init(jwtSecret);
     }
 
     @Override
@@ -44,18 +50,27 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
             return chain.filter(exchange);
         }
 
-        String token = exchange.getRequest().getHeaders().getFirst(TOKEN_HEADER);
-        if (token == null || token.isBlank()) {
+        String header = exchange.getRequest().getHeaders().getFirst(AUTH_HEADER);
+        if (header == null || !header.startsWith(BEARER_PREFIX)) {
             return unauthorized(exchange);
         }
-        return redisTemplate.opsForValue().get(TOKEN_KEY_PREFIX + token)
-                .flatMap(userId -> {
+        JwtPayload payload = JwtUtil.verify(header.substring(BEARER_PREFIX.length()));
+        if (payload == null) {
+            return unauthorized(exchange);
+        }
+
+        // 改密码/封号后签发时间早于作废时间戳的 token 立即失效
+        return redisTemplate.opsForValue().get(TOKEN_VER_KEY_PREFIX + payload.userId())
+                .defaultIfEmpty("")
+                .flatMap(ver -> {
+                    if (!ver.isEmpty() && payload.issuedAtMillis() < Long.parseLong(ver)) {
+                        return unauthorized(exchange);
+                    }
                     ServerHttpRequest mutated = exchange.getRequest().mutate()
-                            .header(USER_ID_HEADER, userId)
+                            .header(USER_ID_HEADER, String.valueOf(payload.userId()))
                             .build();
                     return chain.filter(exchange.mutate().request(mutated).build());
-                })
-                .switchIfEmpty(unauthorized(exchange));
+                });
     }
 
     private Mono<Void> unauthorized(ServerWebExchange exchange) {

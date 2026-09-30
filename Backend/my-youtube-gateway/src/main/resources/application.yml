@@ -1,6 +1,9 @@
 server:
   port: 8080
 
+jwt:
+  secret: ${JWT_SECRET:dev-insecure-jwt-secret}
+
 spring:
   application:
     name: my-youtube-gateway
@@ -30,7 +33,7 @@ spring:
               order: 5
             - id: user-service
               uri: lb://my-youtube-user-service
-              predicates: [ "Path=/user/**,/login,/register,/forget-password,/storage/**" ]
+              predicates: [ "Path=/user/**,/login,/register,/forget-password,/refresh,/logout,/storage/**" ]
               order: 10
             - id: video-service
               uri: lb://my-youtube-video-service
