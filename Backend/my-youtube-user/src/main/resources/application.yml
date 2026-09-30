@@ -27,6 +27,9 @@ rocketmq:
     group: myyoutube_user_producer
     send-message-timeout: 3000
 
+jwt:
+  secret: ${JWT_SECRET:dev-insecure-jwt-secret}
+
 server:
   port: ${SERVER_PORT:8081}
 

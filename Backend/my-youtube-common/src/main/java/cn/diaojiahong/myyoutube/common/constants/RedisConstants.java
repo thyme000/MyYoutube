@@ -2,9 +2,11 @@ package cn.diaojiahong.myyoutube.common.constants;
 
 public class RedisConstants {
 
-    // 用户登录token凭证
-    public static final String USER_TOKEN = "user:token:";
-    public static final Long USER_TOKEN_EXPIRE = 24L;
+    // refresh token: {uuid} -> "{userId}:{签发毫秒}", 每次续签轮换
+    public static final String USER_REFRESH_TOKEN = "user:refresh:";
+    public static final Long USER_REFRESH_TOKEN_EXPIRE = 7 * 24L;
+    // access token 作废时间戳: {userId} -> 毫秒, 签发早于它的 access/refresh 全部拒绝
+    public static final String USER_TOKEN_VER = "user:token-ver:";
 
     // 视频播放量
     public static final String VIDEO_PLAY_COUNT = "video:play:count:";

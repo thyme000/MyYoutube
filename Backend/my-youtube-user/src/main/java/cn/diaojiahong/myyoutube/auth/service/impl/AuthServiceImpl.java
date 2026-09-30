@@ -7,7 +7,10 @@ import cn.diaojiahong.myyoutube.common.utils.PasswordEncoder;
 import cn.diaojiahong.myyoutube.common.utils.RegexUtils;
 import cn.diaojiahong.myyoutube.auth.domain.dto.ForgetPasswordDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.LoginRequestDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.LoginResponseDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.RefreshTokenDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
+import cn.diaojiahong.myyoutube.security.JwtUtil;
 import cn.diaojiahong.myyoutube.auth.service.IAuthService;
 import cn.diaojiahong.myyoutube.search.api.message.UserDocSyncMessage;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
@@ -16,10 +19,13 @@ import cn.hutool.core.bean.BeanUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -32,8 +38,12 @@ public class AuthServiceImpl implements IAuthService {
     private final StringRedisTemplate redisTemplate;
     private final RocketMQTemplate rocketMQTemplate;
 
+    /** 续签轮换原子化: 同一 refresh 并发只有一个请求能成功 */
+    private static final RedisScript<String> REFRESH_ROTATE_SCRIPT =
+            RedisScript.of(new ClassPathResource("lua/refresh-rotate.lua"), String.class);
+
     @Override
-    public Result<String> login(LoginRequestDTO loginRequestDTO) {
+    public Result<LoginResponseDTO> login(LoginRequestDTO loginRequestDTO) {
         String username = loginRequestDTO.getUsername();
         String rawPassword = loginRequestDTO.getPassword();
 
@@ -51,15 +61,53 @@ public class AuthServiceImpl implements IAuthService {
         }
 
 
-        // 生成 token，将 userId 关键字段以 字符串 形式存入 Redis
-        String token = UUID.randomUUID().toString();
-        String tokenKey = RedisConstants.USER_TOKEN + token;
-
-        redisTemplate.opsForValue().set(tokenKey, String.valueOf(user.getId()));
-        redisTemplate.expire(tokenKey, RedisConstants.USER_TOKEN_EXPIRE, TimeUnit.HOURS);
+        // access JWT 短期有效; refresh UUID 存 Redis 供续签/登出/轮换
+        String accessToken = JwtUtil.sign(user.getId());
+        String refreshToken = UUID.randomUUID().toString();
+        saveRefreshToken(refreshToken, user.getId());
 
         log.info("用户 [{}] 登录成功", username);
-        return Result.success(token);
+        return Result.success(new LoginResponseDTO(accessToken, refreshToken));
+    }
+
+    @Override
+    public Result<LoginResponseDTO> refresh(RefreshTokenDTO refreshTokenDTO) {
+        String refreshToken = refreshTokenDTO == null ? null : refreshTokenDTO.getRefreshToken();
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return Result.fail("登录已过期，请重新登录!");
+        }
+
+        String newRefreshToken = UUID.randomUUID().toString();
+        String userId = redisTemplate.execute(
+                REFRESH_ROTATE_SCRIPT,
+                List.of(
+                        RedisConstants.USER_REFRESH_TOKEN + refreshToken,
+                        RedisConstants.USER_REFRESH_TOKEN + newRefreshToken),
+                RedisConstants.USER_TOKEN_VER,
+                String.valueOf(System.currentTimeMillis()),
+                String.valueOf(RedisConstants.USER_REFRESH_TOKEN_EXPIRE * 3600));
+
+        // USED=已用过/不存在; REVOKED=被 token-ver 作废(改密码/封号)
+        if (userId == null || userId.equals("USED") || userId.equals("REVOKED")) {
+            return Result.fail("登录已过期，请重新登录!");
+        }
+
+        return Result.success(new LoginResponseDTO(JwtUtil.sign(Long.parseLong(userId)), newRefreshToken));
+    }
+
+    @Override
+    public Result<String> logout(RefreshTokenDTO refreshTokenDTO) {
+        String refreshToken = refreshTokenDTO == null ? null : refreshTokenDTO.getRefreshToken();
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            redisTemplate.delete(RedisConstants.USER_REFRESH_TOKEN + refreshToken);
+        }
+        return Result.success();
+    }
+
+    private void saveRefreshToken(String refreshToken, Long userId) {
+        String key = RedisConstants.USER_REFRESH_TOKEN + refreshToken;
+        redisTemplate.opsForValue().set(key, userId + ":" + System.currentTimeMillis());
+        redisTemplate.expire(key, RedisConstants.USER_REFRESH_TOKEN_EXPIRE, TimeUnit.HOURS);
     }
 
     @Override
@@ -144,6 +192,12 @@ public class AuthServiceImpl implements IAuthService {
         //校验通过,把新密码加密后更新数据库
         user.setPassword(PasswordEncoder.encode(newPassword));
         userService.updateById(user);
+
+        // 作废该用户改密码前签发的所有 access/refresh
+        redisTemplate.opsForValue().set(
+                RedisConstants.USER_TOKEN_VER + user.getId(),
+                String.valueOf(System.currentTimeMillis()));
+
         log.info("用户 [{}] 重置密码成功", forgetPasswordDTO.getUsername());
         return Result.success();
     }
