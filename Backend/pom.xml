@@ -16,6 +16,7 @@
 
 	<modules>
 		<module>my-youtube-common</module>
+		<module>my-youtube-security</module>
 		<module>my-youtube-user</module>
 		<module>my-youtube-video</module>
 		<module>my-youtube-chat</module>
