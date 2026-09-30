@@ -6,12 +6,6 @@ public class RedisConstants {
     public static final String USER_TOKEN = "user:token:";
     public static final Long USER_TOKEN_EXPIRE = 24L;
 
-    // 验证码
-    public static final String CAPTCHA_LOGIN = "captcha:login:";
-    public static final String CAPTCHA_REGISTER = "captcha:register:";
-    public static final Long CAPTCHA_EXPIRE = 60L;
-    public static final String CAPTCHA_FORGET = "captcha:forget:";
-
     // 视频播放量
     public static final String VIDEO_PLAY_COUNT = "video:play:count:";
     public static final Long VIDEO_PLAY_COUNT_EXPIRE = 3L;

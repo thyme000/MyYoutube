@@ -29,7 +29,7 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
 
     /** 放行接口, 与各服务的公开接口保持一致 */
     private static final List<String> WHITELIST = List.of(
-            "/login", "/register", "/captcha", "/forget-password");
+            "/login", "/register", "/forget-password");
 
     private final ReactiveStringRedisTemplate redisTemplate;
 

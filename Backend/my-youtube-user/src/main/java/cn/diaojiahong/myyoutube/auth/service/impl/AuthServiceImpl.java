@@ -3,10 +3,8 @@ package cn.diaojiahong.myyoutube.auth.service.impl;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.utils.CaptchaUtils;
 import cn.diaojiahong.myyoutube.common.utils.PasswordEncoder;
 import cn.diaojiahong.myyoutube.common.utils.RegexUtils;
-import cn.diaojiahong.myyoutube.auth.domain.dto.CaptchaDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.ForgetPasswordDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.LoginRequestDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
@@ -22,7 +20,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -39,7 +36,6 @@ public class AuthServiceImpl implements IAuthService {
     public Result<String> login(LoginRequestDTO loginRequestDTO) {
         String username = loginRequestDTO.getUsername();
         String rawPassword = loginRequestDTO.getPassword();
-        String captchaKey = RedisConstants.CAPTCHA_LOGIN + username;
 
         // 查询用户
         User user = userService.lambdaQuery()
@@ -54,14 +50,6 @@ public class AuthServiceImpl implements IAuthService {
             return Result.fail("密码错误!");
         }
 
-        // TODO
-/*        // 校验验证码（用 Objects.equals 防空指针，验证后立即删除防重用）
-        String storedCaptcha = redisTemplate.opsForValue().get(captchaKey);
-        if (!Objects.equals(loginRequestDTO.getCaptcha(), storedCaptcha)) {
-            return Result.fail("验证码错误或已过期!");
-        }*/
-
-        redisTemplate.delete(captchaKey);
 
         // 生成 token，将 userId 关键字段以 字符串 形式存入 Redis
         String token = UUID.randomUUID().toString();
@@ -81,14 +69,6 @@ public class AuthServiceImpl implements IAuthService {
             return Result.fail("两次密码不一致!");
         }
 
-        // TODO
-/*        // 校验注册验证码
-        String captchaKey = RedisConstants.CAPTCHA_REGISTER + registerRequestDTO.getPhone();
-        String storedCaptcha = redisTemplate.opsForValue().get(captchaKey);
-        if (storedCaptcha != null && !Objects.equals(registerRequestDTO.getCaptcha(), storedCaptcha)) {
-            return Result.fail("验证码错误或已过期!");
-        }
-        redisTemplate.delete(captchaKey);*/
 
         // 密码格式校验
         if (RegexUtils.isPasswordInvalid(registerRequestDTO.getPassword())) {
@@ -145,35 +125,6 @@ public class AuthServiceImpl implements IAuthService {
     }
 
     @Override
-    public Result<String> captcha(CaptchaDTO captchaDTO) {
-        String code = CaptchaUtils.generateNumCaptcha(6);
-        if (captchaDTO.getPhone() != null && captchaDTO.getUsername() != null) {
-            // 忘记密码验证码，以手机号为 key
-            redisTemplate.opsForValue().set(
-                    RedisConstants.CAPTCHA_FORGET + captchaDTO.getPhone(),
-                    code, RedisConstants.CAPTCHA_EXPIRE, TimeUnit.SECONDS);
-            log.info("忘记密码验证码已生成，手机号：{}", captchaDTO.getPhone());
-        }
-        else if (captchaDTO.getUsername() != null) {
-            // 登录验证码，以用户名为 key
-            redisTemplate.opsForValue().set(
-                    RedisConstants.CAPTCHA_LOGIN + captchaDTO.getUsername(),
-                    code, RedisConstants.CAPTCHA_EXPIRE, TimeUnit.SECONDS);
-            log.info("登录验证码已生成，用户：{}", captchaDTO.getUsername());
-        } else if (captchaDTO.getPhone() != null) {
-            // 注册验证码，以手机号为 key
-            redisTemplate.opsForValue().set(
-                    RedisConstants.CAPTCHA_REGISTER + captchaDTO.getPhone(),
-                    code, RedisConstants.CAPTCHA_EXPIRE, TimeUnit.SECONDS);
-            log.info("注册验证码已生成，手机号：{}", captchaDTO.getPhone());
-        } else {
-            return Result.fail("请输入用户名或手机号!");
-        }
-
-        return Result.success();
-    }
-
-    @Override
     public Result<String> forgetPassword(ForgetPasswordDTO forgetPasswordDTO) {
         // 校验字段
         String newPassword = forgetPasswordDTO.getNewPassword();
@@ -189,14 +140,6 @@ public class AuthServiceImpl implements IAuthService {
             return Result.fail("用户不存在!");
         }
 
-        // TODO
-/*        // 校验验证码
-        String captchaKey = RedisConstants.CAPTCHA_FORGET + forgetPasswordDTO.getPhone();
-        String storedCaptcha = redisTemplate.opsForValue().get(captchaKey);
-        if (storedCaptcha != null && !storedCaptcha.equals(forgetPasswordDTO.getCaptcha())) {
-            return Result.fail("验证码错误或已过期!");
-        }
-        redisTemplate.delete(captchaKey);*/
 
         //校验通过,把新密码加密后更新数据库
         user.setPassword(PasswordEncoder.encode(newPassword));

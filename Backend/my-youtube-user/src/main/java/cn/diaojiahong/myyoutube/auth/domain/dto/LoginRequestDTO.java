@@ -14,7 +14,4 @@ public class LoginRequestDTO {
     // 用户密码
     private String password;
 
-    // 验证码
-    private String captcha;
-
 }
