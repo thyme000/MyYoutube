@@ -51,6 +51,9 @@ public class UserVideoPortImpl implements UserVideoPort {
 
     @Override
     public Map<Long, Boolean> likedMap(Long userId, Set<String> videoIds) {
+        if (videoIds == null || videoIds.isEmpty()) {
+            return Map.of();
+        }
         return new LambdaQueryChainWrapper<>(videoLikeMapper)
                 .eq(VideoLike::getUserId, userId)
                 .eq(VideoLike::getIsLiked, true)
@@ -60,6 +63,9 @@ public class UserVideoPortImpl implements UserVideoPort {
 
     @Override
     public Map<Long, Boolean> followedMap(Long userId, Collection<Long> authorIds) {
+        if (authorIds == null || authorIds.isEmpty()) {
+            return Map.of();
+        }
         List<UserFollow> list = new LambdaQueryChainWrapper<>(userFollowMapper)
                 .eq(UserFollow::getFollowerId, userId)
                 .eq(UserFollow::getIsDeleted, false)

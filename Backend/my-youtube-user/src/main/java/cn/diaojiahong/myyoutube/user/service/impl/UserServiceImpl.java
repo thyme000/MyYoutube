@@ -185,6 +185,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             redisTemplate.opsForZSet().remove(tsKey, missingIds.toArray());
             redisTemplate.opsForHash().delete(ptKey, missingIds.toArray());
         }
+        if (longHistoryVideoVOs.isEmpty()) {
+            return Result.success(PageResult.of(0, 0, List.of()));
+        }
 
         // 转换视频封面url和视频url
         longHistoryVideoVOs.forEach(vo -> {
@@ -244,6 +247,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
 
     private Map<Long, Boolean> getFollowMap(Long userId, List<Long> authorIds) {
+        if (authorIds == null || authorIds.isEmpty()) {
+            return Map.of();
+        }
         return userVideoPort.followedMap(userId, authorIds);
     }
 
@@ -280,6 +286,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (!missingIds.isEmpty()) {
             String tsKey = RedisConstants.USER_SHORTS_PLAY + userId;
             redisTemplate.opsForZSet().remove(tsKey, missingIds.toArray());
+        }
+        if (shortsVOs.isEmpty()) {
+            return Result.success(PageResult.of(0, 0, List.of()));
         }
 
         // 转换视频封面url和视频url
