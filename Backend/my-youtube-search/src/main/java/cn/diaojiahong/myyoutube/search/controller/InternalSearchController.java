@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.search.controller;
 
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
+import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
 import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import cn.diaojiahong.myyoutube.search.port.RecommendPortImpl;
 import cn.diaojiahong.myyoutube.search.port.VideoDocPortImpl;
@@ -32,6 +33,23 @@ public class InternalSearchController {
     @PostMapping("/video-doc/visibility")
     public void syncVisibility(@RequestParam("videoId") Long videoId, @RequestBody VisibilitySync sync) {
         videoDocPort.syncVisibility(videoId, sync);
+    }
+
+    @PostMapping("/video-doc/play-count/adjust")
+    public void adjustPlayCount(@RequestParam("videoId") Long videoId, @RequestParam("delta") Long delta) {
+        videoDocPort.adjustPlayCount(videoId, delta);
+    }
+
+    @PostMapping("/video-doc/play-like/sync")
+    public void syncPlayLike(@RequestParam("videoId") Long videoId,
+                             @RequestParam("playCount") Long playCount,
+                             @RequestParam("likeCount") Long likeCount) {
+        videoDocPort.syncPlayLike(videoId, playCount, likeCount);
+    }
+
+    @PostMapping("/video-doc/status")
+    public void syncStatus(@RequestParam("videoId") Long videoId, @RequestBody VideoDocPort.StatusSync sync) {
+        videoDocPort.syncStatus(videoId, sync);
     }
 
     @PostMapping("/recommend/by-user")
