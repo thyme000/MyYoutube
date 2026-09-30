@@ -311,6 +311,16 @@ body {
   font-size: var(--font-size-16);
 }
 
+/* 头像/背景预览：强制白色卡片。卡片由 BaseModal 内部渲染，scoped 样式够不到，只能写在这里 */
+.media-preview-card--light {
+  max-width: min(920px, 96vw);
+  width: min(94vw, 920px);
+  background: var(--white);
+  color: var(--ink-980);
+  border: none;
+  box-shadow: 0 12px 40px rgb(var(--black-rgb) / 0.12);
+}
+
 .modal-form {
   display: flex;
   flex-direction: column;
@@ -379,6 +389,7 @@ body {
 
 .forgot-modal-form-wrap h3 {
   margin: 0 0 var(--space-14);
+  color: var(--white);
 }
 
 .forgot-modal-msg {

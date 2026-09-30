@@ -756,20 +756,6 @@ function onCropResizeStart(event) {
   /* 尺寸与定位由内联样式计算 */
 }
 
-.media-preview-card {
-  max-width: 640px;
-  width: min(92vw, 640px);
-}
-
-.media-preview-card--light {
-  max-width: min(920px, 96vw);
-  width: min(94vw, 920px);
-  background: var(--color-bg-surface);
-  color: var(--ink-980);
-  border: 1px solid var(--gray-200);
-  box-shadow: 0 12px 40px rgb(var(--black-rgb) / 0.12);
-}
-
 .media-preview-title {
   margin: 0 0 var(--space-16);
   font-size: var(--font-size-18);
