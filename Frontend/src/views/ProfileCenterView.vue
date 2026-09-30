@@ -1064,14 +1064,6 @@ function onCropResizeStart(event) {
   z-index: var(--z-modal-raised);
 }
 
-.profile-edit-modal {
-  width: min(440px, 92vw);
-  background: var(--color-bg-surface) !important;
-  border: 1px solid var(--color-border-subtle) !important;
-  box-shadow: var(--shadow-lg);
-  color: var(--color-text-strong);
-}
-
 .profile-edit-title {
   margin: 0 0 var(--space-16);
   font-size: var(--font-size-18);
@@ -1216,17 +1208,6 @@ function onCropResizeStart(event) {
 
 .relation-modal-overlay {
   z-index: 1000;
-}
-
-.relation-table-card {
-  width: min(900px, 95vw);
-}
-
-.relation-table-card--white {
-  background: var(--color-bg-surface) !important;
-  border: 1px solid var(--color-border-subtle) !important;
-  box-shadow: var(--shadow-lg);
-  color: var(--color-text-strong);
 }
 
 .relation-table-heading {

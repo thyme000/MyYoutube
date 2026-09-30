@@ -321,6 +321,27 @@ body {
   box-shadow: 0 12px 40px rgb(var(--black-rgb) / 0.12);
 }
 
+/* 关注/粉丝列表：同上 */
+.relation-table-card {
+  width: min(900px, 95vw);
+}
+
+.relation-table-card--white {
+  background: var(--white);
+  border: none;
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text-strong);
+}
+
+/* 编辑资料弹窗：同上 */
+.profile-edit-modal {
+  width: min(440px, 92vw);
+  background: var(--white);
+  border: none;
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text-strong);
+}
+
 .modal-form {
   display: flex;
   flex-direction: column;
@@ -3098,7 +3119,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 .shorts-delete-modal.modal-card {
   width: min(380px, 92vw);
   background: var(--ink-980);
-  border: 1px solid rgb(var(--white-rgb) / 0.92);
+  border: none;
   border-radius: var(--radius-5xl);
   padding: var(--space-22) var(--space-22) var(--space-20);
   color: var(--slate-50);
