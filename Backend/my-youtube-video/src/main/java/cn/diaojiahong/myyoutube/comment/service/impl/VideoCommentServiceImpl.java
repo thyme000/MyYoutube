@@ -19,6 +19,7 @@ import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
@@ -86,20 +87,11 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
             }
             videoComment.setReplyUserId(parent.getUserId());
             // 找根评论id
-            if (parent.getRootId() == null) {
-                // 父评论是一级评论
-                videoComment.setRootId(parent.getId());
-                // 更新评论数
-                parent.setReplyCount(parent.getReplyCount() + 1);
-                updateById(parent);
-            } else {
-                // 父评论不是一级评论
-                videoComment.setRootId(parent.getRootId());
-                // 不是一级评论,更新根评论的回复数
-                VideoComment root = getById(parent.getRootId());
-                root.setReplyCount(root.getReplyCount() + 1);
-                updateById(root);
-            }
+            Long rootId = parent.getRootId() == null ? parent.getId() : parent.getRootId();
+            videoComment.setRootId(rootId);
+            // 回复数改自增
+            lambdaUpdate().eq(VideoComment::getId, rootId)
+                    .setIncrBy(VideoComment::getReplyCount, 1).update();
         }
         // 更新视频的评论数
         videoService.lambdaUpdate().eq(Video::getId, commentDTO.getVideoId())
@@ -148,21 +140,24 @@ public class VideoCommentServiceImpl extends ServiceImpl<VideoCommentMapper, Vid
         }
         videoComment.setStatus(CommentStatusEnum.DELETED.getCode());
         updateById(videoComment);
+        // 本次真正被标记删除的条数
+        long removed = 1;
         if (videoComment.getParentId() == 0) {
-            // 删除所有回复评论
-            lambdaUpdate()
+            // 删除所有回复评论; 已经 deleted 的不重复计数
+            removed += baseMapper.update(null, new LambdaUpdateWrapper<VideoComment>()
                     .eq(VideoComment::getRootId, commentId)
-                    .set(VideoComment::getStatus, CommentStatusEnum.DELETED.getCode())
-                    .update();
+                    .ne(VideoComment::getStatus, CommentStatusEnum.DELETED.getCode())
+                    .set(VideoComment::getStatus, CommentStatusEnum.DELETED.getCode()));
         } else {
             // 更新回复数
             lambdaUpdate().eq(VideoComment::getId, videoComment.getRootId())
                     .gt(VideoComment::getReplyCount, 0)
                     .setIncrBy(VideoComment::getReplyCount, -1).update();
         }
-        // 更新视频评论数
+        // 更新视频评论数, 带护底避免减成负数
         videoService.lambdaUpdate().eq(Video::getId, videoComment.getVideoId())
-                .setIncrBy(Video::getCommentCount, -1).update();
+                .ge(Video::getCommentCount, removed)
+                .setIncrBy(Video::getCommentCount, -removed).update();
         return Result.success();
     }
 
