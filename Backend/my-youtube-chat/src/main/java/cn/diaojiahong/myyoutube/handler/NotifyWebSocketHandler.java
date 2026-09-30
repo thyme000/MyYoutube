@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.handler;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.security.JwtPayload;
+import cn.diaojiahong.myyoutube.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -66,11 +68,14 @@ public class NotifyWebSocketHandler extends TextWebSocketHandler {
         if (q == null || !q.startsWith("token=")) {
             return null;
         }
-        String token = q.substring("token=".length());
-        String userId = redisTemplate.opsForValue().get(RedisConstants.USER_TOKEN + token);
-        if (userId == null) {
+        JwtPayload payload = JwtUtil.verify(q.substring("token=".length()));
+        if (payload == null) {
             return null;
         }
-        return Long.valueOf(userId);
+        String ver = redisTemplate.opsForValue().get(RedisConstants.USER_TOKEN_VER + payload.userId());
+        if (ver != null && payload.issuedAtMillis() < Long.parseLong(ver)) {
+            return null;
+        }
+        return payload.userId();
     }
 }
