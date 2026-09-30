@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Nginx 反代时 API 应与页面同源（如 /captcha、/user/info），否则会跨域直连 :8080，OPTIONS 常 403。
+ * Nginx 反代时 API 应与页面同源（如 /login、/user/info），否则会跨域直连 :8080，OPTIONS 常 403。
  * - 生产环境：默认强制相对路径，忽略误打包进 dist 的 VITE_API_BASE_URL（除非 VITE_API_ALLOW_CROSS_ORIGIN=true）。
  * - 开发环境：仍读环境变量；空则走 Vite proxy。
  */

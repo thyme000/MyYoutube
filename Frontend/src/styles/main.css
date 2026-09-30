@@ -32,9 +32,8 @@ body {
   position: relative;
   background:
     radial-gradient(circle, rgb(var(--black-rgb) / 0) 0%, rgb(var(--black-rgb) / 0.45) 100%),
-    linear-gradient(160deg, #1b2735 0%, #090a0f 100%);
-  background-size: cover;
-  background-position: center;
+    linear-gradient(160deg, rgb(27 39 53 / 0.2) 0%, rgb(9 10 15 / 0.5) 100%),
+    var(--login-cover, linear-gradient(160deg, #1b2735 0%, #090a0f 100%)) center / cover no-repeat;
 }
 
 .water-drop {
@@ -143,13 +142,6 @@ body {
   opacity: 0.9;
 }
 
-.captcha-group {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: var(--space-8);
-}
-
 .password-group input {
   padding-right: var(--space-44);
 }
@@ -205,12 +197,8 @@ body {
 .flip-scene {
   position: relative;
   perspective: 1200px;
-  min-height: 330px;
-  transition: min-height 0.8s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.flip-scene.register-mode {
-  min-height: 510px;
+  min-height: 265px;
+  transition: height 0.8s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .flip-card {
@@ -231,22 +219,6 @@ body {
 
 .auth-back {
   transform: rotateY(180deg);
-}
-
-.btn-captcha {
-  height: 32px;
-  padding: 0 var(--space-16);
-  color: var(--color-text-inverse);
-  background: transparent;
-  border: 1px solid rgb(var(--white-rgb) / 0.4);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: var(--font-size-12);
-}
-
-.btn-captcha:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .btn-submit {
@@ -274,13 +246,6 @@ body {
 .btn-submit:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.captcha-tip {
-  margin: var(--space-4) 0 var(--space-10);
-  color: var(--amber-300);
-  font-size: var(--font-size-12);
-  text-align: left;
 }
 
 .forgot-pass {
@@ -355,11 +320,11 @@ body {
 .modal-close {
   margin-top: var(--space-12);
   width: 100%;
-  height: 38px;
-  border: 1px solid var(--line);
+  padding: var(--space-14);
+  border: 1px solid rgb(var(--white-rgb) / 0.22);
   background: var(--ink-950);
-  color: var(--text);
-  border-radius: var(--radius-xl);
+  color: var(--color-text-inverse);
+  border-radius: var(--radius-lg);
   cursor: pointer;
 }
 
@@ -367,11 +332,12 @@ body {
   background: var(--ink-850);
 }
 
-/* 忘记密码：左右分栏 + 左侧疑惑小人动画 */
+/* 忘记密码：左右分栏 + 左侧封面图 */
 .forgot-modal-card {
   width: min(820px, 96vw);
   max-width: 96vw;
   padding: var(--space-20) var(--space-22);
+  border: 0;
 }
 
 .forgot-modal-grid {
@@ -381,26 +347,29 @@ body {
   align-items: stretch;
 }
 
-.forgot-mascot {
+.forgot-cover {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 300px;
-  padding: var(--space-16) var(--space-12);
+  padding: var(--space-12);
   border-radius: var(--radius-3xl);
+  overflow: hidden;
   background: linear-gradient(160deg, rgb(var(--white-rgb) / 0.07), rgb(var(--white-rgb) / 0.02));
-  border: 1px dashed rgb(var(--white-rgb) / 0.22);
-  animation: forgotMascotEnter 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  border: 1px solid rgb(var(--white-rgb) / 0.14);
+  animation: forgotCoverEnter 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.forgot-mascot-svg {
-  width: min(220px, 100%);
-  height: auto;
-  overflow: visible;
+.forgot-cover-img {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  object-fit: cover;
+  border-radius: var(--radius-xl);
 }
 
-.forgot-mascot-caption {
+.forgot-cover-caption {
   margin: var(--space-10) 0 0;
   font-size: var(--font-size-13);
   color: rgb(var(--white-rgb) / 0.88);
@@ -412,15 +381,11 @@ body {
   margin: 0 0 var(--space-14);
 }
 
-.forgot-captcha-tip {
-  margin-top: 0;
-}
-
 .forgot-modal-msg {
   margin-top: var(--space-10);
 }
 
-@keyframes forgotMascotEnter {
+@keyframes forgotCoverEnter {
   from {
     opacity: 0;
     transform: translateY(18px) scale(0.94);
@@ -431,125 +396,12 @@ body {
   }
 }
 
-.mascot-head {
-  transform-origin: 100px 108px;
-  animation: mascotHeadTilt 3.2s ease-in-out infinite;
-}
-
-.mascot-pupils {
-  animation: mascotPupilsLook 3.8s ease-in-out infinite;
-  transform-origin: 100px 102px;
-}
-
-.mascot-brow-right {
-  animation: mascotBrowConfused 2.6s ease-in-out infinite;
-  transform-origin: 132px 70px;
-}
-
-.mascot-mouth {
-  animation: mascotMouthWiggle 2.4s ease-in-out infinite;
-  transform-origin: 100px 132px;
-}
-
-.mascot-q {
-  animation: mascotQFloat 2.1s ease-in-out infinite;
-  transform-origin: 168px 48px;
-}
-
-.mascot-hands {
-  animation: mascotHandsShrug 2.8s ease-in-out infinite;
-  transform-origin: 100px 188px;
-}
-
-.mascot-body {
-  animation: mascotBodyBob 3.5s ease-in-out infinite;
-  transform-origin: 100px 200px;
-}
-
-@keyframes mascotHeadTilt {
-  0%,
-  100% {
-    transform: rotate(-5deg);
-  }
-  50% {
-    transform: rotate(5deg);
-  }
-}
-
-@keyframes mascotPupilsLook {
-  0%,
-  100% {
-    transform: translate(0, 0);
-  }
-  20% {
-    transform: translate(5px, -2px);
-  }
-  45% {
-    transform: translate(-4px, 3px);
-  }
-  70% {
-    transform: translate(3px, 1px);
-  }
-}
-
-@keyframes mascotBrowConfused {
-  0%,
-  100% {
-    transform: translateY(0) rotate(0deg);
-  }
-  50% {
-    transform: translateY(-3px) rotate(-6deg);
-  }
-}
-
-@keyframes mascotMouthWiggle {
-  0%,
-  100% {
-    transform: scaleX(1);
-  }
-  50% {
-    transform: scaleX(0.92);
-  }
-}
-
-@keyframes mascotQFloat {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-6deg);
-    opacity: 1;
-  }
-  50% {
-    transform: translateY(-8px) rotate(6deg);
-    opacity: 0.92;
-  }
-}
-
-@keyframes mascotHandsShrug {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
-  }
-}
-
-@keyframes mascotBodyBob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-3px);
-  }
-}
-
 @media (max-width: 680px) {
   .forgot-modal-grid {
     grid-template-columns: 1fr;
   }
 
-  .forgot-mascot {
+  .forgot-cover {
     min-height: 220px;
   }
 }
