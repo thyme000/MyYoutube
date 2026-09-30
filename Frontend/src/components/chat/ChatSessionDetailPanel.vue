@@ -354,9 +354,6 @@ function onFindRecordPick({ seq }) {
           <h3 class="chat-session-invite__title">邀请互关好友入群</h3>
           <p v-if="inviteLoading" class="chat-session-invite__hint chat-session-invite__hint--block">加载中…</p>
           <div v-else class="chat-session-invite__list">
-            <p v-if="!mutualUsers.length" class="chat-session-invite__hint chat-session-invite__hint--empty">
-              没有可邀请的互关成员（或已全部在群内）
-            </p>
             <button
               v-for="u in mutualUsers"
               :key="String(u.userId ?? u.id)"
@@ -394,9 +391,6 @@ function onFindRecordPick({ seq }) {
           <h3 class="chat-session-invite__title">移除群成员</h3>
           <p class="chat-session-invite__hint">仅群主可操作；以下不包含群主本人，可多选后批量移除。</p>
           <div class="chat-session-invite__list">
-            <p v-if="!membersRemovable.length" class="chat-session-invite__hint chat-session-invite__hint--empty">
-              暂无可移除成员
-            </p>
             <button
               v-for="m in membersRemovable"
               :key="String(m.userId)"
@@ -533,8 +527,7 @@ function onFindRecordPick({ seq }) {
           <h3 class="chat-session-invite__title">群公告</h3>
           <p v-if="annLoading" class="chat-session-invite__hint chat-session-invite__hint--block">加载中…</p>
           <div v-else class="chat-session-ann__body">
-            <p v-if="!String(annText || '').trim()" class="chat-session-invite__hint">暂无公告</p>
-            <p v-else class="chat-session-ann__text">{{ annText }}</p>
+            <p v-if="String(annText || '').trim()" class="chat-session-ann__text">{{ annText }}</p>
           </div>
           <div class="chat-session-invite__actions">
             <button type="button" class="chat-session-invite__btn chat-session-invite__btn--ghost" @click="closeAnnView">
@@ -1039,14 +1032,6 @@ function onFindRecordPick({ seq }) {
   margin-bottom: 0;
   padding: var(--space-16) var(--space-8);
   text-align: center;
-}
-
-.chat-session-invite__hint--empty {
-  margin: 0;
-  padding: var(--space-22) var(--space-14);
-  text-align: center;
-  color: var(--color-text-faint);
-  font-size: var(--font-size-14);
 }
 
 .chat-session-invite__list {

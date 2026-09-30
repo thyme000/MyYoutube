@@ -340,7 +340,6 @@ function onSearchFeedListPause(e) {
                   <div class="search-user-card-wide__body">
                     <span class="search-user-card-wide__name">{{ u.nickname }}</span>
                     <p v-if="u.introduction" class="search-user-card-wide__intro">{{ u.introduction }}</p>
-                    <p v-else class="search-user-card-wide__intro search-user-card-wide__intro--muted">暂无简介</p>
                     <div class="search-user-card-wide__meta">
                       <span>粉丝 {{ formatHomeShortStat(u.fans) }}</span>
                       <span class="search-user-card-wide__meta-dot">·</span>

@@ -224,7 +224,6 @@ watch(() => props.modelValue,
         <div class="chat-fwd__body">
           <p v-if="loading" class="chat-fwd__hint">加载中…</p>
           <p v-else-if="error" class="chat-fwd__err">{{ error }}</p>
-          <p v-else-if="!filteredRows.length" class="chat-fwd__hint chat-fwd__hint--muted">暂无会话</p>
           <ul v-else class="chat-fwd__list">
             <li
               v-for="r in filteredRows"

@@ -118,7 +118,6 @@ function onTopbarAvatarError(e) {
                     <span class="video-player-loading__text video-player-loading__text--detail">正在加载视频</span>
   </div>
                 </div>
-                <div v-else-if="!videoDetail.videoUrl" class="video-detail-player-empty">暂无播放地址</div>
               </div>
               <h1 class="video-detail-title">{{ videoDetail.title }}</h1>
               <div class="video-detail-meta-row">
@@ -420,7 +419,6 @@ function onTopbarAvatarError(e) {
                     </li>
                   </template>
                 </ul>
-                <p v-if="!detailCommentsLoading && !detailTopComments.length" class="video-detail-comments-empty">暂无评论，来抢沙发吧</p>
                 <div v-if="detailCommentHasMore" class="video-detail-comments-more">
                   <button
                     type="button"
@@ -474,7 +472,6 @@ function onTopbarAvatarError(e) {
                   </div>
                 </button>
                 <p v-if="detailSidebarLoadingMore" class="video-detail-side-hint">加载更多…</p>
-                <p v-if="!detailSidebarLoading && !detailSidebarList.length" class="video-detail-side-hint">暂无推荐</p>
               </div>
             </aside>
           </div>
@@ -598,14 +595,6 @@ function onTopbarAvatarError(e) {
   vertical-align: top;
 }
 
-.video-detail-player-empty {
-  aspect-ratio: 16 / 9;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  background: var(--gray-200);
-}
 
 .video-detail-title {
   margin: var(--space-8) 0 var(--space-12);

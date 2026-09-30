@@ -415,7 +415,6 @@ onBeforeUnmount(() => {
                 </li>
               </ul>
             </div>
-            <p v-else class="smp-lyrics-empty">暂无 LRC 歌词，请用上方滑块对齐起点</p>
           </template>
 
           <template v-else>
@@ -821,10 +820,4 @@ onBeforeUnmount(() => {
   line-height: 1.35;
 }
 
-.smp-lyrics-empty {
-  margin: 0 0 var(--space-12);
-  font-size: var(--font-size-12);
-  color: var(--ink-700);
-  text-align: left;
-}
 </style>

@@ -120,11 +120,6 @@ const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0))
                 {{ likedLoadingMore ? "加载中…" : "加载更多" }}
               </button>
             </div>
-            <div v-if="isAuthed && !likedLoading && !likedDisplay.length" class="profile-works-empty">
-              <div class="profile-works-empty-icon"><i class="ri-thumb-up-line"></i></div>
-              <h5>暂无赞过的视频</h5>
-              <p>去短视频或首页给喜欢的内容点个赞吧～</p>
-            </div>
           </section>
 </template>
 

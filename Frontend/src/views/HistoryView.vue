@@ -56,7 +56,6 @@ const profile = useProfileStore();
                 </div>
               </div>
               <div v-if="historyLongLoading" class="shorts-feed-loading">正在加载长视频历史记录…</div>
-              <div v-else-if="!historyLongRows.length" class="shorts-feed-empty">暂无长视频历史记录</div>
               <div
                 v-else
                 class="home-shorts-strip history-shorts-strip"
@@ -127,7 +126,6 @@ const profile = useProfileStore();
                 </div>
               </div>
               <div v-if="historyShortLoading" class="shorts-feed-loading">正在加载短视频历史记录…</div>
-              <div v-else-if="!historyShortRows.length" class="shorts-feed-empty">暂无短视频历史记录</div>
               <div
                 v-else
                 class="home-shorts-strip history-shorts-strip"

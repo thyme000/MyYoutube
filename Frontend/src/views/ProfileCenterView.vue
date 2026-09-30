@@ -463,11 +463,6 @@ function onCropResizeStart(event) {
           </div>
         </article>
       </div>
-      <div v-if="!profileWorksLoading && !profileWorksDisplay.length" class="profile-works-empty">
-        <div class="profile-works-empty-icon"><i class="ri-movie-2-line"></i></div>
-        <h5>暂无内容</h5>
-        <p>该账号还未发布过作品哦～</p>
-      </div>
     </section>
 
     <!-- 头像 / 背景 预览与裁剪 -->

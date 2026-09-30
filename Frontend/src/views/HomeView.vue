@@ -55,28 +55,6 @@ const homeLongTailCards = computed(() => {
   return cards.value.slice(homeLongHeadCount.value);
 });
 
-const moduleEmptyState = computed(() => {
-  if (activeMenuKey.value === "shorts") {
-    return {
-      icon: "ri-video-line",
-      title: "暂无短视频",
-      desc: "当前模块暂无可展示内容",
-    };
-  }
-  if (activeMenuKey.value === "home") {
-    return {
-      icon: "ri-film-line",
-      title: "暂无推荐内容",
-      desc: "稍后刷新或切换分类再试",
-    };
-  }
-  return {
-    icon: "ri-inbox-line",
-    title: "暂无数据",
-    desc: "当前模块暂无可展示内容",
-  };
-});
-
 const hoverPreview = useHoverPreviewStore();
 const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
 </script>
@@ -263,14 +241,6 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                 </div>
               </article>
             </section>
-            <section
-              v-if="!loading && !homeLongHeadCards.length && !homeLongTailCards.length && !homeShortsRows.length"
-              class="module-empty"
-            >
-              <div class="module-empty-icon"><i :class="moduleEmptyState.icon"></i></div>
-              <h5>{{ moduleEmptyState.title }}</h5>
-              <p>{{ moduleEmptyState.desc }}</p>
-            </section>
           </section>
 
           <section v-else-if="activeMenuKey !== 'subscribed' && activeMenuKey !== 'chat'" class="card-grid">
@@ -313,11 +283,6 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
               </div>
             </article>
             </template>
-            <div v-if="!loading && !cards.length" class="module-empty module-empty--grid">
-              <div class="module-empty-icon"><i :class="moduleEmptyState.icon"></i></div>
-              <h5>{{ moduleEmptyState.title }}</h5>
-              <p>{{ moduleEmptyState.desc }}</p>
-            </div>
           </section>
 </template>
 
@@ -436,9 +401,5 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
 
 .card-grid--loading-more {
   opacity: 0.96;
-}
-
-.module-empty--grid {
-  grid-column: 1 / -1;
 }
 </style>

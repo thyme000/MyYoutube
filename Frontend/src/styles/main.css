@@ -1122,7 +1122,6 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
-.notify-panel__empty,
 .notify-panel__loading {
   margin: 0;
   padding: var(--space-28) var(--space-16);
@@ -2919,44 +2918,9 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   opacity: 0.85;
 }
 
-.profile-works-empty {
-  margin: var(--space-14) 0 var(--space-4);
-  border-radius: var(--radius-3xl);
-  border: 1px solid var(--slate-200);
-  background: var(--color-bg-surface);
-  color: var(--color-text-secondary);
-  min-height: 240px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-8);
-  box-shadow: 0 8px 22px rgb(var(--slate-900-rgb) / 0.06);
-}
 
-.profile-works-empty-icon {
-  width: 68px;
-  height: 68px;
-  border-radius: var(--radius-4xl);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--gray-100);
-  color: var(--color-text-faint);
-  font-size: var(--font-size-30);
-}
 
-.profile-works-empty h5 {
-  margin: var(--space-6) 0 0;
-  font-size: var(--font-size-24);
-  color: var(--color-text-strong);
-}
 
-.profile-works-empty p {
-  margin: 0;
-  font-size: var(--font-size-18);
-  color: var(--color-text-muted);
-}
 
 .module-empty {
   margin: var(--space-14) 0 var(--space-4);
@@ -3017,37 +2981,10 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 }
 
 .shorts-feed-loading,
-.shorts-feed-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 280px;
-  color: var(--muted);
-  background: var(--panel);
-  border-radius: var(--radius-2xl);
-  border: 1px dashed var(--line);
-}
 
 .content--shorts .shorts-feed-loading,
-.content--shorts .shorts-feed-empty {
-  border-radius: 0;
-  border: none;
-  min-height: calc(100vh - 64px);
-}
 
-.shorts-feed-empty h5 {
-  margin: var(--space-8) 0 0;
-  font-size: var(--font-size-22);
-  color: var(--color-text-strong);
-}
 
-.shorts-feed-empty p {
-  margin: 0;
-  font-size: var(--font-size-15);
-  color: var(--color-text-muted);
-}
 
 .shorts-feed-body {
   flex: 1;

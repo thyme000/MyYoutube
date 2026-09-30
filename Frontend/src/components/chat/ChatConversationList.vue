@@ -251,7 +251,6 @@ async function confirmPicker() {
       <button type="button" class="chat-conv-more" @click="openPicker('single')">创建私聊</button>
       <button type="button" class="chat-conv-more" @click="openPicker('group')">创建群聊</button>
     </div>
-    <p v-if="!sortedItems.length && !loading" class="chat-conv-list__empty">暂无会话</p>
 
     <BaseModal
       :open="pickOpen"
@@ -277,7 +276,6 @@ async function confirmPicker() {
           </div>
           <div class="chat-mutual-pick__list">
             <p v-if="pickLoading" class="chat-mutual-pick__list-hint">加载互关列表…</p>
-            <p v-else-if="!mutualUsers.length" class="chat-mutual-pick__list-hint">暂无互关用户，互关后才可发起聊天</p>
             <template v-else>
               <button
                 v-for="u in mutualUsers"
@@ -469,8 +467,7 @@ async function confirmPicker() {
   color: var(--color-text-strong);
 }
 
-.chat-conv-list__hint,
-.chat-conv-list__empty {
+.chat-conv-list__hint {
   padding: var(--space-24) var(--space-12);
   text-align: center;
   color: var(--color-text-faint);

@@ -309,7 +309,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                     </p>
                     <p class="shorts-feed-topic">{{ searchExpandCard.title }}</p>
                     <p class="shorts-feed-desc">
-                      {{ searchExpandCard.description || "暂无描述" }}
+                      {{ searchExpandCard.description }}
                       <span v-if="parseSearchTagsArray(searchExpandCard).length" class="search-feed-tag-row">
                         <button
                           v-for="tg in parseSearchTagsArray(searchExpandCard)"
@@ -710,9 +710,6 @@ function onShortsPanelCommentUserClick(ev, userId) {
                       </li>
                     </template>
                   </ul>
-                  <p v-if="!shortsPanelCommentsLoading && !shortsPanelTopComments.length" class="video-detail-comments-empty">
-                    暂无评论，来抢沙发吧
-                  </p>
                   <div v-if="shortsPanelCommentHasMore()" class="video-detail-comments-more">
                     <button
                       type="button"
@@ -752,7 +749,6 @@ function onShortsPanelCommentUserClick(ev, userId) {
               <p v-if="!isAuthed" class="follow-sidebar-hint">请先登录</p>
               <template v-else>
                 <p v-if="followingLoading && !followingRows.length" class="follow-sidebar-hint">加载中…</p>
-                <p v-else-if="!followingRows.length" class="follow-sidebar-hint">暂无关注，去发现页关注作者吧</p>
                 <div
                   v-for="(u, uIdx) in followingRows"
                   :key="`follow-side-${uIdx}-${String(u.id)}`"
@@ -900,7 +896,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                       </p>
                       <p class="shorts-feed-topic">{{ shortsFeedTitleText }}</p>
                       <p class="shorts-feed-desc">
-                        {{ shortsFeedDescText || "暂无描述" }}
+                        {{ shortsFeedDescText }}
                         <span v-if="parseSearchTagsArray(shortsFeedCurrent).length" class="search-feed-tag-row search-feed-tag-row--shorts-overlay">
                           <button
                             v-for="tg in parseSearchTagsArray(shortsFeedCurrent)"
@@ -1071,17 +1067,6 @@ function onShortsPanelCommentUserClick(ev, userId) {
               </div>
             </div>
           </template>
-          <div v-else class="shorts-feed-empty">
-            <div class="module-empty-icon"><i class="ri-video-line"></i></div>
-            <h5>{{ activeMenuKey === "subscribed" ? "暂无关注动态" : "暂无短视频" }}</h5>
-            <p>
-              {{
-                activeMenuKey === "subscribed"
-                  ? "关注作者后将在此展示推荐短视频；也可在左侧点选某位作者"
-                  : "当前模块暂无可播放内容"
-              }}
-            </p>
-          </div>
         </section>
         </div>
 

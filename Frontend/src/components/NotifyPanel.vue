@@ -118,7 +118,6 @@ function formatNotifyTime(t) {
           {{ notifyLoading ? "加载中…" : "加载更多" }}
         </button>
       </div>
-      <p v-else-if="!notifyLoading" class="notify-panel__empty">暂无通知</p>
       <p v-else class="notify-panel__loading">加载中…</p>
     </div>
   </div>

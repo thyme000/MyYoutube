@@ -267,7 +267,6 @@ onUnmounted(() => {
                     >{{ lineKaraokeDisplayText(currentLyricLine) }}</span>
                 </span>
               </p>
-              <p v-else class="mp-head-empty">暂无歌词</p>
             </div>
           </div>
         </header>
@@ -499,8 +498,7 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-.mp-head-lyric,
-.mp-head-empty {
+.mp-head-lyric {
   margin: 0;
   font-size: 0.84rem;
   line-height: 1.35;
@@ -512,10 +510,6 @@ onUnmounted(() => {
 .mp-head-lyric {
   color: var(--mp-fg);
   font-weight: 600;
-}
-
-.mp-head-empty {
-  color: var(--mp-muted);
 }
 
 .mp-list-section {

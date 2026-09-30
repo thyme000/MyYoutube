@@ -232,7 +232,6 @@ onBeforeUnmount(() => {
         >
           <p v-if="loading" class="chat-msg-emoji-hint">加载中…</p>
           <p v-else-if="loadError" class="chat-msg-emoji-err">{{ loadError }}</p>
-          <p v-else-if="!items.length" class="chat-msg-emoji-hint">该分类暂无数据</p>
           <div v-else class="chat-msg-emoji-grid">
             <button
               v-for="row in items"

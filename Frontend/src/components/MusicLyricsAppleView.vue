@@ -4,7 +4,6 @@ import { GradFlow } from "gradflow-vue";
 import {
   playQueue,
   currentQueueKey,
-  lyricsLines,
   currentSec,
   durationSec,
   playing,
@@ -113,8 +112,7 @@ watch(lyricsFullscreen, () => {
 
           <template v-if="hubTab === 'queue'">
             <div class="am-queue-body">
-              <p v-if="!playQueue.length" class="am-queue-empty">暂无曲目，请在「搜索」里播放歌曲</p>
-              <ul v-else class="am-queue-list">
+              <ul class="am-queue-list">
                 <li
                   v-for="q in playQueue"
                   :key="q.key"
@@ -277,7 +275,6 @@ watch(lyricsFullscreen, () => {
             class="am-ly-scroll"
             :class="{ 'am-ly-scroll--compact': lyricsFullscreen }"
           >
-            <p v-if="!lyricsLines.length" class="am-ly-empty">暂无歌词</p>
             <div
               v-for="{ line, idx } in lyricsRenderItems"
               :key="idx + '-' + line.timeMs"
@@ -801,14 +798,6 @@ watch(lyricsFullscreen, () => {
   height: 0;
 }
 
-.am-queue-empty {
-  margin: 0;
-  padding: var(--space-20) var(--space-12);
-  text-align: center;
-  font-size: var(--font-size-12);
-  line-height: 1.5;
-  color: rgb(var(--white-rgb) / 0.42);
-}
 
 .am-queue-list {
   list-style: none;
@@ -1642,11 +1631,6 @@ watch(lyricsFullscreen, () => {
   height: 0;
 }
 
-.am-ly-empty {
-  margin: 0;
-  opacity: 0.45;
-  font-size: var(--font-size-15);
-}
 
 .am-line {
   margin: 0 0 clamp(1.25rem, 3vh, 1.75rem);
