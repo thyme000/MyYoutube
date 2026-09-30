@@ -27,14 +27,13 @@ services:
     image: redis:7-alpine
     container_name: myyoutube-redis
     restart: unless-stopped
-    # 启用密码时取消注释
-    # command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-redis123456}"]
+    command: ["redis-server", "--requirepass", "123456"]
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a 123456 ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
