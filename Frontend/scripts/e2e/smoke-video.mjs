@@ -45,7 +45,6 @@ await js(`(async () => {
   };
   set('input[placeholder="User name"]', "test");
   set('input[placeholder="Password"]', "password");
-  set('input[placeholder="Captcha"]', "000000");
   document.querySelector('form.auth-panel button[type="submit"]').click();
   return 'submitted';
 })()`);

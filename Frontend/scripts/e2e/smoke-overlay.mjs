@@ -34,7 +34,6 @@ try {
       const inp = [...document.querySelectorAll('.input-group input')];
       const set = (el, v) => { const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; s.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
       set(inp[0], 'test'); set(inp[1], 'password');
-      const cap = document.querySelector('.captcha-group input'); if (cap) set(cap, '000000');
       document.querySelector('.btn-submit')?.click();
     })()`);
     await waitFor(`!document.querySelector('.auth-panel')`, 15000);

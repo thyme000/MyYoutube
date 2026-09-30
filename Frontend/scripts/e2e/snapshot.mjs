@@ -74,7 +74,7 @@ async function fetchToken(backend, user, pass) {
   const res = await fetch(`${backend}/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: user, password: pass, captcha: "000000" }),
+    body: JSON.stringify({ username: user, password: pass }),
   });
   const body = await res.json();
   if (body.code !== 200 || !body.data) throw new Error(`登录失败: ${JSON.stringify(body)}`);

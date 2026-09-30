@@ -35,7 +35,6 @@ await js(`(async () => {
   const set = (sel, v) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
   set('input[placeholder="User name"]', 'test');
   set('input[placeholder="Password"]', 'password');
-  set('input[placeholder="Captcha"]', '000000');
   document.querySelector('form.auth-panel button[type="submit"]').click();
   return 'submitted';
 })()`);
