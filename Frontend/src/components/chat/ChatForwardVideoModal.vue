@@ -262,25 +262,8 @@ watch(() => props.modelValue,
 
 
 <style scoped>
-/* —— 转发视频到会话 —— */
-.chat-fwd-overlay {
-  z-index: 12060;
-  align-items: flex-start;
-  padding-top: 6vh;
-}
-
-.chat-fwd {
-  width: min(440px, 94vw);
-  max-height: min(88vh, 720px);
-  margin: 0 auto;
-  background: var(--slate-100);
-  border-radius: var(--radius-2xl);
-  box-shadow: var(--shadow-modal);
-  border: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
+/* 卡片与遮罩(.chat-fwd/.chat-fwd-overlay)是 cardClass/overlayClass 传给 BaseModal 渲染的,
+   带不上本组件 scope id, 样式放全局 main.css */
 
 .chat-fwd__head {
   position: relative;
