@@ -1,7 +1,8 @@
 // @ts-check
 /**
- * 通知域：铃铛未读数、通知列表面板与 WebSocket 报文分拣。
- * Toast 卡片渲染在 toastStore / components/ToastStack.vue；WebSocket 连接在 utils/notifyWebSocket.js。
+ * 通知域：铃铛未读数、通知列表面板与推送信号分拣。
+ * 实时推送为「轻量门铃」模式：登录后全局 SSE(utils/notifySse.js) 只发信号，
+ * 收到信号后拉取数据再弹 toast；聊天页实时报文走聊天 WS(utils/chatWebSocket.js)。
  */
 import { defineStore } from "pinia";
 import {
@@ -12,19 +13,10 @@ import {
   NOTIFICATION_TYPE_LABELS,
 } from "../api/notificationApi";
 import { getToken } from "../api/http";
+import { startNotifySse, stopNotifySse } from "../utils/notifySse";
+import { isChatWebSocketOpen, disconnectChatWebSocket } from "../utils/chatWebSocket";
 import {
-  reconnectNotifyWebSocketIfNeeded,
-  startNotifyWebSocket,
-  stopNotifyWebSocket,
-} from "../utils/notifyWebSocket";
-import {
-  pickNotifyWsAvatarUrl,
-  pickNotifyWsContent,
-  pickNotifyWsConversationId,
   pickNotifyWsNickname,
-  pickNotifyWsNotificationId,
-  pickNotifyWsTypeCode,
-  pickNotifyWsVideoId,
   previewChatIncomingWsBody,
 } from "../utils/notifyWs";
 import { parseDigitSnowflakeId } from "../utils/snowflakeId";
@@ -37,6 +29,7 @@ import {
   chatActiveConversationId,
   getChatSelfUserId,
   refreshConversationList,
+  chatConversations,
 } from "./chatStore";
 
 const NOTIFY_PAGE_SIZE = 15;
@@ -82,7 +75,6 @@ export const useNotificationStore = defineStore("notification", {
           }
           this.notifyUnreadCount = c;
           notifyUnreadPollBaseline = c;
-          reconnectNotifyWebSocketIfNeeded();
         } catch {
           /* ignore */
         }
@@ -179,6 +171,93 @@ export const useNotificationStore = defineStore("notification", {
         useToastStore().pushToast(e?.message || "删除失败", "error");
       }
     },
+    /** SSE 门铃信号分拣：通知红点 / 聊天红点(未进聊天页时) */
+    onSseSignal(type) {
+      if (type === "NOTIFY_DIRTY") {
+        void this.onNotifyDirty();
+        return;
+      }
+      if (type === "CHAT_DIRTY") {
+        // 在聊天页时聊天 WS 实时报文已处理增量, 门铃只补「没进聊天页」的红点与 toast
+        if (isChatWebSocketOpen()) return;
+        void this.onChatDoorbell();
+      }
+    },
+    /** 站内通知有更新：未读数涨了才弹 toast（内容从拉到的最新一条取） */
+    async onNotifyDirty() {
+      const prev = notifyUnreadPollBaseline;
+      await this.refreshNotifyUnreadCount();
+      if (prev >= 0 && this.notifyUnreadCount > prev) {
+        const item = await this.fetchNewestNotification();
+        if (item) {
+          if (this.notifyPanelOpen) {
+            void this.loadNotifyListPage(true);
+          }
+          this.pushNotificationLiveToast(item);
+          return;
+        }
+      }
+      if (this.notifyPanelOpen) {
+        void this.loadNotifyListPage(true);
+      }
+    },
+    async fetchNewestNotification() {
+      try {
+        const { list } = await fetchNotificationPage({ pageNo: 1, pageSize: 1 });
+        return list?.[0] || null;
+      } catch {
+        return null;
+      }
+    },
+    /** 与原 WS 通知 toast 同款：毛玻璃卡片，可点进视频 / 会话 */
+    pushNotificationLiveToast(item) {
+      const toastStore = useToastStore();
+      const typeUpper = String(item.type || "").toUpperCase();
+      const label = NOTIFICATION_TYPE_LABELS[typeUpper] || item.typeLabel || typeUpper || "新通知";
+      const nick = item.senderNickname || "";
+      const title = nick ? `${nick} · ${label}` : label;
+      const content = String(item.content || "").trim() || label;
+      const isChatNotice = typeUpper === "CHAT_NOTICE";
+      if (isChatNotice && item.conversationId && String(chatActiveConversationId.value || "") === String(item.conversationId)) {
+        chatActiveConversationId.value = null;
+        void refreshConversationList(true);
+      }
+      toastStore.pushNotifyLiveToast({
+        avatarUrl: item.senderAvatarUrl || "",
+        title,
+        content,
+        videoId: item.videoId != null ? parseDigitSnowflakeId(item.videoId) : null,
+        notificationId: item.id != null ? String(item.id) : null,
+        conversationId: isChatNotice ? null : item.conversationId || null,
+        notifyKind: isChatNotice ? "CHAT_NOTICE" : null,
+      });
+    },
+    /** 未进聊天页时收到新消息：刷会话列表，对比未读数找出「谁来了消息」弹 toast */
+    async onChatDoorbell() {
+      const rowsBefore = chatConversations.value;
+      const hadList = rowsBefore.length > 0;
+      const prevUnread = new Map(
+        rowsBefore.map((r) => [String(r.conversationId), Number(r.unreadCount) || 0])
+      );
+      await refreshConversationList(true);
+      if (!hadList) return;
+      const toastStore = useToastStore();
+      for (const row of chatConversations.value) {
+        const before = prevUnread.get(String(row.conversationId));
+        if (before == null) continue;
+        if ((Number(row.unreadCount) || 0) > before) {
+          const title = `${row.lastMessageSenderNickname || row.conversationName || "新消息"} · 新消息`;
+          toastStore.pushNotifyLiveToast({
+            avatarUrl: row.conversationAvatar || "",
+            title,
+            content: String(row.lastMessageContent || "").slice(0, 80) || "[消息]",
+            videoId: null,
+            notificationId: null,
+            conversationId: String(row.conversationId || "") || null,
+          });
+        }
+      }
+    },
     /** 他人发来新消息且当前未打开该会话时，与评论通知同款的实时毛玻璃 Toast */
     maybePushChatIncomingLiveToast(parsed) {
       const toastStore = useToastStore();
@@ -202,76 +281,30 @@ export const useNotificationStore = defineStore("notification", {
         conversationId: conv,
       });
     },
-    onNotifySocketMessage(data) {
-      const toastStore = useToastStore();
-      const raw = typeof data === "string" ? data : String(data);
-      let parsed = null;
+    /** 聊天页 WS 报文分拣：只承载聊天事件（新消息/撤回/已读/公告/禁言），非聊天报文直接忽略 */
+    onChatSocketMessage(data) {
+      let parsed;
       try {
-        parsed = JSON.parse(raw);
+        parsed = JSON.parse(typeof data === "string" ? data : String(data));
       } catch {
-        /* 非 JSON：走下方 Toast */
+        return;
       }
-      if (parsed && typeof parsed === "object") {
-        const chatKind = tryIngestChatWebSocket(parsed);
-        if (chatKind) {
-          if (chatKind === "send") {
-            this.maybePushChatIncomingLiveToast(parsed);
-          }
-          return;
-        }
-      }
-      void this.refreshNotifyUnreadCount();
-      if (this.notifyPanelOpen) {
-        void this.loadNotifyListPage(true);
-      }
-      try {
-        const o = parsed && typeof parsed === "object" ? parsed : JSON.parse(raw);
-        const nick = pickNotifyWsNickname(o);
-        const typeCode = pickNotifyWsTypeCode(o);
-        const label = NOTIFICATION_TYPE_LABELS[typeCode] || typeCode || "新通知";
-        const title = nick ? `${nick} · ${label}` : label;
-        let content = pickNotifyWsContent(o);
-        if (!String(content || "").trim()) {
-          content = NOTIFICATION_TYPE_LABELS[typeCode] || "";
-        }
-        const avatarUrl = pickNotifyWsAvatarUrl(o);
-        const videoId = pickNotifyWsVideoId(raw, o);
-        const notificationId = pickNotifyWsNotificationId(raw, o);
-        const typeUpper = String(typeCode || "").toUpperCase();
-        const isChatNotice = typeUpper === "CHAT_NOTICE";
-        const conversationId = isChatNotice ? null : pickNotifyWsConversationId(raw, o);
-        toastStore.pushNotifyLiveToast({
-          avatarUrl,
-          title,
-          content,
-          videoId,
-          notificationId,
-          conversationId,
-          notifyKind: isChatNotice ? "CHAT_NOTICE" : null,
-        });
-        if (isChatNotice) {
-          const dissolvedConvId = pickNotifyWsConversationId(raw, o);
-          if (dissolvedConvId && String(chatActiveConversationId.value || "") === String(dissolvedConvId)) {
-            chatActiveConversationId.value = null;
-          }
-          void refreshConversationList(true);
-        }
-      } catch {
-        toastStore.pushToast(raw.slice(0, 120), "info");
+      if (!parsed || typeof parsed !== "object") return;
+      if (tryIngestChatWebSocket(parsed) === "send") {
+        this.maybePushChatIncomingLiveToast(parsed);
       }
     },
-    /** 登录后接通知链路：未读数 → WS → 轮询 */
+    /** 登录后接通知链路：未读数 → SSE 门铃 → 轮询兜底 */
     async startSession() {
       await this.refreshNotifyUnreadCount();
-      startNotifyWebSocket({
-        onMessage: (data) => this.onNotifySocketMessage(data),
-      });
+      startNotifySse({ onSignal: (type) => this.onSseSignal(type) });
       this.startNotifyUnreadPoll();
     },
     /** 登出 / 过期：断链路并清空面板 */
-    stopSession() {
+    async stopSession() {
       this.stopNotifyUnreadPoll();
-      stopNotifyWebSocket();
+      stopNotifySse();
+      disconnectChatWebSocket();
       this.closeNotifyPanel();
       this.notifyUnreadCount = 0;
       this.notifyList = [];

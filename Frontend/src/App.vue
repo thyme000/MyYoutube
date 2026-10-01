@@ -25,7 +25,7 @@ import {
   resolveVideoUrlFromLists,
 } from "./utils/videoCard.js";
 import { getAuthExpiredEventName } from "./api/http";
-import { reconnectNotifyWebSocketIfNeeded } from "./utils/notifyWebSocket";
+import { connectChatWebSocket, disconnectChatWebSocket } from "./utils/chatWebSocket";
 import { useNotificationStore } from "./stores/notificationStore";
 import { useToastStore } from "./stores/toastStore";
 import { loginApi } from "./api/authApi";
@@ -400,8 +400,10 @@ function parseVideoIdForApi(id) {
 
 /** 刷新 / 往返缓存后 DOM 就绪较晚，交给详情 store 多补几轮自动播放 */
 function onWindowPageShow() {
-  if (isAuthed.value) {
-    reconnectNotifyWebSocketIfNeeded();
+  if (isAuthed.value && activeMenuKey.value === "chat") {
+    connectChatWebSocket({
+      onMessage: (data) => notificationStore.onChatSocketMessage(data),
+    });
   }
   if (!showVideoDetail.value || !videoDetail.value?.videoUrl) {
     return;
@@ -1439,10 +1441,19 @@ watch(
   }
 );
 
-/** 离开聊天全屏页后仍保留 chatActiveConversationId 会导致 WS 新消息 Toast 被误判为「正在看该会话」；切走菜单时取消选中 */
+/** 离开聊天全屏页后仍保留 chatActiveConversationId 会导致新消息 Toast 被误判为「正在看该会话」；切走菜单时取消选中 */
 watch(activeMenuKey, (key, prevKey) => {
   if (key !== "chat") {
     chatActiveConversationId.value = null;
+  }
+  // 聊天 WS 挂页面生命周期: 进聊天页才连(实时收消息/撤回/已读), 离开即断;
+  // 未进聊天页时的新消息红点由全局 SSE 门铃(CHAT_DIRTY)兜底
+  if (key === "chat" && isAuthed.value) {
+    connectChatWebSocket({
+      onMessage: (data) => notificationStore.onChatSocketMessage(data),
+    });
+  } else if (prevKey === "chat") {
+    disconnectChatWebSocket();
   }
   const prev = String(prevKey || "");
   const next = String(key || "");
@@ -1458,6 +1469,12 @@ watch(
   async (authed) => {
     if (authed) {
       await notificationStore.startSession();
+      // 登录时已在聊天页则直接挂聊天 WS(离开/登录断开由 stopSession 与菜单 watch 处理)
+      if (activeMenuKey.value === "chat") {
+        connectChatWebSocket({
+          onMessage: (data) => notificationStore.onChatSocketMessage(data),
+        });
+      }
     } else {
       notificationStore.stopSession();
       hideShortsBufferingOverlay();

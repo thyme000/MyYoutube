@@ -1,28 +1,24 @@
 // @ts-check
-import { buildNotifyWebSocketUrl, getValidAccessToken, getToken } from "../api/http";
+/**
+ * 聊天页专用 WebSocket（纯下行, 未来承载"正在输入"等上行状态流）。
+ * 连接生命周期挂在聊天页: 进页 connect、离开 disconnect; 页内断线自动退避重连。
+ * 通知类推送不走这里（全局 SSE 门铃, 见 utils/notifySse.js）。
+ */
+import { buildChatWebSocketUrl, getValidAccessToken, getToken } from "../api/http";
 
 let socket = null;
-/** 用户主动 stop / 登出时为 true */
+/** 离开聊天页 / 登出时为 true */
 let intentionalClose = false;
 let reconnectTimer = null;
 let activeHandlers = null;
 let reconnectAttempt = 0;
-/** 每次 stop 或发起新连接时递增，用于忽略旧 socket 的 close（避免误 scheduleReconnect） */
+/** 每次 disconnect 或发起新连接时递增，用于忽略旧 socket 的 close（避免误 scheduleReconnect） */
 let wsGeneration = 0;
-let healthTimer = null;
-let lifecycleHooked = false;
 
 function clearReconnectTimer() {
   if (reconnectTimer != null) {
     window.clearTimeout(reconnectTimer);
     reconnectTimer = null;
-  }
-}
-
-function stopHealthTimer() {
-  if (healthTimer != null) {
-    window.clearInterval(healthTimer);
-    healthTimer = null;
   }
 }
 
@@ -38,10 +34,10 @@ function scheduleReconnect() {
   clearReconnectTimer();
   if (intentionalClose) return;
   if (!getToken()) return;
-  if (isNotifyWebSocketOpen()) return;
+  if (isChatWebSocketOpen()) return;
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null;
-    if (intentionalClose || !getToken() || isNotifyWebSocketOpen()) return;
+    if (intentionalClose || !getToken() || isChatWebSocketOpen()) return;
     if (!activeHandlers) return;
     connectOnce(activeHandlers);
   }, reconnectDelayMs());
@@ -76,10 +72,10 @@ function connectOnce(handlers) {
     socket = null;
   }
 
-  // access 过期则先续签再连, 保证重连/切回前台时握手 token 可用
+  // access 过期则先续签再连, 保证重连时握手 token 可用
   void getValidAccessToken().then((token) => {
     if (intentionalClose || socket != null || !token) return;
-    openSocket(buildNotifyWebSocketUrl(token), handlers);
+    openSocket(buildChatWebSocketUrl(token), handlers);
   });
   return null;
 }
@@ -99,13 +95,12 @@ function openSocket(url, handlers) {
     return null;
   }
   socket = ws;
-  const { onOpen, onMessage, onError, onClose } = handlers;
+  const { onMessage } = handlers;
 
   ws.addEventListener("open", () => {
     if (gen !== wsGeneration || socket !== ws) return;
     reconnectAttempt = 0;
     clearReconnectTimer();
-    onOpen?.();
   });
 
   ws.addEventListener("message", (ev) => {
@@ -119,15 +114,9 @@ function openSocket(url, handlers) {
     );
   });
 
-  ws.addEventListener("error", () => {
-    if (gen !== wsGeneration || socket !== ws) return;
-    onError?.();
-  });
-
   ws.addEventListener("close", () => {
     if (gen !== wsGeneration) return;
     if (socket === ws) socket = null;
-    onClose?.();
     if (!intentionalClose && getToken()) {
       reconnectAttempt += 1;
       scheduleReconnect();
@@ -137,67 +126,22 @@ function openSocket(url, handlers) {
   return ws;
 }
 
-export function isNotifyWebSocketOpen() {
+export function isChatWebSocketOpen() {
   return socket != null && socket.readyState === WebSocket.OPEN;
 }
 
-function startHealthTimer() {
-  stopHealthTimer();
-  healthTimer = window.setInterval(() => {
-    if (intentionalClose || !getToken() || !activeHandlers) return;
-    if (isNotifyWebSocketOpen()) return;
-    reconnectAttempt = Math.min(reconnectAttempt, 6);
-    clearReconnectTimer();
-    connectOnce(activeHandlers);
-  }, 18000);
-}
-
-function hookReconnectLifecycleOnce() {
-  if (lifecycleHooked || typeof window === "undefined") return;
-  lifecycleHooked = true;
-  const bump = () => {
-    if (intentionalClose || !getToken()) return;
-    if (!activeHandlers) return;
-    if (isNotifyWebSocketOpen()) return;
-    reconnectAttempt = 0;
-    clearReconnectTimer();
-    connectOnce(activeHandlers);
-  };
-  window.addEventListener("online", bump);
-  window.addEventListener("focus", bump);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") bump();
-  });
-}
-
-/**
- * 登录后若发现未连接，可主动拉一把（例如从后台切回前台已由 hook 处理）。
- */
-export function reconnectNotifyWebSocketIfNeeded() {
-  if (intentionalClose || !getToken() || !activeHandlers) return;
-  if (isNotifyWebSocketOpen()) return;
-  clearReconnectTimer();
-  connectOnce(activeHandlers);
-}
-
-/**
- * 使用与 HTTP 相同的登录 token，通过 URL 查询参数 token= 连接。
- * 断线自动重连 + 周期性检查（后端重启、代理超时等）。
- */
-export function startNotifyWebSocket(handlers = {}) {
-  stopNotifyWebSocket();
+/** 进聊天页时调用; 断线自动重连 */
+export function connectChatWebSocket(handlers = {}) {
+  disconnectChatWebSocket();
   intentionalClose = false;
   activeHandlers = handlers;
   reconnectAttempt = 0;
-  hookReconnectLifecycleOnce();
-  const w = connectOnce(handlers);
-  startHealthTimer();
-  return w;
+  connectOnce(handlers);
 }
 
-export function stopNotifyWebSocket() {
+/** 离开聊天页 / 登出时调用 */
+export function disconnectChatWebSocket() {
   intentionalClose = true;
-  stopHealthTimer();
   clearReconnectTimer();
   activeHandlers = null;
   reconnectAttempt = 0;

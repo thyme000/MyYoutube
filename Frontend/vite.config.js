@@ -83,11 +83,16 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
-      // 与后端 NotifyWebSocketHandler：/ws/notify?token=...
+      // 与后端 ChatWebSocketHandler：/ws/chat?token=...（聊天页专用, 通知类走 /sse）
       "/ws": {
         target: "http://localhost:8080",
         changeOrigin: true,
         ws: true,
+      },
+      // SSE 门铃通知: http-proxy 默认流式转发, 无需特殊配置
+      "/sse": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
       },
     },
   },

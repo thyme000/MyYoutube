@@ -43,7 +43,7 @@ const AUTH_EXPIRED_EVENT = "myyoutube:auth-expired";
 /**
  * 与后端约定：
  * - HTTP：请求头 Authorization: Bearer <accessToken>（后端签发的 JWT）。
- * - WebSocket /ws/notify：查询串 token= 直接传裸 accessToken，不加 Bearer，见 buildNotifyWebSocketUrl。
+ * - 长连接（SSE /sse/notify、聊天 WS /ws/chat）：查询串 token= 直接传裸 accessToken，不加 Bearer。
  */
 /** @param {any} raw @returns {string} */
 export function normalizeAuthToken(raw) {
@@ -334,15 +334,25 @@ export function setToken(token) {
 }
 
 /**
- * 通知 WebSocket；query 传裸 accessToken（无 Bearer 前缀）。
+ * SSE 门铃通知；query 传裸 accessToken（无 Bearer 前缀）。
+ * 生产环境 Nginx 需将 `/sse/` 反代到后端并关闭缓冲（proxy_buffering off）。
+ */
+/** @param {string} [token] @returns {string} */
+export function buildNotifySseUrl(token = getToken()) {
+  if (!token) return "";
+  return `${window.location.protocol}//${window.location.host}/sse/notify?token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * 聊天页专用 WebSocket（/ws/chat）；query 传裸 accessToken。
  * 生产环境 Nginx 需将 `/ws/` 反代到后端并配置 `Upgrade` / `Connection`（与 Vite 里 `/ws` 代理一致）。
  */
 /** @param {string} [token] @returns {string} */
-export function buildNotifyWebSocketUrl(token = getToken()) {
+export function buildChatWebSocketUrl(token = getToken()) {
   if (!token) return "";
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
-  return `${proto}//${host}/ws/notify?token=${encodeURIComponent(token)}`;
+  return `${proto}//${host}/ws/chat?token=${encodeURIComponent(token)}`;
 }
 
 export function clearToken() {
