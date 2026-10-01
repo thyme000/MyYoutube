@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
-import { clearToken, getApiBaseUrl, getToken, setToken } from "./api/http.js";
-import { getLoginCaptcha, login } from "./api/authApi.js";
+import { clearToken, getApiBaseUrl, getAuthExpiredEventName, getToken, setRefreshToken, setToken } from "./api/http.js";
+import { login } from "./api/authApi.js";
 import {
   blockComment,
   ignoreReportComment,
@@ -19,8 +19,6 @@ const authed = computed(() => Boolean(token.value));
 const loginMode = ref("token");
 const username = ref("");
 const password = ref("");
-const captcha = ref("");
-const captchaText = ref("");
 const loginBusy = ref(false);
 const loginErr = ref("");
 
@@ -98,7 +96,6 @@ function onLogout() {
   clearToken();
   token.value = "";
   loginErr.value = "";
-  captchaText.value = "";
   rows.value = [];
   reportRows.value = [];
   blockedRows.value = [];
@@ -107,49 +104,33 @@ function onLogout() {
   videoPreviewUrl.value = "";
 }
 
-async function onCaptcha() {
-  loginErr.value = "";
-  captchaText.value = "";
-  const u = username.value.trim();
-  if (!u) {
-    loginErr.value = "请输入用户名";
-    return;
-  }
-  try {
-    const code = await getLoginCaptcha(u);
-    captchaText.value = String(code || "");
-  } catch (e) {
-    loginErr.value = e?.message || "获取验证码失败";
-  }
-}
-
 async function onLogin() {
   loginErr.value = "";
-  captchaText.value = "";
   if (loginMode.value === "token") {
     const t = token.value.trim();
     if (!t) {
       loginErr.value = "请输入 token";
       return;
     }
+    // 手动粘贴的 access token 无 refresh token, 过期后需重新登录
     setToken(t);
+    setRefreshToken("");
     token.value = getToken();
     return;
   }
   const u = username.value.trim();
   const p = password.value;
-  const c = captcha.value.trim();
-  if (!u || !p || !c) {
-    loginErr.value = "用户名/密码/验证码不能为空";
+  if (!u || !p) {
+    loginErr.value = "用户名/密码不能为空";
     return;
   }
   if (loginBusy.value) return;
   loginBusy.value = true;
   try {
-    const t = await login({ username: u, password: p, captcha: c });
-    setToken(t);
+    const data = await login({ username: u, password: p });
+    setToken(data.accessToken);
+    setRefreshToken(data.refreshToken);
     token.value = getToken();
-    captcha.value = "";
   } catch (e) {
     loginErr.value = e?.message || "登录失败";
   } finally {
@@ -438,6 +419,8 @@ watch(
 );
 
 onMounted(() => {
+  // 续签失败(登出/过期)时回到登录页
+  window.addEventListener(getAuthExpiredEventName(), onLogout);
   if (!authed.value) return;
   if (activeTab.value === "videos") void loadVideos(true);
   if (activeTab.value === "reports") void loadReports(true);
@@ -489,19 +472,13 @@ onMounted(() => {
             <label>密码</label>
             <input v-model="password" class="input" type="password" autocomplete="current-password" />
           </div>
-          <div class="field">
-            <label>验证码</label>
-            <input v-model="captcha" class="input" placeholder="输入验证码" />
-          </div>
           <div class="row" style="align-items: flex-end">
-            <button type="button" class="btn" :disabled="loginBusy" @click="onCaptcha">获取验证码</button>
             <button type="button" class="btn btn--primary" :disabled="loginBusy" @click="onLogin">
               {{ loginBusy ? "登录中…" : "登录" }}
             </button>
           </div>
         </div>
 
-        <p v-if="captchaText" class="hint">验证码：{{ captchaText }}</p>
         <p v-if="loginErr" class="err">{{ loginErr }}</p>
       </div>
 
