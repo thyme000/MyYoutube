@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
 import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
+import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
@@ -26,6 +27,7 @@ public class LikeCommentListener implements RocketMQListener<LikeCommentMessage>
 
     private final IVideoCommentService videoCommentService;
     private final IUserNotificationService userNotificationService;
+    private final PushFanoutPublisher pushFanoutPublisher;
 
     /**
      * 推送点赞评论通知
@@ -50,5 +52,7 @@ public class LikeCommentListener implements RocketMQListener<LikeCommentMessage>
         userNotification.setReceiverId(likedUserId);
         userNotification.setRefId(lc.getCommentId());
         userNotificationService.save(userNotification);
+        // 通知已落库, 实时侧只发门铃信号, 前端拉取后弹 toast
+        pushFanoutPublisher.pushSseSignal(likedUserId, "NOTIFY_DIRTY");
     }
 }

@@ -9,7 +9,7 @@ import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForWithdrawMessageVO;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
-import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
+import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
@@ -38,7 +38,7 @@ import java.util.Optional;
 public class ChatMessageListener implements RocketMQListener<ChatMessageMessage> {
 
     private final UserPort userPort;
-    private final NotifyWebSocketHandler notifyWebSocketHandler;
+    private final PushFanoutPublisher pushFanoutPublisher;
     private final ChatConversationService chatConversationService;
     private final S3StorageUtil storageUtil;
     private final MongoTemplate mongoTemplate;
@@ -75,7 +75,9 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
                         // 开启免打扰 -> 不通知
                         continue;
                     }
-                    notifyWebSocketHandler.sendToUser(memberId, jsonVO);
+                    pushFanoutPublisher.pushWs(memberId, jsonVO);
+                    // 未在聊天页的用户靠 SSE 门铃刷新红点
+                    pushFanoutPublisher.pushSseSignal(memberId, "CHAT_DIRTY");
                 }
             } else if (chatMessageMessage.getEvent().equals(ChatEventType.WITHDRAW.getCode())){
                 // 撤销消息事件
@@ -91,7 +93,7 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
                         // 开启免打扰 -> 不通知
                         continue;
                     }
-                    notifyWebSocketHandler.sendToUser(memberId, jsonVO);
+                    pushFanoutPublisher.pushWs(memberId, jsonVO);
                 }
             }
         } else {
@@ -115,12 +117,14 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
                 // 获取发送人头像url
                 NotificationForSendMessageVO json = getNotificationForSendVO(chatMessageMessage, user, conversation);
                 json.setAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), 300));
-                notifyWebSocketHandler.sendToUser(receiverId, new GsonBuilder().create().toJson(json));
+                pushFanoutPublisher.pushWs(receiverId, new GsonBuilder().create().toJson(json));
+                // 未在聊天页的用户靠 SSE 门铃刷新红点
+                pushFanoutPublisher.pushSseSignal(receiverId, "CHAT_DIRTY");
             } else if (chatMessageMessage.getEvent().equals(ChatEventType.WITHDRAW.getCode())){
                 // 撤回消息事件
                 NotificationForWithdrawMessageVO json = getNotificationForWithdrawVO(chatMessageMessage, user, conversation);
                 json.setAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), 300));
-                notifyWebSocketHandler.sendToUser(receiverId, new GsonBuilder().create().toJson(json));
+                pushFanoutPublisher.pushWs(receiverId, new GsonBuilder().create().toJson(json));
             }
         }
         // 更新用户会话状态最后同步时间

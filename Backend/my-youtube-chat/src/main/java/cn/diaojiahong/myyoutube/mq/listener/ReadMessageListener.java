@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
+import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForReadMessageVO;
 import com.google.gson.GsonBuilder;
@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
         maxReconsumeTimes = 3)
 public class ReadMessageListener implements RocketMQListener<ReadMessageMessage> {
 
-    private final NotifyWebSocketHandler notifyWebSocketHandler;
+    private final PushFanoutPublisher pushFanoutPublisher;
 
     /**
      * 通知对方,自己最后已读的序列
@@ -30,6 +30,6 @@ public class ReadMessageListener implements RocketMQListener<ReadMessageMessage>
         NotificationForReadMessageVO json = new NotificationForReadMessageVO();
         json.setConversationId(readMessageMessage.getConversationId());
         json.setLastReadSequence(readMessageMessage.getLastReadSeq());
-        notifyWebSocketHandler.sendToUser(Long.parseLong(readMessageMessage.getReceiverId()), new GsonBuilder().create().toJson(json));
+        pushFanoutPublisher.pushWs(Long.parseLong(readMessageMessage.getReceiverId()), new GsonBuilder().create().toJson(json));
     }
 }

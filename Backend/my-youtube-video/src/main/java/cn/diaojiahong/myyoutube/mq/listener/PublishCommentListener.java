@@ -1,17 +1,12 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
-import cn.diaojiahong.myyoutube.chat.api.WsPushPort;
+import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.RefTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
-import cn.diaojiahong.myyoutube.notification.domain.vo.NotificationForJson;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
-import cn.diaojiahong.myyoutube.user.api.UserPort;
-import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import com.google.gson.GsonBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -30,9 +25,7 @@ import org.springframework.stereotype.Component;
 public class PublishCommentListener implements RocketMQListener<CommentMessage> {
 
     private final IUserNotificationService userNotificationService;
-    private final UserPort userPort;
-    private final S3StorageUtil storageUtil;
-    private final WsPushPort wsPushPort;
+    private final PushFanoutPublisher pushFanoutPublisher;
 
     @Override
     public void onMessage(CommentMessage message) {
@@ -41,26 +34,8 @@ public class PublishCommentListener implements RocketMQListener<CommentMessage> 
         UserNotification userNotification = getUserNotification(message);
         userNotificationService.save(userNotification);
 
-        // 实时推送：视频评论与回复评论均推 WebSocket，前端 Toast 依赖此消息
-        UserSummary user = userPort.getUser(message.getSenderId());
-        if (user == null) {
-            return;
-        }
-        NotificationForJson json = new NotificationForJson();
-        json.setId(userNotification.getId());
-        json.setSenderNickname(user.getNickname());
-        json.setSenderAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), 300));
-        json.setContent(message.getContent());
-        if (Boolean.TRUE.equals(message.getIsVideoComment())) {
-            json.setType(NotificationTypeEnum.VIDEO_COMMENT.getCode());
-            json.setRefId(message.getVideoId());
-            json.setVideoId(message.getVideoId());
-        } else {
-            json.setType(NotificationTypeEnum.COMMENT_REPLY.getCode());
-            json.setRefId(message.getCommentId());
-            json.setVideoId(message.getVideoId());
-        }
-        wsPushPort.sendToUser(message.getReceiverId(), new GsonBuilder().create().toJson(json));
+        // 通知已落库, 实时侧只发门铃信号, 前端拉取后弹 toast
+        pushFanoutPublisher.pushSseSignal(message.getReceiverId(), "NOTIFY_DIRTY");
     }
 
     private static @NonNull UserNotification getUserNotification(CommentMessage message) {

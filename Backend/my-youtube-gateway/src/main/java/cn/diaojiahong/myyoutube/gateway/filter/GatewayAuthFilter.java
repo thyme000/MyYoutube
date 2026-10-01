@@ -35,6 +35,9 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
     private static final List<String> WHITELIST = List.of(
             "/login", "/register", "/forget-password", "/refresh", "/logout");
 
+    /** 长连接(聊天 WS / SSE 门铃)握手带不了自定义 header, 走 query token 由下游 ConnectionAuth 自行验签 */
+    private static final List<String> SELF_AUTH_PREFIXES = List.of("/ws/", "/sse/");
+
     private final ReactiveStringRedisTemplate redisTemplate;
 
     public GatewayAuthFilter(ReactiveStringRedisTemplate redisTemplate,
@@ -47,6 +50,9 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
         if (WHITELIST.stream().anyMatch(path::equals)) {
+            return chain.filter(exchange);
+        }
+        if (SELF_AUTH_PREFIXES.stream().anyMatch(path::startsWith)) {
             return chain.filter(exchange);
         }
 

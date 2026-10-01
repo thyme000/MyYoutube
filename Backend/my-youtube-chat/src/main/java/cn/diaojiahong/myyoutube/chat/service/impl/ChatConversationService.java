@@ -9,7 +9,7 @@ import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationMembersVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.handler.NotifyWebSocketHandler;
+import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -42,20 +42,20 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final RocketMQTemplate rocketMQTemplate;
-    private final NotifyWebSocketHandler notifyWebSocketHandler;
+    private final PushFanoutPublisher pushFanoutPublisher;
 
     public ChatConversationService(MongoTemplate mongoTemplate,
                                    FollowPort followPort,
                                    UserPort userPort,
                                    S3StorageUtil storageUtil,
                                    RocketMQTemplate rocketMQTemplate,
-                                   NotifyWebSocketHandler notifyWebSocketHandler) {
+                                   PushFanoutPublisher pushFanoutPublisher) {
         super(mongoTemplate, ChatConversationDoc.class);
         this.followPort = followPort;
         this.userPort = userPort;
         this.storageUtil = storageUtil;
         this.rocketMQTemplate = rocketMQTemplate;
-        this.notifyWebSocketHandler = notifyWebSocketHandler;
+        this.pushFanoutPublisher = pushFanoutPublisher;
     }
 
     @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
@@ -214,7 +214,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         if (memberIds != null) {
             for (Long memberId : memberIds) {
                 if (memberId != null && !memberId.equals(userId)) {
-                    notifyWebSocketHandler.sendToUser(memberId, json);
+                    pushFanoutPublisher.pushWs(memberId, json);
                 }
             }
         }
@@ -358,7 +358,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         data.put("conversationId", conversationId);
         String json = new GsonBuilder().create().toJson(data);
         for (Long memberId : memberIds) {
-            notifyWebSocketHandler.sendToUser(memberId, json);
+            pushFanoutPublisher.pushWs(memberId, json);
         }
         return Result.success(null);
     }
@@ -400,7 +400,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         data.put("type", "member");
         data.put("conversationId", conversationId);
         String json = new GsonBuilder().create().toJson(data);
-        notifyWebSocketHandler.sendToUser(userId, json);
+        pushFanoutPublisher.pushWs(userId, json);
         return Result.success(null);
     }
 }
