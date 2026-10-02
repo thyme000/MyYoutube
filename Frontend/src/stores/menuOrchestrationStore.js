@@ -8,7 +8,6 @@
  */
 import { defineStore } from "pinia";
 import { nextTick } from "vue";
-import { fetchVideosByModule } from "../api/videoApi";
 import { fetchContentList, fetchContentFeed } from "../api/contentApi";
 import { VIDEO_CATEGORY_CHIPS } from "../constants/videoCategories";
 import { menuPathFor, router } from "../router";
@@ -65,9 +64,9 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
         home.cards = longRes.list.length ? longRes.list : [];
         home.homeLongPageNo = 1;
         home.homeLongPages = longRes.pages ?? 0;
-        home.homeShortsRows = shortRes.list.length ? shortRes.list : [];
-        home.homeShortsPageNo = 1;
-        home.homeShortsPages = shortRes.pages ?? 0;
+        home.immersiveRows = shortRes.list.length ? shortRes.list : [];
+        home.immersivePageNo = 1;
+        home.immersivePages = shortRes.pages ?? 0;
         const sortLabel = homeSortOptions.find((x) => x.value === home.homeSortKey)?.label || "排序";
         navigation.pageHint = `首页 · 内容池混排(/contents/list) + 连播(/videos/shorts/feed) · ${chip?.label ?? "全部"} · ${sortLabel}`;
         nextTick(() => {
@@ -84,9 +83,9 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
         return;
       }
       if (menu.key === "liked") {
-        home.homeShortsRows = [];
-        home.homeShortsPageNo = 1;
-        home.homeShortsPages = 0;
+        home.immersiveRows = [];
+        home.immersivePageNo = 1;
+        home.immersivePages = 0;
         home.homeLongPageNo = 1;
         home.homeLongPages = 0;
         home.cards = [];
@@ -103,9 +102,9 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
         return;
       }
       if (menu.key === "subscribed") {
-        home.homeShortsRows = [];
-        home.homeShortsPageNo = 1;
-        home.homeShortsPages = 0;
+        home.immersiveRows = [];
+        home.immersivePageNo = 1;
+        home.immersivePages = 0;
         home.homeLongPageNo = 1;
         home.homeLongPages = 0;
         shorts.followSubscribedFilterAuthorId = null;
@@ -131,9 +130,9 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
       if (menu.key === "music") {
         home.loading = false;
         home.cards = [];
-        home.homeShortsRows = [];
-        home.homeShortsPageNo = 1;
-        home.homeShortsPages = 0;
+        home.immersiveRows = [];
+        home.immersivePageNo = 1;
+        home.immersivePages = 0;
         home.homeLongPageNo = 1;
         home.homeLongPages = 0;
         navigation.pageHint = "音乐 · 本地播放与全屏歌词（前端演示）";
@@ -142,25 +141,25 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
       if (menu.key === "chat") {
         home.loading = false;
         home.cards = [];
-        home.homeShortsRows = [];
-        home.homeShortsPageNo = 1;
-        home.homeShortsPages = 0;
+        home.immersiveRows = [];
+        home.immersivePageNo = 1;
+        home.immersivePages = 0;
         home.homeLongPageNo = 1;
         home.homeLongPages = 0;
         navigation.pageHint = "聊天 · 会话与消息（对接后端 /chat/*）";
         return;
       }
-      home.homeShortsRows = [];
-      home.homeShortsPageNo = 1;
-      home.homeShortsPages = 0;
-      home.homeLongPageNo = 1;
-      home.homeLongPages = 0;
-      const list =
-        menu.key === "shorts"
-          ? (await fetchContentFeed({ pageNo: 1, pageSize: 24 })).list
-          : await fetchVideosByModule(menu.key);
-      home.cards = list.length ? list : [];
-      navigation.pageHint = `你正在查看「${menu.label}」模块。当前数据来源：Spring Boot 接口。`;
+      if (menu.key === "immersive") {
+        // 首页沉浸横条已经装过同一份 /contents/feed 就直接复用，避免同一队列请求两次
+        if (!home.immersiveRows.length) {
+          const res = await fetchContentFeed({ pageNo: 1, pageSize: 18 });
+          home.immersiveRows = Array.isArray(res.list) ? res.list : [];
+          home.immersivePageNo = 1;
+          home.immersivePages = res.pages ?? 0;
+        }
+        navigation.pageHint = "沉浸 · 视频与动态同一队列（GET /contents/feed）";
+        return;
+      }
     } catch (error) {
       if (!fallback) {
         throw error;
@@ -169,9 +168,9 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
         home.cards = [];
         home.homeLongPageNo = 1;
         home.homeLongPages = 0;
-        home.homeShortsRows = [];
-        home.homeShortsPageNo = 1;
-        home.homeShortsPages = 0;
+        home.immersiveRows = [];
+        home.immersivePageNo = 1;
+        home.immersivePages = 0;
         home.saveSnapshot();
       } else {
         if (menu.key === "history") {
@@ -189,12 +188,11 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
           shorts.followFeedQueue = [];
           shorts.followAuthorFeedQueue = [];
           home.cards = [];
-        } else {
-          home.cards = [];
+        } else if (menu.key === "immersive") {
+          home.immersiveRows = [];
+          home.immersivePageNo = 1;
+          home.immersivePages = 0;
         }
-        home.homeShortsRows = [];
-        home.homeShortsPageNo = 1;
-        home.homeShortsPages = 0;
       }
       navigation.pageHint = `接口暂不可用，当前显示为空数据。错误信息：${error.message}`;
     } finally {
@@ -215,11 +213,11 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
     hooks.teardownSearchVideoObserver();
     const prevMenuKey = navigation.activeMenuKey;
     const prevShowProfile = profile.open;
-    const switchingShortsTabs =
+    const switchingImmersiveTabs =
       prevMenuKey !== menu.key &&
-      (prevMenuKey === "shorts" || prevMenuKey === "subscribed") &&
-      (menu.key === "shorts" || menu.key === "subscribed");
-    if (switchingShortsTabs) {
+      (prevMenuKey === "immersive" || prevMenuKey === "subscribed") &&
+      (menu.key === "immersive" || menu.key === "subscribed");
+    if (switchingImmersiveTabs) {
       shorts.bumpPlayToken();
       shorts.pauseShortsFeedVideos({ muteForeground: true });
       shorts.shortsFeedPaused = true;
@@ -242,9 +240,9 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
     if (router.currentRoute.value.path !== targetPath) {
       void router.push(targetPath);
     }
-    if (menu.key === "shorts") {
+    if (menu.key === "immersive") {
       shorts.bumpPlayToken();
-      shorts.feedScope = "shorts";
+      shorts.feedScope = "immersive";
       shorts.shortsFeedIndex = 0;
       shorts.shortsFeedAutoplayPending = true;
     }
@@ -295,7 +293,7 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
     if (seq !== activeMenuSwitchSeq) {
       return;
     }
-    if (menu.key === "shorts" || menu.key === "subscribed") {
+    if (menu.key === "immersive" || menu.key === "subscribed") {
       nextTick(() => {
         if (seq !== activeMenuSwitchSeq) return;
         if (navigation.activeMenuKey !== menu.key) return;

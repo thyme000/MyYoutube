@@ -25,18 +25,6 @@ export async function fetchDynamicDetail(dynamicId) {
 }
 
 /**
- * 动态信息流(时间倒序)
- * @param {{ pageNo?: number, pageSize?: number }} [query]
- * @returns {Promise<{ total: number, pages: number, list: DynamicVO[] }>}
- */
-export async function fetchDynamicFeed(query = {}) {
-  return httpRequest("/dynamics/feed", {
-    method: "GET",
-    query: { pageNo: query.pageNo ?? 1, pageSize: query.pageSize ?? 10 },
-  });
-}
-
-/**
  * 请求下载成片: 懒触发 ffmpeg 转码, 缓存命中直接返回下载地址
  * @param {string} dynamicId
  * @returns {Promise<{ taskId: string, status: string, downloadUrl: string|null }>}

@@ -45,11 +45,13 @@ import {
 } from "../api/videoApi.js";
 import { followAuthor, unfollowAuthor } from "../api/followApi.js";
 import { toast as pushToast } from "../utils/toast.js";
+import { downloadRemoteFile, videoDownloadName } from "../utils/downloadFile.js";
 import { useAuthStore } from "./authStore.js";
 import { useBehaviorStore } from "./behaviorStore.js";
 import { useCommentPanelStore } from "./commentPanelStore.js";
 import { useCommentStore } from "./commentStore.js";
 import { useDetailStore } from "./detailStore.js";
+import { useDynamicStore } from "./dynamicStore.js";
 import { useFollowStore } from "./followStore.js";
 import { fetchDynamicDetail } from "../api/dynamicApi";
 import { useHomeStore } from "./homeStore.js";
@@ -68,13 +70,19 @@ const FOLLOW_FEED_PAGE_SIZE = 12;
 /** 距队列末尾还剩这么少条时预取下一页 */
 const FOLLOW_FEED_PREFETCH_THRESHOLD = 3;
 
-const playerRefs = { fg: null, bg: null, center: null };
+/**
+ * 宿主注册的播放器句柄（App 内单例，模块级持有不入 store）。
+ * dynamic 是受控 DynamicPlayer 的组件实例（含 seek/togglePlay），
+ * 与 fg/bg 两个 <video> 互为「当前条」的两种实现 —— 命令入口按内容类型二选一。
+ */
+const playerRefs = { fg: null, bg: null, center: null, dynamic: null };
 
-/** 宿主注册全屏播放器 DOM ref（app 内单例，模块级持有不入 store） */
-export function registerShortsFeedPlayerRefs({ fg, bg, center }) {
+/** 宿主注册全屏播放器 ref（app 内单例，模块级持有不入 store） */
+export function registerShortsFeedPlayerRefs({ fg, bg, center, dynamic }) {
   if (fg) playerRefs.fg = fg;
   if (bg) playerRefs.bg = bg;
   if (center) playerRefs.center = center;
+  if (dynamic) playerRefs.dynamic = dynamic;
 }
 
 let bufferingUITimer = null;
@@ -124,8 +132,8 @@ export function registerShortsHooks(next = {}) {
 
 export const useShortsStore = defineStore("shorts", {
   state: () => ({
-    /** 全屏竖屏流数据源：shorts / follow / profile（历史、赞过、他人主页共用播放器） */
-    feedScope: "shorts",
+    /** 全屏流数据源：immersive(沉浸菜单/首页横条) / follow / profile / liked */
+    feedScope: "immersive",
     profileFeedQueue: [],
     likedFeedQueue: [],
     followFeedQueue: [],
@@ -187,7 +195,9 @@ export const useShortsStore = defineStore("shorts", {
 
   getters: {
     /**
-     * 全屏流当前队列：feedScope 决定数据源，首页/默认流读 homeStore
+     * 全屏流当前队列：feedScope 决定数据源。
+     * immersive 是首页沉浸横条与「沉浸」菜单共用的那一份（homeStore.immersiveRows），
+     * 其余 scope 各持自己的队列（赞过 / 个人主页 / 关注）。
      * @returns {any[]}
      */
     unifiedFeedList: (s) => {
@@ -198,9 +208,7 @@ export const useShortsStore = defineStore("shorts", {
         if (aid != null && aid !== "") return s.followAuthorFeedQueue;
         return s.followFeedQueue;
       }
-      const home = useHomeStore();
-      if (s.feedScope === "home") return home.homeShortsRows;
-      return home.cards;
+      return useHomeStore().immersiveRows;
     },
     /** @returns {any} */
     shortsFeedCurrent() {
@@ -581,6 +589,46 @@ export const useShortsStore = defineStore("shorts", {
       this.shortsFeedPaused = v.paused;
     },
 
+    /**
+     * 播放时长累计 + PLAY 行为上报（<video> timeupdate 与动态进度回报共用）。
+     * 只按相邻两次回报的增量累加，拖拽/切条造成的跳变不计入。
+     * @param {any} cur 当前条
+     * @param {number} current 当前秒
+     * @param {number} duration 总秒
+     * @param {boolean} isPlaying 当前是否在播（长视频续播节流用）
+     */
+    accShortsFeedPlayback(cur, current, duration, isPlaying) {
+      if (!cur?.id || !Number.isFinite(duration) || duration <= 0) {
+        return;
+      }
+      const behavior = useBehaviorStore();
+      const idKey = String(cur.id);
+      if (this.shortsAccVideoId !== idKey) {
+        this.shortsAccVideoId = idKey;
+        this.shortsPlaybackAccSec = 0;
+        this.shortsLastTimeSec = null;
+      }
+      const prev = this.shortsLastTimeSec;
+      this.shortsLastTimeSec = current;
+      if (prev != null) {
+        const delta = current - prev;
+        if (delta > 0 && delta <= BEHAVIOR_MAX_PLAY_DELTA_SEC) {
+          this.shortsPlaybackAccSec += delta;
+        }
+      }
+      if (this.shortsPlaybackAccSec >= duration * BEHAVIOR_PLAY_THRESHOLD && !behavior.hasPlayReported(cur.id)) {
+        behavior.markPlayReported(cur.id);
+        void behavior.report(cur.id, "PLAY", current * 1000);
+      }
+      if (isPlaying && this.isLongShortsFeedVideo(cur)) {
+        longResumeTickCount += 1;
+        if (longResumeTickCount >= 30) {
+          longResumeTickCount = 0;
+          void this.flushShortsLongPlaybackResume("tick");
+        }
+      }
+    },
+
     onShortsFeedFgTimeUpdate(e) {
       if (!hooks.isShortsMenuActive() && !this.profileFeedOpen) {
         return;
@@ -598,37 +646,12 @@ export const useShortsStore = defineStore("shorts", {
         ct = Math.min(ct, dur);
       }
       this.shortsFeedCurrentTime = ct;
-      const cur = this.shortsFeedCurrent;
-      const duration = dur > 0 ? dur : Number(fg.duration);
-      const current = ct;
-      if (cur?.id && Number.isFinite(duration) && duration > 0) {
-        const behavior = useBehaviorStore();
-        const idKey = String(cur.id);
-        if (this.shortsAccVideoId !== idKey) {
-          this.shortsAccVideoId = idKey;
-          this.shortsPlaybackAccSec = 0;
-          this.shortsLastTimeSec = null;
-        }
-        const prev = this.shortsLastTimeSec;
-        this.shortsLastTimeSec = current;
-        if (prev != null) {
-          const delta = current - prev;
-          if (delta > 0 && delta <= BEHAVIOR_MAX_PLAY_DELTA_SEC) {
-            this.shortsPlaybackAccSec += delta;
-          }
-        }
-        if (this.shortsPlaybackAccSec >= duration * BEHAVIOR_PLAY_THRESHOLD && !behavior.hasPlayReported(cur.id)) {
-          behavior.markPlayReported(cur.id);
-          void behavior.report(cur.id, "PLAY", current * 1000);
-        }
-        if (this.isLongShortsFeedVideo(cur) && !fg.paused) {
-          longResumeTickCount += 1;
-          if (longResumeTickCount >= 30) {
-            longResumeTickCount = 0;
-            void this.flushShortsLongPlaybackResume("tick");
-          }
-        }
-      }
+      this.accShortsFeedPlayback(
+        this.shortsFeedCurrent,
+        ct,
+        dur > 0 ? dur : Number(fg.duration),
+        !fg.paused
+      );
       const bg = playerRefs.bg?.value;
       if (!bg || !fg) {
         return;
@@ -636,6 +659,40 @@ export const useShortsStore = defineStore("shorts", {
       if (Math.abs(bg.currentTime - fg.currentTime) > 0.2) {
         bg.currentTime = fg.currentTime;
       }
+    },
+
+    /**
+     * 受控 DynamicPlayer 就绪：写时长与画布朝向，并消费自动播放待办。
+     * 与 <video> 的 loadedmetadata 对位 —— 切条后由这里决定要不要播。
+     * @param {number} durationSec
+     * @param {string} canvasType
+     */
+    onShortsFeedDynamicReady(durationSec, canvasType) {
+      this.shortsFeedDuration = Number(durationSec) || 0;
+      this.shortsFeedCurrentTime = 0;
+      this.shortsFeedIsPortrait = String(canvasType ?? "") !== "horizontal";
+      if (!this.shortsFeedAutoplayPending) {
+        return;
+      }
+      if (!hooks.isShortsMenuActive() && !this.profileFeedOpen) {
+        return;
+      }
+      this.shortsFeedAutoplayPending = false;
+      this.shortsFeedPaused = false;
+    },
+
+    /** 受控 DynamicPlayer 的进度回报：与视频 timeupdate 同一套累计口径 */
+    onShortsFeedDynamicTimeUpdate(sec) {
+      if (!hooks.isShortsMenuActive() && !this.profileFeedOpen) {
+        return;
+      }
+      const total = Number(this.shortsFeedDuration || 0);
+      let t = Number(sec) || 0;
+      if (total > 0) {
+        t = Math.min(t, total);
+      }
+      this.shortsFeedCurrentTime = t;
+      this.accShortsFeedPlayback(this.shortsFeedCurrent, t, total, !this.shortsFeedPaused);
     },
 
     onShortsFeedFgPlay() {
@@ -740,6 +797,12 @@ export const useShortsStore = defineStore("shorts", {
     },
 
     onShortsScrubInput(e) {
+      const t = Number(e.target.value);
+      if (this.shortsFeedIsDynamic) {
+        playerRefs.dynamic?.value?.seek(t);
+        this.shortsFeedCurrentTime = Math.max(0, t);
+        return;
+      }
       const v = playerRefs.fg?.value;
       if (!v) {
         return;
@@ -748,33 +811,46 @@ export const useShortsStore = defineStore("shorts", {
       if (!(dur > 0)) {
         return;
       }
-      const t = Math.min(Math.max(0, Number(e.target.value)), dur);
-      v.currentTime = t;
-      this.shortsFeedCurrentTime = t;
+      const clamped = Math.min(Math.max(0, t), dur);
+      v.currentTime = clamped;
+      this.shortsFeedCurrentTime = clamped;
     },
 
     onShortsVolumeInput(e) {
+      const vol = Number(e.target.value);
+      this.shortsFeedVolume = vol;
+      this.shortsFeedMuted = vol === 0;
+      if (this.shortsFeedIsDynamic) {
+        playerRefs.dynamic?.value?.setVolume(vol);
+        return;
+      }
       const v = playerRefs.fg?.value;
       if (!v) {
         return;
       }
-      const vol = Number(e.target.value);
       v.volume = vol;
       v.muted = vol === 0;
-      this.shortsFeedVolume = vol;
-      this.shortsFeedMuted = v.muted;
     },
 
     shortsToggleMute() {
+      const next = !this.shortsFeedMuted;
+      this.shortsFeedMuted = next;
+      if (this.shortsFeedIsDynamic) {
+        playerRefs.dynamic?.value?.setMuted(next);
+        return;
+      }
       const v = playerRefs.fg?.value;
       if (!v) {
         return;
       }
-      v.muted = !v.muted;
-      this.shortsFeedMuted = v.muted;
+      v.muted = next;
     },
 
     shortsTogglePlay() {
+      if (this.shortsFeedIsDynamic) {
+        playerRefs.dynamic?.value?.togglePlay();
+        return;
+      }
       const v = playerRefs.fg?.value;
       if (!v) {
         return;
@@ -786,7 +862,11 @@ export const useShortsStore = defineStore("shorts", {
       }
     },
 
+    /** 画中画只对 <video> 有意义，动态条目无操作 */
     async shortsRequestPip() {
+      if (this.shortsFeedIsDynamic) {
+        return;
+      }
       const v = playerRefs.fg?.value;
       if (!v) {
         return;
@@ -799,6 +879,29 @@ export const useShortsStore = defineStore("shorts", {
         }
       } catch {
         /* 浏览器策略或用户拒绝 */
+      }
+    },
+
+    /** 下载当前条: 视频走前端直链, 动态走懒转码任务(结果经 SSE 回来) */
+    async shortsDownloadCurrent() {
+      const cur = this.shortsFeedCurrent;
+      if (!cur?.id) {
+        return;
+      }
+      if (this.shortsFeedIsDynamic) {
+        void useDynamicStore().requestDownload(cur);
+        return;
+      }
+      const url = this.shortsFeedVideoSrc;
+      if (!url) {
+        pushToast("当前内容没有可下载的地址", "info");
+        return;
+      }
+      try {
+        await downloadRemoteFile(url, videoDownloadName(cur));
+        pushToast("视频已开始下载", "success");
+      } catch (e) {
+        pushToast(e?.message || "下载失败", "error");
       }
     },
 
@@ -885,9 +988,11 @@ export const useShortsStore = defineStore("shorts", {
       const bg = playerRefs.bg?.value;
       fg?.pause();
       bg?.pause();
-      if (muteForeground && fg) {
+      playerRefs.dynamic?.value?.pause();
+      if (muteForeground) {
         try {
-          fg.muted = true;
+          if (fg) fg.muted = true;
+          playerRefs.dynamic?.value?.setMuted(true);
         } catch {
           /* ignore */
         }
@@ -896,6 +1001,11 @@ export const useShortsStore = defineStore("shorts", {
 
     /** 从详情页等遮罩返回时，把前景音量状态与 UI 同步，避免误静音 */
     restoreShortsFeedForegroundMuteFromState() {
+      const dynamicPlayer = playerRefs.dynamic?.value;
+      if (dynamicPlayer) {
+        dynamicPlayer.setMuted(this.shortsFeedMuted);
+        dynamicPlayer.setVolume(this.shortsFeedVolume);
+      }
       const fg = playerRefs.fg?.value;
       if (!fg) return;
       try {
@@ -945,6 +1055,11 @@ export const useShortsStore = defineStore("shorts", {
         if (bg) {
           bg.pause();
           bg.currentTime = 0;
+        }
+        const dynamicPlayer = playerRefs.dynamic?.value;
+        if (dynamicPlayer) {
+          dynamicPlayer.pause();
+          dynamicPlayer.seek(0);
         }
       } catch {
         /* 元素已卸载 */
@@ -1191,7 +1306,7 @@ export const useShortsStore = defineStore("shorts", {
       this.pendingDeleteVideoId = null;
       useCommentPanelStore().shortsCommentPanelOpen = false;
       this.profileFeedOpen = false;
-      this.feedScope = "shorts";
+      this.feedScope = "immersive";
       this.profileFeedQueue = [];
       this.likedFeedQueue = [];
       this.followFeedQueue = [];

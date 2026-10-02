@@ -5,8 +5,11 @@
  * 与服务端 ffmpeg 成片共用同一套时间轴公式(第 k 次切换在 items[k].startMs),
  * 切换/焦点/画布口径一致, 保证预览即所得。
  * 自动播放遵循浏览器策略: 静音轮播常开, 用户与页面交互过才自动带声(utils/userGesture)。
+ * controlled 时交出播放/静音/进度控制权(沉浸 feed 用): 不自建 IntersectionObserver、
+ * 点击改为上报 request-toggle-play、隐藏自带的进度与音量控件, 播放态由 paused/muted 驱动,
+ * 进度经 seek() 注入并回报 timeupdate/durationchange —— 与 <video> 的宿主契约对齐。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { hasUserGesture } from "../utils/userGesture";
 
 const props = defineProps({
@@ -14,15 +17,26 @@ const props = defineProps({
   dynamic: { type: Object, required: true },
   /** false 时播完一轮只 emit ended 并暂停(连播切下一条用), 默认循环轮播 */
   loop: { type: Boolean, default: true },
+  /** 受控模式: 播放/静音由 paused/muted 驱动, 进度经 seek() 注入 */
+  controlled: { type: Boolean, default: false },
+  paused: { type: Boolean, default: true },
+  muted: { type: Boolean, default: true },
+  volume: { type: Number, default: 0.85 },
 });
-const emit = defineEmits(["ended"]);
+const emit = defineEmits([
+  "ended",
+  "timeupdate",
+  "durationchange",
+  "request-toggle-play",
+  "request-toggle-mute",
+]);
 
 const rootRef = ref(null);
 const audioRef = ref(null);
 
 const activeIndex = ref(0);
 const playing = ref(false);
-const muted = ref(true);
+const audioMuted = ref(true);
 const currentSec = ref(0);
 
 const items = computed(() => props.dynamic?.items || []);
@@ -37,6 +51,8 @@ const progressPct = computed(() =>
 let rafId = 0;
 let clockStartMs = 0;
 let observer = null;
+/** 受控模式进度上报的节流档位: 0.1s 一档, 与 <video> timeupdate 同量级 */
+let lastReportedTenth = -1;
 
 function updateActive() {
   const t = currentSec.value * 1000;
@@ -45,6 +61,15 @@ function updateActive() {
     if (Number(items.value[i].startMs || 0) <= t) idx = i;
   }
   activeIndex.value = idx;
+}
+
+/** 只在跨过 0.1s 档位时上报，避免 60fps 灌爆宿主的进度状态 */
+function reportProgress() {
+  if (!props.controlled) return;
+  const tenth = Math.floor(currentSec.value * 10);
+  if (tenth === lastReportedTenth) return;
+  lastReportedTenth = tenth;
+  emit("timeupdate", currentSec.value);
 }
 
 function tick() {
@@ -64,6 +89,7 @@ function tick() {
     return;
   }
   updateActive();
+  reportProgress();
   rafId = requestAnimationFrame(tick);
 }
 
@@ -79,6 +105,7 @@ function stopRaf() {
 function restart() {
   currentSec.value = 0;
   activeIndex.value = 0;
+  lastReportedTenth = -1;
   if (hasAudio.value && audioRef.value) {
     audioRef.value.currentTime = 0;
     audioRef.value.play().catch(() => {});
@@ -91,9 +118,9 @@ function restart() {
 function play() {
   if (playing.value) return;
   playing.value = true;
-  muted.value = !hasUserGesture();
+  audioMuted.value = props.controlled ? props.muted : !hasUserGesture();
   if (hasAudio.value && audioRef.value) {
-    audioRef.value.muted = muted.value;
+    audioRef.value.muted = audioMuted.value;
     audioRef.value.play().catch(() => {});
   } else {
     clockStartMs = performance.now() - currentSec.value * 1000;
@@ -109,16 +136,69 @@ function pause() {
 
 function toggleSound() {
   if (!playing.value) {
-    muted.value = false;
+    audioMuted.value = false;
     play();
     if (hasAudio.value && audioRef.value) {
-      muted.value = false;
+      audioMuted.value = false;
       audioRef.value.muted = false;
     }
     return;
   }
-  muted.value = !muted.value;
-  if (audioRef.value) audioRef.value.muted = muted.value;
+  audioMuted.value = !audioMuted.value;
+  if (audioRef.value) audioRef.value.muted = audioMuted.value;
+}
+
+/** 受控宿主的跳转注入: 拖到哪一秒就从哪一秒继续（音频未就绪时只挪进度） */
+function seek(sec) {
+  const total = totalSec.value;
+  let t = Number(sec);
+  if (!Number.isFinite(t)) return;
+  t = Math.max(0, total > 0 ? Math.min(t, total) : t);
+  currentSec.value = t;
+  lastReportedTenth = -1;
+  if (hasAudio.value && audioRef.value) {
+    try {
+      audioRef.value.currentTime = t;
+    } catch {
+      /* 元数据未就绪，等待 canplay 后由 currentTime 接管 */
+    }
+  } else if (playing.value) {
+    clockStartMs = performance.now() - t * 1000;
+  }
+  updateActive();
+  reportProgress();
+}
+
+function togglePlay() {
+  if (playing.value) pause();
+  else play();
+}
+
+function setMuted(m) {
+  audioMuted.value = Boolean(m);
+  if (audioRef.value) audioRef.value.muted = audioMuted.value;
+}
+
+function setVolume(v) {
+  const vol = Math.min(1, Math.max(0, Number(v) || 0));
+  if (audioRef.value) audioRef.value.volume = vol;
+}
+
+function onRootClick() {
+  if (props.controlled) {
+    emit("request-toggle-play");
+    return;
+  }
+  toggleSound();
+}
+
+function onSoundClick(ev) {
+  ev.stopPropagation();
+  if (props.controlled) {
+    emit("request-toggle-mute");
+    return;
+  }
+  toggleSound();
 }
 
 function formatTime(sec) {
@@ -126,7 +206,42 @@ function formatTime(sec) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+watch(
+  () => props.paused,
+  (p) => {
+    if (!props.controlled) return;
+    if (p) pause();
+    else play();
+  }
+);
+
+watch(
+  () => props.muted,
+  (m) => {
+    if (!props.controlled) return;
+    setMuted(m);
+  }
+);
+
+watch(
+  () => props.volume,
+  (v) => {
+    if (!props.controlled) return;
+    setVolume(v);
+  }
+);
+
 onMounted(() => {
+  if (props.controlled) {
+    audioMuted.value = props.muted;
+    if (audioRef.value) {
+      audioRef.value.muted = props.muted;
+      audioRef.value.volume = props.volume;
+    }
+    emit("durationchange", { durationSec: totalSec.value, canvasType: props.dynamic?.canvasType });
+    if (!props.paused) play();
+    return;
+  }
   observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
@@ -144,6 +259,8 @@ onBeforeUnmount(() => {
   if (observer && rootRef.value) observer.unobserve(rootRef.value);
   observer = null;
 });
+
+defineExpose({ seek, togglePlay, play, pause, setMuted, setVolume });
 </script>
 
 <template>
@@ -151,7 +268,7 @@ onBeforeUnmount(() => {
     ref="rootRef"
     class="dyn-player"
     :class="dynamic.canvasType === 'horizontal' ? 'dyn-player--horizontal' : 'dyn-player--vertical'"
-    @click="toggleSound"
+    @click="onRootClick"
   >
     <img
       v-for="(item, i) in items"
@@ -169,10 +286,16 @@ onBeforeUnmount(() => {
       alt=""
     />
     <div class="dyn-shade"></div>
-    <button type="button" class="dyn-sound" :aria-label="muted ? '开启声音' : '静音'">
-      <i :class="muted ? 'ri-volume-mute-line' : 'ri-volume-up-line'"></i>
+    <button
+      v-if="!controlled"
+      type="button"
+      class="dyn-sound"
+      :aria-label="audioMuted ? '开启声音' : '静音'"
+      @click="onSoundClick"
+    >
+      <i :class="audioMuted ? 'ri-volume-mute-line' : 'ri-volume-up-line'"></i>
     </button>
-    <div class="dyn-foot">
+    <div v-if="!controlled" class="dyn-foot">
       <div class="dyn-progress"><div class="dyn-progress-bar" :style="{ width: progressPct }"></div></div>
       <span class="dyn-time">{{ formatTime(currentSec) }} / {{ formatTime(totalSec) }}</span>
     </div>

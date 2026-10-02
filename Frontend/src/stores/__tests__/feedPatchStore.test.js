@@ -16,7 +16,7 @@ const OTHER = { id: "1002", authorId: "88", likeCount: 9, isFollow: false };
 function seedLists() {
   const home = useHomeStore();
   home.cards = [{ ...VIDEO }, { ...OTHER }];
-  home.homeShortsRows = [{ ...VIDEO }];
+  home.immersiveRows = [{ ...VIDEO }];
 
   const shorts = useShortsStore();
   shorts.profileFeedQueue = [{ ...VIDEO }];
@@ -54,7 +54,7 @@ function seedLists() {
 function patchVideoCopies(s) {
   return {
     "home.cards": s.home.cards[0],
-    "home.homeShortsRows": s.home.homeShortsRows[0],
+    "home.immersiveRows": s.home.immersiveRows[0],
     "shorts.profileFeedQueue": s.shorts.profileFeedQueue[0],
     "shorts.likedFeedQueue": s.shorts.likedFeedQueue[0],
     "shorts.followFeedQueue": s.shorts.followFeedQueue[0],
@@ -72,7 +72,7 @@ function patchVideoCopies(s) {
 function authorFollowCopies(s) {
   return {
     "home.cards": s.home.cards[0],
-    "home.homeShortsRows": s.home.homeShortsRows[0],
+    "home.immersiveRows": s.home.immersiveRows[0],
     "shorts.profileFeedQueue": s.shorts.profileFeedQueue[0],
     "shorts.likedFeedQueue": s.shorts.likedFeedQueue[0],
     "shorts.followFeedQueue": s.shorts.followFeedQueue[0],
@@ -192,7 +192,7 @@ describe("feedPatchStore.removeVideoById", () => {
     const stores = seedLists();
     useFeedPatchStore().removeVideoById("1001");
     expect(stores.home.cards.map((r) => r.id)).toEqual(["1002"]);
-    expect(stores.home.homeShortsRows).toEqual([]);
+    expect(stores.home.immersiveRows).toEqual([]);
     expect(stores.shorts.profileFeedQueue).toEqual([]);
     expect(stores.shorts.likedFeedQueue).toEqual([]);
     expect(stores.shorts.followFeedQueue).toEqual([]);

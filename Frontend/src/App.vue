@@ -208,8 +208,8 @@ async function onSearchFeedLikeClick(card, ev) {
 }
 
 const homeStore = useHomeStore();
-const { loading, cards, homeShortsRows, homeCategoryKey, homeSortKey } = storeToRefs(homeStore);
-const homeShortsStripRef = ref(null);
+const { loading, cards, immersiveRows, homeCategoryKey, homeSortKey } = storeToRefs(homeStore);
+const immersiveStripRef = ref(null);
 /** 离开首页或打开个人中心前保存，回到首页时可无请求恢复，减少列表跳动 */
 /** 登录成功后全屏 LOADING 立方体动画，与首屏数据加载并行 */
 const showLoginLoadingOverlay = ref(false);
@@ -525,7 +525,7 @@ function enterVideoDetailFromRoute(p) {
   void restoreVideoDetailFromUrl(vid);
 }
 
-/** 当前 feedScope 对应的路由；主区 feed（home/shorts）不入路由 */
+/** 当前 feedScope 对应的路由；主区 feed（home/immersive）不入路由 */
 function feedRouteForCurrentScope() {
   if (feedScope.value === "liked") return "/feed/liked";
   if (feedScope.value === "follow") {
@@ -582,7 +582,7 @@ function captureProfileReturnContext() {
   const curVid = cur?.id ?? cur?.videoId;
   /** 含：短视频/关注主 feed，以及历史、赞过、个人作品等全屏 overlay（此时 menu 可能仍是 history/liked） */
   const inUnifiedShortsPlayback =
-    activeMenuKey.value === "shorts" ||
+    activeMenuKey.value === "immersive" ||
     activeMenuKey.value === "subscribed" ||
     profileFeedOpen.value;
   if (
@@ -637,10 +637,8 @@ async function restoreProfileReturnContext(ctx) {
     } else {
       followFeedQueue.value = copy;
     }
-  } else if (st.feedScope === "home") {
-    homeShortsRows.value = copy;
-  } else {
-    cards.value = copy;
+  } else if (st.feedScope === "immersive") {
+    immersiveRows.value = copy;
   }
   profileFeedOpen.value = st.profileFeedOpen;
   const maxI = Math.max(0, copy.length - 1);
@@ -659,7 +657,7 @@ async function reloadFeedAfterLeavingDetail() {
   }
   const menu = getMenuByActiveKey();
   await loadModuleCards(menu);
-  if (menu.key === "shorts" || menu.key === "subscribed") {
+  if (menu.key === "immersive" || menu.key === "subscribed") {
     nextTick(() => {
       shortsStore.reloadFeedPlayers();
     });
@@ -673,47 +671,47 @@ const loadShortsPanelTopComments = (reset, opts) => shortsStore.loadShortsPanelT
 function onWindowResize() {
 }
 
-function onHomeShortsStripScroll(e) {
+function onImmersiveStripScroll(e) {
   stopCardHoverPreview();
-  homeStore.maybeLoadMoreShortsByElement(e?.target);
+  homeStore.maybeLoadImmersiveMoreByElement(e?.target);
 }
 
-function onHomeShortsStripWheel(e) {
-  const el = homeShortsStripRef.value;
+function onImmersiveStripWheel(e) {
+  const el = immersiveStripRef.value;
   if (!el) return;
   e.stopPropagation();
   stopCardHoverPreview();
   const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
   el.scrollLeft += delta;
-  homeStore.maybeLoadMoreShortsByElement(el);
+  homeStore.maybeLoadImmersiveMoreByElement(el);
 }
 
-/** 首页 Shorts 条：接近列表末尾时预拉下一页（与横向条共用 loadHomeShortsMore） */
+/** 首页沉浸条：接近列表末尾时预拉下一页（与横向条共用 loadImmersiveMore） */
 const HOME_SHORTS_FEED_PREFETCH_THRESHOLD = 3;
 
-function maybePrefetchHomeShortsForFeed() {
-  if (feedScope.value !== "home") {
+function maybePrefetchImmersiveForFeed() {
+  if (feedScope.value !== "immersive") {
     return;
   }
-  if (activeMenuKey.value !== "shorts") {
+  if (activeMenuKey.value !== "immersive") {
     return;
   }
-  const list = homeShortsRows.value;
+  const list = immersiveRows.value;
   const i = shortsFeedIndex.value;
   if (!list.length) {
     return;
   }
   const remainToEnd = list.length - 1 - i;
   if (remainToEnd < HOME_SHORTS_FEED_PREFETCH_THRESHOLD) {
-    void homeStore.loadShortsMore();
+    void homeStore.loadImmersiveMore();
   }
 }
 
 /**
- * 从首页 Shorts 条进入全屏短视频流：只使用已加载的 homeShortsRows，不立即请求接口；
- * 划到接近末尾时再分页（maybePrefetchHomeShortsForFeed）。
+ * 从首页沉浸条进入全屏沉浸流：只使用已加载的 immersiveRows，不立即请求接口；
+ * 划到接近末尾时再分页（maybePrefetchImmersiveForFeed）。
  */
-function openHomeShortVideoInFeed(card, index) {
+function openImmersiveFeedFromCard(card, index) {
   if (activeMenuKey.value === "home") {
     homeStore.saveSnapshot();
   }
@@ -728,26 +726,26 @@ function openHomeShortVideoInFeed(card, index) {
   uploadModalOpen.value = false;
   mediaPreviewOpen.value = false;
 
-  feedScope.value = "home";
-  const idx = homeShortsRows.value.findIndex((c) => c && card && String(c.id) === String(card.id));
+  feedScope.value = "immersive";
+  const idx = immersiveRows.value.findIndex((c) => c && card && String(c.id) === String(card.id));
   shortsFeedIndex.value = idx >= 0 ? idx : Math.max(0, Number(index) || 0);
   shortsFeedAutoplayPending.value = true;
 
-  activeMenuKey.value = "shorts";
-  const shortsMenu = primaryMenus.find((m) => m.key === "shorts");
-  activeMenuLabel.value = shortsMenu?.label ?? "短视频";
-  if (route.path !== "/shorts") {
-    void router.push("/shorts");
+  activeMenuKey.value = "immersive";
+  const immersiveMenu = primaryMenus.find((m) => m.key === "immersive");
+  activeMenuLabel.value = immersiveMenu?.label ?? "沉浸";
+  if (route.path !== "/immersive") {
+    void router.push("/immersive");
   }
 
   nextTick(() => {
     shortsStore.reloadFeedPlayers();
-    maybePrefetchHomeShortsForFeed();
+    maybePrefetchImmersiveForFeed();
   });
 }
 
-function onHomeShortCardClick(card, index) {
-  openHomeShortVideoInFeed(card, index);
+function onImmersiveCardClick(card, index) {
+  openImmersiveFeedFromCard(card, index);
 }
 
 function onWindowScroll() {
@@ -835,7 +833,7 @@ function onCreate() {
   if (profileFeedOpen.value) {
     closeProfileFeed();
   }
-  if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
+  if (activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed") {
     pauseShortsFeedVideos({ muteForeground: true });
   }
   showVideoDetail.value = false;
@@ -988,7 +986,7 @@ function isDynamicCard(card) {
 }
 
 function onVideoCardClick(card) {
-  if (activeMenuKey.value === "shorts") {
+  if (activeMenuKey.value === "immersive") {
     return;
   }
   if (activeMenuKey.value === "subscribed") {
@@ -1244,13 +1242,13 @@ watch(showStudio, (open) => {
 
 watch(activeMenuKey, (key) => {
   stopCardHoverPreview();
-  if (key !== "shorts" && key !== "subscribed") {
+  if (key !== "immersive" && key !== "subscribed") {
     pauseShortsFeedVideos({ muteForeground: true });
   }
 });
 
 watch(
-  () => !showProfileCenter.value && (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed"),
+  () => !showProfileCenter.value && (activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed"),
   (on) => {
     if (on) {
       window.addEventListener("keydown", onShortsFeedKeydown);
@@ -1266,12 +1264,12 @@ watch(shortsFeedIndex, () => {
   resetShortsFeedProgressUiForSwitch();
   const tokenAtSwitch = shortsStore.shortsFeedPlayToken;
   nextTick(() => {
-    const inMainShorts =
-      activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed";
-    if (!inMainShorts && !profileFeedOpen.value) return;
+    const inMainImmersive =
+      activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed";
+    if (!inMainImmersive && !profileFeedOpen.value) return;
     if (tokenAtSwitch !== shortsStore.shortsFeedPlayToken) return;
     shortsStore.reloadFeedPlayers();
-    maybePrefetchHomeShortsForFeed();
+    maybePrefetchImmersiveForFeed();
     maybePrefetchFollowFeed();
   });
 });
@@ -1489,9 +1487,9 @@ watch(activeMenuKey, (key, prevKey) => {
   }
   const prev = String(prevKey || "");
   const next = String(key || "");
-  const switchingBetweenShortsTabs =
-    (prev === "shorts" || prev === "subscribed") && (next === "shorts" || next === "subscribed");
-  if (!switchingBetweenShortsTabs) {
+  const switchingBetweenImmersiveTabs =
+    (prev === "immersive" || prev === "subscribed") && (next === "immersive" || next === "subscribed");
+  if (!switchingBetweenImmersiveTabs) {
     pauseAllDomVideos();
   }
 });
@@ -1628,11 +1626,11 @@ function closeStudioRowMenu() {
 registerLikedHooks({ getUserId: () => currentUserId.value });
 registerHomeHooks({
   reloadHome: () => loadModuleCards(primaryMenus[0]),
-  shortsStripRef: homeShortsStripRef,
-  onHomeShortsStripScroll,
-  onHomeShortsStripWheel,
+  immersiveStripRef: immersiveStripRef,
+  onImmersiveStripScroll,
+  onImmersiveStripWheel,
   openVideoDetail: onVideoCardClick,
-  openShortsFeed: onHomeShortCardClick,
+  openImmersiveFeed: onImmersiveCardClick,
   isProfileCenterOpen: () => showProfileCenter.value,
 });
 /** menuOrchestrationStore 的宿主依赖：搜索预览观察器与上传弹窗开关仍在 App */
@@ -1663,7 +1661,7 @@ registerSearchExpandHooks({
 registerShortsHooks({
   patchFeedVideoById: (id, patch) => patchFeedVideoById(id, patch),
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
-  isShortsMenuActive: () => activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed",
+  isShortsMenuActive: () => activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed",
   isSubscribedMenuActive: () => activeMenuKey.value === "subscribed",
   removeVideoById: (id) => feedPatch.removeVideoById(id),
   notify: (msg) => {
@@ -1712,7 +1710,7 @@ registerProfileHooks({
     if (activeMenuKey.value === "home") {
       homeStore.saveSnapshot();
     }
-    if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
+    if (activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed") {
       pauseShortsFeedVideos({ muteForeground: true });
     }
     const returnCtx = captureProfileReturnContext();
@@ -1811,7 +1809,7 @@ onMounted(async () => {
     activeMenuKey.value = menu.key;
     activeMenuLabel.value = menu.label;
     await loadModuleCards(menu);
-    if (menu.key === "shorts" || menu.key === "subscribed") {
+    if (menu.key === "immersive" || menu.key === "subscribed") {
       nextTick(() => {
         shortsStore.reloadFeedPlayers();
       });
@@ -1876,7 +1874,7 @@ onBeforeUnmount(() => {
         :class="{
           'content--shorts':
             !showProfileCenter &&
-            (activeMenuKey === 'shorts' || activeMenuKey === 'subscribed') &&
+            (activeMenuKey === 'immersive' || activeMenuKey === 'subscribed') &&
             !showStudio &&
             !showVideoDetail,
           'content--studio': showStudio,
@@ -1922,7 +1920,7 @@ onBeforeUnmount(() => {
     <ChatFloatingRail
       :authed="isAuthed"
       :chat-page-active="activeMenuKey === 'chat'"
-      :narrow-peek="activeMenuKey === 'shorts' || activeMenuKey === 'subscribed'"
+      :narrow-peek="activeMenuKey === 'immersive' || activeMenuKey === 'subscribed'"
       :suppress="chatRailSuppress"
     />
     <ChatForwardVideoModal

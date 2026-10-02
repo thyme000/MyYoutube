@@ -1,51 +1,23 @@
 // @ts-check
 /**
- * 动态域 store: 信息流分页 + 下载任务跟踪。
+ * 动态域 store: 发布弹窗开关 + 下载任务跟踪。
+ * 动态列表已并入统一内容池（沉浸队列读 homeStore.immersiveRows），这里不再持有信息流分页。
  * 下载是懒转码: 提交后拿 taskId 挂在表里, SSE 收到 TRANSCODE_DONE/FAILED 后
  * 凭 payload.taskIds 对号拉取下载地址并触发浏览器保存。
  */
 import { defineStore } from "pinia";
-import {
-  fetchDynamicFeed,
-  requestDynamicDownload,
-  fetchDynamicDownloadStatus,
-} from "../api/dynamicApi";
+import { requestDynamicDownload, fetchDynamicDownloadStatus } from "../api/dynamicApi";
 import { downloadRemoteFile } from "../utils/downloadFile";
 import { useToastStore } from "./toastStore";
 
 export const useDynamicStore = defineStore("dynamic", {
   state: () => ({
-    /** @type {Array<object>} */
-    feedList: [],
-    pageNo: 1,
-    pages: 0,
-    total: 0,
-    feedLoading: false,
-    feedErrorMsg: "",
     publishOpen: false,
     /** taskId -> dynamicId, 等待 SSE 完成通知的转码任务 */
     /** @type {Record<string, string>} */
     pendingDownloads: {},
   }),
   actions: {
-    async loadFeed(reset) {
-      if (this.feedLoading) return;
-      if (!reset && this.pageNo >= this.pages && this.pages > 0) return;
-      this.feedLoading = true;
-      if (reset) this.feedErrorMsg = "";
-      const page = reset ? 1 : this.pageNo + 1;
-      try {
-        const { total, pages, list } = await fetchDynamicFeed({ pageNo: page, pageSize: 8 });
-        this.total = total;
-        this.pages = pages;
-        this.pageNo = page;
-        this.feedList = reset ? list : [...this.feedList, ...list];
-      } catch (e) {
-        this.feedErrorMsg = e?.message || "加载动态失败";
-      } finally {
-        this.feedLoading = false;
-      }
-    },
     /** 点下载: 缓存命中直接存, 否则登记任务等 SSE 通知 */
     async requestDownload(dynamic) {
       const toastStore = useToastStore();

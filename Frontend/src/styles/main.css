@@ -2167,7 +2167,7 @@ body {
   cursor: pointer;
 }
 
-.home-shorts-strip {
+.home-immersive-strip {
   display: flex;
   gap: var(--space-16);
   overflow-x: auto;
@@ -2176,7 +2176,7 @@ body {
   padding: var(--space-2) var(--space-2) var(--space-6);
 }
 
-.home-short-card {
+.home-immersive-card {
   flex: 0 0 calc((100% - 64px) / 5);
   min-width: 0;
   scroll-snap-align: start;
@@ -2189,21 +2189,22 @@ body {
   transition: transform 0.24s ease, box-shadow 0.24s ease;
 }
 
-.home-short-card:hover {
+.home-immersive-card:hover {
   transform: translateY(-4px);
   box-shadow: var(--shadow-card-hover);
 }
 
-.home-short-media {
+.home-immersive-media {
+  position: relative;
   overflow: hidden;
   transition: transform 0.28s ease;
 }
 
-.home-short-card:hover .home-short-media {
+.home-immersive-card:hover .home-immersive-media {
   transform: scale(1.03);
 }
 
-.home-short-cover {
+.home-immersive-cover {
   width: 100%;
   aspect-ratio: 2 / 3;
   object-fit: cover;
@@ -2211,12 +2212,12 @@ body {
   vertical-align: middle;
 }
 
-.home-short-cover--video {
+.home-immersive-cover--video {
   background: var(--black);
   pointer-events: none;
 }
 
-.home-short-card-footer {
+.home-immersive-card-footer {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -2225,12 +2226,12 @@ body {
   min-height: 52px;
 }
 
-.home-short-card-main {
+.home-immersive-card-main {
   flex: 1;
   min-width: 0;
 }
 
-.home-short-title {
+.home-immersive-title {
   margin: 0 0 var(--space-4);
   font-size: var(--font-size-15);
   color: var(--color-text-strong);
@@ -2241,14 +2242,14 @@ body {
   overflow: hidden;
 }
 
-.home-short-author {
+.home-immersive-author {
   font-size: var(--font-size-13);
   color: var(--muted);
   display: block;
   line-height: 1.35;
 }
 
-.home-short-stats {
+.home-immersive-stats {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -2260,13 +2261,13 @@ body {
   white-space: nowrap;
 }
 
-.home-short-stat {
+.home-immersive-stat {
   display: inline-flex;
   align-items: center;
   gap: var(--space-4);
 }
 
-.home-short-stat i {
+.home-immersive-stat i {
   font-size: var(--font-size-14);
   opacity: 0.85;
 }
@@ -2291,7 +2292,7 @@ body {
   padding: var(--space-2) var(--space-2) var(--space-6);
 }
 
-.history-shorts-strip .home-short-card {
+.history-shorts-strip .home-immersive-card {
   flex: 0 0 calc((100% - 64px) / 5);
 }
 
@@ -2317,7 +2318,7 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.history-shorts-strip.history-shorts-strip--expanded .home-short-card,
+.history-shorts-strip.history-shorts-strip--expanded .home-immersive-card,
 .history-shorts-strip.history-shorts-strip--expanded .history-long-card {
   flex: unset;
   width: auto;
@@ -3472,7 +3473,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .home-short-card {
+  .home-immersive-card {
     flex-basis: 210px;
   }
 

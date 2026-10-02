@@ -117,14 +117,32 @@ const dynamicDetail = ref(null);
 watch(
   () => [shortsFeedIsDynamic.value, shortsFeedCurrent.value?.id],
   async ([isDynamic, id]) => {
-    if (!isDynamic || !id) {
+    const wanted = String(id ?? "");
+    if (!isDynamic || !wanted) {
       dynamicDetail.value = null;
       return;
     }
-    dynamicDetail.value = await ensureDynamicDetail(shortsFeedCurrent.value);
+    // 换条先清空: 否则上一张的详情会挂在新的 :key 上播一帧
+    if (String(dynamicDetail.value?.id ?? "") !== wanted) {
+      dynamicDetail.value = null;
+    }
+    const detail = await ensureDynamicDetail(shortsFeedCurrent.value);
+    // 拉取期间又切条了则丢弃，避免把旧详情写回去
+    if (String(shortsFeedCurrent.value?.id ?? "") !== wanted) {
+      return;
+    }
+    dynamicDetail.value = detail;
   },
   { immediate: true }
 );
+
+function onImmersiveDynamicReady(payload) {
+  shortsStore.onShortsFeedDynamicReady(payload?.durationSec, payload?.canvasType);
+}
+
+function onImmersiveDynamicTimeUpdate(sec) {
+  shortsStore.onShortsFeedDynamicTimeUpdate(sec);
+}
 
 // store action 与 store 绑定，可直接解构；带括号调用的函数型接口（如 searchExpandVideoUrl）
 // 在 store 里就是 action，不能写成 getter
@@ -160,6 +178,7 @@ const {
   setShortsPanelReplyTarget,
   shortsFeedNext,
   shortsFeedPrev,
+  shortsDownloadCurrent,
   shortsPanelCommentHasMore,
   shortsRequestFullscreen,
   shortsRequestPip,
@@ -212,10 +231,13 @@ const onTopbarAvatarError = (evt) => applyAvatarFallback(evt, profileAvatar);
 const shortsFeedFgRef = ref(null);
 const shortsFeedBgRef = ref(null);
 const shortsFeedCenterRef = ref(null);
+/** 动态条目用受控 DynamicPlayer 替代两个 <video>，命令入口同样注册给 store */
+const shortsFeedDynamicRef = ref(null);
 registerShortsFeedPlayerRefs({
   fg: shortsFeedFgRef,
   bg: shortsFeedBgRef,
   center: shortsFeedCenterRef,
+  dynamic: shortsFeedDynamicRef,
 });
 
 const searchExpandPlayerRef = ref(null);
@@ -741,7 +763,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
               </aside>
         </Teleport>
         <div
-          v-if="profileFeedOpen || (!showProfileCenter && (activeMenuKey === 'shorts' || activeMenuKey === 'subscribed'))"
+          v-if="profileFeedOpen || (!showProfileCenter && (activeMenuKey === 'immersive' || activeMenuKey === 'subscribed'))"
           class="shorts-feed-shell"
           :class="{ 'shorts-feed-shell--with-sidebar': activeMenuKey === 'subscribed' && !profileFeedOpen }"
         >
@@ -816,7 +838,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
             <i class="ri-close-line"></i>
           </button>
           <div v-if="loading && !profileFeedOpen" class="shorts-feed-loading">
-            {{ activeMenuKey === "subscribed" ? "正在加载关注动态…" : "正在加载短视频…" }}
+            {{ activeMenuKey === "subscribed" ? "正在加载关注动态…" : "正在加载沉浸内容…" }}
           </div>
           <template v-else-if="shortsFeedVideoSrc || shortsFeedIsDynamic">
             <div class="shorts-feed-body" :class="{ 'shorts-feed-body--comments-open': shortsCommentPanelOpen }">
@@ -838,11 +860,20 @@ function onShortsPanelCommentUserClick(ev, userId) {
                   >
                     <DynamicPlayer
                       v-if="shortsFeedIsDynamic && dynamicDetail"
-                      :key="shortsFeedCurrent?.id"
+                      ref="shortsFeedDynamicRef"
+                      :key="dynamicDetail.id"
                       class="shorts-feed-dynamic"
                       :dynamic="dynamicDetail"
                       :loop="false"
+                      controlled
+                      :paused="shortsFeedPaused"
+                      :muted="shortsFeedMuted"
+                      :volume="shortsFeedVolume"
                       @ended="onShortsFeedFgEnded"
+                      @durationchange="onImmersiveDynamicReady"
+                      @timeupdate="onImmersiveDynamicTimeUpdate"
+                      @request-toggle-play="shortsTogglePlay"
+                      @request-toggle-mute="shortsToggleMute"
                     />
                     <video
                       v-if="!shortsFeedIsDynamic"
@@ -1039,6 +1070,17 @@ function onShortsPanelCommentUserClick(ev, userId) {
                           <i class="ri-share-forward-line"></i>
                         </button>
                         <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.shareCount ?? 0 }}</span>
+                      </div>
+                      <div class="shorts-feed-action-item">
+                        <button
+                          type="button"
+                          class="shorts-feed-action-btn"
+                          :title="shortsFeedIsDynamic ? '下载成片' : '下载视频'"
+                          aria-label="下载"
+                          @click.stop="shortsDownloadCurrent"
+                        >
+                          <i class="ri-download-2-line"></i>
+                        </button>
                       </div>
                     </div>
                   </div>

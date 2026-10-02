@@ -24,8 +24,8 @@ const hb = homeBridgeHooks;
 const {
   loading,
   cards,
-  homeShortsRows,
-  homeShortsLoadingMore,
+  immersiveRows,
+  immersiveLoadingMore,
   homeLongLoadingMore,
   homeCategoryKey,
   homeSortKey,
@@ -147,28 +147,31 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
               </template>
             </section>
 
-            <section v-if="!loading && homeShortsRows.length" class="home-shorts-block">
-              <div class="home-shorts-head">
-                <h3><i class="ri-video-line"></i> Shorts</h3>
+            <section v-if="!loading && immersiveRows.length" class="home-immersive-block">
+              <div class="home-immersive-head">
+                <h3><i class="ri-play-circle-line"></i> 沉浸</h3>
               </div>
               <div
-                :ref="(el) => (hb.shortsStripRef.value = el)"
-                class="home-shorts-strip"
-                @wheel.prevent="hb.onHomeShortsStripWheel"
-                @scroll="hb.onHomeShortsStripScroll"
+                :ref="(el) => (hb.immersiveStripRef.value = el)"
+                class="home-immersive-strip"
+                @wheel.prevent="hb.onImmersiveStripWheel"
+                @scroll="hb.onImmersiveStripScroll"
               >
                 <article
-                  v-for="(card, index) in homeShortsRows"
-                  :key="`home-short-${card.id}-${index}`"
-                  class="home-short-card"
-                  @click="hb.openShortsFeed(card, index)"
-                  @mouseenter="hoverPreview.enter(card, 'home-shorts')"
-                  @mouseleave="hoverPreview.leave(card, 'home-shorts')"
+                  v-for="(card, index) in immersiveRows"
+                  :key="`home-immersive-${card.id}-${index}`"
+                  class="home-immersive-card"
+                  @click="hb.openImmersiveFeed(card, index)"
+                  @mouseenter="!isDynamicCard(card) && hoverPreview.enter(card, 'home-immersive')"
+                  @mouseleave="hoverPreview.leave(card, 'home-immersive')"
                 >
-                  <div class="home-short-media">
+                  <div class="home-immersive-media">
+                    <span v-if="isDynamicCard(card)" class="video-card-badge">
+                      <i class="ri-gallery-view-2-line"></i> 轮播图集
+                    </span>
                     <video
-                      v-if="hoverPreview.activeId === cardPreviewKey(card, 'home-shorts')"
-                      class="home-short-cover home-short-cover--video video-cover--preview"
+                      v-if="hoverPreview.activeId === cardPreviewKey(card, 'home-immersive')"
+                      class="home-immersive-cover home-immersive-cover--video video-cover--preview"
                       :src="activePreviewVideoUrl"
                       muted
                       autoplay
@@ -176,24 +179,24 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                       playsinline
                       preload="metadata"
                     ></video>
-                    <img v-else class="home-short-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
+                    <img v-else class="home-immersive-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
                   </div>
-                  <div class="home-short-card-footer">
-                    <div class="home-short-card-main">
-                      <p class="home-short-title">{{ card.title }}</p>
-                      <span class="home-short-author">{{ cardAuthorLabel(card) }}</span>
+                  <div class="home-immersive-card-footer">
+                    <div class="home-immersive-card-main">
+                      <p class="home-immersive-title">{{ card.title }}</p>
+                      <span class="home-immersive-author">{{ cardAuthorLabel(card) }}</span>
                     </div>
-                    <div class="home-short-stats" aria-label="播放与点赞">
-                      <span class="home-short-stat" title="播放量">
+                    <div class="home-immersive-stats" aria-label="播放与点赞">
+                      <span class="home-immersive-stat" title="播放量">
                         <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.playCount) }}
                       </span>
-                      <span class="home-short-stat" title="点赞">
+                      <span class="home-immersive-stat" title="点赞">
                         <i class="ri-heart-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.likeCount) }}
                       </span>
                     </div>
                   </div>
                 </article>
-                <div v-if="homeShortsLoadingMore" class="home-shorts-loading-more">加载中…</div>
+                <div v-if="immersiveLoadingMore" class="home-immersive-loading-more">加载中…</div>
               </div>
             </section>
 
@@ -379,7 +382,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
   gap: var(--space-14);
 }
 
-.home-shorts-block {
+.home-immersive-block {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-2xl);
@@ -387,14 +390,14 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
   padding: var(--space-12);
 }
 
-.home-shorts-head {
+.home-immersive-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: var(--space-10);
 }
 
-.home-shorts-head h3 {
+.home-immersive-head h3 {
   margin: 0;
   font-size: var(--font-size-18);
   display: inline-flex;
@@ -402,7 +405,7 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
   gap: var(--space-6);
 }
 
-.home-shorts-loading-more {
+.home-immersive-loading-more {
   flex: 0 0 100px;
   align-self: center;
   text-align: center;

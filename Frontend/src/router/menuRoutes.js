@@ -4,11 +4,16 @@
  */
 export const MENU_ROUTES = [
   { key: "home", path: "/", label: "首页" },
-  { key: "dynamics", path: "/dynamics", label: "动态" },
-  { key: "shorts", path: "/shorts", label: "短视频" },
+  { key: "immersive", path: "/immersive", label: "沉浸" },
   { key: "subscribed", path: "/subscribed", label: "关注" },
   { key: "history", path: "/history", label: "历史播放记录" },
   { key: "liked", path: "/liked", label: "赞过的视频" },
   { key: "music", path: "/music", label: "音乐" },
   { key: "chat", path: "/chat", label: "聊天" },
+];
+
+/** 旧入口重定向：短视频与动态已合并为「沉浸」 */
+export const LEGACY_MENU_REDIRECTS = [
+  { path: "/shorts", redirect: "/immersive" },
+  { path: "/dynamics", redirect: "/immersive" },
 ];

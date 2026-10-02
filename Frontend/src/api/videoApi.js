@@ -7,20 +7,6 @@ import { safeSnowflakeId } from "../utils/snowflakeId.js";
 /** @typedef {import("./types").VideoCard} VideoCard */
 /** @typedef {import("./types").VideoDetail} VideoDetail */
 
-const moduleApiMap = {
-  home: "/api/videos/home",
-  shorts: "/videos/shorts/feed",
-  subscribed: "/api/videos/subscribed",
-  history: "/api/videos/history",
-  liked: "/api/videos/liked",
-  watchLater: "/api/videos/watch-later",
-  music: "/api/videos/music",
-  movies: "/api/videos/movies",
-  live: "/api/videos/live",
-  news: "/api/videos/news",
-  fashion: "/api/videos/fashion",
-};
-
 /** 与 safeSnowflakeId 一致，供列表/详情规范化 */
 /** @param {any} id @param {string} fallback @returns {string} */
 function safeVideoId(id, fallback) {
@@ -431,32 +417,12 @@ export async function closeMyVideoComment(videoId) {
   return httpRequest(`/videos/close/comment/${encodeURIComponent(id)}`, { method: "POST" });
 }
 
-/** @param {string} moduleKey @returns {Promise<VideoCard[]>} */
-export async function fetchVideosByModule(moduleKey) {
-  if (moduleKey === "shorts") {
-    const data = await fetchShortsFeedPage({ pageNo: 1, pageSize: 24 });
-    return data.list;
-  }
-  const apiPath = moduleApiMap[moduleKey] || moduleApiMap.home;
-  const data = await httpRequest(apiPath);
-  return normalizeVideoList(data);
-}
-
 /** @param {string} keyword @returns {Promise<VideoCard[]>} */
 export async function searchVideos(keyword) {
   const data = await httpRequest("/api/search", {
     query: { keyword },
   });
   return normalizeVideoList(data);
-}
-
-/**
- * GET /videos/shorts/feed 短视频推荐流分页
- */
-/** @param {{ pageNo?: number, pageSize?: number, category?: string }} [query] @returns {Promise<PageResult>} */
-export async function fetchShortsFeedPage(query = {}) {
-  const data = await httpRequest("/videos/shorts/feed", { method: "GET", query });
-  return normalizePageResult(data);
 }
 
 /**

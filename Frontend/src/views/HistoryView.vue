@@ -52,7 +52,7 @@ const profile = useProfileStore();
               <div v-if="historyLongLoading" class="shorts-feed-loading">正在加载观看历史…</div>
               <div
                 v-else
-                class="home-shorts-strip history-shorts-strip"
+                class="home-immersive-strip history-shorts-strip"
                 :class="{
                   'history-shorts-strip--expanded history-shorts-strip--long-grid': historyLongExpanded,
                 }"

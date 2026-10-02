@@ -12,16 +12,18 @@ import SlideshowMusicPicker from "./SlideshowMusicPicker.vue";
 import { publishDynamic } from "../api/dynamicApi.js";
 import { uploadFileWithPresign } from "../utils/presignUpload.js";
 import { uploadAudioToLibrary } from "../utils/audioLibrary.js";
-import { useDynamicStore } from "../stores/dynamicStore";
 import { useToastStore } from "../stores/toastStore";
+import { useStudioStore } from "../stores/studioStore";
+import { useProfileStore } from "../stores/profileStore";
 
 const MAX_IMAGES = 18;
 const props = defineProps({
   open: { type: Boolean, default: false },
 });
 const emit = defineEmits(["close", "published"]);
-const dynamicStore = useDynamicStore();
 const toastStore = useToastStore();
+const studioStore = useStudioStore();
+const profileStore = useProfileStore();
 
 const title = ref("");
 const images = ref([]);
@@ -148,7 +150,13 @@ async function submit() {
     });
     toastStore.pushToast("动态已发布", "success");
     emit("published");
-    void dynamicStore.loadFeed(true);
+    // 就地刷新当前所在列表（与 UploadModal 发布视频后一致）；推荐流排除自己，刷新沉浸队列没有意义
+    if (studioStore.showStudio) {
+      void studioStore.load();
+    }
+    if (profileStore.open) {
+      void profileStore.loadWorks();
+    }
     reset();
     emit("close");
   } catch (e) {

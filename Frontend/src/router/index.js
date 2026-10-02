@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import { MENU_ROUTES } from "./menuRoutes.js";
+import { LEGACY_MENU_REDIRECTS, MENU_ROUTES } from "./menuRoutes.js";
 import {
   loadMenuView,
   loadStudioView,
@@ -12,7 +12,7 @@ export { MENU_ROUTES };
 
 /**
  * 菜单路由 /studio /profile 由 <RouterView>（经 App 主区解析器）渲染真实视图。
- * shorts / subscribed 的 ShortsView 在 App 里常驻（搜索结果页要复用同一个 feed 实例），
+ * immersive / subscribed 的 ShortsView 在 App 里常驻（搜索结果页要复用同一个 feed 实例），
  * /upload 叠在来路视图之上（App 解析器归底），/feed 的连播 UI 在常驻 ShortsView 内 —— 三者给空组件占位。
  */
 const NULL_VIEW = { render: () => null };
@@ -23,6 +23,11 @@ const routes = [
     name: `menu-${r.key}`,
     meta: { menuKey: r.key },
     components: { default: loadMenuView[r.key] ?? NULL_VIEW },
+  })),
+  /** 旧入口（/shorts 短视频、/dynamics 动态）已合并为「沉浸」，保留深链与书签 */
+  ...LEGACY_MENU_REDIRECTS.map((r) => ({
+    path: r.path,
+    redirect: r.redirect,
   })),
   /** 创作中心（YouTube Studio 风格）：路由承载 URL 与历史栈，/upload 可叠其上 */
   {
@@ -87,13 +92,13 @@ router.beforeEach((to) => {
   return true;
 });
 
-/** /shorts -> "shorts"；未识别路径返回 null（视为首页之外的未知态） */
+/** /immersive -> "immersive"；未识别路径返回 null（视为首页之外的未知态） */
 export function menuKeyForPath(path) {
   const hit = MENU_ROUTES.find((r) => r.path === path);
   return hit ? hit.key : null;
 }
 
-/** "shorts" -> "/shorts"；home 归一为 "/" */
+/** "immersive" -> "/immersive"；home 归一为 "/" */
 export function menuPathFor(key) {
   const hit = MENU_ROUTES.find((r) => r.key === key);
   return hit ? hit.path : "/";

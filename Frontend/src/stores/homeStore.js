@@ -1,7 +1,7 @@
 // @ts-check
 /**
- * 首页 feed 域状态：混合流卡片、首页短视频行、长视频分页与分类/排序。
- * App.vue 过渡期用 storeToRefs 同名解构引用；拆 HomeView 时随之整体搬出。
+ * 首页 feed 域状态：混合流网格卡片、沉浸横条队列、长视频分页与分类/排序。
+ * 沉浸横条与「沉浸」菜单共用同一份 immersiveRows(/contents/feed) —— 见 shortsStore.unifiedFeedList。
  */
 import { defineStore } from "pinia";
 import { fetchContentList, fetchContentFeed } from "../api/contentApi";
@@ -26,35 +26,35 @@ export const homeSortOptions = [
 const hooks = {
   /** 首页重载(走 loadModuleCards 的 home 分支) */
   reloadHome: null,
-  /** 首页 Shorts 横条 DOM 容器：模板 ref 经此回写，App 的滚轮处理读它 */
-  shortsStripRef: null,
+  /** 首页沉浸横条 DOM 容器：模板 ref 经此回写，App 的滚轮处理读它 */
+  immersiveStripRef: null,
   /** 横条滚动/滚轮处理(App 级，依赖 hoverPreview 与预拉下一页) */
-  onHomeShortsStripScroll: () => {},
-  onHomeShortsStripWheel: () => {},
+  onImmersiveStripScroll: () => {},
+  onImmersiveStripWheel: () => {},
   /** 首页卡片进详情(App 级，含菜单分支) */
   openVideoDetail: () => {},
-  /** 首页 Shorts 卡片进全屏短视频流(App 级) */
-  openShortsFeed: () => {},
+  /** 首页沉浸卡片进全屏沉浸流(App 级) */
+  openImmersiveFeed: () => {},
   /** 个人中心是否展开(App 级状态，HomeView 据此隐藏分类条) */
   isProfileCenterOpen: () => false,
 };
 
-/** 宿主(App.vue)注册首页依赖：重载、横条 DOM、进详情/短视频流、个人中心开合 */
+/** 宿主(App.vue)注册首页依赖：重载、横条 DOM、进详情/沉浸流、个人中心开合 */
 export function registerHomeHooks({
   reloadHome,
-  shortsStripRef,
-  onHomeShortsStripScroll,
-  onHomeShortsStripWheel,
+  immersiveStripRef,
+  onImmersiveStripScroll,
+  onImmersiveStripWheel,
   openVideoDetail,
-  openShortsFeed,
+  openImmersiveFeed,
   isProfileCenterOpen,
 }) {
   if (reloadHome) hooks.reloadHome = reloadHome;
-  if (shortsStripRef) hooks.shortsStripRef = shortsStripRef;
-  if (onHomeShortsStripScroll) hooks.onHomeShortsStripScroll = onHomeShortsStripScroll;
-  if (onHomeShortsStripWheel) hooks.onHomeShortsStripWheel = onHomeShortsStripWheel;
+  if (immersiveStripRef) hooks.immersiveStripRef = immersiveStripRef;
+  if (onImmersiveStripScroll) hooks.onImmersiveStripScroll = onImmersiveStripScroll;
+  if (onImmersiveStripWheel) hooks.onImmersiveStripWheel = onImmersiveStripWheel;
   if (openVideoDetail) hooks.openVideoDetail = openVideoDetail;
-  if (openShortsFeed) hooks.openShortsFeed = openShortsFeed;
+  if (openImmersiveFeed) hooks.openImmersiveFeed = openImmersiveFeed;
   if (isProfileCenterOpen) hooks.isProfileCenterOpen = isProfileCenterOpen;
 }
 
@@ -65,10 +65,10 @@ export const useHomeStore = defineStore("home", {
   state: () => ({
     loading: false,
     cards: [],
-    homeShortsRows: [],
-    homeShortsPageNo: 1,
-    homeShortsPages: 0,
-    homeShortsLoadingMore: false,
+    immersiveRows: [],
+    immersivePageNo: 1,
+    immersivePages: 0,
+    immersiveLoadingMore: false,
     homeLongPageNo: 1,
     homeLongPages: 0,
     homeLongLoadingMore: false,
@@ -95,11 +95,11 @@ export const useHomeStore = defineStore("home", {
       }
       this.homeFeedSnapshot = {
         cards: [...this.cards],
-        homeShortsRows: [...this.homeShortsRows],
+        immersiveRows: [...this.immersiveRows],
         homeLongPageNo: this.homeLongPageNo,
         homeLongPages: this.homeLongPages,
-        homeShortsPageNo: this.homeShortsPageNo,
-        homeShortsPages: this.homeShortsPages,
+        immersivePageNo: this.immersivePageNo,
+        immersivePages: this.immersivePages,
         homeCategoryKey: this.homeCategoryKey,
         homeSortKey: this.homeSortKey,
       };
@@ -111,11 +111,11 @@ export const useHomeStore = defineStore("home", {
         return false;
       }
       this.cards = [...s.cards];
-      this.homeShortsRows = [...s.homeShortsRows];
+      this.immersiveRows = [...s.immersiveRows];
       this.homeLongPageNo = s.homeLongPageNo;
       this.homeLongPages = s.homeLongPages;
-      this.homeShortsPageNo = s.homeShortsPageNo;
-      this.homeShortsPages = s.homeShortsPages;
+      this.immersivePageNo = s.immersivePageNo;
+      this.immersivePages = s.immersivePages;
       this.homeCategoryKey = s.homeCategoryKey;
       this.homeSortKey = s.homeSortKey;
       return true;
@@ -123,34 +123,34 @@ export const useHomeStore = defineStore("home", {
     clearSnapshot() {
       this.homeFeedSnapshot = null;
     },
-    async loadShortsMore() {
-      if (this.homeShortsLoadingMore) return;
-      if (this.homeShortsPageNo >= (this.homeShortsPages || 0)) return;
-      this.homeShortsLoadingMore = true;
+    async loadImmersiveMore() {
+      if (this.immersiveLoadingMore) return;
+      if (this.immersivePageNo >= (this.immersivePages || 0)) return;
+      this.immersiveLoadingMore = true;
       try {
-        const nextPage = this.homeShortsPageNo + 1;
+        const nextPage = this.immersivePageNo + 1;
         const res = await fetchContentFeed({ pageNo: nextPage, pageSize: 18 });
         const nextList = Array.isArray(res.list) ? res.list : [];
         if (nextList.length) {
-          this.homeShortsRows = [...this.homeShortsRows, ...nextList];
+          this.immersiveRows = [...this.immersiveRows, ...nextList];
         }
-        this.homeShortsPages = res.pages ?? this.homeShortsPages;
-        this.homeShortsPageNo = nextPage;
+        this.immersivePages = res.pages ?? this.immersivePages;
+        this.immersivePageNo = nextPage;
       } catch {
         // 保持当前列表，避免影响首页主流
       } finally {
-        this.homeShortsLoadingMore = false;
+        this.immersiveLoadingMore = false;
         if (useNavigationStore().activeMenuKey === "home") {
           this.saveSnapshot();
         }
       }
     },
     /** 横条接近末端时续拉下一页 */
-    maybeLoadMoreShortsByElement(el) {
+    maybeLoadImmersiveMoreByElement(el) {
       if (!el) return;
       const remain = el.scrollWidth - el.scrollLeft - el.clientWidth;
       if (remain < 260) {
-        void this.loadShortsMore();
+        void this.loadImmersiveMore();
       }
     },
     async loadLongMore() {
@@ -206,15 +206,15 @@ export const useHomeStore = defineStore("home", {
     // 同一份视频/作者会同时出现在多份列表，feedPatchStore 负责广播，各域只改自己的
     patchVideoById(id, patch) {
       this.cards = patchRowById(this.cards, id, patch);
-      this.homeShortsRows = patchRowById(this.homeShortsRows, id, patch);
+      this.immersiveRows = patchRowById(this.immersiveRows, id, patch);
     },
     patchAuthorFollow(authorId, isFollow) {
       this.cards = patchRowsByAuthorId(this.cards, authorId, isFollow);
-      this.homeShortsRows = patchRowsByAuthorId(this.homeShortsRows, authorId, isFollow);
+      this.immersiveRows = patchRowsByAuthorId(this.immersiveRows, authorId, isFollow);
     },
     removeVideoById(id) {
       this.cards = removeRowById(this.cards, id);
-      this.homeShortsRows = removeRowById(this.homeShortsRows, id);
+      this.immersiveRows = removeRowById(this.immersiveRows, id);
     },
   },
 });

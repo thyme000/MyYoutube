@@ -163,6 +163,9 @@ function onTopbarAvatarError(e) {
                   <button type="button" class="video-detail-action-pill" @click="store.openForwardVideo(videoDetail)">
                     <i class="ri-share-forward-line"></i> 分享
                   </button>
+                  <button type="button" class="video-detail-action-pill" @click="store.onDownloadClick">
+                    <i class="ri-download-2-line"></i> 下载
+                  </button>
                 </div>
               </div>
               <p class="video-detail-views">{{ videoDetail.viewsText }}</p>

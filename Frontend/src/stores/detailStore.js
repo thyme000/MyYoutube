@@ -11,6 +11,7 @@ import { fetchAuthorVideos, fetchVideoDetail, normalizeVideoDetail } from "../ap
 import { followAuthor, unfollowAuthor } from "../api/followApi";
 import { parseDigitSnowflakeId } from "../utils/snowflakeId.js";
 import { toast } from "../utils/toast";
+import { downloadRemoteFile, videoDownloadName } from "../utils/downloadFile.js";
 import { cardAuthorLabel, resolveVideoUrl } from "../utils/videoCard.js";
 import { commentDisplayNickname, isBlockedComment } from "../utils/comment.js";
 import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar, DEFAULT_PROFILE_BG_URL as profileBanner, sanitizeImageUrl } from "../utils/userProfile";
@@ -504,6 +505,22 @@ export const useDetailStore = defineStore("detail", () => {
       toast("已标记为不感兴趣", "success");
     } catch (error) {
       toast(error.message || "操作失败", "error");
+    }
+  }
+
+  /** 详情层下载: 与沉浸流同一套前端直链 */
+  async function onDownloadClick() {
+    const d = video.value;
+    const url = d?.videoUrl;
+    if (!url) {
+      toast("当前视频没有可下载的地址", "info");
+      return;
+    }
+    try {
+      await downloadRemoteFile(url, videoDownloadName(d));
+      toast("视频已开始下载", "success");
+    } catch (error) {
+      toast(error?.message || "下载失败", "error");
     }
   }
 
@@ -1036,6 +1053,7 @@ export const useDetailStore = defineStore("detail", () => {
     onVideoSeeked,
     onLikeClick,
     onDislikeClick,
+    onDownloadClick,
     onFollowClick,
     isSidebarItemNowPlaying,
     onSidebarScroll,
