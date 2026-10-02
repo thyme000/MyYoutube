@@ -1,0 +1,60 @@
+package cn.diaojiahong.myyoutube.video.controller;
+
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.video.domain.dto.AudioPublishDTO;
+import cn.diaojiahong.myyoutube.video.domain.vo.AudioVO;
+import cn.diaojiahong.myyoutube.video.service.IAudioService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/audios")
+@Tag(name = "音频库模块")
+@RequiredArgsConstructor
+public class AudioController {
+
+    private final IAudioService audioService;
+
+    @PostMapping("/publish")
+    @Operation(summary = "音频入库(上传后调用, 默认公开)")
+    public Result<String> publish(@RequestBody AudioPublishDTO dto) {
+        return audioService.publish(dto);
+    }
+
+    @GetMapping("/my")
+    @Operation(summary = "我的音频列表(含私密)")
+    public Result<PageResult<AudioVO>> myAudios(@ModelAttribute PageQuery pageQuery) {
+        return audioService.myAudios(pageQuery);
+    }
+
+    @GetMapping("/library")
+    @Operation(summary = "公开音频库(可选关键词搜索)")
+    public Result<PageResult<AudioVO>> library(@RequestParam(required = false) String keyword,
+                                               @ModelAttribute PageQuery pageQuery) {
+        return audioService.library(keyword, pageQuery);
+    }
+
+    @PostMapping("/{id}/visibility")
+    @Operation(summary = "切换可见性(仅上传者)")
+    public Result<Void> setVisibility(@PathVariable Long id, @RequestParam String visibility) {
+        return audioService.setVisibility(id, visibility);
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除音频(仅上传者, 已引用动态持快照不受影响)")
+    public Result<Void> delete(@PathVariable Long id) {
+        return audioService.delete(id);
+    }
+}

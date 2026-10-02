@@ -213,6 +213,22 @@ CREATE TABLE IF NOT EXISTS `user_video_behavior` (
     KEY `idx_video_id` (`video_id`)
 ) ENGINE=InnoDB COMMENT='用户视频行为流水';
 
+-- 音频库(动态/幻灯片合成共用; 用户上传自动入库, 默认公开, 可转私密)
+CREATE TABLE IF NOT EXISTS `audio` (
+    `id`           BIGINT       NOT NULL COMMENT '雪花ID',
+    `uploader_id`  BIGINT       NOT NULL COMMENT '上传者',
+    `title`        VARCHAR(100)          DEFAULT '' COMMENT '展示名',
+    `object_key`   VARCHAR(512) NOT NULL COMMENT '音频文件objectKey',
+    `duration_ms`  INT          NOT NULL DEFAULT 0 COMMENT '时长(毫秒)',
+    `visibility`   VARCHAR(16)  NOT NULL DEFAULT 'public' COMMENT 'public/private',
+    `create_time`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `is_delete`    TINYINT      NOT NULL DEFAULT 0 COMMENT '0正常 1已删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_uploader` (`uploader_id`, `create_time`),
+    KEY `idx_visibility_create` (`visibility`, `create_time`)
+) ENGINE=InnoDB COMMENT='音频库';
+
 -- ==================== chat_db: 聊天库 ====================
 CREATE DATABASE IF NOT EXISTS chat_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE chat_db;
