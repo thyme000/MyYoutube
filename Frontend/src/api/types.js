@@ -60,12 +60,6 @@
  * @property {boolean} isLike
  * @property {number} allowComment 0/1
  *
- * @typedef {Object} MergeJobStatus
- * @property {string} status DONE | FAIL | 进行中
- * @property {string=} videoObjectKey
- * @property {any=} durationSeconds
- * @property {string=} errorMessage
- *
  * @typedef {Object} UserVO 后端用户视图
  * @property {SnowflakeId=} userId
  * @property {string=} username

@@ -1,16 +1,15 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import BaseModal from "./ui/BaseModal.vue";
 import { useNavigationStore } from "../stores/navigationStore";
 import { useStudioStore } from "../stores/studioStore";
 import { useProfileStore } from "../stores/profileStore";
 import { useToastStore } from "../stores/toastStore";
-import { publishVideo, mergePicturesToVideo, getMergePictureJobStatus } from "../api/videoApi";
+import { publishVideo } from "../api/videoApi";
 import { STORAGE_BIZ_WORK } from "../api/otherApi";
 import { uploadFileWithPresign } from "../utils/presignUpload.js";
 import { menuPathFor } from "../router";
-import SlideshowMusicPicker from "./SlideshowMusicPicker.vue";
 
 const router = useRouter();
 const navigationStore = useNavigationStore();
@@ -18,16 +17,7 @@ const studioStore = useStudioStore();
 const profileStore = useProfileStore();
 const { pushToast } = useToastStore();
 
-const uploadMode = ref("video");
-const MAX_SLIDESHOW_IMAGES = 50;
-const MERGE_POLL_INTERVAL_MS = 2000;
-const MERGE_POLL_MAX_ATTEMPTS = 200;
-const uploadSlideshowImages = ref([]);
-const uploadSlideshowAudioFile = ref(null);
 const uploadFileInputRef = ref(null);
-const uploadSlideshowImagesInputRef = ref(null);
-const uploadSlideshowAudioInputRef = ref(null);
-const uploadMusicPickerOpen = ref(false);
 const uploadForm = ref({
   title: "",
   description: "",
@@ -66,24 +56,6 @@ const uploadTagList = computed(() =>
     .filter((x) => x)
 );
 
-/** 幻灯片成片总时长（秒），与后端规则一致：每图约 2s，不足 6s 时按 6s 均摊 */
-const slideshowBgmTargetSec = computed(() => {
-  const n = uploadSlideshowImages.value.length;
-  if (n <= 0) return 0;
-  let perImage = 2;
-  if (n * perImage < 6) perImage = 6 / n;
-  return Math.round(perImage * n);
-});
-
-watch(slideshowBgmTargetSec, (sec, oldSec) => {
-  if (oldSec === undefined || oldSec <= 0) return;
-  if (sec === oldSec) return;
-  if (uploadSlideshowAudioFile.value) {
-    uploadSlideshowAudioFile.value = null;
-    pushToast("图片张数已变更，请重新选择背景音乐", "info");
-  }
-});
-
 /** 离开 /upload：有来路则回退（创作中心/菜单页原状保留），深链直入则回当前菜单页 */
 function leaveUploadRoute() {
   if (window.history.state?.back) {
@@ -99,122 +71,12 @@ function closeUploadModal() {
   }
   uploadTagEditorOpen.value = false;
   uploadTagDraft.value = "";
-  uploadSlideshowImages.value = [];
-  uploadSlideshowAudioFile.value = null;
-  uploadMusicPickerOpen.value = false;
   leaveUploadRoute();
-}
-
-function setUploadMode(mode) {
-  if (uploadSubmitting.value) return;
-  const m = mode === "slideshow" ? "slideshow" : "video";
-  uploadMode.value = m;
-  uploadMsg.value = "";
-  uploadMusicPickerOpen.value = false;
-  if (m === "video") {
-    uploadSlideshowImages.value = [];
-    uploadSlideshowAudioFile.value = null;
-  } else {
-    uploadPickedFile.value = null;
-    uploadPickedDuration.value = 0;
-  }
-}
-
-function triggerSlideshowImagesPick() {
-  uploadSlideshowImagesInputRef.value?.click();
-}
-
-function triggerSlideshowAudioPick() {
-  uploadSlideshowAudioInputRef.value?.click();
-}
-
-function openSlideshowMusicPicker() {
-  if (uploadSubmitting.value) return;
-  if (!uploadSlideshowImages.value.length) {
-    pushToast("请先添加图片，再选择背景音乐", "info");
-    return;
-  }
-  uploadMusicPickerOpen.value = true;
-}
-
-function onSlideshowCloudMusicPicked(file) {
-  uploadSlideshowAudioFile.value = file;
-  uploadMusicPickerOpen.value = false;
-  uploadMsg.value = `已选背景音乐：${file.name}`;
-}
-
-function onSlideshowImagesInputChange(e) {
-  const raw = Array.from(e?.target?.files || []).filter((f) => String(f?.type || "").startsWith("image/"));
-  if (e?.target && "value" in e.target) {
-    e.target.value = "";
-  }
-  if (!raw.length) return;
-  const merged = [...uploadSlideshowImages.value, ...raw].slice(0, MAX_SLIDESHOW_IMAGES);
-  uploadSlideshowImages.value = merged;
-  uploadMsg.value = `已选 ${merged.length} 张图片（最多 ${MAX_SLIDESHOW_IMAGES} 张）`;
-}
-
-function onSlideshowAudioInputChange(e) {
-  const f = e?.target?.files?.[0];
-  if (e?.target && "value" in e.target) {
-    e.target.value = "";
-  }
-  if (!f) return;
-  if (!String(f.type || "").startsWith("audio/") && !/\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name || "")) {
-    uploadMsg.value = "请选择音频文件";
-    return;
-  }
-  uploadSlideshowAudioFile.value = f;
-  uploadMsg.value = `已选背景音乐：${f.name}`;
-}
-
-function removeSlideshowImage(idx) {
-  uploadSlideshowImages.value = uploadSlideshowImages.value.filter((_, i) => i !== idx);
-}
-
-function clearSlideshowImages() {
-  uploadSlideshowImages.value = [];
-  uploadMsg.value = "";
-}
-
-function clearSlideshowAudio() {
-  uploadSlideshowAudioFile.value = null;
 }
 
 function onUploadModalDrop(e) {
   if (uploadSubmitting.value) return;
-  if (uploadMode.value === "slideshow") {
-    const files = Array.from(e?.dataTransfer?.files || []).filter((f) => String(f?.type || "").startsWith("image/"));
-    if (!files.length) return;
-    const merged = [...uploadSlideshowImages.value, ...files].slice(0, MAX_SLIDESHOW_IMAGES);
-    uploadSlideshowImages.value = merged;
-    uploadMsg.value = `已添加 ${files.length} 张图片，共 ${merged.length} 张`;
-    return;
-  }
   onUploadInputOrDrop(e);
-}
-
-async function pollMergePictureJob(jobId) {
-  const id = String(jobId || "").trim();
-  if (!id) throw new Error("缺少合成任务 ID");
-  for (let i = 0; i < MERGE_POLL_MAX_ATTEMPTS; i++) {
-    const st = await getMergePictureJobStatus(id);
-    if (!st || typeof st !== "object") {
-      throw new Error("任务状态异常");
-    }
-    if (st.status === "DONE") {
-      if (!st.videoObjectKey) {
-        throw new Error("合成成功但未返回视频地址");
-      }
-      return st;
-    }
-    if (st.status === "FAIL") {
-      throw new Error(st.errorMessage || "幻灯片合成失败");
-    }
-    uploadProgress.value = Math.min(92, 72 + Math.floor(i / 4));
-    await new Promise((r) => setTimeout(r, MERGE_POLL_INTERVAL_MS));
-  }
-  throw new Error("合成超时，请稍后重试或联系管理员");
 }
 
 function triggerUploadPick() {
@@ -302,14 +164,7 @@ async function submitUploadVideo() {
     pushToast("请填写视频标题", "info");
     return;
   }
-  const isSlideshow = uploadMode.value === "slideshow";
-  if (isSlideshow) {
-    if (!uploadSlideshowImages.value.length) {
-      uploadMsg.value = "请至少选择一张图片";
-      pushToast("请至少选择一张图片", "info");
-      return;
-    }
-  } else if (!uploadPickedFile.value) {
+  if (!uploadPickedFile.value) {
     uploadMsg.value = "请先选择视频文件";
     pushToast("请先选择视频文件", "info");
     return;
@@ -319,67 +174,24 @@ async function submitUploadVideo() {
   uploadMsg.value = "";
   uploadProgress.value = 0;
   try {
-    const publishBodyBase = {
+    const file = uploadPickedFile.value;
+    const { objectKey } = await uploadFileWithPresign(file, STORAGE_BIZ_WORK, (p) => {
+      uploadProgress.value = Math.max(0, Math.min(100, Math.round((p || 0) * 100)));
+    });
+    uploadProgress.value = 100;
+    const duration = uploadPickedDuration.value || (await readVideoDuration(file));
+    uploadMsg.value = "正在发布视频…";
+    await publishVideo({
       title,
       description: String(uploadForm.value.description || "").trim(),
       category: uploadForm.value.category,
       tags: uploadTagList.value.join(","),
       visibility: uploadForm.value.visibility,
       allowComment: Number(uploadForm.value.allowComment ? 1 : 0),
-    };
+      videoUrl: objectKey,
+      duration: Number(duration || 1),
+    });
 
-    if (isSlideshow) {
-      const imgs = uploadSlideshowImages.value;
-      const audio = uploadSlideshowAudioFile.value;
-      const totalParts = imgs.length + (audio ? 1 : 0);
-      const objectKeys = [];
-      for (let i = 0; i < imgs.length; i++) {
-        uploadMsg.value = `正在上传图片 ${i + 1}/${imgs.length}…`;
-        const { objectKey } = await uploadFileWithPresign(imgs[i], STORAGE_BIZ_WORK, (p) => {
-          const base = (i + (p || 0)) / totalParts;
-          uploadProgress.value = Math.max(0, Math.min(68, Math.round(base * 68)));
-        });
-        objectKeys.push(objectKey);
-      }
-      let audioObjectKey;
-      if (audio) {
-        uploadMsg.value = "正在上传音频…";
-        const r = await uploadFileWithPresign(audio, STORAGE_BIZ_WORK, (p) => {
-          const base = (imgs.length + (p || 0)) / totalParts;
-          uploadProgress.value = Math.max(0, Math.min(68, Math.round(base * 68)));
-        });
-        audioObjectKey = r.objectKey;
-      }
-      uploadProgress.value = 70;
-      uploadMsg.value = "已提交合成任务，请稍候…";
-      const jobId = await mergePicturesToVideo({
-        objectKeys,
-        ...(audioObjectKey ? { audioObjectKey } : {}),
-      });
-      const merged = await pollMergePictureJob(jobId);
-      uploadProgress.value = 94;
-      uploadMsg.value = "正在发布视频…";
-      await publishVideo({
-        ...publishBodyBase,
-        videoUrl: merged.videoObjectKey,
-        duration: Number(merged.durationSeconds || 1),
-      });
-    } else {
-      const file = uploadPickedFile.value;
-      const { objectKey } = await uploadFileWithPresign(file, STORAGE_BIZ_WORK, (p) => {
-        uploadProgress.value = Math.max(0, Math.min(100, Math.round((p || 0) * 100)));
-      });
-      uploadProgress.value = 100;
-      const duration = uploadPickedDuration.value || (await readVideoDuration(file));
-      uploadMsg.value = "正在发布视频…";
-      await publishVideo({
-        ...publishBodyBase,
-        videoUrl: objectKey,
-        duration: Number(duration || 1),
-      });
-    }
-
-    uploadProgress.value = 100;
     uploadMsg.value = "上传成功，等待审核…";
     pushToast("上传成功，等待审核…", "success");
     navigationStore.pageHint = `已发布：${title}`;
@@ -410,7 +222,6 @@ async function submitUploadVideo() {
   >
       <form
         class="upload-modal"
-        :class="{ 'upload-modal--slideshow-wide': uploadMode === 'slideshow' }"
         @submit.prevent="submitUploadVideo"
         @click.stop
       >
@@ -426,122 +237,27 @@ async function submitUploadVideo() {
             <i class="ri-close-line"></i>
           </button>
         </div>
-        <div class="upload-mode-tabs" role="tablist" aria-label="上传方式">
-          <button
-            type="button"
-            role="tab"
-            class="upload-mode-tab"
-            :class="{ 'upload-mode-tab--active': uploadMode === 'video' }"
-            :disabled="uploadSubmitting"
-            :aria-selected="uploadMode === 'video'"
-            @click="setUploadMode('video')"
-          >
-            视频文件
-          </button>
-          <button
-            type="button"
-            role="tab"
-            class="upload-mode-tab"
-            :class="{ 'upload-mode-tab--active': uploadMode === 'slideshow' }"
-            :disabled="uploadSubmitting"
-            :aria-selected="uploadMode === 'slideshow'"
-            @click="setUploadMode('slideshow')"
-          >
-            图片幻灯片
-          </button>
-        </div>
-        <div
-          class="upload-modal-main"
-          :class="{ 'upload-modal-main--split': uploadMode === 'slideshow' }"
-        >
+        <div class="upload-modal-main">
           <div
             class="upload-modal-drop"
-            :class="{ 'upload-modal-drop--slide-col': uploadMode === 'slideshow' }"
             @dragover.prevent
             @drop.prevent="onUploadModalDrop"
           >
-            <template v-if="uploadMode === 'video'">
-              <div class="upload-modal-icon">
-                <i class="ri-upload-cloud-2-line"></i>
-              </div>
-              <p class="upload-modal-main-text">将要上传的视频文件拖放到此处</p>
-              <button type="button" class="upload-modal-select" :disabled="uploadSubmitting" @click="triggerUploadPick">
-                选择文件
-              </button>
-              <p v-if="uploadPickedFile" class="upload-picked-file">已选：{{ uploadPickedFile.name }}</p>
-              <p v-if="uploadPickedDuration" class="upload-progress-text">时长约 {{ uploadPickedDuration }} 秒</p>
-            </template>
-            <template v-else>
-              <div class="upload-modal-icon">
-                <i class="ri-image-2-line"></i>
-              </div>
-              <p class="upload-modal-main-text">先按顺序添加图片（可拖入）；再选背景音乐，BGM 时长会与幻灯片总长对齐</p>
-              <div class="upload-slideshow-actions">
-                <button
-                  type="button"
-                  class="upload-modal-select"
-                  :disabled="uploadSubmitting"
-                  title="在文件选择框中可一次多选：Windows 用 Ctrl/Shift；Mac 用 Command/Shift"
-                  @click="triggerSlideshowImagesPick"
-                >
-                  添加图片（可多选）
-                </button>
-                <template v-if="uploadSlideshowImages.length">
-                  <button
-                    type="button"
-                    class="upload-modal-select upload-modal-select--ghost"
-                    :disabled="uploadSubmitting"
-                    @click="openSlideshowMusicPicker"
-                  >
-                    云端音乐（截取片段）
-                  </button>
-                  <button
-                    type="button"
-                    class="upload-modal-select upload-modal-select--ghost"
-                    :disabled="uploadSubmitting"
-                    @click="triggerSlideshowAudioPick"
-                  >
-                    本地上传音频
-                  </button>
-                </template>
-                <button
-                  v-if="uploadSlideshowImages.length"
-                  type="button"
-                  class="upload-modal-select upload-modal-select--ghost"
-                  :disabled="uploadSubmitting"
-                  @click="clearSlideshowImages"
-                >
-                  清空图片
-                </button>
-                <button
-                  v-if="uploadSlideshowAudioFile"
-                  type="button"
-                  class="upload-modal-select upload-modal-select--ghost"
-                  :disabled="uploadSubmitting"
-                  @click="clearSlideshowAudio"
-                >
-                  移除音频
-                </button>
-              </div>
-              <ul v-if="uploadSlideshowImages.length" class="upload-slideshow-list">
-                <li v-for="(f, idx) in uploadSlideshowImages" :key="`${idx}-${f.name}-${f.size}`" class="upload-slideshow-item">
-                  <span class="upload-slideshow-item-name">{{ idx + 1 }}. {{ f.name }}</span>
-                  <button type="button" class="upload-slideshow-remove" :disabled="uploadSubmitting" @click="removeSlideshowImage(idx)">
-                    移除
-                  </button>
-                </li>
-              </ul>
-              <p v-if="uploadSlideshowAudioFile" class="upload-slideshow-audio-line">音频：{{ uploadSlideshowAudioFile.name }}</p>
-            </template>
+            <div class="upload-modal-icon">
+              <i class="ri-upload-cloud-2-line"></i>
+            </div>
+            <p class="upload-modal-main-text">将要上传的视频文件拖放到此处</p>
+            <button type="button" class="upload-modal-select" :disabled="uploadSubmitting" @click="triggerUploadPick">
+              选择文件
+            </button>
+            <p v-if="uploadPickedFile" class="upload-picked-file">已选：{{ uploadPickedFile.name }}</p>
+            <p v-if="uploadPickedDuration" class="upload-progress-text">时长约 {{ uploadPickedDuration }} 秒</p>
             <p v-if="uploadSubmitting" class="upload-progress-text">
-              {{ uploadMode === "slideshow" ? "进度" : "上传进度" }}：{{ uploadProgress }}%
+              上传进度：{{ uploadProgress }}%
             </p>
           </div>
 
-          <div
-            class="upload-meta-grid"
-            :class="{ 'upload-meta-grid--slide-col': uploadMode === 'slideshow' }"
-          >
+          <div class="upload-meta-grid">
             <label class="upload-field">
               <span>标题</span>
               <input v-model="uploadForm.title" type="text" maxlength="120" required placeholder="请输入视频标题" />
@@ -615,25 +331,11 @@ async function submitUploadVideo() {
             取消
           </button>
           <button type="submit" class="upload-action upload-action--primary" :disabled="uploadSubmitting">
-            {{
-              uploadSubmitting
-                ? uploadMode === "slideshow"
-                  ? "处理中…"
-                  : "发布中…"
-                : uploadMode === "slideshow"
-                  ? "生成并发布"
-                  : "上传并发布"
-            }}
+            {{ uploadSubmitting ? "发布中…" : "上传并发布" }}
           </button>
         </div>
       </form>
   </BaseModal>
-  <SlideshowMusicPicker
-    :open="uploadMusicPickerOpen"
-    :target-segment-sec="slideshowBgmTargetSec"
-    @close="uploadMusicPickerOpen = false"
-    @picked="onSlideshowCloudMusicPicked"
-  />
   <input
     ref="uploadFileInputRef"
     type="file"
@@ -641,22 +343,5 @@ async function submitUploadVideo() {
     class="visually-hidden"
     aria-hidden="true"
     @change="onUploadInputOrDrop"
-  />
-  <input
-    ref="uploadSlideshowImagesInputRef"
-    type="file"
-    accept="image/*"
-    :multiple="true"
-    class="visually-hidden"
-    aria-hidden="true"
-    @change="onSlideshowImagesInputChange"
-  />
-  <input
-    ref="uploadSlideshowAudioInputRef"
-    type="file"
-    accept="audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg"
-    class="visually-hidden"
-    aria-hidden="true"
-    @change="onSlideshowAudioInputChange"
   />
 </template>

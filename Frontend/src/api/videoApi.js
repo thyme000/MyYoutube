@@ -6,7 +6,6 @@ import { safeSnowflakeId } from "../utils/snowflakeId.js";
 /** @typedef {import("./types").PageResult} PageResult */
 /** @typedef {import("./types").VideoCard} VideoCard */
 /** @typedef {import("./types").VideoDetail} VideoDetail */
-/** @typedef {import("./types").MergeJobStatus} MergeJobStatus */
 
 const moduleApiMap = {
   home: "/api/videos/home",
@@ -388,24 +387,6 @@ export async function fetchOtherUserVideos(userId, query = {}) {
 /** @param {{ title: string, description?: string, category: string, tags?: string, visibility: string, allowComment: number, videoUrl: string, duration: number }} body @returns {Promise<any>} */
 export async function publishVideo(body) {
   return httpRequest("/videos/publish", { method: "PUT", body });
-}
-
-/**
- * POST /videos/picture/merge — 多图（+ 可选音频 objectKey）合成幻灯片视频，返回 jobId。
- * 轮询 getMergePictureJobStatus 至 status===DONE 后，将 videoObjectKey 作为 publishVideo 的 videoUrl，durationSeconds 填 duration。
- */
-/** @param {{ objectKeys: string[], audioObjectKey?: string }} body @returns {Promise<{ jobId: string }>} */
-export async function mergePicturesToVideo(body) {
-  return httpRequest("/videos/picture/merge", { method: "POST", body });
-}
-
-/** GET /videos/picture/merge/status/{jobId} */
-/** @param {string} jobId @returns {Promise<MergeJobStatus>} */
-export async function getMergePictureJobStatus(jobId) {
-  return httpRequest(
-    `/videos/picture/merge/status/${encodeURIComponent(jobId)}`,
-    { method: "GET" }
-  );
 }
 
 /** DELETE /videos/{videoId} 删除自己的视频 */

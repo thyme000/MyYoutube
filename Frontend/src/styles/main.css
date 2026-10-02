@@ -1465,127 +1465,14 @@ body {
   width: min(520px, 94vw);
   background: var(--ink-900);
   border-radius: var(--radius-5xl);
-  border: 1px solid rgb(var(--white-rgb) / 0.88);
+  border: none;
   color: var(--color-text-inverse);
   overflow: hidden;
   box-shadow: 0 24px 80px rgb(var(--black-rgb) / 0.45);
 }
 
-/** 图片幻灯片：加宽 + 左右分栏，避免图片列表把底部按钮顶出视口 */
-.upload-modal--slideshow-wide {
-  width: min(920px, 96vw);
-  max-height: min(92vh, 900px);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.upload-modal--slideshow-wide .upload-modal-main--split {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-}
-
 .upload-modal-main {
   display: block;
-}
-
-/* 与 .upload-mode-tabs 同宽、同 gap(8px)，竖线落在两列正中间 = Tab 按钮之间的缝 */
-.upload-modal-main--split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-8);
-  align-items: start;
-  padding: 0 var(--space-18);
-  box-sizing: border-box;
-  position: relative;
-}
-
-.upload-modal-main--split::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  margin-left: -0.5px;
-  background: rgb(var(--white-rgb) / 0.12);
-  pointer-events: none;
-  z-index: 0;
-}
-
-.upload-modal-main--split > * {
-  position: relative;
-  z-index: 1;
-  min-width: 0;
-}
-
-.upload-modal-drop--slide-col {
-  min-width: 0;
-  max-height: min(58vh, 520px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding: var(--space-12) var(--space-4) var(--space-16);
-  text-align: left;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* 左侧：图标仍居中，说明文字左对齐更整齐 */
-.upload-modal-drop--slide-col .upload-modal-icon {
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.upload-modal-drop--slide-col .upload-modal-main-text {
-  text-align: left;
-}
-
-.upload-modal-drop--slide-col .upload-slideshow-actions {
-  justify-content: flex-start;
-}
-
-.upload-modal-drop--slide-col .upload-progress-text {
-  text-align: left;
-}
-
-.upload-meta-grid--slide-col {
-  min-width: 0;
-  max-height: min(58vh, 520px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  align-content: start;
-  -webkit-overflow-scrolling: touch;
-}
-
-.upload-modal-drop--slide-col .upload-slideshow-list {
-  max-height: min(220px, 36vh);
-}
-
-@media (max-width: 720px) {
-  .upload-modal-main--split {
-    grid-template-columns: 1fr;
-    padding: 0 var(--space-16);
-  }
-
-  .upload-modal-main--split::after {
-    display: none;
-  }
-
-  .upload-modal-drop--slide-col,
-  .upload-meta-grid--slide-col {
-    max-height: none;
-    border-bottom: 1px solid rgb(var(--white-rgb) / 0.1);
-  }
-
-  .upload-modal--slideshow-wide {
-    width: min(520px, 96vw);
-    max-height: none;
-    overflow: auto;
-  }
-
-  .upload-modal-drop--slide-col .upload-slideshow-list {
-    max-height: 160px;
-  }
 }
 
 .upload-modal-head {
@@ -1619,115 +1506,6 @@ body {
 
 .upload-modal-close i {
   font-size: var(--font-size-22);
-}
-
-.upload-mode-tabs {
-  display: flex;
-  gap: var(--space-8);
-  padding: var(--space-10) var(--space-18) 0;
-  border-bottom: 1px solid rgb(var(--white-rgb) / 0.06);
-}
-
-/* 与下方主内容区同一套两列 + 8px 缝，竖线可与 Tab 缝对齐 */
-.upload-modal--slideshow-wide .upload-mode-tabs {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-8);
-}
-
-.upload-mode-tab {
-  flex: 1 1 0;
-  min-width: 0;
-  border: 1px solid rgb(var(--white-rgb) / 0.12);
-  background: rgb(var(--white-rgb) / 0.04);
-  color: var(--ink-300);
-  padding: var(--space-8) var(--space-10);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  font-size: var(--font-size-13);
-  cursor: pointer;
-  text-align: center;
-  line-height: 1.35;
-}
-
-.upload-modal--slideshow-wide .upload-mode-tab {
-  min-width: 0;
-}
-
-.upload-mode-tab--active {
-  background: rgb(var(--white-rgb) / 0.12);
-  color: var(--color-text-inverse);
-  border-bottom-color: transparent;
-}
-
-.upload-mode-tab:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.upload-slideshow-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-10);
-  justify-content: center;
-  margin-bottom: var(--space-16);
-}
-
-.upload-modal-select--ghost {
-  background: transparent;
-  color: var(--color-text-inverse);
-  border: 1px solid rgb(var(--white-rgb) / 0.35);
-}
-
-.upload-modal-select--ghost:hover {
-  filter: brightness(1.08);
-}
-
-.upload-slideshow-list {
-  list-style: none;
-  margin: 0 auto var(--space-12);
-  padding: 0;
-  max-width: 100%;
-  max-height: 160px;
-  overflow-y: auto;
-  text-align: left;
-}
-
-.upload-slideshow-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-10);
-  padding: var(--space-8) var(--space-10);
-  margin-bottom: var(--space-6);
-  border-radius: var(--radius-xl);
-  background: rgb(var(--white-rgb) / 0.06);
-  font-size: var(--font-size-13);
-}
-
-.upload-slideshow-item-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.upload-slideshow-remove {
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  color: var(--red-300);
-  cursor: pointer;
-  font-size: var(--font-size-12);
-}
-
-.upload-slideshow-remove:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.upload-slideshow-audio-line {
-  margin: 0 0 var(--space-8);
-  font-size: var(--font-size-13);
-  color: var(--ink-300);
 }
 
 .upload-modal-drop {
@@ -1798,32 +1576,6 @@ body {
   gap: var(--space-12) var(--space-14);
   padding: 0 var(--space-18) var(--space-12);
   text-align: left;
-}
-
-/* 幻灯片右侧：在通用 grid 之后覆盖，避免被上面规则冲掉 */
-.upload-meta-grid.upload-meta-grid--slide-col {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: var(--space-16);
-  row-gap: var(--space-14);
-  padding: var(--space-12) var(--space-16) var(--space-16) var(--space-18);
-}
-
-.upload-meta-grid.upload-meta-grid--slide-col .upload-field:nth-child(4),
-.upload-meta-grid.upload-meta-grid--slide-col .upload-field:nth-child(5) {
-  grid-column: 1 / -1;
-}
-
-.upload-meta-grid.upload-meta-grid--slide-col .upload-field input,
-.upload-meta-grid.upload-meta-grid--slide-col .upload-field select,
-.upload-meta-grid.upload-meta-grid--slide-col .upload-field textarea {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-
-.upload-meta-grid.upload-meta-grid--slide-col .upload-tags-box {
-  width: 100%;
-  box-sizing: border-box;
 }
 
 .upload-field {
