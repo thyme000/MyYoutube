@@ -60,6 +60,7 @@ const {
   immersiveFeedMetaTimeText,
   immersiveFeedMuted,
   immersiveFeedPaused,
+  immersiveFeedPlayToken,
   immersiveFeedTitleText,
   immersiveFeedVideoBuffering,
   immersiveFeedVideoSrc,
