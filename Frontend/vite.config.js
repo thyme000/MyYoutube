@@ -45,6 +45,11 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
+      // 统一内容池(视频/动态混排); 无同名 SPA 路由, 裸前缀即可
+      "/contents": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
       // 带尾斜杠: 裸 /dynamics 是动态页的 SPA 路由, 深链刷新不应转发给后端
       "/dynamics/": {
         target: "http://localhost:8080",
