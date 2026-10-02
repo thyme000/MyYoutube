@@ -27,7 +27,6 @@ const activeTab = ref("videos");
 const qPageNo = ref(1);
 const qPageSize = ref(10);
 const qVideoStatus = ref("REVIEW");
-const qVideoType = ref("");
 const qVideoCategory = ref("");
 const qAuthorId = ref("");
 
@@ -144,7 +143,6 @@ function buildQuery() {
     pageSize: qPageSize.value,
   };
   if (qVideoStatus.value) q.videoStatus = qVideoStatus.value;
-  if (qVideoType.value) q.videoType = qVideoType.value;
   if (qVideoCategory.value) q.videoCategory = qVideoCategory.value;
   if (qAuthorId.value.trim()) q.userId = qAuthorId.value.trim();
   return q;
@@ -507,14 +505,6 @@ onMounted(() => {
               </select>
             </div>
             <div class="field">
-              <label>类型</label>
-              <select v-model="qVideoType" class="input">
-                <option value="">全部</option>
-                <option value="SHORT_VIDEO">SHORT_VIDEO</option>
-                <option value="LONG_VIDEO">LONG_VIDEO</option>
-              </select>
-            </div>
-            <div class="field">
               <label>分类</label>
               <select v-model="qVideoCategory" class="input">
                 <option value="">全部</option>
@@ -582,7 +572,6 @@ onMounted(() => {
                   </td>
                   <td>
                     <div style="font-weight: 800">{{ r.videoCategory }}</div>
-                    <div class="muted">{{ r.videoType }}</div>
                   </td>
                   <td>
                     <div class="actions">
