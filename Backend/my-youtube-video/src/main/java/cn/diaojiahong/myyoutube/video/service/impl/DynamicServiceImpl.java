@@ -13,6 +13,7 @@ import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeSubmitDTO;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
@@ -62,6 +63,7 @@ public class DynamicServiceImpl implements IDynamicService {
     private final DynamicMapper dynamicMapper;
     private final ContentMapper contentMapper;
     private final IContentTagService contentTagService;
+    private final IContentService contentService;
     private final RocketMQTemplate rocketMQTemplate;
     private final S3StorageUtil storageUtil;
     private final ObjectMapper objectMapper;
@@ -217,7 +219,14 @@ public class DynamicServiceImpl implements IDynamicService {
             return Result.fail("动态不存在");
         }
         List<DynamicVO> vos = toVOs(List.of(dynamic));
-        return Result.success(vos.get(0));
+        DynamicVO vo = vos.get(0);
+        // 详情附互动计数(来自 content 池)
+        Content c = contentService.getById(id);
+        if (c != null) {
+            vo.setLikeCount(c.getLikeCount());
+            vo.setCommentCount(c.getCommentCount());
+        }
+        return Result.success(vo);
     }
 
     @Override

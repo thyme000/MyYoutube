@@ -43,6 +43,12 @@ public class DynamicVO {
 
     private Long createTime;
 
+    /** 点赞数(来自 content 池, 详情展示用) */
+    private Long likeCount;
+
+    /** 评论数(来自 content 池, 详情展示用) */
+    private Long commentCount;
+
     @Data
     public static class Item {
 
