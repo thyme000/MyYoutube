@@ -1,4 +1,5 @@
 <script setup>
+import { useRouter } from "vue-router";
 /**
  * 「赞过的视频」页。状态与连播入口都取自 store，不再经 App 注入。
  */
@@ -40,6 +41,19 @@ const likedDisplay = computed(() => {
   }));
 });
 const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0));
+
+/** 统一内容池: 动态卡直达详情层, 视频卡进连播流 */
+const router = useRouter();
+function isDynamicItem(item) {
+  return String(item?.type ?? "") === "dynamic";
+}
+function openLikedCard(item) {
+  if (isDynamicItem(item)) {
+    void router.push(`/dynamic/${item.id}`);
+    return;
+  }
+  shorts.openLikedFeed(item);
+}
 </script>
 
 <template>
@@ -69,11 +83,14 @@ const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0))
                 :key="`liked-${item.id}`"
                 class="work-card"
                 :class="{ 'work-card--playable': resolveVideoUrl(item) }"
-                @click="shorts.openLikedFeed(item)"
-                @mouseenter="hoverPreview.enter(item, 'liked-work')"
+                @click="openLikedCard(item)"
+                @mouseenter="!isDynamicItem(item) && hoverPreview.enter(item, 'liked-work')"
                 @mouseleave="hoverPreview.leave(item, 'liked-work')"
               >
                 <div class="work-thumb">
+                  <span v-if="isDynamicItem(item)" class="work-card-badge">
+                    <i class="ri-gallery-view-2-line"></i> 轮播图集
+                  </span>
                   <video
                     v-if="hoverPreview.activeId === cardPreviewKey(item, 'liked-work')"
                     class="work-preview-video"

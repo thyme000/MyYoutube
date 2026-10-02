@@ -5,7 +5,8 @@
  * 撤桥过渡期 App 在 setup 末尾调用两个 registerXxx 完成接线。
  */
 import { defineStore } from "pinia";
-import { fetchMyVideos, setMyVideoPublic, setMyVideoPrivate, openMyVideoComment, closeMyVideoComment } from "../api/videoApi";
+import { setMyVideoPublic, setMyVideoPrivate, openMyVideoComment, closeMyVideoComment } from "../api/videoApi";
+import { fetchMyContents } from "../api/contentApi";
 import { getToken } from "../api/http";
 import { toast as pushToast } from "../utils/toast.js";
 import { patchRowById, removeRowById } from "../utils/feedRowPatch.js";
@@ -86,11 +87,16 @@ export const useStudioStore = defineStore("studio", {
           this.studioMsg = "直播内容尚未接入，敬请期待。";
           return;
         }
-        const res = await fetchMyVideos({
+        // 我的内容: 视频与动态同列(统一内容池)
+        const res = await fetchMyContents({
           pageNo: this.studioPageNo,
           pageSize: this.studioPageSize,
         });
-        this.studioRows = res.list;
+        this.studioRows = (res.list || []).map((row) => ({
+          ...row,
+          avatarUrl: row.coverUrl || row.avatarUrl,
+          viewsText: row.viewsText || (row.playCount != null ? `${row.playCount} 次播放` : ""),
+        }));
         this.studioTotal = res.total;
         this.studioPages = res.pages;
       } catch (e) {

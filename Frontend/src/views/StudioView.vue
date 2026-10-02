@@ -122,14 +122,19 @@ const {
                       <td>
                         <div class="studio-td-video">
                           <img :src="row.avatarUrl || profileBanner" alt="" class="studio-thumb" />
-                          <span>{{ row.title }}</span>
+                          <span>
+                            <i v-if="row.type === 'dynamic'" class="ri-gallery-view-2-line studio-row-dynamic-icon" title="动态"></i>
+                            {{ row.title }}
+                          </span>
                         </div>
                       </td>
                       <td>{{ formatStudioVisibility(row) }}</td>
                       <td>{{ formatStudioDate(row) }}</td>
                       <td>{{ row.viewsText }}</td>
                       <td class="studio-td-actions">
+                        <!-- 动态行暂无可见性/评论/删除操作 -->
                         <button
+                          v-if="row.type !== 'dynamic'"
                           type="button"
                           class="studio-row-more-btn"
                           aria-label="更多操作"
@@ -480,5 +485,9 @@ const {
 
 .studio-upload-fab:hover {
   background: var(--hover);
+}
+.studio-row-dynamic-icon {
+  color: var(--accent, #3ea6ff);
+  margin-right: 4px;
 }
 </style>

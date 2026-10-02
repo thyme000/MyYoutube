@@ -1082,6 +1082,11 @@ function onGlobalKeydown(ev) {
 }
 
 async function openProfileWorkFeed(item) {
+  // 动态行不进连播流, 直达动态详情
+  if (String(item?.type ?? "") === "dynamic") {
+    void router.push(`/dynamic/${item.id}`);
+    return;
+  }
   const source = profileWorksRows.value;
   if (!source.length) {
     pageHint.value = "该作者暂无可播放作品";

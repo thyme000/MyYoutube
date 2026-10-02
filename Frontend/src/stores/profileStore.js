@@ -19,7 +19,8 @@ import {
   updateUserBgImage,
   updateUserProfile,
 } from "../api/userApi";
-import { fetchMyVideos, fetchOtherUserVideos } from "../api/videoApi";
+import { fetchOtherUserVideos } from "../api/videoApi";
+import { fetchMyContents } from "../api/contentApi";
 import { getToken } from "../api/http";
 import { startSingleChat } from "./chatStore.js";
 import { useAuthStore } from "./authStore";
@@ -412,8 +413,9 @@ export const useProfileStore = defineStore("profile", {
       this.worksLoading = true;
       try {
         const isSelf = this.targetUserId == null;
+        // 我的作品: 视频与动态同列(统一内容池); 他人主页暂只显示视频
         const res = isSelf
-          ? await fetchMyVideos({ pageNo: 1, pageSize: 24 })
+          ? await fetchMyContents({ pageNo: 1, pageSize: 24 })
           : await fetchOtherUserVideos(uid, { pageNo: 1, pageSize: 24 });
         const fallbackNick = stripUserIdLikeName(this.user?.nickName || this.user?.nickname);
         const map = new Map();

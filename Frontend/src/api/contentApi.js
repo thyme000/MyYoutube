@@ -13,6 +13,16 @@ export async function fetchContentList(query = {}) {
 }
 
 /**
+ * GET /contents/mine 我的内容(创作中心/我的作品): 视频与动态同列, 含审核状态与可见性
+ * @param {{ pageNo?: number, pageSize?: number }} [query]
+ * @returns {Promise<{ total: number, pages: number, list: Array<object> }>}
+ */
+export async function fetchMyContents(query = {}) {
+  const data = await httpRequest("/contents/mine", { method: "GET", query });
+  return normalizeContentPage(data);
+}
+
+/**
  * GET /contents/feed 统一消费流(连播): 推荐召回全量混排
  * @param {{ pageNo?: number, pageSize?: number }} [query]
  * @returns {Promise<{ total: number, pages: number, list: Array<object> }>}

@@ -2347,6 +2347,7 @@ body {
 .video-card {
   position: relative;
 }
+.work-card-badge,
 .video-card-badge {
   position: absolute;
   top: 10px;
