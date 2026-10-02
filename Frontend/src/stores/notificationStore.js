@@ -153,10 +153,16 @@ export const useNotificationStore = defineStore("notification", {
       }
       const vid = item.videoId != null ? parseDigitSnowflakeId(item.videoId) : null;
       if (vid == null) {
-        toastStore.pushToast("暂无法跳转到视频（可能评论已删除）", "info");
+        toastStore.pushToast("暂无法跳转到对应内容（可能已删除）", "info");
         return;
       }
       this.closeNotifyPanel();
+      // 统一内容池: 动态通知跳动态详情层, 其余跳视频详情
+      if (String(item.refType || "").toLowerCase() === "dynamic") {
+        const { router } = await import("../router");
+        await router.push(`/dynamic/${vid}`);
+        return;
+      }
       await useDetailStore().openDetail({ id: vid });
     },
     async onNotifyDelete(item) {

@@ -366,6 +366,7 @@ const chatRailSuppress = computed(
     searchExpandOpen.value ||
     profileFeedOpen.value ||
     showVideoDetail.value ||
+    isDynamicDetailRoute.value ||
     musicLyricsFullscreen.value,
 );
 
@@ -962,6 +963,19 @@ function onStudioRowRequestDelete(row) {
 
 /** 动态详情走独立路由(/dynamic/:id), 与视频详情共用同一遮罩层 */
 const isDynamicDetailRoute = computed(() => route.name === "dynamic");
+
+/** 详情层返回: 视频详情走 store 收敛, 动态详情走路由历史 */
+function onDetailLayerBack() {
+  if (isDynamicDetailRoute.value) {
+    if (window.history.state?.back) {
+      router.back();
+      return;
+    }
+    void router.replace("/");
+    return;
+  }
+  closeVideoDetail();
+}
 watch(isDynamicDetailRoute, (active) => {
   if (active) {
     pauseShortsFeedVideos({ muteForeground: true });
@@ -1825,7 +1839,7 @@ onBeforeUnmount(() => {
 
   <div v-else class="app-layout">
     <SideNavbar
-      v-if="!showStudio && !showVideoDetail"
+      v-if="!showStudio && !showVideoDetail && !isDynamicDetailRoute"
       @select-menu="setActiveMenu"
       @open-my-profile="onSidebarOpenMyProfile"
     />
@@ -1835,7 +1849,7 @@ onBeforeUnmount(() => {
         <TopbarSearch ref="topbarSearchRef" @search="onSearch" />
 
         <div class="top-actions">
-          <button v-if="showVideoDetail" type="button" class="action-btn" @click="closeVideoDetail">返回</button>
+          <button v-if="showVideoDetail || isDynamicDetailRoute" type="button" class="action-btn" @click="onDetailLayerBack">返回</button>
           <button v-else-if="showStudio" type="button" class="action-btn" @click="closeStudio">返回</button>
           <button class="action-btn" @click="onCreate">{{ showStudio ? "上传视频" : "创建" }}</button>
           <NotifyPanel />

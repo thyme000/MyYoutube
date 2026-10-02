@@ -7,7 +7,7 @@ import { httpRequest } from "./http";
 export const NOTIFICATION_TYPE_LABELS = {
   COMMENT_LIKE: "赞了你的评论",
   COMMENT_REPLY: "回复了你的评论",
-  VIDEO_COMMENT: "评论了你的视频",
+  VIDEO_COMMENT: "评论了你的内容",
   VIDEO_LIKE: "赞了你的视频",
   NEW_FOLLOW: "关注了你",
   SYSTEM_NOTICE: "系统通知",
@@ -72,6 +72,7 @@ export function normalizeNotificationItem(raw) {
     content: raw.content || "",
     refId: raw.refId,
     videoId: raw.videoId,
+    refType: raw.refType || "",
     createTime: raw.createTime || "",
     isRead,
     conversationId,

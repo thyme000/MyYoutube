@@ -196,10 +196,13 @@ function onAvatarError(e) {
 </script>
 
 <template>
-  <div class="dyn-detail" role="dialog" aria-label="动态详情">
-    <button type="button" class="dyn-detail-close" aria-label="关闭" @click="closeDetail">
-      <i class="ri-close-line"></i>
-    </button>
+  <div class="dyn-detail-page dyn-detail-page--layer">
+    <header class="dyn-detail-toolbar">
+      <button type="button" class="dyn-detail-back" aria-label="返回" @click="closeDetail">
+        <i class="ri-arrow-left-line"></i> 返回
+      </button>
+      <span class="dyn-detail-toolbar-title">动态详情</span>
+    </header>
 
     <p v-if="loading" class="dyn-detail-hint">加载中…</p>
     <p v-else-if="errorMsg" class="dyn-detail-hint">{{ errorMsg }}</p>
@@ -298,52 +301,67 @@ function onAvatarError(e) {
 </template>
 
 <style scoped>
-.dyn-detail {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgb(0 0 0 / 0.72);
-  backdrop-filter: blur(6px);
+/* —— 动态详情: 与视频详情同款 layer 布局, 独立占满主区域, 顶栏保留 —— */
+.dyn-detail-page--layer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  position: relative;
+  z-index: 5;
 }
-.dyn-detail-close {
-  position: absolute;
-  top: 18px;
-  right: 22px;
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 50%;
-  background: rgb(255 255 255 / 0.12);
-  color: #fff;
-  font-size: 22px;
-  display: grid;
-  place-items: center;
+.dyn-detail-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.dyn-detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
   cursor: pointer;
 }
-.dyn-detail-close:hover {
-  background: rgb(255 255 255 / 0.2);
+.dyn-detail-back:hover {
+  background: rgb(0 0 0 / 0.05);
+}
+.dyn-detail-toolbar-title {
+  font-size: 14px;
+  font-weight: 600;
 }
 .dyn-detail-hint {
-  color: #ddd;
+  padding: 32px;
+  color: var(--muted, #888);
   font-size: 14px;
 }
 .dyn-detail-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  gap: 24px;
-  width: min(960px, 100%);
-  max-height: min(720px, 90vh);
+  gap: 20px;
+  padding: 18px;
+  overflow: hidden;
 }
 .dyn-detail-stage {
   flex: 0 0 auto;
-  width: min(360px, 44vw);
+  width: min(360px, 40vw);
+  overflow-y: auto;
   display: grid;
-  place-items: center;
+  place-items: start center;
 }
 .dyn-detail-stage :deep(.dyn-player) {
-  max-height: 82vh;
+  max-height: 78vh;
 }
 .dyn-detail-side {
   flex: 1;
@@ -352,8 +370,9 @@ function onAvatarError(e) {
   flex-direction: column;
   gap: 12px;
   padding: 16px;
+  border: 1px solid var(--line);
   border-radius: 14px;
-  background: var(--color-bg-surface, #181818);
+  background: var(--panel, var(--bg));
   overflow-y: auto;
 }
 .dyn-detail-head {
@@ -373,7 +392,7 @@ function onAvatarError(e) {
 }
 .dyn-detail-author span {
   font-size: 12px;
-  color: var(--ink-500, #999);
+  color: var(--muted, #999);
 }
 .dyn-detail-title {
   margin: 0;
@@ -393,11 +412,16 @@ function onAvatarError(e) {
   height: 32px;
   padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid var(--line, #333);
+  border: 1px solid var(--line);
   background: transparent;
   color: inherit;
   font-size: 13px;
   cursor: pointer;
+}
+.dyn-detail-like:disabled,
+.dyn-detail-download:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .dyn-detail-like--active {
   color: #ff4d6d;
@@ -408,17 +432,17 @@ function onAvatarError(e) {
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: var(--ink-500, #999);
+  color: var(--muted, #999);
 }
 .dyn-detail-download-link {
   font-size: 12px;
-  color: #6ea8ff;
+  color: #2f6fed;
 }
 .dyn-detail-comments {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border-top: 1px solid var(--line, #2a2a2a);
+  border-top: 1px solid var(--line);
   padding-top: 12px;
 }
 .dyn-detail-comments h4 {
@@ -434,7 +458,7 @@ function onAvatarError(e) {
   height: 34px;
   padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid var(--line, #333);
+  border: 1px solid var(--line);
   background: transparent;
   color: inherit;
   font-size: 13px;
@@ -444,7 +468,7 @@ function onAvatarError(e) {
   padding: 0 14px;
   border: none;
   border-radius: 999px;
-  background: var(--accent, #3ea6ff);
+  background: var(--accent, #2f6fed);
   color: #fff;
   font-size: 13px;
   cursor: pointer;
@@ -456,7 +480,7 @@ function onAvatarError(e) {
 .dyn-detail-comment-login {
   margin: 0;
   font-size: 12px;
-  color: var(--ink-500, #999);
+  color: var(--muted, #999);
 }
 .dyn-detail-comment-list {
   list-style: none;
@@ -489,7 +513,7 @@ function onAvatarError(e) {
 }
 .dyn-detail-comment-nick {
   font-size: 12px;
-  color: var(--ink-500, #999);
+  color: var(--muted, #999);
 }
 .dyn-detail-comment-like {
   display: inline-flex;

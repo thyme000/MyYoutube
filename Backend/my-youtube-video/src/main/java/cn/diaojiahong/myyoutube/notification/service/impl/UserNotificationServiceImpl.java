@@ -3,6 +3,8 @@ package cn.diaojiahong.myyoutube.notification.service.impl;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -36,6 +38,7 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMapper, UserNotification> implements IUserNotificationService {
+    private final IContentService contentService;
 
     private final UserPort userPort;
     private final IContentCommentService videoCommentService;
@@ -61,13 +64,20 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
             vo.setSenderId(r.getSenderId());
             vo.setType(NotificationTypeEnum.valueOf(r.getType()));
             if (r.getType().equals(NotificationTypeEnum.VIDEO_COMMENT.getCode())) {
-                // 存库时 refId 即为视频 id（非评论 id）
+                // 存库时 refId 即为内容 id（非评论 id）
                 vo.setVideoId(r.getRefId());
             } else if (r.getType().equals(NotificationTypeEnum.COMMENT_LIKE.getCode()) ||
                     r.getType().equals(NotificationTypeEnum.COMMENT_REPLY.getCode())) {
                 ContentComment comment = videoCommentService.getById(r.getRefId());
                 if (comment != null && !comment.getStatus().equals(CommentStatusEnum.DELETED.getCode())) {
                     vo.setVideoId(comment.getContentId());
+                }
+            }
+            // 跳转目标的内容类型(视频/动态), 供前端分流
+            if (vo.getVideoId() != null) {
+                Content content = contentService.getById(vo.getVideoId());
+                if (content != null && content.getType() != null) {
+                    vo.setRefType(content.getType().getCode());
                 }
             }
             vo.setContent(r.getContent());
