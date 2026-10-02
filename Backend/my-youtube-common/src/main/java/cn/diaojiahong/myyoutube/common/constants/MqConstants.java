@@ -23,5 +23,5 @@ public class MqConstants {
     public static final String TAG_UNLIKE = "unlike";
     public static final String TAG_PUBLISH = "publish";
     public static final String TAG_ES_USER = "user";
-    public static final String TAG_ES_VIDEO = "video";
+    public static final String TAG_ES_CONTENT = "video";
 }

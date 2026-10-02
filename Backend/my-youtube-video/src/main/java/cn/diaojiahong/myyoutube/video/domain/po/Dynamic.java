@@ -54,6 +54,11 @@ public class Dynamic implements Serializable {
     /** 时间轴 JSON: [{imageObjectKey,startMs,durationMs,focusX,focusY}] */
     private String timelineJson;
 
+    /**
+     * 标签, 逗号分隔(可选)
+     */
+    private String tags;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

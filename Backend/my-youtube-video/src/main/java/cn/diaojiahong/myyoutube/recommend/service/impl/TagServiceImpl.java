@@ -26,6 +26,10 @@ public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements ITagS
 
     @Override
     public List<Long> getTagIdsBySlugs(String tags) {
+        // 动态等可选标签场景: 空串直接返回空
+        if (tags == null || tags.isBlank()) {
+            return List.of();
+        }
         // 拿出所有的标签
         String[] split = tags.split(",");
 

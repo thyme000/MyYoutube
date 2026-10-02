@@ -4,8 +4,8 @@ import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.search.api.message.UserDocSyncMessage;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
-import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
-import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
+import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
+import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +29,7 @@ public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> 
 
     private final UserPort userPort;
     private final UserDocRepository userDocRepository;
-    private final VideoDocRepository videoDocRepository;
+    private final ContentDocRepository videoDocRepository;
 
     /**
      * 用户文档同步: 以 MySQL 为准写入 ES, 延迟投递天然合并短时间内的多次变更
@@ -43,7 +43,7 @@ public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> 
         }
         // 同步刷新该用户的视频文档作者昵称
         try {
-            List<VideoDoc> videoDocs = videoDocRepository.findVideoDocByAuthorId(message.getUserId());
+            List<ContentDoc> videoDocs = videoDocRepository.findContentDocByAuthorId(message.getUserId());
             if (videoDocs != null && !videoDocs.isEmpty()) {
                 videoDocs.forEach(v -> {
                     v.setAuthorName(user.getNickname());

@@ -1,9 +1,9 @@
 package cn.diaojiahong.myyoutube.search.port;
 
-import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
-import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
-import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
-import cn.diaojiahong.myyoutube.search.api.VideoDocPort.StatusSync;
+import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
+import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
+import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
+import cn.diaojiahong.myyoutube.search.api.ContentDocPort.StatusSync;
 import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.elasticsearch.core.suggest.Completion;
@@ -15,35 +15,35 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
-public class VideoDocPortImpl implements VideoDocPort {
+public class ContentDocPortImpl implements ContentDocPort {
 
-    private final VideoDocRepository videoDocRepository;
+    private final ContentDocRepository contentDocRepository;
 
     @Override
-    public void deleteDoc(Long videoId) {
-        videoDocRepository.deleteById(videoId);
+    public void deleteDoc(Long contentId) {
+        contentDocRepository.deleteById(contentId);
     }
 
     @Override
-    public void adjustPlayCount(Long videoId, Long delta) {
-        videoDocRepository.findById(videoId).ifPresent(doc -> {
+    public void adjustPlayCount(Long contentId, Long delta) {
+        contentDocRepository.findById(contentId).ifPresent(doc -> {
             doc.setPlayCount((doc.getPlayCount() != null ? doc.getPlayCount() : 0L) + delta);
-            videoDocRepository.save(doc);
+            contentDocRepository.save(doc);
         });
     }
 
     @Override
-    public void syncPlayLike(Long videoId, Long playCount, Long likeCount) {
-        videoDocRepository.findById(videoId).ifPresent(doc -> {
+    public void syncPlayLike(Long contentId, Long playCount, Long likeCount) {
+        contentDocRepository.findById(contentId).ifPresent(doc -> {
             doc.setPlayCount(playCount);
             doc.setLikeCount(likeCount);
-            videoDocRepository.save(doc);
+            contentDocRepository.save(doc);
         });
     }
 
     @Override
-    public void syncStatus(Long videoId, StatusSync sync) {
-        videoDocRepository.findById(videoId).ifPresent(doc -> {
+    public void syncStatus(Long contentId, StatusSync sync) {
+        contentDocRepository.findById(contentId).ifPresent(doc -> {
             if (sync.rebuildSuggest()) {
                 List<String> list = new ArrayList<>(List.of(
                         sync.title(),
@@ -58,13 +58,13 @@ public class VideoDocPortImpl implements VideoDocPort {
                 doc.setSuggest(new Completion());
             }
             doc.setStatus(sync.statusCode());
-            videoDocRepository.save(doc);
+            contentDocRepository.save(doc);
         });
     }
 
     @Override
-    public void syncVisibility(Long videoId, VisibilitySync sync) {
-        videoDocRepository.findById(videoId).ifPresent(doc -> {
+    public void syncVisibility(Long contentId, VisibilitySync sync) {
+        contentDocRepository.findById(contentId).ifPresent(doc -> {
             if ("private".equals(sync.getVisibility())) {
                 doc.setSuggest(new Completion());
             } else if (sync.isRebuildSuggest()) {
@@ -79,7 +79,7 @@ public class VideoDocPortImpl implements VideoDocPort {
                 doc.setSuggest(new Completion(list));
             }
             doc.setVisibility(sync.getVisibility());
-            videoDocRepository.save(doc);
+            contentDocRepository.save(doc);
         });
     }
 }

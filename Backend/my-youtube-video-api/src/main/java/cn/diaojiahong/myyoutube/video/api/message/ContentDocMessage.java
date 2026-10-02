@@ -9,16 +9,19 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
- * MQ消息体,用来更新视频文档
+ * MQ消息体,用来更新统一内容池的 ES 文档
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class VideoDocMessage {
-    private Long videoId;
+public class ContentDocMessage {
+    /** 与 ContentTypeEnum.code 一致: video/dynamic */
+    private String type;
+    private Long contentId;
     private String title;
     private String description;
+    /** 封面 objectKey: 视频用封面, 动态用首帧 */
     private String coverUrl;
     private String tags;
     private String categoryCode;
@@ -30,5 +33,3 @@ public class VideoDocMessage {
     private LocalDateTime createTime;
     private List<Long> tagIds;
 }
-
-

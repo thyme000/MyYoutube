@@ -189,17 +189,17 @@ CREATE TABLE IF NOT EXISTS `tag` (
     UNIQUE KEY `uk_slug` (`slug`)
 ) ENGINE=InnoDB COMMENT='标签';
 
--- 视频-标签关联表
-CREATE TABLE IF NOT EXISTS `video_tag` (
+-- 内容-标签关联表
+CREATE TABLE IF NOT EXISTS `content_tag` (
     `id`         BIGINT        NOT NULL AUTO_INCREMENT,
-    `video_id`   BIGINT        NOT NULL,
+    `content_id` BIGINT        NOT NULL,
     `tag_id`     BIGINT        NOT NULL,
     `weight`     DECIMAL(5, 2)          DEFAULT 1.00 COMMENT '排序权重',
     `created_at` DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_video_tag` (`video_id`, `tag_id`),
+    UNIQUE KEY `uk_content_tag` (`content_id`, `tag_id`),
     KEY `idx_tag_id` (`tag_id`)
-) ENGINE=InnoDB COMMENT='视频标签关联';
+) ENGINE=InnoDB COMMENT='内容标签关联';
 
 -- 用户标签偏好表(推荐用)
 CREATE TABLE IF NOT EXISTS `user_tag_preference` (
@@ -257,6 +257,7 @@ CREATE TABLE IF NOT EXISTS `dynamic` (
     `audio_title`      VARCHAR(100)          DEFAULT '' COMMENT '音频标题(快照)',
     `audio_duration_ms` INT         NOT NULL DEFAULT 0 COMMENT '音频时长(毫秒,快照)',
     `total_duration_ms` INT        NOT NULL DEFAULT 0 COMMENT '成片总时长(毫秒)',
+    `tags`             VARCHAR(512)          DEFAULT NULL COMMENT '标签, 逗号分隔(可选, 复用 tag 体系)',
     `timeline_json`    TEXT         NOT NULL COMMENT '时间轴: [{imageObjectKey,startMs,durationMs,focusX,focusY}]',
     `create_time`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `update_time`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

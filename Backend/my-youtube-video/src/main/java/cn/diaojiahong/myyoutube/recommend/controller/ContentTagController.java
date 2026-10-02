@@ -15,6 +15,6 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/video-tag")
-public class VideoTagController {
+public class ContentTagController {
 
 }

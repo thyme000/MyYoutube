@@ -22,8 +22,8 @@ import lombok.experimental.Accessors;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)
-@TableName("video_tag")
-public class VideoTag implements Serializable {
+@TableName("content_tag")
+public class ContentTag implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
@@ -37,7 +37,7 @@ public class VideoTag implements Serializable {
     /**
      * 视频 ID，关联 video.id
      */
-    private Long videoId;
+    private Long contentId;
 
     /**
      * 标签 ID，关联 tag.id

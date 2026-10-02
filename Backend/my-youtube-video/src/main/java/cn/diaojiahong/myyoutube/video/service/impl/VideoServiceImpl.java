@@ -12,13 +12,14 @@ import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
-import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
+import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
-import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
+import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.common.mq.message.VideoCoverMessage;
+import cn.diaojiahong.myyoutube.video.api.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
@@ -70,14 +71,14 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     private final UserPort userPort;
     private final RocketMQTemplate rocketMQTemplate;
     private final S3StorageUtil storageUtil;
-    private final IVideoTagService videoTagService;
+    private final IContentTagService contentTagService;
     private final RecommendPort recommendPort;
     private final StringRedisTemplate redisTemplate;
     private final IUserFollowService userFollowService;
     private final ContentLikeMapper contentLikeMapper;
     private final ContentMapper contentMapper;
     private final IContentService contentService;
-    private final VideoDocPort videoDocPort;
+    private final ContentDocPort contentDocPort;
     private final ObjectMapper objectMapper;
 
     private static final long STORAGE_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
@@ -136,8 +137,20 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .setCreateTime(video.getCreateTime());
         contentMapper.insert(content);
         save(video);
-        // 异步保存到标签表中
-        videoTagService.saveTagsAsync(video.getTags(), video.getId(), video);
+        // 标签入库, 并延迟同步 ES content 文档(短时间多次变更天然合并)
+        List<Long> tagIds = contentTagService.saveTags(video.getTags(), video.getId());
+        rocketMQTemplate.syncSendDelayTimeSeconds(
+                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_CONTENT,
+                ContentDocMessage.builder()
+                        .type(ContentTypeEnum.VIDEO.getCode()).contentId(video.getId())
+                        .title(video.getTitle()).description(video.getDescription())
+                        .coverUrl(video.getCoverUrl()).tags(video.getTags())
+                        .categoryCode(video.getCategory() != null ? video.getCategory().getCode() : null)
+                        .statusCode(video.getStatus() != null ? video.getStatus().getCode() : null)
+                        .visibilityCode(video.getVisibility() != null ? video.getVisibility().getCode() : null)
+                        .authorId(video.getAuthorId())
+                        .createTime(video.getCreateTime()).tagIds(tagIds)
+                        .build(), 5);
     }
 
     @Override
@@ -582,7 +595,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
         // ES 尽力删除, 失败不影响 DB 删除, 列表查询以 DB is_delete 为准
         try {
-            videoDocPort.deleteDoc(videoId);
+            contentDocPort.deleteDoc(videoId);
         } catch (Exception e) {
             log.warn("ES 文档删除失败, videoId={}", videoId, e);
         }
@@ -599,7 +612,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             return Result.fail("修改失败");
         }
         // 在es中更新这个文档
-        videoDocPort.syncVisibility(videoId, new VisibilitySync(null, null, null, "private", false));
+        contentDocPort.syncVisibility(videoId, new VisibilitySync(null, null, null, "private", false));
         return Result.success();
     }
 
@@ -623,12 +636,12 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 return Result.fail("修改失败");
             } else {
                 // 在es中更新这个文档
-                videoDocPort.syncVisibility(videoId, new VisibilitySync(null, null, null, "public", false));
+                contentDocPort.syncVisibility(videoId, new VisibilitySync(null, null, null, "public", false));
                 return Result.success("修改成功,等待审核中");
             }
         }
         // 在es中更新这个文档
-        videoDocPort.syncVisibility(videoId, new VisibilitySync(video.getTitle(), video.getDescription(), video.getTags(), "public", true));
+        contentDocPort.syncVisibility(videoId, new VisibilitySync(video.getTitle(), video.getDescription(), video.getTags(), "public", true));
         return Result.success("修改成功");
     }
 

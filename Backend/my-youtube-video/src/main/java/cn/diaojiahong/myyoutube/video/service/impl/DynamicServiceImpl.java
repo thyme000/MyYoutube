@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service.impl;
 
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -13,7 +14,10 @@ import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.message.ContentDocMessage;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.dto.DynamicPublishDTO;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
@@ -57,6 +61,8 @@ public class DynamicServiceImpl implements IDynamicService {
 
     private final DynamicMapper dynamicMapper;
     private final ContentMapper contentMapper;
+    private final IContentTagService contentTagService;
+    private final RocketMQTemplate rocketMQTemplate;
     private final S3StorageUtil storageUtil;
     private final ObjectMapper objectMapper;
     private final UserPort userPort;
@@ -165,6 +171,8 @@ public class DynamicServiceImpl implements IDynamicService {
             return Result.fail("发布失败");
         }
         dynamic.setIsDelete(0);
+        dynamic.setCreateTime(java.time.LocalDateTime.now());
+        dynamic.setTags(StringUtils.hasText(dto.getTags()) ? dto.getTags().trim() : null);
         // content 池先行: 预分配雪花id, 动态表主键与之相同
         Content content = new Content()
                 .setId(IdWorker.getId())
@@ -175,6 +183,20 @@ public class DynamicServiceImpl implements IDynamicService {
         dynamic.setId(content.getId());
         contentMapper.insert(content);
         dynamicMapper.insert(dynamic);
+        // 可选标签入库, 并延迟同步 ES content 文档(首帧作封面)
+        List<Long> tagIds = contentTagService.saveTags(dynamic.getTags(), content.getId());
+        rocketMQTemplate.syncSendDelayTimeSeconds(
+                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_CONTENT,
+                ContentDocMessage.builder()
+                        .type(ContentTypeEnum.DYNAMIC.getCode()).contentId(content.getId())
+                        .title(dynamic.getTitle())
+                        .coverUrl(imageKeys.get(0))
+                        .tags(dynamic.getTags())
+                        .statusCode(VideoStatusEnum.PUBLISHED.getCode())
+                        .visibilityCode("public")
+                        .authorId(userId)
+                        .createTime(dynamic.getCreateTime()).tagIds(tagIds)
+                        .build(), 5);
         return Result.success(String.valueOf(dynamic.getId()));
     }
 

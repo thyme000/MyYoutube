@@ -7,6 +7,8 @@ import java.time.LocalDateTime;
 @Data
 public class SearchVideoVO {
     private String id;
+    /** 内容类型: video/dynamic */
+    private String type;
     private String title;
     private String description;
     private String coverUrl;

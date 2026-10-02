@@ -1,9 +1,9 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.video.api.message.VideoDocMessage;
-import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
-import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDocRepository;
+import cn.diaojiahong.myyoutube.video.api.message.ContentDocMessage;
+import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
+import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,24 +20,26 @@ import java.util.List;
 @RequiredArgsConstructor
 @RocketMQMessageListener(
         topic = MqConstants.TOPIC_ES_DOCUMENT,
-        consumerGroup = "es_document_video_group",
-        selectorExpression = MqConstants.TAG_ES_VIDEO,
+        consumerGroup = "es_document_content_group",
+        selectorExpression = MqConstants.TAG_ES_CONTENT,
         maxReconsumeTimes = 3)
-public class VideoDocListener implements RocketMQListener<VideoDocMessage> {
+public class ContentDocListener implements RocketMQListener<ContentDocMessage> {
 
-    private final VideoDocRepository videoDocRepository;
+    private final ContentDocRepository contentDocRepository;
     private final UserPort userPort;
 
     @Override
-    public void onMessage(VideoDocMessage message) {
+    public void onMessage(ContentDocMessage message) {
         List<Long> tagIds = message.getTagIds();
         List<String> list = null;
         if (message.getTags() != null) {
             list = Arrays.stream(message.getTags().split(",")).toList();
         }
 
-        VideoDoc doc = new VideoDoc();
-        doc.setId(message.getVideoId());
+        ContentDoc doc = new ContentDoc();
+        doc.setId(message.getContentId());
+        doc.setType(message.getType());
+        doc.setCoverUrl(message.getCoverUrl());
         doc.setTitle(message.getTitle());
         doc.setCategory(message.getCategoryCode());
         doc.setStatus(message.getStatusCode());
@@ -53,13 +55,13 @@ public class VideoDocListener implements RocketMQListener<VideoDocMessage> {
         doc.setAuthorName(author != null && author.getNickname() != null ? author.getNickname() : "");
         List<String> suggest = new java.util.ArrayList<>(List.of(
                 message.getTitle(),
-                message.getDescription(),
+                message.getDescription() == null ? "" : message.getDescription(),
                 doc.getAuthorName() == null ? "" : doc.getAuthorName()
         ));
         if (list != null && !list.isEmpty()) {
             suggest.addAll(list);
         }
         doc.setSuggest(new Completion(suggest));
-        videoDocRepository.save(doc);
+        contentDocRepository.save(doc);
     }
 }

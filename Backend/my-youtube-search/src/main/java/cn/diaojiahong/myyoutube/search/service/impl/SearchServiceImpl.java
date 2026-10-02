@@ -8,7 +8,7 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
-import cn.diaojiahong.myyoutube.recommend.domain.doc.VideoDoc;
+import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoByTagPageQuery;
@@ -18,8 +18,9 @@ import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
 import cn.diaojiahong.myyoutube.search.service.ISearchService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
+import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
-import cn.diaojiahong.myyoutube.video.api.dto.VideoSummary;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import cn.hutool.core.bean.BeanUtil;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
@@ -50,6 +51,7 @@ public class SearchServiceImpl implements ISearchService {
     private final ElasticsearchOperations elasticsearchOperations;
     private final FollowPort followPort;
     private final UserVideoPort userVideoPort;
+    private final ContentSummaryPort contentSummaryPort;
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final StringRedisTemplate redisTemplate;
@@ -246,7 +248,7 @@ public class SearchServiceImpl implements ISearchService {
         }
         try {
             var videoResp = elasticsearchClient.search(s -> s
-                    .index("video")
+                    .index("content")
                     .suggest(su -> su.suggesters("video_suggest", sg -> sg
                             .prefix(q)
                             .completion(c -> c.field("suggest").size(8).skipDuplicates(true))
@@ -352,19 +354,19 @@ public class SearchServiceImpl implements ISearchService {
     }
 
     private Result<PageResult<SearchVideoVO>> getSearchPageResult(NativeQuery query, int pageSize) {
-        SearchHits<VideoDoc> hits = elasticsearchOperations.search(query, VideoDoc.class);
+        SearchHits<ContentDoc> hits = elasticsearchOperations.search(query, ContentDoc.class);
         List<String> list = hits.getSearchHits().stream().map(hit -> {
-            VideoDoc doc = hit.getContent();
+            ContentDoc doc = hit.getContent();
             return doc.getId().toString();
         }).collect(Collectors.toList());
         if (list.isEmpty()) {
             return Result.success(PageResult.of(0, 0, Collections.emptyList()));
         }
-        List<VideoSummary> videos = userVideoPort.listByIdsOrdered(new HashSet<>(list));
+        List<ContentSummary> videos = contentSummaryPort.listByIdsOrdered(new HashSet<>(list));
         List<SearchVideoVO> result = BeanUtil.copyToList(videos, SearchVideoVO.class);
         // 填充用户昵称和头像url
-        Map<Long, String> authorNicknames = userPort.getNicknames(videos.stream().map(VideoSummary::getAuthorId).collect(Collectors.toList()));
-        Map<Long, String> authorAvatarUrls = userPort.getAvatars(videos.stream().map(VideoSummary::getAuthorId).collect(Collectors.toList()));
+        Map<Long, String> authorNicknames = userPort.getNicknames(videos.stream().map(ContentSummary::getAuthorId).collect(Collectors.toList()));
+        Map<Long, String> authorAvatarUrls = userPort.getAvatars(videos.stream().map(ContentSummary::getAuthorId).collect(Collectors.toList()));
         if (authorNicknames == null || authorAvatarUrls == null) {
             return Result.success(PageResult.of(0, 0, result));
         }
@@ -378,7 +380,7 @@ public class SearchServiceImpl implements ISearchService {
             re.setCoverUrl(storageUtil.signGetUrl(re.getCoverUrl(), STORAGE_EXPIRE_SECONDS));
         });
         // 判断是否点过赞
-        List<Long> likedIds = isLike(getUserId(), videos.stream().map(VideoSummary::getId).collect(Collectors.toList()));
+        List<Long> likedIds = isLike(getUserId(), videos.stream().map(ContentSummary::getId).collect(Collectors.toList()));
         if (likedIds != null && !likedIds.isEmpty()) {
             Map<Long, Boolean> isLikes = likedIds.stream().collect(Collectors.toMap(id -> id, id -> true));
             result.forEach(vo -> {

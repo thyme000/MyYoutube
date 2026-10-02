@@ -5,7 +5,7 @@ import cn.diaojiahong.myyoutube.common.counter.CounterFlushService;
 import cn.diaojiahong.myyoutube.common.schedule.ScheduleRoundLock;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
-import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
+import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import lombok.RequiredArgsConstructor;
@@ -42,7 +42,7 @@ public class ScheduleJob {
     private final StringRedisTemplate redisTemplate;
     private final IVideoService videoService;
     private final IContentService contentService;
-    private final VideoDocPort videoDocPort;
+    private final ContentDocPort contentDocPort;
     private final CounterFlushService counterFlushService;
     private final ScheduleRoundLock roundLock;
 
@@ -129,10 +129,9 @@ public class ScheduleJob {
 
     private void syncCountsToEs() {
         long lastId = readEsSyncCursor();
-        List<Video> list = videoService.lambdaQuery()
-                .eq(Video::getIsDelete, 0)
-                .gt(Video::getId, lastId)
-                .orderByAsc(Video::getId)
+        List<Content> list = contentService.lambdaQuery()
+                .gt(Content::getId, lastId)
+                .orderByAsc(Content::getId)
                 .list()
                 .stream()
                 .limit(ES_COUNT_SYNC_PAGE_SIZE)
@@ -141,17 +140,13 @@ public class ScheduleJob {
             redisTemplate.opsForValue().set(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR, "0");
             return;
         }
-        Map<Long, Content> contents = contentService.listByIds(
-                        list.stream().map(Video::getId).toList()).stream()
-                .collect(Collectors.toMap(Content::getId, c -> c));
-        for (Video v : list) {
-            Content c = contents.get(v.getId());
+        for (Content c : list) {
             try {
-                videoDocPort.syncPlayLike(v.getId(),
-                        c != null && c.getPlayCount() != null ? c.getPlayCount() : 0L,
-                        c != null && c.getLikeCount() != null ? c.getLikeCount() : 0L);
+                contentDocPort.syncPlayLike(c.getId(),
+                        c.getPlayCount() != null ? c.getPlayCount() : 0L,
+                        c.getLikeCount() != null ? c.getLikeCount() : 0L);
             } catch (Exception e) {
-                log.warn("同步 ES 播放量/点赞量失败, videoId={}", v.getId(), e);
+                log.warn("同步 ES 播放量/点赞量失败, contentId={}", c.getId(), e);
             }
         }
         long maxId = list.get(list.size() - 1).getId();

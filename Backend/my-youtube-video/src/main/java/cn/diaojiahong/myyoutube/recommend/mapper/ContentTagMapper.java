@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.recommend.mapper;
 
-import cn.diaojiahong.myyoutube.recommend.domain.po.VideoTag;
+import cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**
@@ -11,6 +11,6 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
  * @author thyme
  * @since 2026-03-25
  */
-public interface VideoTagMapper extends BaseMapper<VideoTag> {
+public interface ContentTagMapper extends BaseMapper<ContentTag> {
 
 }

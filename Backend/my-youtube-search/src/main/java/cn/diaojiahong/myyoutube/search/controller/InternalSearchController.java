@@ -1,10 +1,10 @@
 package cn.diaojiahong.myyoutube.search.controller;
 
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
-import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
+import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import cn.diaojiahong.myyoutube.search.port.RecommendPortImpl;
-import cn.diaojiahong.myyoutube.search.port.VideoDocPortImpl;
+import cn.diaojiahong.myyoutube.search.port.ContentDocPortImpl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,34 +22,34 @@ import java.util.List;
 @RequiredArgsConstructor
 public class InternalSearchController {
 
-    private final VideoDocPortImpl videoDocPort;
+    private final ContentDocPortImpl contentDocPort;
     private final RecommendPortImpl recommendPort;
 
-    @PostMapping("/video-doc/delete")
-    public void deleteDoc(@RequestParam("videoId") Long videoId) {
-        videoDocPort.deleteDoc(videoId);
+    @PostMapping("/content-doc/delete")
+    public void deleteDoc(@RequestParam("contentId") Long contentId) {
+        contentDocPort.deleteDoc(contentId);
     }
 
-    @PostMapping("/video-doc/visibility")
-    public void syncVisibility(@RequestParam("videoId") Long videoId, @RequestBody VisibilitySync sync) {
-        videoDocPort.syncVisibility(videoId, sync);
+    @PostMapping("/content-doc/visibility")
+    public void syncVisibility(@RequestParam("contentId") Long contentId, @RequestBody VisibilitySync sync) {
+        contentDocPort.syncVisibility(contentId, sync);
     }
 
-    @PostMapping("/video-doc/play-count/adjust")
-    public void adjustPlayCount(@RequestParam("videoId") Long videoId, @RequestParam("delta") Long delta) {
-        videoDocPort.adjustPlayCount(videoId, delta);
+    @PostMapping("/content-doc/play-count/adjust")
+    public void adjustPlayCount(@RequestParam("contentId") Long contentId, @RequestParam("delta") Long delta) {
+        contentDocPort.adjustPlayCount(contentId, delta);
     }
 
-    @PostMapping("/video-doc/play-like/sync")
-    public void syncPlayLike(@RequestParam("videoId") Long videoId,
+    @PostMapping("/content-doc/play-like/sync")
+    public void syncPlayLike(@RequestParam("contentId") Long contentId,
                              @RequestParam("playCount") Long playCount,
                              @RequestParam("likeCount") Long likeCount) {
-        videoDocPort.syncPlayLike(videoId, playCount, likeCount);
+        contentDocPort.syncPlayLike(contentId, playCount, likeCount);
     }
 
-    @PostMapping("/video-doc/status")
-    public void syncStatus(@RequestParam("videoId") Long videoId, @RequestBody VideoDocPort.StatusSync sync) {
-        videoDocPort.syncStatus(videoId, sync);
+    @PostMapping("/content-doc/status")
+    public void syncStatus(@RequestParam("contentId") Long contentId, @RequestBody ContentDocPort.StatusSync sync) {
+        contentDocPort.syncStatus(contentId, sync);
     }
 
     @PostMapping("/recommend/by-user")

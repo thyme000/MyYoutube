@@ -7,11 +7,11 @@ import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.recommend.domain.dto.BehaviorDTO;
 import cn.diaojiahong.myyoutube.recommend.domain.enums.EventEnum;
 import cn.diaojiahong.myyoutube.recommend.domain.po.UserVideoBehavior;
-import cn.diaojiahong.myyoutube.recommend.domain.po.VideoTag;
+import cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag;
 import cn.diaojiahong.myyoutube.recommend.mapper.UserVideoBehaviorMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserVideoBehaviorService;
-import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
+import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -40,7 +40,7 @@ import static cn.diaojiahong.myyoutube.common.utils.VideoPlayCountShardUtil.redi
 public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorMapper, UserVideoBehavior> implements IUserVideoBehaviorService {
 
     private final IUserTagPreferenceService userTagPreferenceService;
-    private final IVideoTagService videoTagService;
+    private final IContentTagService contentTagService;
     private final StringRedisTemplate redisTemplate;
 
     @Transactional
@@ -58,9 +58,9 @@ public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorM
         save(userVideoBehavior);
 
         // 获得这个视频的所有标签
-        List<Long> list = videoTagService.lambdaQuery()
-                .eq(VideoTag::getVideoId, videoId)
-                .list().stream().map(VideoTag::getTagId).toList();
+        List<Long> list = contentTagService.lambdaQuery()
+                .eq(ContentTag::getContentId, videoId)
+                .list().stream().map(ContentTag::getTagId).toList();
 
         // 更新用户喜好表
         userTagPreferenceService.saveUserTagPreferenceAsync(list, userId, behaviorDTO.getEvent());

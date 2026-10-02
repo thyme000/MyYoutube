@@ -13,7 +13,7 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.search.api.UserDocPort;
-import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
+import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
 import cn.diaojiahong.myyoutube.video.api.CommentAdminPort;
@@ -44,7 +44,7 @@ public class AdminServiceImpl implements IAdminService {
     private final UserPort userPort;
     private final VideoAdminPort videoAdminPort;
     private final CommentAdminPort commentAdminPort;
-    private final VideoDocPort videoDocPort;
+    private final ContentDocPort contentDocPort;
     private final UserDocPort userDocPort;
     private final S3StorageUtil storageUtil;
 
@@ -64,7 +64,7 @@ public class AdminServiceImpl implements IAdminService {
         // 作者作品数 +1
         userPort.adjustCounters(List.of(new CounterAdjust(video.getAuthorId(), "videoCount", 1)));
         // ES 视频文档状态(重建补全词) + 用户文档作品数
-        videoDocPort.syncStatus(videoId, new VideoDocPort.StatusSync(
+        contentDocPort.syncStatus(videoId, new ContentDocPort.StatusSync(
                 VideoStatusEnum.PUBLISHED.getCode(), video.getTitle(), video.getDescription(),
                 video.getTags(), true));
         userDocPort.adjustVideoCount(video.getAuthorId(), 1);
@@ -85,7 +85,7 @@ public class AdminServiceImpl implements IAdminService {
             userPort.adjustCounters(List.of(new CounterAdjust(video.getAuthorId(), "videoCount", -1)));
             userDocPort.adjustVideoCount(video.getAuthorId(), -1);
         }
-        videoDocPort.syncStatus(videoId, new VideoDocPort.StatusSync(
+        contentDocPort.syncStatus(videoId, new ContentDocPort.StatusSync(
                 VideoStatusEnum.BANNED.getCode(), null, null, null, false));
         return Result.success("封禁成功");
     }

@@ -9,13 +9,21 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
-@Document(indexName = "video")
+@Document(indexName = "content")
 // 单节点
 @Setting(replicas = 0, shards = 1)
-public class VideoDoc {
+public class ContentDoc {
 
     @Id
     private Long id;
+
+    /** 内容类型: video/dynamic */
+    @Field(type = FieldType.Keyword)
+    private String type;
+
+    /** 封面 objectKey: 视频用封面, 动态用首帧 */
+    @Field(type = FieldType.Keyword)
+    private String coverUrl;
 
     @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
     private String title;
