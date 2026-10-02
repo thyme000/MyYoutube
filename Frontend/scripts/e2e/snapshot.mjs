@@ -78,7 +78,10 @@ async function fetchToken(backend, user, pass) {
   });
   const body = await res.json();
   if (body.code !== 200 || !body.data) throw new Error(`登录失败: ${JSON.stringify(body)}`);
-  return body.data;
+  // 后端 /login 现在回 { accessToken, refreshToken }; 早期版本回裸 token 字符串, 两者都认
+  const token = typeof body.data === "string" ? body.data : body.data.accessToken;
+  if (!token) throw new Error(`登录响应里没有令牌: ${JSON.stringify(body)}`);
+  return token;
 }
 
 function freePort() {
