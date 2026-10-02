@@ -44,3 +44,5 @@ my-youtube:
     url: ${SEARCH_SERVICE_URL:}
   chat-service:
     url: ${CHAT_SERVICE_URL:}
+  transcode-service:
+    url: ${TRANSCODE_SERVICE_URL:}

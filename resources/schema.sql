@@ -229,6 +229,30 @@ CREATE TABLE IF NOT EXISTS `audio` (
     KEY `idx_visibility_create` (`visibility`, `create_time`)
 ) ENGINE=InnoDB COMMENT='音频库';
 
+-- 图集配乐动态(主体表; 时间轴/焦点等嵌套结构存 JSON 列)
+CREATE TABLE IF NOT EXISTS `dynamic` (
+    `id`               BIGINT       NOT NULL COMMENT '雪花ID',
+    `user_id`          BIGINT       NOT NULL COMMENT '作者ID',
+    `title`            VARCHAR(100)          DEFAULT '' COMMENT '标题',
+    `canvas_type`      VARCHAR(16)  NOT NULL DEFAULT 'vertical' COMMENT 'vertical/horizontal',
+    `canvas_w`         INT          NOT NULL COMMENT '画布宽',
+    `canvas_h`         INT          NOT NULL COMMENT '画布高',
+    `transition`       VARCHAR(16)  NOT NULL DEFAULT 'fade' COMMENT '切换方式: cut/fade',
+    `fade_ms`          INT          NOT NULL DEFAULT 800 COMMENT '叠化时长(毫秒), cut 时无效',
+    `audio_id`         BIGINT                DEFAULT NULL COMMENT '音频库条目ID',
+    `audio_object_key` VARCHAR(512)          DEFAULT '' COMMENT '背景音乐objectKey(快照)',
+    `audio_title`      VARCHAR(100)          DEFAULT '' COMMENT '音频标题(快照)',
+    `audio_duration_ms` INT         NOT NULL DEFAULT 0 COMMENT '音频时长(毫秒,快照)',
+    `total_duration_ms` INT        NOT NULL DEFAULT 0 COMMENT '成片总时长(毫秒)',
+    `timeline_json`    TEXT         NOT NULL COMMENT '时间轴: [{imageObjectKey,startMs,durationMs,focusX,focusY}]',
+    `create_time`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `is_delete`        TINYINT      NOT NULL DEFAULT 0 COMMENT '0正常 1已删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_user_create` (`user_id`, `create_time`),
+    KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB COMMENT='图集配乐动态';
+
 -- ==================== chat_db: 聊天库 ====================
 CREATE DATABASE IF NOT EXISTS chat_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE chat_db;

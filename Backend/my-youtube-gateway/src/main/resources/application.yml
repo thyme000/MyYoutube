@@ -37,7 +37,7 @@ spring:
               order: 10
             - id: video-service
               uri: lb://my-youtube-video-service
-              predicates: [ "Path=/videos/**,/like/**,/comment/**,/follow/**,/notification/**,/behavior/**,/tag/**,/video-tag/**,/user-tag-preference/**" ]
+              predicates: [ "Path=/videos/**,/dynamics/**,/audios/**,/like/**,/comment/**,/follow/**,/notification/**,/behavior/**,/tag/**,/video-tag/**,/user-tag-preference/**" ]
               order: 20
             - id: chat-service
               uri: lb://my-youtube-chat-service

@@ -42,8 +42,13 @@ public class LocalPushDispatcher implements MessageListener {
                 }
             } else if (RedisConstants.PUSH_CHANNEL_SSE.equals(channel)) {
                 if (envelope.getSignal() != null) {
+                    Map<String, Object> sseBody = new java.util.HashMap<>();
+                    sseBody.put("type", envelope.getSignal());
+                    if (envelope.getPayload() != null) {
+                        sseBody.put("payload", envelope.getPayload());
+                    }
                     sseEmitterRegistry.sendToUser(envelope.getUserId(),
-                            new GsonBuilder().create().toJson(Map.of("type", envelope.getSignal())));
+                            new GsonBuilder().create().toJson(sseBody));
                 }
             }
         } catch (Exception e) {
