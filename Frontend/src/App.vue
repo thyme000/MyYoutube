@@ -960,12 +960,29 @@ function onStudioRowRequestDelete(row) {
   closeStudioRowMenu();
 }
 
+/** 动态详情走独立路由(/dynamic/:id), 与视频详情共用同一遮罩层 */
+const isDynamicDetailRoute = computed(() => route.name === "dynamic");
+watch(isDynamicDetailRoute, (active) => {
+  if (active) {
+    pauseShortsFeedVideos({ muteForeground: true });
+  }
+});
+
+/** 卡片点击分流: 动态进 /dynamic/:id, 视频进详情弹层 */
+function isDynamicCard(card) {
+  return String(card?.type ?? "") === "dynamic";
+}
+
 function onVideoCardClick(card) {
   if (activeMenuKey.value === "shorts") {
     return;
   }
   if (activeMenuKey.value === "subscribed") {
     void openFollowFeedFromCard(card);
+    return;
+  }
+  if (isDynamicCard(card)) {
+    void router.push(`/dynamic/${card.id}`);
     return;
   }
   openVideoDetail(card);
@@ -1619,6 +1636,9 @@ registerSearchExpandHooks({
   setupSearchVideoAutoplay: () => setupSearchVideoAutoplay(),
   patchFeedVideoById: (id, patch) => patchFeedVideoById(id, patch),
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
+  openDynamicDetail: (card) => {
+    if (card?.id != null) void router.push(`/dynamic/${card.id}`);
+  },
 });
 /** shortsStore 的宿主依赖：评论数变更跨多份列表打补丁，菜单归属与播放代次仍在 App */
 registerShortsHooks({
@@ -1831,7 +1851,7 @@ onBeforeUnmount(() => {
 
       <main
         ref="contentScrollRef"
-        v-show="!showVideoDetail"
+        v-show="!showVideoDetail && !isDynamicDetailRoute"
         class="content"
         @scroll.passive="onContentScroll"
         :class="{

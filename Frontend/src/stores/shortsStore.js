@@ -51,6 +51,7 @@ import { useCommentPanelStore } from "./commentPanelStore.js";
 import { useCommentStore } from "./commentStore.js";
 import { useDetailStore } from "./detailStore.js";
 import { useFollowStore } from "./followStore.js";
+import { fetchDynamicDetail } from "../api/dynamicApi";
 import { useHomeStore } from "./homeStore.js";
 import { useLikedStore } from "./likedStore.js";
 import { useProfileStore } from "./profileStore.js";
@@ -140,6 +141,8 @@ export const useShortsStore = defineStore("shorts", {
     profileFeedOpen: false,
 
     shortsFeedIndex: 0,
+    /** 连播动态条目的详情缓存: id(String) -> DynamicVO(含时间轴) */
+    dynamicDetailCache: {},
     /**
      * 播放代次：切换视频时自增。渲染到 `:data-play-token`，loadedmetadata 时比对，
      * 用来丢弃「旧元素迟到的元数据」触发的自动播放。
@@ -231,6 +234,10 @@ export const useShortsStore = defineStore("shorts", {
     /** @returns {string} */
     shortsFeedVideoSrc() {
       return resolveVideoUrl(this.shortsFeedCurrent);
+    },
+    /** 当前条是否动态(统一内容池): 渲染 DynamicPlayer 而非 video 元素 */
+    shortsFeedIsDynamic() {
+      return String(this.shortsFeedCurrent?.type ?? "") === "dynamic";
     },
     /**
      * 普通流看接口 isLike；赞过列表后端可能不传该字段，默认视为已赞，
@@ -684,11 +691,34 @@ export const useShortsStore = defineStore("shorts", {
       }
     },
 
+    /** 动态条目按需拉详情(时间轴), 供 DynamicPlayer 播放; 已缓存直接返回 */
+    async ensureDynamicDetail(row) {
+      const id = String(row?.id ?? "");
+      if (!id) return null;
+      if (this.dynamicDetailCache[id]) return this.dynamicDetailCache[id];
+      try {
+        const detail = await fetchDynamicDetail(id);
+        if (detail && detail.items) {
+          this.dynamicDetailCache[id] = detail;
+        }
+        return detail ?? null;
+      } catch {
+        return null;
+      }
+    },
+
     onShortsFeedFgEnded() {
       const cur = this.shortsFeedCurrent;
       const now = Number(this.shortsFeedCurrentTime || 0);
       if (cur?.id) {
         void useBehaviorStore().report(cur.id, "FINISH", now * 1000);
+      }
+      // 动态行没有 video 元素, 轮播一轮即切下一条(评论打开时停留)
+      if (String(cur?.type ?? "") === "dynamic") {
+        if (this.unifiedFeedList.length > 1 && !useCommentPanelStore().shortsCommentPanelOpen) {
+          this.shortsFeedNext();
+        }
+        return;
       }
       if (this.isLongShortsFeedVideo(cur)) {
         void this.flushShortsLongPlaybackResume("ended");

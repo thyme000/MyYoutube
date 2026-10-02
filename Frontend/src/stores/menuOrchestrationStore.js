@@ -8,7 +8,8 @@
  */
 import { defineStore } from "pinia";
 import { nextTick } from "vue";
-import { fetchShortsFeedPage, fetchVideoListPage, fetchVideosByModule } from "../api/videoApi";
+import { fetchVideosByModule } from "../api/videoApi";
+import { fetchContentList, fetchContentFeed } from "../api/contentApi";
 import { VIDEO_CATEGORY_CHIPS } from "../constants/videoCategories";
 import { menuPathFor, router } from "../router";
 import { useAuthStore } from "./authStore";
@@ -51,17 +52,15 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
       if (menu.key === "home") {
         const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === home.homeCategoryKey);
         const [longRes, shortRes] = await Promise.all([
-          fetchVideoListPage({
+          // 网格走统一内容池混排接口(视频/动态同池; 分类过滤时仅视频)
+          fetchContentList({
             pageNo: 1,
             pageSize: 24,
             category: chip?.code || undefined,
             sort: home.homeSortKey,
           }),
-          fetchShortsFeedPage({
-            pageNo: 1,
-            pageSize: 18,
-            category: chip?.code || undefined,
-          }),
+          // 连播流走统一消费流(全量混排)
+          fetchContentFeed({ pageNo: 1, pageSize: 18 }),
         ]);
         home.cards = longRes.list.length ? longRes.list : [];
         home.homeLongPageNo = 1;
@@ -70,7 +69,7 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
         home.homeShortsPageNo = 1;
         home.homeShortsPages = shortRes.pages ?? 0;
         const sortLabel = homeSortOptions.find((x) => x.value === home.homeSortKey)?.label || "排序";
-        navigation.pageHint = `首页 · 长视频(/videos/list) + 短视频(/videos/shorts/feed) · ${chip?.label ?? "全部"} · ${sortLabel}`;
+        navigation.pageHint = `首页 · 内容池混排(/contents/list) + 连播(/videos/shorts/feed) · ${chip?.label ?? "全部"} · ${sortLabel}`;
         nextTick(() => {
           home.maybeLoadMoreLongByWindow();
         });
@@ -158,7 +157,7 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
       home.homeLongPages = 0;
       const list =
         menu.key === "shorts"
-          ? (await fetchShortsFeedPage({ pageNo: 1, pageSize: 24 })).list
+          ? (await fetchContentFeed({ pageNo: 1, pageSize: 24 })).list
           : await fetchVideosByModule(menu.key);
       home.cards = list.length ? list : [];
       navigation.pageHint = `你正在查看「${menu.label}」模块。当前数据来源：Spring Boot 接口。`;

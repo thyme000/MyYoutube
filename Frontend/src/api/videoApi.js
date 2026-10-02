@@ -182,6 +182,10 @@ export function normalizeVideoListVo(item, index) {
     commentCount,
     shareCount,
     duration: item.duration,
+    /** 内容类型: video/dynamic(统一内容池) */
+    type: item.type ?? "video",
+    /** 动态成片总时长(毫秒), 视频无 */
+    totalDurationMs: item.totalDurationMs,
     videoUrl: item.videoUrl ?? "",
     coverUrl: cover,
     /** 封面图（与 coverUrl 一致，兼容旧模板） */

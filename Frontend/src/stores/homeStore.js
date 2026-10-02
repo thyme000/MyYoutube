@@ -4,7 +4,7 @@
  * App.vue 过渡期用 storeToRefs 同名解构引用；拆 HomeView 时随之整体搬出。
  */
 import { defineStore } from "pinia";
-import { fetchShortsFeedPage, fetchVideoListPage } from "../api/videoApi";
+import { fetchContentList, fetchContentFeed } from "../api/contentApi";
 import { VIDEO_CATEGORY_CHIPS } from "../constants/videoCategories";
 import { patchRowById, patchRowsByAuthorId, removeRowById } from "../utils/feedRowPatch.js";
 import { useNavigationStore } from "./navigationStore";
@@ -128,13 +128,8 @@ export const useHomeStore = defineStore("home", {
       if (this.homeShortsPageNo >= (this.homeShortsPages || 0)) return;
       this.homeShortsLoadingMore = true;
       try {
-        const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === this.homeCategoryKey);
         const nextPage = this.homeShortsPageNo + 1;
-        const res = await fetchShortsFeedPage({
-          pageNo: nextPage,
-          pageSize: 18,
-          category: chip?.code || undefined,
-        });
+        const res = await fetchContentFeed({ pageNo: nextPage, pageSize: 18 });
         const nextList = Array.isArray(res.list) ? res.list : [];
         if (nextList.length) {
           this.homeShortsRows = [...this.homeShortsRows, ...nextList];
@@ -167,7 +162,7 @@ export const useHomeStore = defineStore("home", {
       try {
         const chip = VIDEO_CATEGORY_CHIPS.find((c) => c.key === this.homeCategoryKey);
         const nextPage = this.homeLongPageNo + 1;
-        const res = await fetchVideoListPage({
+        const res = await fetchContentList({
           pageNo: nextPage,
           pageSize: 24,
           category: chip?.code || undefined,

@@ -60,13 +60,7 @@ export async function fetchSearchVideo(query = {}) {
     return mockSearchVideoPage(q);
   }
   const data = await httpRequest("/search/video", { method: "GET", query: q });
-  return filterOutDynamics(data);
-  /** 统一内容池二期: 搜索已覆盖动态, 但动态卡片的混排渲染在三期接入, 先过滤避免空链路跳转 */
-  function filterOutDynamics(pageData) {
-    const page = normalizePageResult(pageData);
-    page.list = (page.list || []).filter((row) => row.type !== "dynamic");
-    return page;
-  }
+  return normalizePageResult(data);
 }
 
 /**
@@ -99,10 +93,7 @@ export async function fetchSearchTag(query = {}) {
     return mockSearchTagPage(q);
   }
   const data = await httpRequest("/search/tag", { method: "GET", query: q });
-  const page = normalizePageResult(data);
-  // 动态卡片的混排渲染在三期接入, 先过滤避免空链路跳转
-  page.list = (page.list || []).filter((row) => row.type !== "dynamic");
-  return page;
+  return normalizePageResult(data);
 }
 
 /** @param {any} data @returns {{ total: number, pages: number, list: UserSearchRow[] }} */

@@ -16,6 +16,7 @@ export const loadMenuView = {
 export const loadStudioView = () => import("../views/StudioView.vue");
 export const loadProfileCenterView = () => import("../views/ProfileCenterView.vue");
 export const loadVideoDetailView = () => import("../views/VideoDetailView.vue");
+export const loadDynamicDetailView = () => import("../views/DynamicDetailView.vue");
 
 export const MenuView = Object.fromEntries(
   Object.entries(loadMenuView).map(([key, loader]) => [key, defineAsyncComponent(loader)])

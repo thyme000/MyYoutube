@@ -12,7 +12,10 @@ import { hasUserGesture } from "../utils/userGesture";
 const props = defineProps({
   /** DynamicVO: items[{imageUrl,startMs,focusX,focusY}], transition, fadeMs, audioUrl, totalDurationMs, canvasType */
   dynamic: { type: Object, required: true },
+  /** false 时播完一轮只 emit ended 并暂停(连播切下一条用), 默认循环轮播 */
+  loop: { type: Boolean, default: true },
 });
+const emit = defineEmits(["ended"]);
 
 const rootRef = ref(null);
 const audioRef = ref(null);
@@ -52,6 +55,11 @@ function tick() {
     currentSec.value = (performance.now() - clockStartMs) / 1000;
   }
   if (totalSec.value > 0 && currentSec.value >= totalSec.value) {
+    if (!props.loop) {
+      pause();
+      emit("ended");
+      return;
+    }
     restart();
     return;
   }

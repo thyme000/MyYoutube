@@ -408,6 +408,11 @@ export const useSearchStore = defineStore("search", {
     },
 
     openSearchExpand(card, index) {
+      // 动态行不进视频放大层, 直达动态详情
+      if (String(card?.type ?? "") === "dynamic") {
+        hooks.openDynamicDetail?.(card);
+        return;
+      }
       const panel = useCommentPanelStore();
       panel.searchListCommentOpen = false;
       panel.searchListCommentCard = null;

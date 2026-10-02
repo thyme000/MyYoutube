@@ -3,8 +3,9 @@
  * 短视频域：沉浸 feed（短视频/关注/全屏队列）、共享评论面板、搜索全屏放大层。
  * 状态与动作全部直接取自各域 store；本组件只保留 DOM ref 与本地交互处理。
  */
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { storeToRefs } from "pinia";
+import DynamicPlayer from "../components/DynamicPlayer.vue";
 import { registerShortsFeedPlayerRefs, useShortsStore } from "../stores/shortsStore";
 import { registerSearchExpandRefs, useSearchStore } from "../stores/searchStore";
 import { useAuthStore } from "../stores/authStore";
@@ -50,6 +51,7 @@ const {
   shortsFeedAuthorAvatar,
   shortsFeedAuthorName,
   shortsFeedCurrent,
+  shortsFeedIsDynamic,
   shortsFeedCurrentTime,
   shortsFeedDescText,
   shortsFeedDuration,
@@ -110,6 +112,20 @@ const {
 const { loading } = storeToRefs(homeStore);
 const { activeMenuKey } = storeToRefs(navigationStore);
 
+/** 连播动态条目的详情(时间轴), 随当前行切换按需拉取 */
+const dynamicDetail = ref(null);
+watch(
+  () => [shortsFeedIsDynamic.value, shortsFeedCurrent.value?.id],
+  async ([isDynamic, id]) => {
+    if (!isDynamic || !id) {
+      dynamicDetail.value = null;
+      return;
+    }
+    dynamicDetail.value = await ensureDynamicDetail(shortsFeedCurrent.value);
+  },
+  { immediate: true }
+);
+
 // store action 与 store 绑定，可直接解构；带括号调用的函数型接口（如 searchExpandVideoUrl）
 // 在 store 里就是 action，不能写成 getter
 const {
@@ -123,6 +139,7 @@ const {
   onShortsFeedFgCanPlay,
   onShortsFeedFgDurationChange,
   onShortsFeedFgEnded,
+  ensureDynamicDetail,
   onShortsFeedFgLoadStart,
   onShortsFeedFgLoadedMetadata,
   onShortsFeedFgMediaError,
@@ -801,7 +818,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
           <div v-if="loading && !profileFeedOpen" class="shorts-feed-loading">
             {{ activeMenuKey === "subscribed" ? "正在加载关注动态…" : "正在加载短视频…" }}
           </div>
-          <template v-else-if="shortsFeedVideoSrc">
+          <template v-else-if="shortsFeedVideoSrc || shortsFeedIsDynamic">
             <div class="shorts-feed-body" :class="{ 'shorts-feed-body--comments-open': shortsCommentPanelOpen }">
               <div class="shorts-feed-player-column">
               <div
@@ -819,7 +836,16 @@ function onShortsPanelCommentUserClick(ev, userId) {
                       'short-video-stage--landscape': !shortsFeedIsPortrait,
                     }"
                   >
+                    <DynamicPlayer
+                      v-if="shortsFeedIsDynamic && dynamicDetail"
+                      :key="shortsFeedCurrent?.id"
+                      class="shorts-feed-dynamic"
+                      :dynamic="dynamicDetail"
+                      :loop="false"
+                      @ended="onShortsFeedFgEnded"
+                    />
                     <video
+                      v-if="!shortsFeedIsDynamic"
                       :key="shortsFeedCurrent?.id"
                       ref="shortsFeedBgRef"
                       class="short-video-bg"
@@ -830,6 +856,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                       :src="shortsFeedVideoSrc"
                     ></video>
                     <video
+                      v-if="!shortsFeedIsDynamic"
                       :key="shortsFeedCurrent?.id"
                       ref="shortsFeedFgRef"
                       class="short-video-fg"

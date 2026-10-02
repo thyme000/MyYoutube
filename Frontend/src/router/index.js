@@ -5,6 +5,7 @@ import {
   loadStudioView,
   loadProfileCenterView,
   loadVideoDetailView,
+  loadDynamicDetailView,
 } from "./views.js";
 
 export { MENU_ROUTES };
@@ -63,6 +64,13 @@ const routes = [
     name: "video",
     meta: { title: "视频详情" },
     components: { detail: loadVideoDetailView },
+  },
+  /** 动态详情：与视频详情同一命名视图层 */
+  {
+    path: "/dynamic/:id",
+    name: "dynamic",
+    meta: { title: "动态详情" },
+    components: { detail: loadDynamicDetailView },
   },
 ];
 

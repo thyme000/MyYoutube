@@ -2343,6 +2343,27 @@ body {
   cursor: pointer;
 }
 
+/* 统一内容池: 动态卡的轮播角标 */
+.video-card {
+  position: relative;
+}
+.video-card-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.62);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+}
+
 .video-cover {
   width: 100%;
   aspect-ratio: 16 / 9;

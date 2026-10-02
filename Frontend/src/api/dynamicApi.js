@@ -14,6 +14,17 @@ export async function publishDynamic(body) {
 }
 
 /**
+ * 动态详情(附点赞/评论计数)
+ * @param {string|number} dynamicId
+ * @returns {Promise<DynamicVO & { likeCount: number|null, commentCount: number|null }>}
+ */
+export async function fetchDynamicDetail(dynamicId) {
+  const id = String(dynamicId ?? "").trim();
+  if (!id) throw new Error("dynamicId 不能为空");
+  return httpRequest(`/dynamics/detail/${encodeURIComponent(id)}`, { method: "GET" });
+}
+
+/**
  * 动态信息流(时间倒序)
  * @param {{ pageNo?: number, pageSize?: number }} [query]
  * @returns {Promise<{ total: number, pages: number, list: DynamicVO[] }>}
