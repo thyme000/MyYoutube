@@ -27,7 +27,6 @@
  * @property {string} avatarUrl 与 coverUrl 一致，兼容旧模板
  * @property {string} authorAvatarUrl
  * @property {SnowflakeId|any} authorId
- * @property {any} videoType
  * @property {any=} category
  * @property {any=} visibility
  * @property {any=} createTime
@@ -44,7 +43,6 @@
  * @property {string} coverUrl
  * @property {string} videoUrl
  * @property {any} duration
- * @property {string} videoType
  * @property {any} playCount
  * @property {string} viewsText
  * @property {any} likeCount

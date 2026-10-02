@@ -11,7 +11,7 @@ import { cancelLikeVideo, dislikeVideo, likeVideo } from "../api/likeApi.js";
 import { fetchVideoDetail, normalizeVideoDetail } from "../api/videoApi.js";
 import { followAuthor, unfollowAuthor } from "../api/followApi.js";
 import { parseDigitSnowflakeId } from "../utils/snowflakeId.js";
-import { isLongVideoItem, readVideoDurationFromVideoEl, resolveVideoUrl } from "../utils/videoCard.js";
+import { readVideoDurationFromVideoEl, resolveVideoUrl } from "../utils/videoCard.js";
 import { sendPlaybackResumePut } from "../utils/playbackResume.js";
 import { toast as pushToast } from "../utils/toast.js";
 import { useAuthStore } from "./authStore.js";
@@ -453,13 +453,6 @@ export const useSearchStore = defineStore("search", {
     onSearchExpandFgPlay() {
       this.searchExpandPaused = false;
       expandRefs.blur?.value?.play?.().catch(() => {});
-      /** 搜索列表内预览不写入历史；仅在全屏放大且实际开始播放时上报短视频观看（PUT /videos/shorts/play） */
-      if (this.searchActive) {
-        const card = this.searchExpandCard;
-          if (card) {
-            useBehaviorStore().enqueueShortsHistory(card.id, card);
-          }
-      }
     },
 
     onSearchExpandFgPause() {
@@ -472,9 +465,7 @@ export const useSearchStore = defineStore("search", {
       } catch {
         /* ignore */
       }
-      if (isLongVideoItem(this.searchExpandCard)) {
-        void this.flushSearchExpandPlaybackResume("pause");
-      }
+      void this.flushSearchExpandPlaybackResume("pause");
     },
 
     getSearchExpandCurrentPlayTimeMs() {
@@ -497,7 +488,6 @@ export const useSearchStore = defineStore("search", {
     },
 
     flushSearchExpandPlaybackResume(reason) {
-      if (!isLongVideoItem(this.searchExpandCard)) return Promise.resolve();
       const player = expandRefs.main?.value;
       if (!player) return Promise.resolve();
 
@@ -552,7 +542,6 @@ export const useSearchStore = defineStore("search", {
       } catch {
         /* ignore */
       }
-      void useBehaviorStore().flushShortsHistory();
       nextTick(() => {
         if (this.searchActive) hooks.setupSearchVideoAutoplay();
       });
@@ -575,7 +564,7 @@ export const useSearchStore = defineStore("search", {
       if (blur && v && Math.abs(blur.currentTime - v.currentTime) > 0.2) {
         blur.currentTime = v.currentTime;
       }
-      if (isLongVideoItem(this.searchExpandCard) && v && !v.paused) {
+      if (v && !v.paused) {
         expandResumeTickCount += 1;
         if (expandResumeTickCount >= 30) {
           expandResumeTickCount = 0;

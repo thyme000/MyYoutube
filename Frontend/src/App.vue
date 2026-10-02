@@ -834,9 +834,6 @@ function onCreate() {
   if (profileFeedOpen.value) {
     closeProfileFeed();
   }
-  if (activeMenuKey.value === "shorts") {
-    void behaviorStore.flushShortsHistory();
-  }
   if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
     pauseShortsFeedVideos({ muteForeground: true });
   }
@@ -988,14 +985,14 @@ function openFollowFeedFromCard(item) {
   const playableQueue = source
     .map((x) => {
       const url = resolveVideoUrl(x) || resolveVideoUrlForListItem(x.id, x);
-      return { ...x, videoUrl: url, videoType: "SHORT_VIDEO" };
+      return { ...x, videoUrl: url };
     })
     .filter((x) => x.videoUrl);
   if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
-    playableQueue.unshift({ ...item, videoUrl: selectedUrl, videoType: "SHORT_VIDEO" });
+    playableQueue.unshift({ ...item, videoUrl: selectedUrl });
   }
   if (!playableQueue.length && selectedUrl) {
-    playableQueue.push({ ...item, videoUrl: selectedUrl, videoType: "SHORT_VIDEO" });
+    playableQueue.push({ ...item, videoUrl: selectedUrl });
   }
   const idx = playableQueue.findIndex((x) => String(x.id) === String(item.id));
   feedScope.value = "follow";
@@ -1314,7 +1311,6 @@ async function submitLogin(credentials) {
 }
 
 function logout() {
-  behaviorStore.resetShortsHistory();
   authStore.signOut();
   cards.value = [];
   profileStore.close();
@@ -1677,9 +1673,6 @@ registerProfileHooks({
     if (activeMenuKey.value === "home") {
       homeStore.saveSnapshot();
     }
-    if (activeMenuKey.value === "shorts") {
-      void behaviorStore.flushShortsHistory();
-    }
     if (activeMenuKey.value === "shorts" || activeMenuKey.value === "subscribed") {
       pauseShortsFeedVideos({ muteForeground: true });
     }
@@ -1722,7 +1715,6 @@ onMounted(async () => {
   window.addEventListener(getAuthExpiredEventName(), onAuthExpired);
   // 关闭/切走页面兜底：用 keepalive 尽量发送
   window.addEventListener("pagehide", () => {
-    void behaviorStore.flushShortsHistory({ keepalive: true });
     if (profileFeedOpen.value) {
       void flushShortsLongPlaybackResume("unload");
     }
@@ -1734,8 +1726,7 @@ onMounted(async () => {
   });
   window.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
-      void behaviorStore.flushShortsHistory({ keepalive: true });
-      if (profileFeedOpen.value) {
+        if (profileFeedOpen.value) {
         void flushShortsLongPlaybackResume("unload");
       }
     }
@@ -1801,7 +1792,6 @@ onBeforeUnmount(() => {
   window.removeEventListener("popstate", onWindowPopState);
   window.removeEventListener("pageshow", onWindowPageShow);
   window.removeEventListener(getAuthExpiredEventName(), onAuthExpired);
-  void behaviorStore.flushShortsHistory({ keepalive: true });
 });
 </script>
 

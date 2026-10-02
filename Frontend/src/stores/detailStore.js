@@ -11,7 +11,7 @@ import { fetchAuthorVideos, fetchVideoDetail, normalizeVideoDetail } from "../ap
 import { followAuthor, unfollowAuthor } from "../api/followApi";
 import { parseDigitSnowflakeId } from "../utils/snowflakeId.js";
 import { toast } from "../utils/toast";
-import { cardAuthorLabel, isLongVideoItem, resolveVideoUrl } from "../utils/videoCard.js";
+import { cardAuthorLabel, resolveVideoUrl } from "../utils/videoCard.js";
 import { commentDisplayNickname, isBlockedComment } from "../utils/comment.js";
 import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar, DEFAULT_PROFILE_BG_URL as profileBanner, sanitizeImageUrl } from "../utils/userProfile";
 import { useAuthStore } from "./authStore";
@@ -30,12 +30,6 @@ const BUFFERING_UI_DELAY_MS = 280;
 const PLAY_THRESHOLD = 0.7;
 const MAX_PLAY_DELTA_SEC = 3;
 const DETAIL_STORAGE_PREFIX = "myyoutube_vdetail_";
-
-export const detailSidebarTabs = [
-  { key: "all", label: "全部" },
-  { key: "long", label: "视频" },
-  { key: "short", label: "短视频" },
-];
 
 /**
  * @type {{
@@ -82,7 +76,6 @@ function buildDetailFromCard(card) {
     description: card?.description ?? "",
     coverUrl: card?.coverUrl || card?.avatarUrl || profileBanner,
     videoUrl: resolveVideoUrl(card) || "",
-    videoType: card?.videoType ?? "LONG_VIDEO",
     playCount: card?.playCount ?? 0,
     likeCount: card?.likeCount ?? 0,
     commentCount: card?.commentCount ?? 0,
@@ -113,7 +106,6 @@ export const useDetailStore = defineStore("detail", () => {
   /** 播放状态机要读播放器元素（进度、暂停态），ref 由 store 持有并交给模板绑定 */
   const playerRef = ref(null);
 
-  const sidebarTab = ref("all");
   const sidebarList = ref([]);
   const sidebarPageNo = ref(1);
   const sidebarPages = ref(0);
@@ -202,13 +194,9 @@ export const useDetailStore = defineStore("detail", () => {
     userPausedManually = false;
   }
 
+  // 观看历史统一挂在续播记录上, 详情弹层对所有内容都上报
   function isLongDetailVideo() {
-    const vt = video.value?.videoType;
-    if (!vt) return false;
-    const s = String(vt).toLowerCase().trim();
-    // 后端可能是 "long"，列表可能是 "LONG_VIDEO"，或其它命名包含 "long"；
-    // 兼容宽松匹配，避免刚进详情数据还没填满时错过上报。
-    return s === "long" || s === "long_video" || s === "longvideo" || s.includes("long");
+    return true;
   }
 
   function currentPlayTimeMs() {
@@ -404,10 +392,6 @@ export const useDetailStore = defineStore("detail", () => {
     if (e?.isTrusted !== false) {
       userPausedManually = false;
     }
-    const d = video.value;
-    if (d?.id && !isLongVideoItem(d)) {
-      behavior.enqueueShortsHistory(d.id, d);
-    }
     if (!isLongDetailVideo()) return;
     // 播放恢复后按 timeupdate 次数上报，这里重置计数避免刚播放就上报
     resumeTickCount = 0;
@@ -581,18 +565,9 @@ export const useDetailStore = defineStore("detail", () => {
       sidebarLoadingMore.value = true;
     }
     try {
-      const tab = sidebarTab.value;
       const query = { pageNo: sidebarPageNo.value, pageSize: SIDEBAR_PAGE_SIZE };
-      if (tab === "short") {
-        query.videoType = "SHORT_VIDEO";
-      } else if (tab === "long") {
-        query.videoType = "LONG_VIDEO";
-      }
       const res = await fetchAuthorVideos(authorId, query);
-      let batch = res.list || [];
-      if (tab === "long") {
-        batch = batch.filter(isLongVideoItem);
-      }
+      const batch = res.list || [];
       sidebarList.value = reset ? batch : [...sidebarList.value, ...batch];
       sidebarPages.value = res.pages ?? 0;
       sidebarHasMore.value = sidebarPageNo.value < (res.pages || 0);
@@ -606,12 +581,6 @@ export const useDetailStore = defineStore("detail", () => {
       sidebarLoading.value = false;
       sidebarLoadingMore.value = false;
     }
-  }
-
-  function setSidebarTab(key) {
-    if (sidebarTab.value === key) return;
-    sidebarTab.value = key;
-    void loadSidebar(true);
   }
 
   function onSidebarScroll(e) {
@@ -637,7 +606,6 @@ export const useDetailStore = defineStore("detail", () => {
       avatarUrl: item.coverUrl || item.avatarUrl,
       authorAvatarUrl: item.authorAvatarUrl,
       authorId: item.authorId,
-      videoType: item.videoType,
     });
   }
 
@@ -843,7 +811,6 @@ export const useDetailStore = defineStore("detail", () => {
       avatarUrl: d.coverUrl ?? "",
       authorAvatarUrl: d.authorAvatarUrl ?? "",
       authorId: d.authorId,
-      videoType: d.videoType,
       description: d.description,
     };
     try {
@@ -966,7 +933,6 @@ export const useDetailStore = defineStore("detail", () => {
       sessionLiked.value = Boolean(instantDetail?.isLike);
     }
     loading.value = false;
-    sidebarTab.value = "all";
     await loadSidebar(true);
     nextTick(() => {
       requestAnimationFrame(() => {
@@ -1026,7 +992,6 @@ export const useDetailStore = defineStore("detail", () => {
     buffering,
     errorMsg,
     playerRef,
-    sidebarTab,
     sidebarList,
     sidebarLoading,
     sidebarLoadingMore,
@@ -1073,7 +1038,6 @@ export const useDetailStore = defineStore("detail", () => {
     onDislikeClick,
     onFollowClick,
     isSidebarItemNowPlaying,
-    setSidebarTab,
     onSidebarScroll,
     openFromSidebar,
     loadMoreComments,

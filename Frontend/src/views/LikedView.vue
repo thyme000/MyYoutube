@@ -36,7 +36,6 @@ const likedDisplay = computed(() => {
     description: item.description || "",
     tags: item.tags || "",
     authorAvatarUrl: sanitizeImageUrl(item.authorAvatarUrl || item.authorAvatar || "") || profileAvatar,
-    videoType: item.videoType,
     ...item,
   }));
 });

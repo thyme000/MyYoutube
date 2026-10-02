@@ -12,7 +12,6 @@ import { fetchShortsFeedPage, fetchVideoListPage, fetchVideosByModule } from "..
 import { VIDEO_CATEGORY_CHIPS } from "../constants/videoCategories";
 import { menuPathFor, router } from "../router";
 import { useAuthStore } from "./authStore";
-import { useBehaviorStore } from "./behaviorStore";
 import { useDetailStore } from "./detailStore";
 import { useHistoryStore } from "./historyStore";
 import { homeSortOptions, useHomeStore } from "./homeStore";
@@ -57,7 +56,6 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
             pageSize: 24,
             category: chip?.code || undefined,
             sort: home.homeSortKey,
-            videoType: "LONG_VIDEO",
           }),
           fetchShortsFeedPage({
             pageNo: 1,
@@ -81,8 +79,7 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
       }
       if (menu.key === "history") {
         history.historyLongPageNo = 1;
-        history.historyShortPageNo = 1;
-        await Promise.all([history.loadLongPage({ reset: true }), history.loadShortPage({ reset: true })]);
+        await history.loadLongPage({ reset: true });
         home.cards = [];
         navigation.pageHint = "历史播放记录 · 长视频与短视频（分页）";
         return;
@@ -182,9 +179,6 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
           history.historyLongRows = [];
           history.historyLongPageNo = 1;
           history.historyLongPages = 0;
-          history.historyShortRows = [];
-          history.historyShortPageNo = 1;
-          history.historyShortPages = 0;
           home.cards = [];
         } else if (menu.key === "liked") {
           liked.likedRows = [];
@@ -232,9 +226,6 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
       shorts.shortsFeedPaused = true;
       shorts.resetShortsFeedProgressUiForSwitch();
       shorts.resetFeedPlayersToStart();
-    }
-    if (prevMenuKey === "shorts" && menu.key !== "shorts") {
-      void useBehaviorStore().flushShortsHistory();
     }
     if (shorts.profileFeedOpen) {
       shorts.closeProfileFeed();

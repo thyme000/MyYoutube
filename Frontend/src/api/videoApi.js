@@ -121,7 +121,6 @@ function normalizeVideo(item, index) {
     authorAvatarUrl: authorAvatar,
     authorId:
       item.authorId != null && item.authorId !== "" ? safeVideoId(item.authorId, "") : item.authorId,
-    videoType: item.videoType,
     authorNickname: nick || undefined,
   };
 }
@@ -182,6 +181,7 @@ export function normalizeVideoListVo(item, index) {
     likeCount,
     commentCount,
     shareCount,
+    duration: item.duration,
     videoUrl: item.videoUrl ?? "",
     coverUrl: cover,
     /** 封面图（与 coverUrl 一致，兼容旧模板） */
@@ -189,7 +189,6 @@ export function normalizeVideoListVo(item, index) {
     authorAvatarUrl: authorAvatar,
     authorId:
       item.authorId != null && item.authorId !== "" ? safeVideoId(item.authorId, "") : item.authorId,
-    videoType: item.videoType,
     category: item.category,
     visibility: pickVisibility(item),
     createTime: pickDateTime(item),
@@ -231,15 +230,6 @@ export function normalizeVideoDetail(raw) {
     play != null && play !== ""
       ? `${play} 次播放`
       : "—";
-  const vt = raw.videoType;
-  const videoTypeStr =
-    typeof vt === "string"
-      ? vt
-      : vt && typeof vt === "object" && "name" in vt
-        ? vt.name
-        : vt != null
-          ? String(vt)
-          : "";
   const detailNick =
     pickAuthorNickname(raw) ||
     (raw.authorId != null ? `用户 ${raw.authorId}` : "频道");
@@ -256,7 +246,6 @@ export function normalizeVideoDetail(raw) {
     coverUrl: raw.coverUrl ?? "",
     videoUrl: raw.videoUrl ?? "",
     duration: raw.duration,
-    videoType: videoTypeStr,
     playCount: play ?? 0,
     viewsText,
     likeCount: raw.likeCount ?? 0,
@@ -347,7 +336,6 @@ export async function fetchVideoDetail(videoId) {
 
 /**
  * GET /videos/{authorId} 作者作品分页
- * videoType: LONG_VIDEO | SHORT_VIDEO（与后端 VideoTypeEnum 枚举名一致；「全部」用 LONG_VIDEO 触发后端当前逻辑）
  */
 /** @param {any} authorId @param {Record<string, any>} [query] @returns {Promise<PageResult>} */
 export async function fetchAuthorVideos(authorId, query = {}) {
@@ -468,15 +456,6 @@ export async function fetchShortsFeedPage(query = {}) {
 }
 
 /**
- * GET /user/history/short 短视频历史分页（仅当前登录用户）
- */
-/** @param {Record<string, any>} [query] @returns {Promise<PageResult>} */
-export async function fetchShortHistoryPage(query = {}) {
-  const data = await httpRequest("/user/history/short", { method: "GET", query });
-  return normalizePageResult(data);
-}
-
-/**
  * GET /user/history/long 长视频历史分页（仅当前登录用户）
  */
 /** @param {Record<string, any>} [query] @returns {Promise<PageResult>} */
@@ -494,22 +473,3 @@ export async function fetchFollowVideoFeedPage(query = {}) {
   return normalizePageResult(data);
 }
 
-/**
- * PUT /videos/shorts/play 批量上报短视频观看记录
- * 后端 DTO: UserShortsWatchRecords { userId, Set<Long> shortIds }
- */
-/** @param {{ userId?: any, shortIds?: any[], videoIds?: any[] }} body @returns {Promise<any>} */
-export async function reportShortHistoryBatch(body) {
-  const rawIds = Array.isArray(body?.shortIds) ? body.shortIds : body?.videoIds || [];
-  const shortIds = rawIds
-    .map((id) => safeSnowflakeId(id))
-    .filter((id) => id !== "" && id != null);
-  const payload = {
-    userId: body?.userId ?? undefined,
-    shortIds,
-  };
-  if (payload.userId != null && payload.userId !== "") {
-    payload.userId = safeSnowflakeId(payload.userId);
-  }
-  return httpRequest("/videos/shorts/play", { method: "PUT", body: payload });
-}

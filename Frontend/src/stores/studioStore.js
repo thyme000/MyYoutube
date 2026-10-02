@@ -11,8 +11,7 @@ import { toast as pushToast } from "../utils/toast.js";
 import { patchRowById, removeRowById } from "../utils/feedRowPatch.js";
 
 export const studioTabs = [
-  { key: "video", label: "长视频" },
-  { key: "shorts", label: "短视频" },
+  { key: "video", label: "视频" },
   { key: "live", label: "直播" },
 ];
 
@@ -87,11 +86,9 @@ export const useStudioStore = defineStore("studio", {
           this.studioMsg = "直播内容尚未接入，敬请期待。";
           return;
         }
-        const vt = this.studioContentTab === "shorts" ? "SHORT_VIDEO" : "LONG_VIDEO";
         const res = await fetchMyVideos({
           pageNo: this.studioPageNo,
           pageSize: this.studioPageSize,
-          videoType: vt,
         });
         this.studioRows = res.list;
         this.studioTotal = res.total;

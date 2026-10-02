@@ -172,7 +172,6 @@ export const useHomeStore = defineStore("home", {
           pageSize: 24,
           category: chip?.code || undefined,
           sort: this.homeSortKey,
-          videoType: "LONG_VIDEO",
         });
         const nextList = Array.isArray(res.list) ? res.list : [];
         if (nextList.length) {

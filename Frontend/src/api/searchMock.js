@@ -40,7 +40,6 @@ export async function mockSearchVideoPage(query) {
       playCount: 61000 + n,
       commentCount: 300 + n,
       likeCount: 61000,
-      videoType: n % 2 === 0 ? "SHORT_VIDEO" : "LONG_VIDEO",
       isFollow: n % 3 === 0,
       createTime: new Date().toISOString(),
     });

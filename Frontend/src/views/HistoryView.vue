@@ -1,6 +1,6 @@
 <script setup>
 /**
- * 历史播放记录页（长视频 + 短视频两个区块）。状态取自 historyStore，不再经 App 注入。
+ * 历史播放记录页。状态取自 historyStore。
  */
 import { storeToRefs } from "pinia";
 import { useHistoryStore } from "../stores/historyStore";
@@ -11,7 +11,6 @@ import {
   cardAuthorAvatar,
   cardCoverSrc,
   cardAuthorLabel,
-  formatHomeShortStat,
 } from "../utils/videoCard.js";
 
 const {
@@ -20,11 +19,6 @@ const {
   historyLongPageNo,
   historyLongPages,
   historyLongExpanded,
-  historyShortRows,
-  historyShortLoading,
-  historyShortPageNo,
-  historyShortPages,
-  historyShortExpanded,
 } = storeToRefs(useHistoryStore());
 const historyStore = useHistoryStore();
 const hoverPreview = useHoverPreviewStore();
@@ -39,7 +33,7 @@ const profile = useProfileStore();
 
             <section class="history-section">
               <div class="history-section-head">
-                <h4>长视频历史记录</h4>
+                <h4>观看历史</h4>
                 <div class="history-pager">
                   <button type="button" class="history-layout-btn" :disabled="historyLongPageNo <= 1" @click="historyStore.longPrevPage">
                     上一页
@@ -55,7 +49,7 @@ const profile = useProfileStore();
                   </button>
                 </div>
               </div>
-              <div v-if="historyLongLoading" class="shorts-feed-loading">正在加载长视频历史记录…</div>
+              <div v-if="historyLongLoading" class="shorts-feed-loading">正在加载观看历史…</div>
               <div
                 v-else
                 class="home-shorts-strip history-shorts-strip"
@@ -103,73 +97,6 @@ const profile = useProfileStore();
               <div class="history-section-foot">
                 <button type="button" class="history-expand-btn" @click="historyStore.toggleLongExpanded">
                   <i class="ri-arrow-down-s-line"></i>{{ historyLongExpanded ? "收起" : "展开" }}
-                </button>
-              </div>
-            </section>
-
-            <section class="history-section">
-              <div class="history-section-head">
-                <h4>短视频历史记录</h4>
-                <div class="history-pager">
-                  <button type="button" class="history-layout-btn" :disabled="historyShortPageNo <= 1" @click="historyStore.shortPrevPage">
-                    上一页
-                  </button>
-                  <span>{{ historyShortPageNo }} / {{ Math.max(1, historyShortPages || 1) }}</span>
-                  <button
-                    type="button"
-                    class="history-layout-btn"
-                    :disabled="historyShortPageNo >= (historyShortPages || 1)"
-                    @click="historyStore.shortNextPage"
-                  >
-                    下一页
-                  </button>
-                </div>
-              </div>
-              <div v-if="historyShortLoading" class="shorts-feed-loading">正在加载短视频历史记录…</div>
-              <div
-                v-else
-                class="home-shorts-strip history-shorts-strip"
-                :class="{
-                  'history-shorts-strip--expanded history-shorts-strip--short-grid': historyShortExpanded,
-                }"
-              >
-                <article
-                  v-for="(card, index) in historyShortRows"
-                  :key="`history-short-${card.id}-${index}`"
-                  class="home-short-card"
-                  @click="historyStore.openShortCard(card, index)"
-                  @mouseenter="hoverPreview.enter(card, 'history-short')"
-                  @mouseleave="hoverPreview.leave(card, 'history-short')"
-                >
-                  <div class="home-short-media">
-                    <video
-                      v-if="hoverPreview.activeId === cardPreviewKey(card, 'history-short')"
-                      class="home-short-cover home-short-cover--video video-cover--preview"
-                      :src="activePreviewVideoUrl"
-                      muted
-                      autoplay
-                      loop
-                      playsinline
-                      preload="metadata"
-                    ></video>
-                    <img v-else class="home-short-cover" :src="cardCoverSrc(card, index)" :alt="card.title" />
-                  </div>
-                  <div class="home-short-card-footer">
-                    <div class="home-short-card-main">
-                      <p class="home-short-title">{{ card.title }}</p>
-                      <span class="home-short-author">{{ cardAuthorLabel(card) }}</span>
-                    </div>
-                    <div class="home-short-stats">
-                      <span class="home-short-stat" title="播放量">
-                        <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.playCount) }}
-                      </span>
-                    </div>
-                  </div>
-                </article>
-              </div>
-              <div class="history-section-foot">
-                <button type="button" class="history-expand-btn" @click="historyStore.toggleShortExpanded">
-                  <i class="ri-arrow-down-s-line"></i>{{ historyShortExpanded ? "收起" : "展开" }}
                 </button>
               </div>
             </section>

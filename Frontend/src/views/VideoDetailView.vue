@@ -6,7 +6,7 @@
 import { ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useAuthStore } from "../stores/authStore";
-import { useDetailStore, detailSidebarTabs } from "../stores/detailStore";
+import { useDetailStore } from "../stores/detailStore";
 import { formatCommentTime, insertGlyphIntoCommentDraft, isBlockedComment } from "../utils/comment.js";
 import { cardAuthorLabel, parseSearchTagsArray } from "../utils/videoCard.js";
 import { applyAvatarFallback, DEFAULT_PROFILE_AVATAR_URL as profileAvatar, DEFAULT_PROFILE_BG_URL as profileBanner } from "../utils/userProfile";
@@ -23,7 +23,6 @@ const {
   buffering: detailVideoBuffering,
   errorMsg: detailErrorMsg,
   playerRef: detailPlayerRef,
-  sidebarTab: detailSidebarTab,
   sidebarList: detailSidebarList,
   sidebarLoading: detailSidebarLoading,
   sidebarLoadingMore: detailSidebarLoadingMore,
@@ -433,18 +432,6 @@ function onTopbarAvatarError(e) {
             </div>
 
             <aside class="video-detail-side" aria-label="更多内容">
-              <div class="video-detail-side-chips">
-                <button
-                  v-for="tab in detailSidebarTabs"
-                  :key="tab.key"
-                  type="button"
-                  class="video-detail-chip"
-                  :class="{ 'video-detail-chip--active': detailSidebarTab === tab.key }"
-                  @click="store.setSidebarTab(tab.key)"
-                >
-                  {{ tab.label }}
-                </button>
-              </div>
               <div ref="detailSidebarScrollRef" class="video-detail-side-scroll" @scroll.passive="store.onSidebarScroll">
                 <p v-if="detailSidebarLoading && !detailSidebarList.length" class="video-detail-side-hint">加载中…</p>
                 <button

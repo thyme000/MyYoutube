@@ -1,10 +1,9 @@
 // @ts-check
 /**
- * 历史播放记录域状态：长视频与短视频两个列表的分页数据。
- * App.vue 过渡期用 storeToRefs 同名解构引用；拆 HistoryView 时随之整体搬出。
+ * 历史播放记录域状态：统一观看历史的分页数据。
  */
 import { defineStore } from "pinia";
-import { fetchLongHistoryPage, fetchShortHistoryPage } from "../api/videoApi";
+import { fetchLongHistoryPage } from "../api/videoApi";
 import { useAuthStore } from "./authStore";
 import { useShortsStore } from "./shortsStore";
 
@@ -15,11 +14,6 @@ export const useHistoryStore = defineStore("history", {
     historyLongPageNo: 1,
     historyLongPages: 0,
     historyLongExpanded: false,
-    historyShortRows: [],
-    historyShortLoading: false,
-    historyShortPageNo: 1,
-    historyShortPages: 0,
-    historyShortExpanded: false,
   }),
   actions: {
     async loadLongPage({ reset = false } = {}) {
@@ -44,38 +38,10 @@ export const useHistoryStore = defineStore("history", {
       }
       this.historyLongLoading = false;
     },
-    async loadShortPage({ reset = false } = {}) {
-      const auth = useAuthStore();
-      if (!auth.isAuthed) return;
-      if (this.historyShortLoading) return;
-      this.historyShortLoading = true;
-      try {
-        const targetPage = reset ? 1 : this.historyShortPageNo;
-        const pageSize = this.historyShortExpanded ? 15 : 5;
-        const res = await fetchShortHistoryPage({ pageNo: targetPage, pageSize });
-        const nextList = Array.isArray(res.list) ? res.list : [];
-        this.historyShortRows = nextList;
-        this.historyShortPages = Number(res.pages || 0);
-        if (reset) {
-          this.historyShortPageNo = 1;
-        }
-      } catch {
-        this.historyShortRows = [];
-        this.historyShortPageNo = 1;
-        this.historyShortPages = 0;
-      } finally {
-        this.historyShortLoading = false;
-      }
-    },
     async toggleLongExpanded() {
       this.historyLongExpanded = !this.historyLongExpanded;
       this.historyLongPageNo = 1;
       await this.loadLongPage({ reset: true });
-    },
-    async toggleShortExpanded() {
-      this.historyShortExpanded = !this.historyShortExpanded;
-      this.historyShortPageNo = 1;
-      await this.loadShortPage({ reset: true });
     },
     async longPrevPage() {
       if (this.historyLongPageNo <= 1 || this.historyLongLoading) return;
@@ -87,21 +53,8 @@ export const useHistoryStore = defineStore("history", {
       this.historyLongPageNo += 1;
       await this.loadLongPage();
     },
-    async shortPrevPage() {
-      if (this.historyShortPageNo <= 1 || this.historyShortLoading) return;
-      this.historyShortPageNo -= 1;
-      await this.loadShortPage();
-    },
-    async shortNextPage() {
-      if (this.historyShortPageNo >= (this.historyShortPages || 1) || this.historyShortLoading) return;
-      this.historyShortPageNo += 1;
-      await this.loadShortPage();
-    },
     openLongCard(index) {
-      useShortsStore().openProfileFeed(this.historyLongRows, index, { forceVideoType: "LONG_VIDEO" });
-    },
-    openShortCard(index) {
-      useShortsStore().openProfileFeed(this.historyShortRows, index, { forceVideoType: "SHORT_VIDEO" });
+      useShortsStore().openProfileFeed(this.historyLongRows, index);
     },
   },
 });

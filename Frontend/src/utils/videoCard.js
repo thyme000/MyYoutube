@@ -115,19 +115,6 @@ export function formatShortsTime(sec) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-/** 无 videoType 时按长视频处理（老数据缺字段） */
-export function isLongVideoItem(item) {
-  const t = item?.videoType;
-  if (t == null || t === "") {
-    return true;
-  }
-  const s = String(t).toUpperCase();
-  if (s.includes("SHORT") || t === "short") {
-    return false;
-  }
-  return true;
-}
-
 /** 解析卡片标签为数组（兼容 tags 数组 / 逗号分隔字符串 / # 前缀） */
 export function parseSearchTagsArray(card) {
   const raw = card?.tags ?? card?.tagNames ?? "";

@@ -14,7 +14,7 @@ function playingLongVideo(store, { currentTime = 12.5, paused = false } = {}) {
   const auth = useAuthStore();
   auth.signIn("t");
   auth.userId = 9001;
-  store.video = { id: "1001", videoType: "LONG_VIDEO" };
+  store.video = { id: "1001" };
   store.playerRef = { paused, currentTime };
   return store;
 }
@@ -38,20 +38,6 @@ afterEach(() => {
 });
 
 describe("detailStore 长视频续播上报的守卫", () => {
-  it("短视频详情不上报", async () => {
-    const store = playingLongVideo(useDetailStore());
-    store.video = { id: "1001", videoType: "SHORT_VIDEO" };
-    await store.flushPlaybackResume("pause");
-    expect(resumeCalls()).toHaveLength(0);
-  });
-
-  it("videoType 缺失时不上报", async () => {
-    const store = playingLongVideo(useDetailStore());
-    store.video = { id: "1001" };
-    await store.flushPlaybackResume("pause");
-    expect(resumeCalls()).toHaveLength(0);
-  });
-
   it("拿不到播放器元素时不上报", async () => {
     const store = playingLongVideo(useDetailStore());
     store.playerRef = null;

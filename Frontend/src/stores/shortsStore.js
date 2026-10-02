@@ -416,12 +416,11 @@ export const useShortsStore = defineStore("shorts", {
      * 全屏连播入口：历史/赞过/他人主页等列表以现有行开播（不重复请求详情）。
      * 播放器 DOM ref 由宿主经 registerShortsFeedPlayerRefs 注入。
      */
-    openProfileFeed(sourceList, index, { forceVideoType = "" } = {}) {
+    openProfileFeed(sourceList, index) {
       const source = Array.isArray(sourceList) ? sourceList : [];
       const playableQueue = source
         .map((x) => ({
           ...x,
-          videoType: forceVideoType || x?.videoType || "",
           videoUrl: resolveVideoUrl(x),
         }))
         .filter((x) => x.videoUrl);
@@ -500,9 +499,6 @@ export const useShortsStore = defineStore("shorts", {
       if (this.isLongShortsFeedVideo(cur)) {
         void this.flushShortsLongPlaybackResume("switch");
       }
-      if (cur?.id) {
-        useBehaviorStore().enqueueShortsHistory(cur.id, cur);
-      }
       if (cur?.id && dur > 0 && now / dur < 0.95) {
         void useBehaviorStore().report(cur.id, "SKIP", now * 1000);
       }
@@ -519,9 +515,6 @@ export const useShortsStore = defineStore("shorts", {
       const now = Number(this.shortsFeedCurrentTime || 0);
       if (this.isLongShortsFeedVideo(cur)) {
         void this.flushShortsLongPlaybackResume("switch");
-      }
-      if (cur?.id) {
-        useBehaviorStore().enqueueShortsHistory(cur.id, cur);
       }
       if (cur?.id && dur > 0 && now / dur < 0.95) {
         void useBehaviorStore().report(cur.id, "SKIP", now * 1000);
@@ -640,8 +633,6 @@ export const useShortsStore = defineStore("shorts", {
 
     onShortsFeedFgPlay() {
       this.shortsFeedPaused = false;
-      const cur = this.shortsFeedCurrent;
-      useBehaviorStore().enqueueShortsHistory(cur?.id, cur);
       if (this.isLongShortsFeedVideo()) {
         longResumeTickCount = 0;
       }
@@ -1179,7 +1170,7 @@ export const useShortsStore = defineStore("shorts", {
 
     // ===== 关注页：全部动态 / 按作者筛选 =====
 
-    /** 列表行 → 可播放行：补齐播放地址与 videoType，剔除取不到地址的 */
+    /** 列表行 → 可播放行：补齐播放地址，剔除取不到地址的 */
     mapToFollowPlayableRows(list) {
       const sources = [
         useProfileStore().worksRows,
@@ -1192,7 +1183,7 @@ export const useShortsStore = defineStore("shorts", {
             resolveVideoUrl(x) ||
             resolveVideoUrlFromLists(x.id, x, sources) ||
             String(x?.videoUrl || "").trim();
-          return { ...x, videoUrl: url || x.videoUrl, videoType: x.videoType || "SHORT_VIDEO" };
+          return { ...x, videoUrl: url || x.videoUrl };
         })
         .filter((x) => Boolean(String(resolveVideoUrl(x) || x.videoUrl || "").trim()));
     },
@@ -1369,10 +1360,9 @@ export const useShortsStore = defineStore("shorts", {
     // ===== 长视频续播 =====
 
     isLongShortsFeedVideo(item = this.shortsFeedCurrent) {
-      const vt = item?.videoType;
-      if (!vt) return false;
-      const s = String(vt).toLowerCase().trim();
-      return s === "long" || s === "long_video" || s === "longvideo" || s.includes("long");
+      // videoType 已退役: 达到原短视频时长上限(5分钟)即按长视频记录续播
+      const dur = Number(item?.duration);
+      return Number.isFinite(dur) && dur >= 300;
     },
 
     getShortsLongCurrentPlayTimeMs() {
