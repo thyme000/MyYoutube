@@ -66,7 +66,7 @@ export async function dislikeVideo(videoId) {
 }
 
 /**
- * GET /like/{userId}/list 点赞过的视频分页（ShortsVO 列表）
+ * GET /like/{userId}/list 点赞过的视频分页（视频列表）
  */
 /** @param {any} userId @param {Record<string, any>} [query] @returns {Promise<PageResult>} */
 export async function fetchLikedVideosPage(userId, query = {}) {

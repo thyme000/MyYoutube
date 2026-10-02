@@ -834,7 +834,7 @@ export const useSearchStore = defineStore("search", {
         return;
       }
       const panel = useCommentPanelStore();
-      panel.shortsCommentPanelOpen = false;
+      panel.immersiveCommentPanelOpen = false;
       panel.searchListCommentOpen = false;
       panel.searchListCommentCard = null;
       panel.searchExpandCommentOpen = !panel.searchExpandCommentOpen;

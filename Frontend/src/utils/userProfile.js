@@ -10,7 +10,6 @@ import { safeSnowflakeId } from "./snowflakeId.js";
 export const DEFAULT_PROFILE_AVATAR_URL = defaultAvatarUrl;
 export const DEFAULT_PROFILE_BG_URL = defaultBgUrl;
 /** 短视频作者头像缺省：与上面同源，均用 static/cat.jpg */
-export const DEFAULT_SHORTS_AUTHOR_AVATAR_URL = defaultAvatarUrl;
 
 export function sanitizeImageUrl(url) {
   if (url == null) {

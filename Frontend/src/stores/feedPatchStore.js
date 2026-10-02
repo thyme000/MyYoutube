@@ -12,7 +12,7 @@ import { useHomeStore } from "./homeStore.js";
 import { useLikedStore } from "./likedStore.js";
 import { useProfileStore } from "./profileStore.js";
 import { useSearchStore } from "./searchStore.js";
-import { useShortsStore } from "./shortsStore.js";
+import { useImmersiveStore } from "./immersiveStore.js";
 import { useStudioStore } from "./studioStore.js";
 
 export const useFeedPatchStore = defineStore("feedPatch", {
@@ -22,7 +22,7 @@ export const useFeedPatchStore = defineStore("feedPatch", {
       const id = String(videoId ?? "");
       if (!id || !patch || typeof patch !== "object") return;
       useHomeStore().patchVideoById(id, patch);
-      useShortsStore().patchVideoById(id, patch);
+      useImmersiveStore().patchVideoById(id, patch);
       useLikedStore().patchVideoById(id, patch);
       useProfileStore().patchVideoById(id, patch);
       useStudioStore().patchVideoById(id, patch);
@@ -35,7 +35,7 @@ export const useFeedPatchStore = defineStore("feedPatch", {
       const aid = String(authorId ?? "");
       if (!aid) return;
       useHomeStore().patchAuthorFollow(aid, isFollow);
-      useShortsStore().patchAuthorFollow(aid, isFollow);
+      useImmersiveStore().patchAuthorFollow(aid, isFollow);
       useLikedStore().patchAuthorFollow(aid, isFollow);
       useProfileStore().patchAuthorFollow(aid, isFollow);
       useSearchStore().patchAuthorFollow(aid, isFollow);
@@ -46,7 +46,7 @@ export const useFeedPatchStore = defineStore("feedPatch", {
       const id = String(videoId ?? "");
       if (!id) return;
       useHomeStore().removeVideoById(id);
-      useShortsStore().removeVideoById(id);
+      useImmersiveStore().removeVideoById(id);
       useLikedStore().removeVideoById(id);
       useProfileStore().removeVideoById(id);
       useStudioStore().removeVideoById(id);

@@ -16,8 +16,8 @@ import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar } from "../utils/userProfil
 import {
   resolveVideoUrl,
   cardAuthorAvatar,
-  formatHomeShortStat,
-  formatShortsTime,
+  formatCompactStat,
+  formatPlaybackTime,
   parseSearchTagsArray,
   formatSearchRelTime,
   readVideoDurationFromVideoEl,
@@ -292,7 +292,7 @@ function onSearchFeedListVideoPause(e, cardId) {
 function openSearchListCommentPanel(card, ev) {
   ev?.stopPropagation?.();
   if (!card?.id) return;
-  useCommentPanelStore().shortsCommentPanelOpen = false;
+  useCommentPanelStore().immersiveCommentPanelOpen = false;
   searchExpandCommentOpen.value = false;
   searchListCommentCard.value = card;
   searchListCommentOpen.value = true;
@@ -341,9 +341,9 @@ function onSearchFeedListPause(e) {
                     <span class="search-user-card-wide__name">{{ u.nickname }}</span>
                     <p v-if="u.introduction" class="search-user-card-wide__intro">{{ u.introduction }}</p>
                     <div class="search-user-card-wide__meta">
-                      <span>粉丝 {{ formatHomeShortStat(u.fans) }}</span>
+                      <span>粉丝 {{ formatCompactStat(u.fans) }}</span>
                       <span class="search-user-card-wide__meta-dot">·</span>
-                      <span>获赞 {{ formatHomeShortStat(u.likeCount ?? 0) }}</span>
+                      <span>获赞 {{ formatCompactStat(u.likeCount ?? 0) }}</span>
                     </div>
                   </div>
                 </button>
@@ -374,28 +374,28 @@ function onSearchFeedListPause(e) {
                 <div class="search-feed-slide-top">
                   <div class="search-feed-slide-meta-row">
                     <img
-                      class="shorts-feed-author-avatar search-feed-slide-avatar"
+                      class="immersive-feed-author-avatar search-feed-slide-avatar"
                       :src="cardAuthorAvatar(card, index)"
                       alt=""
                       @click.stop="profile.openByAuthorId(card.authorId)"
                       @error="(e) => (e.target.src = profileAvatar)"
                     />
                     <div class="search-feed-slide-meta-text">
-                      <p class="shorts-feed-user shorts-feed-user--search-list">
+                      <p class="immersive-feed-user immersive-feed-user--search-list">
                         <button
                           v-if="card.authorId != null && card.authorId !== ''"
                           type="button"
-                          class="shorts-feed-user-link"
+                          class="immersive-feed-user-link"
                           title="查看作者主页"
                           @click.stop="profile.openByAuthorId(card.authorId)"
                         >
                           @{{ card.authorNickname || card.author }}
                         </button>
                         <template v-else>@{{ card.authorNickname || card.author }}</template>
-                        <span v-if="formatSearchRelTime(card)" class="shorts-feed-time-dot"> · {{ formatSearchRelTime(card) }}</span>
+                        <span v-if="formatSearchRelTime(card)" class="immersive-feed-time-dot"> · {{ formatSearchRelTime(card) }}</span>
                       </p>
-                      <p class="shorts-feed-topic shorts-feed-topic--search-list">{{ card.title }}</p>
-                      <p v-if="card.description || parseSearchTagsArray(card).length" class="shorts-feed-desc shorts-feed-desc--search-list">
+                      <p class="immersive-feed-topic immersive-feed-topic--search-list">{{ card.title }}</p>
+                      <p v-if="card.description || parseSearchTagsArray(card).length" class="immersive-feed-desc immersive-feed-desc--search-list">
                         <template v-if="card.description">{{ card.description }}</template>
                         <span v-if="parseSearchTagsArray(card).length" class="search-feed-tag-row">
                           <button
@@ -450,7 +450,7 @@ function onSearchFeedListPause(e) {
                         title="点赞"
                         @click.stop="sb.onSearchFeedLikeClick(card, $event)"
                       >
-                        <i :class="card.isLike ? 'ri-heart-fill' : 'ri-heart-line'" aria-hidden="true"></i>{{ formatHomeShortStat(card.likeCount) }}
+                        <i :class="card.isLike ? 'ri-heart-fill' : 'ri-heart-line'" aria-hidden="true"></i>{{ formatCompactStat(card.likeCount) }}
                       </button>
                       <button
                         type="button"
@@ -458,13 +458,13 @@ function onSearchFeedListPause(e) {
                         title="评论"
                         @click.stop="openSearchListCommentPanel(card, $event)"
                       >
-                        <i class="ri-chat-3-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.commentCount) }}
+                        <i class="ri-chat-3-line" aria-hidden="true"></i>{{ formatCompactStat(card.commentCount) }}
                       </button>
                     </div>
                     <div class="search-feed-card-dock" @click.stop>
                       <input
                         type="range"
-                        class="shorts-feed-scrub"
+                        class="immersive-feed-scrub"
                         min="0"
                         :max="searchFeedListScrubMax(card.id)"
                         step="0.1"
@@ -472,25 +472,25 @@ function onSearchFeedListPause(e) {
                         :value="searchFeedListScrubDisplay(card.id)"
                         @input="onSearchFeedListScrubInput($event, card)"
                       />
-                      <div class="shorts-feed-bottom-bar__row">
-                        <span class="shorts-feed-time">
-                          {{ formatShortsTime(searchFeedListCurrent(card.id)) }} / {{ formatShortsTime(searchFeedListDuration(card.id)) }}
+                      <div class="immersive-feed-bottom-bar__row">
+                        <span class="immersive-feed-time">
+                          {{ formatPlaybackTime(searchFeedListCurrent(card.id)) }} / {{ formatPlaybackTime(searchFeedListDuration(card.id)) }}
                         </span>
-                        <div class="shorts-feed-tools">
+                        <div class="immersive-feed-tools">
                           <button
                             type="button"
-                            class="shorts-feed-tool-btn"
+                            class="immersive-feed-tool-btn"
                             title="小窗播放（画中画）"
                             @click="searchFeedListRequestPip(card, $event)"
                           >
                             <i class="ri-picture-in-picture-line"></i>
                           </button>
-                          <button type="button" class="shorts-feed-tool-btn" title="静音" @click="searchFeedListToggleMute(card, $event)">
+                          <button type="button" class="immersive-feed-tool-btn" title="静音" @click="searchFeedListToggleMute(card, $event)">
                             <i :class="searchFeedListMuted(card) ? 'ri-volume-mute-line' : 'ri-volume-up-line'"></i>
                           </button>
                           <input
                             type="range"
-                            class="shorts-feed-vol-range"
+                            class="immersive-feed-vol-range"
                             min="0"
                             max="1"
                             step="0.05"
@@ -499,15 +499,15 @@ function onSearchFeedListPause(e) {
                             aria-label="音量"
                             @input="onSearchFeedListVolumeInput($event, card)"
                           />
-                          <button type="button" class="shorts-feed-tool-btn" title="全屏" @click="searchFeedListRequestFullscreen(card, $event)">
+                          <button type="button" class="immersive-feed-tool-btn" title="全屏" @click="searchFeedListRequestFullscreen(card, $event)">
                             <i class="ri-fullscreen-line"></i>
                           </button>
-                          <button type="button" class="shorts-feed-tool-btn" title="转发" aria-label="转发" @click="share.openForwardVideo(card)">
+                          <button type="button" class="immersive-feed-tool-btn" title="转发" aria-label="转发" @click="share.openForwardVideo(card)">
                             <i class="ri-share-forward-line"></i>
                           </button>
                           <button
                             type="button"
-                            class="shorts-feed-tool-btn shorts-feed-tool-btn--playpause"
+                            class="immersive-feed-tool-btn immersive-feed-tool-btn--playpause"
                             :title="searchFeedListShowPaused(card) ? '播放' : '暂停'"
                             @click="searchFeedListTogglePlay(card, $event)"
                           >
@@ -543,7 +543,7 @@ function onSearchFeedListPause(e) {
                 <div class="search-user-row-main">
                   <strong>{{ u.nickname }}</strong>
                   <span class="search-user-row-sub">{{ u.introduction }}</span>
-                  <span class="search-user-row-meta">粉丝 {{ formatHomeShortStat(u.fans) }} · 获赞 {{ formatHomeShortStat(u.likeCount ?? 0) }}</span>
+                  <span class="search-user-row-meta">粉丝 {{ formatCompactStat(u.fans) }} · 获赞 {{ formatCompactStat(u.likeCount ?? 0) }}</span>
                 </div>
                 <button
                   v-if="isAuthed && !sb.searchUserRowIsSelf(u)"

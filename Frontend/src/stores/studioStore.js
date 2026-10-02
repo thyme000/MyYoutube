@@ -20,7 +20,7 @@ export const useStudioStore = defineStore("studio", {
   state: () => ({
     showStudio: false,
     studioSideNav: "info",
-    /** 频道内容子 tab：video=长视频 shorts=短视频 live=直播（直播接口未就绪时仅占位） */
+    /** 频道内容子 tab：video=长视频 immersive=短视频 live=直播（直播接口未就绪时仅占位） */
     studioContentTab: "video",
     studioPageNo: 1,
     studioPageSize: 10,

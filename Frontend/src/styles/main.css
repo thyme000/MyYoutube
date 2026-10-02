@@ -983,8 +983,8 @@ body {
   flex-shrink: 0;
 }
 
-/* 与全局 .shorts-feed-author-avatar（48px）共存时保证列表区尺寸 */
-.search-feed-slide--stacked .search-feed-slide-avatar.shorts-feed-author-avatar {
+/* 与全局 .immersive-feed-author-avatar（48px）共存时保证列表区尺寸 */
+.search-feed-slide--stacked .search-feed-slide-avatar.immersive-feed-author-avatar {
   width: 44px;
   height: 44px;
   border: 1px solid var(--line);
@@ -992,27 +992,27 @@ body {
 }
 
 /* 复用短视频文案类，在浅色搜索卡片上覆盖颜色 */
-.search-feed-slide--stacked .shorts-feed-user--search-list {
+.search-feed-slide--stacked .immersive-feed-user--search-list {
   margin: 0 0 var(--space-4);
 }
 
-.search-feed-slide--stacked .shorts-feed-user--search-list,
-.search-feed-slide--stacked .shorts-feed-topic--search-list,
-.search-feed-slide--stacked .shorts-feed-desc--search-list {
+.search-feed-slide--stacked .immersive-feed-user--search-list,
+.search-feed-slide--stacked .immersive-feed-topic--search-list,
+.search-feed-slide--stacked .immersive-feed-desc--search-list {
   color: var(--text);
   text-shadow: none;
 }
 
-.search-feed-slide--stacked .shorts-feed-user--search-list .shorts-feed-user-link {
+.search-feed-slide--stacked .immersive-feed-user--search-list .immersive-feed-user-link {
   color: var(--text);
 }
 
-.search-feed-slide--stacked .shorts-feed-time-dot {
+.search-feed-slide--stacked .immersive-feed-time-dot {
   color: var(--muted);
   font-weight: 500;
 }
 
-.search-feed-slide--stacked .shorts-feed-topic--search-list {
+.search-feed-slide--stacked .immersive-feed-topic--search-list {
   margin: 0 0 var(--space-4);
   font-size: var(--font-size-15);
   font-weight: 700;
@@ -1022,7 +1022,7 @@ body {
   overflow: hidden;
 }
 
-.search-feed-slide--stacked .shorts-feed-desc--search-list {
+.search-feed-slide--stacked .immersive-feed-desc--search-list {
   margin: 0;
   font-size: var(--font-size-14);
   font-weight: 500;
@@ -1044,13 +1044,13 @@ body {
   pointer-events: auto;
 }
 
-.search-feed-card-dock .shorts-feed-tools {
+.search-feed-card-dock .immersive-feed-tools {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-6);
 }
 
-.search-feed-card-dock .shorts-feed-time {
+.search-feed-card-dock .immersive-feed-time {
   color: rgb(var(--white-rgb) / 0.95);
   font-size: var(--font-size-12);
   font-variant-numeric: tabular-nums;
@@ -1431,7 +1431,7 @@ body {
   overflow: hidden;
 }
 
-.content--shorts {
+.content--immersive {
   padding: 0;
 }
 
@@ -2150,7 +2150,7 @@ body {
   }
 }
 
-.content--shorts .shorts-feed {
+.content--immersive .immersive-feed {
   min-height: calc(100vh - 64px);
 }
 
@@ -2283,7 +2283,7 @@ body {
   cursor: pointer;
 }
 
-.history-shorts-strip {
+.history-immersive-strip {
   display: flex;
   gap: var(--space-16);
   overflow-x: auto;
@@ -2292,17 +2292,17 @@ body {
   padding: var(--space-2) var(--space-2) var(--space-6);
 }
 
-.history-shorts-strip .home-immersive-card {
+.history-immersive-strip .home-immersive-card {
   flex: 0 0 calc((100% - 64px) / 5);
 }
 
-.history-shorts-strip .history-long-card {
+.history-immersive-strip .history-long-card {
   flex: 0 0 calc((100% - 32px) / 3);
   min-width: 0;
 }
 
 /* 历史记录「展开」：三行网格分页，不再使用底部横向拖动条 */
-.history-shorts-strip.history-shorts-strip--expanded {
+.history-immersive-strip.history-immersive-strip--expanded {
   display: grid;
   gap: var(--space-16);
   overflow: visible;
@@ -2310,16 +2310,16 @@ body {
   padding: var(--space-2);
 }
 
-.history-shorts-strip.history-shorts-strip--expanded.history-shorts-strip--short-grid {
+.history-immersive-strip.history-immersive-strip--expanded.history-immersive-strip--short-grid {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-.history-shorts-strip.history-shorts-strip--expanded.history-shorts-strip--long-grid {
+.history-immersive-strip.history-immersive-strip--expanded.history-immersive-strip--long-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.history-shorts-strip.history-shorts-strip--expanded .home-immersive-card,
-.history-shorts-strip.history-shorts-strip--expanded .history-long-card {
+.history-immersive-strip.history-immersive-strip--expanded .home-immersive-card,
+.history-immersive-strip.history-immersive-strip--expanded .history-long-card {
   flex: unset;
   width: auto;
   min-width: 0;
@@ -2459,7 +2459,7 @@ body {
 
 .video-card-author-avatar:hover,
 .video-detail-channel-avatar:hover,
-.shorts-feed-author-avatar:hover {
+.immersive-feed-author-avatar:hover {
   transform: scale(1.06);
   box-shadow: 0 0 0 2px rgba(64, 95, 165, 0.16);
 }
@@ -2764,7 +2764,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   overflow: hidden;
 }
 
-/* 与首页 Shorts 条「播放量」风格一致 */
+/* 与首页 Immersive 条「播放量」风格一致 */
 .work-play-stat {
   flex-shrink: 0;
   display: inline-flex;
@@ -2825,7 +2825,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 }
 
 /* 短视频模块：上下切换（滚轮/触摸 + 右侧上下键），底层模糊铺满 */
-.shorts-feed-shell {
+.immersive-feed-shell {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -2833,24 +2833,24 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   align-items: stretch;
 }
 
-.content--shorts .shorts-feed-shell {
+.content--immersive .immersive-feed-shell {
   min-height: calc(100vh - 64px);
 }
 
-.shorts-feed {
+.immersive-feed {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-.shorts-feed-loading,
+.immersive-feed-loading,
 
-.content--shorts .shorts-feed-loading,
+.content--immersive .immersive-feed-loading,
 
 
 
-.shorts-feed-body {
+.immersive-feed-body {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -2859,18 +2859,18 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   padding: 0 var(--space-18) var(--space-18);
 }
 
-.content--shorts .shorts-feed-body {
+.content--immersive .immersive-feed-body {
   padding: 0 var(--space-18) var(--space-18);
 }
 
-.shorts-feed-user {
+.immersive-feed-user {
   margin: 0 0 var(--space-4);
   font-size: var(--font-size-14);
   font-weight: 700;
   color: var(--color-text-inverse);
 }
 
-.shorts-feed-user-link {
+.immersive-feed-user-link {
   margin: 0;
   padding: 0;
   border: none;
@@ -2884,17 +2884,17 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   pointer-events: auto;
 }
 
-.shorts-feed-user-link:hover {
+.immersive-feed-user-link:hover {
   text-decoration: underline;
 }
 
-.shorts-feed-time-dot {
+.immersive-feed-time-dot {
   font-weight: 500;
   color: rgb(var(--white-rgb) / 0.86);
 }
 
-/* 标题与描述同一字号，避免标题过大抢视觉（与 .shorts-feed-desc 对齐） */
-.shorts-feed-topic {
+/* 标题与描述同一字号，避免标题过大抢视觉（与 .immersive-feed-desc 对齐） */
+.immersive-feed-topic {
   margin: 0 0 var(--space-4);
   font-size: var(--font-size-16);
   line-height: 1.5;
@@ -2903,7 +2903,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   text-shadow: 0 1px 4px rgb(var(--black-rgb) / 0.55);
 }
 
-.shorts-feed-desc {
+.immersive-feed-desc {
   margin: 0;
   font-size: var(--font-size-16);
   line-height: 1.5;
@@ -2912,11 +2912,11 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 }
 
 /* 短视频流底部：标签可点，保持橙色话题样式 */
-.shorts-feed-desc .search-feed-tag-row--shorts-overlay {
+.immersive-feed-desc .search-feed-tag-row--immersive-overlay {
   margin-left: var(--space-8);
 }
 
-.shorts-feed-desc .search-feed-tag-chip--shorts-overlay {
+.immersive-feed-desc .search-feed-tag-chip--immersive-overlay {
   background: transparent;
   color: var(--amber-500);
   font-weight: 800;
@@ -2926,13 +2926,13 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   text-shadow: 0 1px 4px rgb(var(--black-rgb) / 0.55);
 }
 
-.shorts-feed-desc .search-feed-tag-chip--shorts-overlay:hover {
+.immersive-feed-desc .search-feed-tag-chip--immersive-overlay:hover {
   background: transparent;
   text-decoration: underline;
   opacity: 0.92;
 }
 
-.shorts-feed-author-avatar {
+.immersive-feed-author-avatar {
   display: block;
   width: 48px;
   height: 48px;
@@ -2942,13 +2942,13 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   box-shadow: 0 2px 10px rgb(var(--black-rgb) / 0.35);
 }
 
-.shorts-delete-modal-overlay {
+.immersive-delete-modal-overlay {
   z-index: 1206;
   background: rgb(var(--black-rgb) / 0.55);
 }
 
 /* 删除确认：深色卡片 + 白描边 + 圆角药丸按钮（与上传弹窗同属深色体系） */
-.shorts-delete-modal.modal-card {
+.immersive-delete-modal.modal-card {
   width: min(380px, 92vw);
   background: var(--ink-980);
   border: none;
@@ -2958,7 +2958,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   box-shadow: 0 24px 64px rgb(var(--black-rgb) / 0.55);
 }
 
-.shorts-delete-modal.modal-card h3 {
+.immersive-delete-modal.modal-card h3 {
   margin: 0 0 var(--space-12);
   font-size: var(--font-size-17);
   font-weight: 700;
@@ -2966,14 +2966,14 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   letter-spacing: 0.02em;
 }
 
-.shorts-delete-modal-text {
+.immersive-delete-modal-text {
   margin: 0;
   color: var(--slate-100);
   font-size: var(--font-size-14);
   line-height: 1.55;
 }
 
-.shorts-delete-modal-actions {
+.immersive-delete-modal-actions {
   margin-top: var(--space-22);
   display: flex;
   justify-content: flex-end;
@@ -2981,7 +2981,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   flex-wrap: wrap;
 }
 
-.shorts-delete-modal-actions .action-btn {
+.immersive-delete-modal-actions .action-btn {
   height: 40px;
   border-radius: var(--radius-full);
   font-weight: 600;
@@ -2989,28 +2989,28 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   border: none;
 }
 
-.shorts-delete-modal-actions .action-btn:not(.shorts-delete-btn) {
+.immersive-delete-modal-actions .action-btn:not(.immersive-delete-btn) {
   background: var(--color-bg-surface);
   color: var(--color-text-strong);
   border: 1px solid var(--color-border);
 }
 
-.shorts-delete-modal-actions .action-btn:not(.shorts-delete-btn):hover {
+.immersive-delete-modal-actions .action-btn:not(.immersive-delete-btn):hover {
   background: var(--gray-100);
 }
 
-.shorts-delete-btn {
+.immersive-delete-btn {
   background: var(--pink-500);
   border: none;
   color: var(--color-text-inverse);
 }
 
-.shorts-delete-btn:hover {
+.immersive-delete-btn:hover {
   background: var(--pink-600);
   filter: none;
 }
 
-.shorts-feed-bottom-bar__row {
+.immersive-feed-bottom-bar__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3018,7 +3018,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   flex-wrap: wrap;
 }
 
-.shorts-feed-scrub {
+.immersive-feed-scrub {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -3030,18 +3030,18 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   transition: opacity 0.2s ease, height 0.15s ease;
 }
 
-.shorts-feed-scrub:hover {
+.immersive-feed-scrub:hover {
   opacity: 0.88;
   height: 3px;
 }
 
-.shorts-feed-scrub::-webkit-slider-runnable-track {
+.immersive-feed-scrub::-webkit-slider-runnable-track {
   height: 2px;
   border-radius: var(--radius-xs);
   background: rgb(var(--white-rgb) / 0.2);
 }
 
-.shorts-feed-scrub::-webkit-slider-thumb {
+.immersive-feed-scrub::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 6px;
   height: 6px;
@@ -3052,13 +3052,13 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   cursor: pointer;
 }
 
-.shorts-feed-scrub::-moz-range-track {
+.immersive-feed-scrub::-moz-range-track {
   height: 2px;
   border-radius: var(--radius-xs);
   background: rgb(var(--white-rgb) / 0.2);
 }
 
-.shorts-feed-scrub::-moz-range-thumb {
+.immersive-feed-scrub::-moz-range-thumb {
   width: 6px;
   height: 6px;
   border: none;
@@ -3067,13 +3067,13 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   cursor: pointer;
 }
 
-.shorts-feed-time {
+.immersive-feed-time {
   font-size: var(--font-size-12);
   color: rgb(var(--white-rgb) / 0.92);
   font-variant-numeric: tabular-nums;
 }
 
-.shorts-feed-tools {
+.immersive-feed-tools {
   display: flex;
   align-items: center;
   gap: var(--space-8);
@@ -3081,7 +3081,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   margin-left: auto;
 }
 
-.shorts-feed-tool-btn {
+.immersive-feed-tool-btn {
   width: 36px;
   height: 36px;
   border-radius: var(--radius-xl);
@@ -3097,11 +3097,11 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   transition: background 0.2s ease;
 }
 
-.shorts-feed-tool-btn:hover {
+.immersive-feed-tool-btn:hover {
   background: rgb(var(--white-rgb) / 0.24);
 }
 
-.shorts-feed-vol-range {
+.immersive-feed-vol-range {
   width: 72px;
   max-width: 20vw;
   height: 3px;
@@ -3110,15 +3110,15 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   cursor: pointer;
 }
 
-.shorts-feed-vol-range:hover {
+.immersive-feed-vol-range:hover {
   opacity: 0.95;
 }
 
-.shorts-feed-tool-btn--playpause {
+.immersive-feed-tool-btn--playpause {
   font-size: var(--font-size-20);
 }
 
-.profile-feed-overlay .shorts-feed-body {
+.profile-feed-overlay .immersive-feed-body {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -3127,14 +3127,14 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 }
 
 /* 特异性需高于上一则，否则全屏连播里评论栏会被压到视频下方 */
-.profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open {
+.profile-feed-overlay .immersive-feed-body.immersive-feed-body--comments-open {
   flex-direction: row;
   align-items: stretch;
   gap: 0;
   padding: 0;
 }
 
-.shorts-feed-body--comments-open {
+.immersive-feed-body--comments-open {
   flex-direction: row;
   align-items: stretch;
   gap: 0;
@@ -3142,18 +3142,18 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   padding: 0 0 var(--space-18) 0;
 }
 
-.content--shorts .shorts-feed-body.shorts-feed-body--comments-open {
+.content--immersive .immersive-feed-body.immersive-feed-body--comments-open {
   padding: 0 0 var(--space-18) 0;
 }
 
 /* 播放区占满「评论栏」以外的宽度，避免大屏下右侧大块留白 */
-.shorts-feed-body--comments-open .shorts-feed-player-column {
+.immersive-feed-body--comments-open .immersive-feed-player-column {
   flex: 1 1 0%;
   min-width: 0;
   max-width: none;
 }
 
-.profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open .shorts-feed-player-column {
+.profile-feed-overlay .immersive-feed-body.immersive-feed-body--comments-open .immersive-feed-player-column {
   flex: 1 1 0%;
   min-width: 0;
   max-width: none;
@@ -3164,7 +3164,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 }
 
 /* 避免全屏连播里 width:100vw 的视频层盖住右侧评论栏 */
-.profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open .shorts-feed-center {
+.profile-feed-overlay .immersive-feed-body.immersive-feed-body--comments-open .immersive-feed-center {
   width: 100% !important;
   max-width: 100%;
   height: 100% !important;
@@ -3172,7 +3172,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   min-height: 0;
 }
 
-.shorts-feed-comments-panel {
+.immersive-feed-comments-panel {
   flex: 0 0 auto;
   width: min(400px, 40vw);
   min-width: 280px;
@@ -3197,11 +3197,11 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   -webkit-backdrop-filter: saturate(1.05) blur(10px);
 }
 
-.profile-feed-overlay .shorts-feed-body--comments-open {
+.profile-feed-overlay .immersive-feed-body--comments-open {
   padding: 0;
 }
 
-.profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open .shorts-feed-comments-panel {
+.profile-feed-overlay .immersive-feed-body.immersive-feed-body--comments-open .immersive-feed-comments-panel {
   flex: 0 0 auto;
   width: min(400px, 40vw);
   min-width: 280px;
@@ -3214,7 +3214,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 }
 
 /* 侧栏内评论列表与输入区：白底凹槽 + 轻阴影，与浅灰侧栏形成层次 */
-.shorts-feed-comments-panel .video-detail-comment-input {
+.immersive-feed-comments-panel .video-detail-comment-input {
   margin-bottom: var(--space-14);
   padding: var(--space-10) var(--space-12);
   gap: var(--space-10);
@@ -3227,42 +3227,42 @@ button.profile-hero.profile-hero-clickable:focus-visible {
     0 1px 2px rgb(var(--slate-900-rgb) / 0.05);
 }
 
-.shorts-feed-comments-panel .video-detail-comment-field {
+.immersive-feed-comments-panel .video-detail-comment-field {
   border: none;
   border-bottom: none;
   padding: var(--space-6) var(--space-4);
   color: var(--color-text-strong);
 }
 
-.shorts-feed-comments-panel .video-detail-comment-field::placeholder {
+.immersive-feed-comments-panel .video-detail-comment-field::placeholder {
   color: var(--color-text-faint);
 }
 
-.shorts-feed-comments-panel .video-detail-comment-avatar {
+.immersive-feed-comments-panel .video-detail-comment-avatar {
   box-shadow: 0 1px 3px rgb(var(--slate-900-rgb) / 0.1);
   border: 1px solid rgb(var(--slate-900-rgb) / 0.06);
 }
 
-.shorts-feed-comments-panel .video-detail-comment-send {
+.immersive-feed-comments-panel .video-detail-comment-send {
   background: linear-gradient(180deg, var(--blue-500) 0%, var(--blue-600) 100%);
   box-shadow: 0 1px 2px rgb(var(--blue-600-rgb) / 0.35);
 }
 
-.shorts-feed-comments-panel .video-detail-comment-send:hover:not(:disabled) {
+.immersive-feed-comments-panel .video-detail-comment-send:hover:not(:disabled) {
   filter: brightness(1.05);
 }
 
-.shorts-feed-comments-panel .video-detail-comments-note {
+.immersive-feed-comments-panel .video-detail-comments-note {
   color: var(--color-text-muted);
   margin-bottom: var(--space-8);
   display: inline-block;
 }
 
-.shorts-feed-comments-panel .video-detail-comment-reply-hint {
+.immersive-feed-comments-panel .video-detail-comment-reply-hint {
   color: var(--color-text-secondary);
 }
 
-.shorts-feed-comments-panel .video-detail-comments-empty {
+.immersive-feed-comments-panel .video-detail-comments-empty {
   margin: var(--space-8) 0 var(--space-12);
   padding: var(--space-22) var(--space-14);
   text-align: center;
@@ -3273,7 +3273,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   box-shadow: inset 0 1px 0 rgb(var(--white-rgb) / 0.8);
 }
 
-.shorts-feed-comments-panel .video-detail-comments-mock > li.video-detail-comment-item {
+.immersive-feed-comments-panel .video-detail-comments-mock > li.video-detail-comment-item {
   padding: var(--space-12) var(--space-12) var(--space-12) var(--space-10);
   margin-bottom: var(--space-10);
   background: rgb(var(--white-rgb) / 0.82);
@@ -3282,7 +3282,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   box-shadow: 0 1px 3px rgb(var(--slate-900-rgb) / 0.05);
 }
 
-.shorts-feed-comments-panel .video-detail-comment-item--reply {
+.immersive-feed-comments-panel .video-detail-comment-item--reply {
   padding: var(--space-8) 0 0;
   margin-bottom: var(--space-12);
   background: transparent;
@@ -3291,11 +3291,11 @@ button.profile-hero.profile-hero-clickable:focus-visible {
   box-shadow: none;
 }
 
-.shorts-feed-comments-panel .video-detail-comment-replies {
+.immersive-feed-comments-panel .video-detail-comment-replies {
   border-left-color: rgb(var(--slate-900-rgb) / 0.1);
 }
 
-.shorts-feed-comments-panel .video-detail-comments-more .history-layout-btn {
+.immersive-feed-comments-panel .video-detail-comments-more .history-layout-btn {
   background: var(--color-bg-surface);
   border: 1px solid rgb(var(--slate-900-rgb) / 0.1);
   color: var(--color-text-secondary);
@@ -3303,21 +3303,21 @@ button.profile-hero.profile-hero-clickable:focus-visible {
 }
 
 @media (max-width: 900px) {
-  .shorts-feed-body--comments-open {
+  .immersive-feed-body--comments-open {
     position: relative;
   }
 
-  .shorts-feed-body--comments-open .shorts-feed-player-column {
+  .immersive-feed-body--comments-open .immersive-feed-player-column {
     max-width: 100%;
     flex: 1 1 auto;
   }
 
-  .profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open .shorts-feed-player-column {
+  .profile-feed-overlay .immersive-feed-body.immersive-feed-body--comments-open .immersive-feed-player-column {
     max-width: 100%;
     flex: 1 1 auto;
   }
 
-  .shorts-feed-comments-panel {
+  .immersive-feed-comments-panel {
     position: absolute;
     right: 0;
     top: 0;
@@ -3331,7 +3331,7 @@ button.profile-hero.profile-hero-clickable:focus-visible {
       inset 1px 0 0 rgb(var(--white-rgb) / 0.85);
   }
 
-  .profile-feed-overlay .shorts-feed-body.shorts-feed-body--comments-open .shorts-feed-comments-panel {
+  .profile-feed-overlay .immersive-feed-body.immersive-feed-body--comments-open .immersive-feed-comments-panel {
     flex: none;
     max-width: none;
     z-index: 60;

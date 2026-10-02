@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { useFeedPatchStore } from "../feedPatchStore";
 import { useHomeStore } from "../homeStore";
-import { useShortsStore } from "../shortsStore";
+import { useImmersiveStore } from "../immersiveStore";
 import { useLikedStore } from "../likedStore";
 import { useProfileStore } from "../profileStore";
 import { useStudioStore } from "../studioStore";
@@ -18,11 +18,11 @@ function seedLists() {
   home.cards = [{ ...VIDEO }, { ...OTHER }];
   home.immersiveRows = [{ ...VIDEO }];
 
-  const shorts = useShortsStore();
-  shorts.profileFeedQueue = [{ ...VIDEO }];
-  shorts.likedFeedQueue = [{ ...VIDEO }];
-  shorts.followFeedQueue = [{ ...VIDEO }];
-  shorts.followAuthorFeedQueue = [{ ...VIDEO }];
+  const immersive = useImmersiveStore();
+  immersive.profileFeedQueue = [{ ...VIDEO }];
+  immersive.likedFeedQueue = [{ ...VIDEO }];
+  immersive.followFeedQueue = [{ ...VIDEO }];
+  immersive.followAuthorFeedQueue = [{ ...VIDEO }];
 
   const liked = useLikedStore();
   liked.likedRows = [{ ...VIDEO }];
@@ -43,7 +43,7 @@ function seedLists() {
   const panel = useCommentPanelStore();
   panel.searchListCommentCard = { ...VIDEO };
 
-  return { home, shorts, liked, profile, studio, search, panel };
+  return { home, immersive, liked, profile, studio, search, panel };
 }
 
 /**
@@ -55,10 +55,10 @@ function patchVideoCopies(s) {
   return {
     "home.cards": s.home.cards[0],
     "home.immersiveRows": s.home.immersiveRows[0],
-    "shorts.profileFeedQueue": s.shorts.profileFeedQueue[0],
-    "shorts.likedFeedQueue": s.shorts.likedFeedQueue[0],
-    "shorts.followFeedQueue": s.shorts.followFeedQueue[0],
-    "shorts.followAuthorFeedQueue": s.shorts.followAuthorFeedQueue[0],
+    "immersive.profileFeedQueue": s.immersive.profileFeedQueue[0],
+    "immersive.likedFeedQueue": s.immersive.likedFeedQueue[0],
+    "immersive.followFeedQueue": s.immersive.followFeedQueue[0],
+    "immersive.followAuthorFeedQueue": s.immersive.followAuthorFeedQueue[0],
     "liked.likedRows": s.liked.likedRows[0],
     "profile.worksRows": s.profile.worksRows[0],
     "studio.studioRows": s.studio.studioRows[0],
@@ -73,10 +73,10 @@ function authorFollowCopies(s) {
   return {
     "home.cards": s.home.cards[0],
     "home.immersiveRows": s.home.immersiveRows[0],
-    "shorts.profileFeedQueue": s.shorts.profileFeedQueue[0],
-    "shorts.likedFeedQueue": s.shorts.likedFeedQueue[0],
-    "shorts.followFeedQueue": s.shorts.followFeedQueue[0],
-    "shorts.followAuthorFeedQueue": s.shorts.followAuthorFeedQueue[0],
+    "immersive.profileFeedQueue": s.immersive.profileFeedQueue[0],
+    "immersive.likedFeedQueue": s.immersive.likedFeedQueue[0],
+    "immersive.followFeedQueue": s.immersive.followFeedQueue[0],
+    "immersive.followAuthorFeedQueue": s.immersive.followAuthorFeedQueue[0],
     "liked.likedRows": s.liked.likedRows[0],
     "profile.worksRows": s.profile.worksRows[0],
     "search.searchVideoRows": s.search.searchVideoRows[0],
@@ -193,10 +193,10 @@ describe("feedPatchStore.removeVideoById", () => {
     useFeedPatchStore().removeVideoById("1001");
     expect(stores.home.cards.map((r) => r.id)).toEqual(["1002"]);
     expect(stores.home.immersiveRows).toEqual([]);
-    expect(stores.shorts.profileFeedQueue).toEqual([]);
-    expect(stores.shorts.likedFeedQueue).toEqual([]);
-    expect(stores.shorts.followFeedQueue).toEqual([]);
-    expect(stores.shorts.followAuthorFeedQueue).toEqual([]);
+    expect(stores.immersive.profileFeedQueue).toEqual([]);
+    expect(stores.immersive.likedFeedQueue).toEqual([]);
+    expect(stores.immersive.followFeedQueue).toEqual([]);
+    expect(stores.immersive.followAuthorFeedQueue).toEqual([]);
     expect(stores.liked.likedRows).toEqual([]);
     expect(stores.profile.worksRows).toEqual([]);
     expect(stores.studio.studioRows).toEqual([]);

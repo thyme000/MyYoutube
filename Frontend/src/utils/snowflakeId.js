@@ -15,7 +15,7 @@ export function safeSnowflakeId(id, fallback = "") {
 
 /**
  * 仅当 id 为纯数字串时返回该串（用于 URL 路径、行为上报 body）。
- * 过滤 mock 卡片 id（如 shorts-1），避免误调真实接口。
+ * 过滤 mock 卡片 id（如 immersive-1），避免误调真实接口。
  */
 export function parseDigitSnowflakeId(id) {
   if (id == null || id === "") {

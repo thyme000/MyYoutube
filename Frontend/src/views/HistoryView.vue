@@ -26,8 +26,8 @@ const profile = useProfileStore();
 </script>
 
 <template>
-          <section class="history-shorts-page">
-            <div class="history-shorts-head">
+          <section class="history-immersive-page">
+            <div class="history-immersive-head">
               <h3><i class="ri-history-line"></i> 历史播放记录</h3>
             </div>
 
@@ -49,12 +49,12 @@ const profile = useProfileStore();
                   </button>
                 </div>
               </div>
-              <div v-if="historyLongLoading" class="shorts-feed-loading">正在加载观看历史…</div>
+              <div v-if="historyLongLoading" class="immersive-feed-loading">正在加载观看历史…</div>
               <div
                 v-else
-                class="home-immersive-strip history-shorts-strip"
+                class="home-immersive-strip history-immersive-strip"
                 :class="{
-                  'history-shorts-strip--expanded history-shorts-strip--long-grid': historyLongExpanded,
+                  'history-immersive-strip--expanded history-immersive-strip--long-grid': historyLongExpanded,
                 }"
               >
                 <article
@@ -104,13 +104,13 @@ const profile = useProfileStore();
 </template>
 
 <style scoped>
-.history-shorts-page {
+.history-immersive-page {
   display: flex;
   flex-direction: column;
   gap: var(--space-16);
 }
 
-.history-shorts-head {
+.history-immersive-head {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -118,7 +118,7 @@ const profile = useProfileStore();
   flex-wrap: wrap;
 }
 
-.history-shorts-head h3 {
+.history-immersive-head h3 {
   margin: 0;
   font-size: var(--font-size-18);
   display: inline-flex;

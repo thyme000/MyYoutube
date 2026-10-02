@@ -1,15 +1,15 @@
 // @ts-check
 /**
  * 导航域状态：当前主菜单 key / 标题、页面提示文案，以及「按标签跳搜索」这类跨域导航编排。
- * 原先散在 App.vue 且被 SearchView / ShortsView / HomeView 共用，故独立成 store。
- * 依赖方向单向：navigationStore → search / shorts / detail；三者反过来只经 App 注册的 hook 取用。
+ * 原先散在 App.vue 且被 SearchView / ImmersiveView / HomeView 共用，故独立成 store。
+ * 依赖方向单向：navigationStore → search / immersive / detail；三者反过来只经 App 注册的 hook 取用。
  */
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { getApiBaseUrl } from "../api/http";
 import { useDetailStore } from "./detailStore";
 import { useSearchStore } from "./searchStore";
-import { useShortsStore } from "./shortsStore";
+import { useImmersiveStore } from "./immersiveStore";
 
 const hooks = {
   /** 收起 App 级遮罩（上传弹窗 / 创作中心 / 竖屏短播放器），它们的开关仍在 App */
@@ -34,15 +34,15 @@ export const useNavigationStore = defineStore("navigation", () => {
       .trim();
     if (!t) return;
     const search = useSearchStore();
-    const shorts = useShortsStore();
+    const immersive = useImmersiveStore();
     const detail = useDetailStore();
     if (search.searchExpandOpen) {
       search.closeSearchExpand();
     }
-    shorts.closeShortsCommentPanel();
+    immersive.closeImmersiveCommentPanel();
     hooks.closeAppOverlays();
-    if (shorts.profileFeedOpen) {
-      shorts.closeProfileFeed();
+    if (immersive.profileFeedOpen) {
+      immersive.closeProfileFeed();
     }
     if (detail.open) {
       detail.closeDetail();

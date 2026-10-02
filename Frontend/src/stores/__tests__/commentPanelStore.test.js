@@ -9,7 +9,7 @@ beforeEach(() => {
 describe("commentPanelStore 面板开关", () => {
   it("四个入口默认全关", () => {
     const store = useCommentPanelStore();
-    expect(store.shortsCommentPanelOpen).toBe(false);
+    expect(store.immersiveCommentPanelOpen).toBe(false);
     expect(store.searchExpandCommentOpen).toBe(false);
     expect(store.searchListCommentOpen).toBe(false);
     expect(store.searchListCommentCard).toBeNull();

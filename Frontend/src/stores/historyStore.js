@@ -5,7 +5,7 @@
 import { defineStore } from "pinia";
 import { fetchLongHistoryPage } from "../api/videoApi";
 import { useAuthStore } from "./authStore";
-import { useShortsStore } from "./shortsStore";
+import { useImmersiveStore } from "./immersiveStore";
 
 export const useHistoryStore = defineStore("history", {
   state: () => ({
@@ -54,7 +54,7 @@ export const useHistoryStore = defineStore("history", {
       await this.loadLongPage();
     },
     openLongCard(index) {
-      useShortsStore().openProfileFeed(this.historyLongRows, index);
+      useImmersiveStore().openProfileFeed(this.historyLongRows, index);
     },
   },
 });

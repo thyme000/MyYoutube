@@ -1,7 +1,7 @@
 // @ts-check
 /**
  * 菜单编排域：loadModuleCards（各模块首屏数据装载）与 setActiveMenu（菜单切换编排）。
- * 状态分属 home/history/liked/shorts/profile/studio/detail/navigation 各域 store，
+ * 状态分属 home/history/liked/immersive/profile/studio/detail/navigation 各域 store，
  * 这里只做跨域动作编排，自身不持有菜单数据；App 本地能力（搜索预览观察器、上传弹窗开关）
  * 经 registerMenuOrchestrationHooks 注入。独立成 store 而非并入 navigationStore：
  * homeStore/notificationStore 反向依赖 navigationStore，编排层必须在其下游而非其内部。
@@ -19,7 +19,7 @@ import { useLikedStore } from "./likedStore";
 import { useNavigationStore } from "./navigationStore";
 import { useProfileStore } from "./profileStore";
 import { useSearchStore } from "./searchStore";
-import { useShortsStore } from "./shortsStore";
+import { useImmersiveStore } from "./immersiveStore";
 import { useStudioStore } from "./studioStore";
 
 const hooks = {
@@ -44,7 +44,7 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
     const auth = useAuthStore();
     const history = useHistoryStore();
     const liked = useLikedStore();
-    const shorts = useShortsStore();
+    const immersive = useImmersiveStore();
     const profile = useProfileStore();
     home.loading = true;
     try {
@@ -68,7 +68,7 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
         home.immersivePageNo = 1;
         home.immersivePages = shortRes.pages ?? 0;
         const sortLabel = homeSortOptions.find((x) => x.value === home.homeSortKey)?.label || "排序";
-        navigation.pageHint = `首页 · 内容池混排(/contents/list) + 连播(/videos/shorts/feed) · ${chip?.label ?? "全部"} · ${sortLabel}`;
+        navigation.pageHint = `首页 · 内容池混排(/contents/list) + 连播(/contents/feed) · ${chip?.label ?? "全部"} · ${sortLabel}`;
         nextTick(() => {
           home.maybeLoadMoreLongByWindow();
         });
@@ -107,23 +107,23 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
         home.immersivePages = 0;
         home.homeLongPageNo = 1;
         home.homeLongPages = 0;
-        shorts.followSubscribedFilterAuthorId = null;
-        shorts.followAuthorFeedQueue = [];
-        shorts.followAuthorVideoPageNo = 1;
-        shorts.followAuthorVideoHasMore = false;
-        shorts.followVideoPageNo = 1;
-        shorts.followVideoHasMore = true;
+        immersive.followSubscribedFilterAuthorId = null;
+        immersive.followAuthorFeedQueue = [];
+        immersive.followAuthorVideoPageNo = 1;
+        immersive.followAuthorVideoHasMore = false;
+        immersive.followVideoPageNo = 1;
+        immersive.followVideoHasMore = true;
         home.cards = [];
         if (!auth.isAuthed) {
-          shorts.followFeedQueue = [];
+          immersive.followFeedQueue = [];
           navigation.pageHint = "请先登录后查看「关注」视频流。";
           return;
         }
-        shorts.feedScope = "follow";
-        shorts.shortsFeedIndex = 0;
-        shorts.shortsFeedAutoplayPending = true;
+        immersive.feedScope = "follow";
+        immersive.immersiveFeedIndex = 0;
+        immersive.immersiveFeedAutoplayPending = true;
         await profile.loadRelationPage("following", { reset: true });
-        await shorts.loadSubscribedFollowVideos({ reset: true });
+        await immersive.loadSubscribedFollowVideos({ reset: true });
         navigation.pageHint = "关注 · 左侧为关注列表，右侧为关注作者的短视频推荐（GET /videos/follow/list）";
         return;
       }
@@ -185,8 +185,8 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
           liked.likedTotal = 0;
           home.cards = [];
         } else if (menu.key === "subscribed") {
-          shorts.followFeedQueue = [];
-          shorts.followAuthorFeedQueue = [];
+          immersive.followFeedQueue = [];
+          immersive.followAuthorFeedQueue = [];
           home.cards = [];
         } else if (menu.key === "immersive") {
           home.immersiveRows = [];
@@ -203,7 +203,7 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
   async function setActiveMenu(menu) {
     const home = useHomeStore();
     const navigation = useNavigationStore();
-    const shorts = useShortsStore();
+    const immersive = useImmersiveStore();
     const profile = useProfileStore();
     const studio = useStudioStore();
     const detail = useDetailStore();
@@ -218,14 +218,14 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
       (prevMenuKey === "immersive" || prevMenuKey === "subscribed") &&
       (menu.key === "immersive" || menu.key === "subscribed");
     if (switchingImmersiveTabs) {
-      shorts.bumpPlayToken();
-      shorts.pauseShortsFeedVideos({ muteForeground: true });
-      shorts.shortsFeedPaused = true;
-      shorts.resetShortsFeedProgressUiForSwitch();
-      shorts.resetFeedPlayersToStart();
+      immersive.bumpPlayToken();
+      immersive.pauseImmersiveFeedVideos({ muteForeground: true });
+      immersive.immersiveFeedPaused = true;
+      immersive.resetImmersiveFeedProgressUiForSwitch();
+      immersive.resetFeedPlayersToStart();
     }
-    if (shorts.profileFeedOpen) {
-      shorts.closeProfileFeed();
+    if (immersive.profileFeedOpen) {
+      immersive.closeProfileFeed();
     }
     studio.showStudio = false;
     hooks.closeUploadModal();
@@ -241,22 +241,22 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
       void router.push(targetPath);
     }
     if (menu.key === "immersive") {
-      shorts.bumpPlayToken();
-      shorts.feedScope = "immersive";
-      shorts.shortsFeedIndex = 0;
-      shorts.shortsFeedAutoplayPending = true;
+      immersive.bumpPlayToken();
+      immersive.feedScope = "immersive";
+      immersive.immersiveFeedIndex = 0;
+      immersive.immersiveFeedAutoplayPending = true;
     }
     if (menu.key === "subscribed") {
-      shorts.bumpPlayToken();
-      shorts.feedScope = "follow";
-      shorts.followSubscribedFilterAuthorId = null;
-      shorts.followAuthorFeedQueue = [];
-      shorts.followAuthorVideoPageNo = 1;
-      shorts.followAuthorVideoHasMore = false;
-      shorts.followVideoPageNo = 1;
-      shorts.followVideoHasMore = true;
-      shorts.shortsFeedIndex = 0;
-      shorts.shortsFeedAutoplayPending = true;
+      immersive.bumpPlayToken();
+      immersive.feedScope = "follow";
+      immersive.followSubscribedFilterAuthorId = null;
+      immersive.followAuthorFeedQueue = [];
+      immersive.followAuthorVideoPageNo = 1;
+      immersive.followAuthorVideoHasMore = false;
+      immersive.followVideoPageNo = 1;
+      immersive.followVideoHasMore = true;
+      immersive.immersiveFeedIndex = 0;
+      immersive.immersiveFeedAutoplayPending = true;
     }
 
     if (menu.key === "home") {
@@ -297,7 +297,7 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
       nextTick(() => {
         if (seq !== activeMenuSwitchSeq) return;
         if (navigation.activeMenuKey !== menu.key) return;
-        shorts.reloadFeedPlayers();
+        immersive.reloadFeedPlayers();
       });
     }
   }

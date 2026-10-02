@@ -40,7 +40,7 @@ describe("behaviorStore.report", () => {
 
   it("非纯数字 id 不发请求（过滤 mock 卡片 id）", async () => {
     useAuthStore().signIn("t");
-    await useBehaviorStore().report("shorts-1", "PLAY", 3000);
+    await useBehaviorStore().report("immersive-1", "PLAY", 3000);
     expect(reportVideoBehavior).not.toHaveBeenCalled();
   });
 

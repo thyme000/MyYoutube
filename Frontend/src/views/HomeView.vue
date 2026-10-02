@@ -15,7 +15,7 @@ import {
   cardAuthorAvatar,
   cardCoverSrc,
   cardAuthorLabel,
-  formatHomeShortStat,
+  formatCompactStat,
 } from "../utils/videoCard.js";
 
 const homeStore = useHomeStore();
@@ -188,10 +188,10 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                     </div>
                     <div class="home-immersive-stats" aria-label="播放与点赞">
                       <span class="home-immersive-stat" title="播放量">
-                        <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.playCount) }}
+                        <i class="ri-play-line" aria-hidden="true"></i>{{ formatCompactStat(card.playCount) }}
                       </span>
                       <span class="home-immersive-stat" title="点赞">
-                        <i class="ri-heart-line" aria-hidden="true"></i>{{ formatHomeShortStat(card.likeCount) }}
+                        <i class="ri-heart-line" aria-hidden="true"></i>{{ formatCompactStat(card.likeCount) }}
                       </span>
                     </div>
                   </div>

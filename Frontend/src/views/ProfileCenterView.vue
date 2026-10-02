@@ -15,7 +15,7 @@ import {
   sanitizeImageUrl,
 } from "../utils/userProfile";
 import {
-  formatHomeShortStat,
+  formatCompactStat,
   formatWorkLikeText,
   resolveVideoUrl,
 } from "../utils/videoCard.js";
@@ -456,7 +456,7 @@ function onCropResizeStart(event) {
               <div class="work-title-row">
                 <p class="work-title">{{ item.title }}</p>
                 <span class="work-play-stat" title="播放量">
-                  <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(item.playCount) }}
+                  <i class="ri-play-line" aria-hidden="true"></i>{{ formatCompactStat(item.playCount) }}
                 </span>
               </div>
             </div>

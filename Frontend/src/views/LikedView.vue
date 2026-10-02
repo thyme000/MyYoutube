@@ -7,9 +7,9 @@ import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import { useLikedStore } from "../stores/likedStore";
 import { useProfileStore } from "../stores/profileStore";
-import { useShortsStore } from "../stores/shortsStore";
+import { useImmersiveStore } from "../stores/immersiveStore";
 import { useHoverPreviewStore, cardPreviewKey } from "../stores/hoverPreviewStore";
-import { resolveVideoUrl, formatHomeShortStat, formatWorkLikeText } from "../utils/videoCard.js";
+import { resolveVideoUrl, formatCompactStat, formatWorkLikeText } from "../utils/videoCard.js";
 import { useAuthStore } from "../stores/authStore";
 import {
   sanitizeImageUrl,
@@ -19,7 +19,7 @@ import {
 
 const likedStore = useLikedStore();
 const profile = useProfileStore();
-const shorts = useShortsStore();
+const immersive = useImmersiveStore();
 const { likedRows, likedTotal, likedLoading, likedLoadingMore, likedPageNo, likedPages } = storeToRefs(likedStore);
 const { isAuthed } = storeToRefs(useAuthStore());
 const hoverPreview = useHoverPreviewStore();
@@ -52,7 +52,7 @@ function openLikedCard(item) {
     void router.push(`/dynamic/${item.id}`);
     return;
   }
-  shorts.openLikedFeed(item);
+  immersive.openLikedFeed(item);
 }
 </script>
 
@@ -119,7 +119,7 @@ function openLikedCard(item) {
                     <div class="work-title-row">
                       <p class="work-title">{{ item.title }}</p>
                       <span class="work-play-stat" title="播放量">
-                        <i class="ri-play-line" aria-hidden="true"></i>{{ formatHomeShortStat(item.playCount) }}
+                        <i class="ri-play-line" aria-hidden="true"></i>{{ formatCompactStat(item.playCount) }}
                       </span>
                     </div>
                   </div>

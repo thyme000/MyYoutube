@@ -34,7 +34,7 @@ const DETAIL_STORAGE_PREFIX = "myyoutube_vdetail_";
 
 /**
  * @type {{
- *   pauseShortsFeed: () => void,
+ *   pauseImmersiveFeed: () => void,
  *   closeProfileFeedIfOpen: () => void,
  *   closeUploadModal: () => void,
  *   patchAuthorFollow: (authorId: any, isFollow: boolean) => void,
@@ -45,7 +45,7 @@ const DETAIL_STORAGE_PREFIX = "myyoutube_vdetail_";
  */
 const hooks = {
   /** 打开详情前停掉后台短视频音频（浏览器可能继续播放隐藏元素） */
-  pauseShortsFeed: () => {},
+  pauseImmersiveFeed: () => {},
   /** 主页全屏流开着时收起 */
   closeProfileFeedIfOpen: () => {},
   closeUploadModal: () => {},
@@ -874,7 +874,7 @@ export const useDetailStore = defineStore("detail", () => {
   async function openDetail(card, { skipRemoteDetail = false } = {}) {
     if (!card) return;
     // main 被 v-show 隐藏时部分浏览器仍会继续播放短视频音频，必须先停掉
-    hooks.pauseShortsFeed();
+    hooks.pauseImmersiveFeed();
     const skipRemote = skipRemoteDetail || card?.skipDetailFetch === true;
 
     // 切换详情视频前：上一条长视频正在播放则先 flush 续播

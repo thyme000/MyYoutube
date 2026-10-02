@@ -1,7 +1,7 @@
 // @ts-check
 /**
  * 首页 feed 域状态：混合流网格卡片、沉浸横条队列、长视频分页与分类/排序。
- * 沉浸横条与「沉浸」菜单共用同一份 immersiveRows(/contents/feed) —— 见 shortsStore.unifiedFeedList。
+ * 沉浸横条与「沉浸」菜单共用同一份 immersiveRows(/contents/feed) —— 见 immersiveStore.unifiedFeedList。
  */
 import { defineStore } from "pinia";
 import { fetchContentList, fetchContentFeed } from "../api/contentApi";

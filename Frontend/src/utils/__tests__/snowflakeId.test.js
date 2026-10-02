@@ -22,7 +22,7 @@ describe("parseDigitSnowflakeId", () => {
   });
 
   it("过滤非数字 id（如 mock 卡片 id）", () => {
-    expect(parseDigitSnowflakeId("shorts-1")).toBeNull();
+    expect(parseDigitSnowflakeId("immersive-1")).toBeNull();
     expect(parseDigitSnowflakeId("local-short-2")).toBeNull();
     expect(parseDigitSnowflakeId("")).toBeNull();
     expect(parseDigitSnowflakeId(null)).toBeNull();

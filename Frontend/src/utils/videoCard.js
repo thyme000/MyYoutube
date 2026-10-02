@@ -73,7 +73,7 @@ export function cardAuthorLabel(card) {
   return "—";
 }
 
-export function formatHomeShortStat(v) {
+export function formatCompactStat(v) {
   if (v === undefined || v === null || v === "") {
     return "0";
   }
@@ -106,7 +106,7 @@ export function formatWorkLikeText(item) {
 }
 
 /** 秒 → m:ss（列表内预览时长展示） */
-export function formatShortsTime(sec) {
+export function formatPlaybackTime(sec) {
   if (!Number.isFinite(sec) || sec < 0) {
     return "0:00";
   }

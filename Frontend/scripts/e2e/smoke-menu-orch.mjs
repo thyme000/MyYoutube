@@ -1,5 +1,5 @@
 /**
- * 菜单编排下沉冒烟：侧边栏切换各菜单、首页快照恢复、短视频双 tab 切换、详情开关回归。
+ * 菜单编排下沉冒烟：侧边栏切换各菜单、首页快照恢复、沉浸/关注双 tab 切换、详情开关回归。
  * 前置：vite dev(5173) + 后端(8080) 在跑；headless 浏览器 --remote-debugging-port=9222。
  * 用法：node scripts/e2e/smoke-menu-orch.mjs
  */
@@ -59,12 +59,12 @@ check("切到 /music", await waitFor(`location.pathname === "/music"`));
 console.log("切回首页:", await clickMenu("首页"));
 check("切回 / 且卡片恢复", await waitFor(`location.pathname === "/" && document.querySelectorAll(".video-card:not(.video-card--skeleton)").length > 0`, 20000));
 
-// 首页 → 短视频 → 关注（双 tab 切换分支）
-console.log("切短视频:", await clickMenu("短视频"));
-check("切到 /shorts", await waitFor(`location.pathname === "/shorts"`));
+// 首页 → 沉浸 → 关注（双 tab 切换分支）
+console.log("切沉浸:", await clickMenu("沉浸"));
+check("切到 /immersive", await waitFor(`location.pathname === "/immersive"`));
 console.log("切关注:", await clickMenu("关注"));
 check("切到 /subscribed", await waitFor(`location.pathname === "/subscribed"`));
-check("关注页视频流渲染", await waitFor(`document.querySelector(".content--shorts") || document.querySelectorAll("[class*=feed], [class*=card]").length > 0`, 15000));
+check("关注页视频流渲染", await waitFor(`document.querySelector(".content--immersive") || document.querySelectorAll("[class*=feed], [class*=card]").length > 0`, 15000));
 
 // 关注 → 历史 → 赞过
 console.log("切历史:", await clickMenu("历史播放记录"));

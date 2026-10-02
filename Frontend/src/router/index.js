@@ -12,8 +12,8 @@ export { MENU_ROUTES };
 
 /**
  * 菜单路由 /studio /profile 由 <RouterView>（经 App 主区解析器）渲染真实视图。
- * immersive / subscribed 的 ShortsView 在 App 里常驻（搜索结果页要复用同一个 feed 实例），
- * /upload 叠在来路视图之上（App 解析器归底），/feed 的连播 UI 在常驻 ShortsView 内 —— 三者给空组件占位。
+ * immersive / subscribed 的 ImmersiveView 在 App 里常驻（搜索结果页要复用同一个 feed 实例），
+ * /upload 叠在来路视图之上（App 解析器归底），/feed 的连播 UI 在常驻 ImmersiveView 内 —— 三者给空组件占位。
  */
 const NULL_VIEW = { render: () => null };
 
@@ -56,7 +56,7 @@ const routes = [
     meta: { title: "个人中心" },
     components: { default: loadProfileCenterView },
   },
-  /** 全屏连播：scope ∈ liked|history|profile|follow；队列在 shortsStore，URL 只承载历史栈 */
+  /** 全屏连播：scope ∈ liked|history|profile|follow；队列在 immersiveStore，URL 只承载历史栈 */
   {
     path: "/feed/:scope/:id?",
     name: "feed",

@@ -6,7 +6,7 @@
 import { ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import DynamicPlayer from "../components/DynamicPlayer.vue";
-import { registerShortsFeedPlayerRefs, useShortsStore } from "../stores/shortsStore";
+import { registerImmersiveFeedPlayerRefs, useImmersiveStore } from "../stores/immersiveStore";
 import { registerSearchExpandRefs, useSearchStore } from "../stores/searchStore";
 import { useAuthStore } from "../stores/authStore";
 import { useCommentPanelStore } from "../stores/commentPanelStore";
@@ -27,11 +27,11 @@ import {
 import {
   cardAuthorAvatar,
   formatSearchRelTime,
-  formatShortsTime,
+  formatPlaybackTime,
   parseSearchTagsArray,
 } from "../utils/videoCard.js";
 
-const shortsStore = useShortsStore();
+const immersiveStore = useImmersiveStore();
 const searchStore = useSearchStore();
 const commentPanelStore = useCommentPanelStore();
 const profileStore = useProfileStore();
@@ -47,35 +47,35 @@ const {
   followSubscribedFilterAuthorId,
   profileFeedOpen,
   selfVideoActionOpen,
-  shortsDurationReady,
-  shortsFeedAuthorAvatar,
-  shortsFeedAuthorName,
-  shortsFeedCurrent,
-  shortsFeedIsDynamic,
-  shortsFeedCurrentTime,
-  shortsFeedDescText,
-  shortsFeedDuration,
-  shortsFeedIsPortrait,
-  shortsFeedLikedDisplay,
-  shortsFeedMetaTimeText,
-  shortsFeedMuted,
-  shortsFeedPaused,
-  shortsFeedTitleText,
-  shortsFeedVideoBuffering,
-  shortsFeedVideoSrc,
-  shortsFeedVolume,
-  shortsIsFollowedCurrent,
-  shortsIsSelfCurrent,
-  shortsPanelCommentDraft,
-  shortsPanelCommentSubmitting,
-  shortsPanelCommentsLoading,
-  shortsPanelExpandedRoots,
-  shortsPanelReplyTarget,
-  shortsPanelThreadByRootId,
-  shortsPanelTopComments,
-  shortsScrubDisplayValue,
-  shortsScrubMax,
-} = storeToRefs(shortsStore);
+  immersiveDurationReady,
+  immersiveFeedAuthorAvatar,
+  immersiveFeedAuthorName,
+  immersiveFeedCurrent,
+  immersiveFeedIsDynamic,
+  immersiveFeedCurrentTime,
+  immersiveFeedDescText,
+  immersiveFeedDuration,
+  immersiveFeedIsPortrait,
+  immersiveFeedLikedDisplay,
+  immersiveFeedMetaTimeText,
+  immersiveFeedMuted,
+  immersiveFeedPaused,
+  immersiveFeedTitleText,
+  immersiveFeedVideoBuffering,
+  immersiveFeedVideoSrc,
+  immersiveFeedVolume,
+  immersiveIsFollowedCurrent,
+  immersiveIsSelfCurrent,
+  immersivePanelCommentDraft,
+  immersivePanelCommentSubmitting,
+  immersivePanelCommentsLoading,
+  immersivePanelExpandedRoots,
+  immersivePanelReplyTarget,
+  immersivePanelThreadByRootId,
+  immersivePanelTopComments,
+  immersiveScrubDisplayValue,
+  immersiveScrubMax,
+} = storeToRefs(immersiveStore);
 
 const {
   searchActive,
@@ -96,7 +96,7 @@ const {
   searchExpandVolume,
 } = storeToRefs(searchStore);
 
-const { shortsCommentPanelOpen, searchListCommentOpen, searchExpandCommentOpen } =
+const { immersiveCommentPanelOpen, searchListCommentOpen, searchExpandCommentOpen } =
   storeToRefs(commentPanelStore);
 const {
   open: showProfileCenter,
@@ -115,7 +115,7 @@ const { activeMenuKey } = storeToRefs(navigationStore);
 /** 连播动态条目的详情(时间轴), 随当前行切换按需拉取 */
 const dynamicDetail = ref(null);
 watch(
-  () => [shortsFeedIsDynamic.value, shortsFeedCurrent.value?.id],
+  () => [immersiveFeedIsDynamic.value, immersiveFeedCurrent.value?.id],
   async ([isDynamic, id]) => {
     const wanted = String(id ?? "");
     if (!isDynamic || !wanted) {
@@ -126,9 +126,9 @@ watch(
     if (String(dynamicDetail.value?.id ?? "") !== wanted) {
       dynamicDetail.value = null;
     }
-    const detail = await ensureDynamicDetail(shortsFeedCurrent.value);
+    const detail = await ensureDynamicDetail(immersiveFeedCurrent.value);
     // 拉取期间又切条了则丢弃，避免把旧详情写回去
-    if (String(shortsFeedCurrent.value?.id ?? "") !== wanted) {
+    if (String(immersiveFeedCurrent.value?.id ?? "") !== wanted) {
       return;
     }
     dynamicDetail.value = detail;
@@ -137,62 +137,62 @@ watch(
 );
 
 function onImmersiveDynamicReady(payload) {
-  shortsStore.onShortsFeedDynamicReady(payload?.durationSec, payload?.canvasType);
+  immersiveStore.onImmersiveFeedDynamicReady(payload?.durationSec, payload?.canvasType);
 }
 
 function onImmersiveDynamicTimeUpdate(sec) {
-  shortsStore.onShortsFeedDynamicTimeUpdate(sec);
+  immersiveStore.onImmersiveFeedDynamicTimeUpdate(sec);
 }
 
 // store action 与 store 绑定，可直接解构；带括号调用的函数型接口（如 searchExpandVideoUrl）
 // 在 store 里就是 action，不能写成 getter
 const {
   closeProfileFeed,
-  closeShortsCommentPanel,
+  closeImmersiveCommentPanel,
   commentDisplayNickname,
   isCommentLikeBusy,
-  loadMoreShortsPanelComments,
-  onDeleteShortsPanelComment,
-  onShortsDislikeClick,
-  onShortsFeedFgCanPlay,
-  onShortsFeedFgDurationChange,
-  onShortsFeedFgEnded,
+  loadMoreImmersivePanelComments,
+  onDeleteImmersivePanelComment,
+  onImmersiveDislikeClick,
+  onImmersiveFeedFgCanPlay,
+  onImmersiveFeedFgDurationChange,
+  onImmersiveFeedFgEnded,
   ensureDynamicDetail,
-  onShortsFeedFgLoadStart,
-  onShortsFeedFgLoadedMetadata,
-  onShortsFeedFgMediaError,
-  onShortsFeedFgPause,
-  onShortsFeedFgPlay,
-  onShortsFeedFgSeeked,
-  onShortsFeedFgTimeUpdate,
-  onShortsFeedTouchEnd,
-  onShortsFeedTouchStart,
-  onShortsFeedWheel,
-  onShortsForwardClick,
-  onShortsLikeClick,
-  onShortsScrubInput,
-  onShortsVolumeInput,
+  onImmersiveFeedFgLoadStart,
+  onImmersiveFeedFgLoadedMetadata,
+  onImmersiveFeedFgMediaError,
+  onImmersiveFeedFgPause,
+  onImmersiveFeedFgPlay,
+  onImmersiveFeedFgSeeked,
+  onImmersiveFeedFgTimeUpdate,
+  onImmersiveFeedTouchEnd,
+  onImmersiveFeedTouchStart,
+  onImmersiveFeedWheel,
+  onImmersiveForwardClick,
+  onImmersiveLikeClick,
+  onImmersiveScrubInput,
+  onImmersiveVolumeInput,
   requestDeleteCurrentSelfVideo,
   selectFollowSidebarAll,
   selectFollowSidebarAuthor,
-  setShortsPanelReplyTarget,
-  shortsFeedNext,
-  shortsFeedPrev,
-  shortsDownloadCurrent,
-  shortsPanelCommentHasMore,
-  shortsRequestFullscreen,
-  shortsRequestPip,
-  shortsToggleMute,
-  shortsTogglePlay,
+  setImmersivePanelReplyTarget,
+  immersiveFeedNext,
+  immersiveFeedPrev,
+  immersiveDownloadCurrent,
+  immersivePanelCommentHasMore,
+  immersiveRequestFullscreen,
+  immersiveRequestPip,
+  immersiveToggleMute,
+  immersiveTogglePlay,
   submitCommentLike,
-  submitShortsPanelComment,
+  submitImmersivePanelComment,
   toggleCurrentSelfVideoAllowComment,
   toggleCurrentSelfVideoVisibility,
   toggleSelfVideoActionMenu,
-  toggleShortsCommentPanel,
-  toggleShortsFollow,
-  toggleShortsPanelThread,
-} = shortsStore;
+  toggleImmersiveCommentPanel,
+  toggleImmersiveFollow,
+  toggleImmersivePanelThread,
+} = immersiveStore;
 
 const {
   closeSearchExpand,
@@ -228,16 +228,16 @@ const onTopbarAvatarError = (evt) => applyAvatarFallback(evt, profileAvatar);
  * 模板 ref= 绑定的元素对象必须留在本组件；播放器与放大层要命令式控制，
  * 故把 ref 对象注册给 store（store 侧只经 playerRefs 读写，不持有元素本身）。
  */
-const shortsFeedFgRef = ref(null);
-const shortsFeedBgRef = ref(null);
-const shortsFeedCenterRef = ref(null);
+const immersiveFeedFgRef = ref(null);
+const immersiveFeedBgRef = ref(null);
+const immersiveFeedCenterRef = ref(null);
 /** 动态条目用受控 DynamicPlayer 替代两个 <video>，命令入口同样注册给 store */
-const shortsFeedDynamicRef = ref(null);
-registerShortsFeedPlayerRefs({
-  fg: shortsFeedFgRef,
-  bg: shortsFeedBgRef,
-  center: shortsFeedCenterRef,
-  dynamic: shortsFeedDynamicRef,
+const immersiveFeedDynamicRef = ref(null);
+registerImmersiveFeedPlayerRefs({
+  fg: immersiveFeedFgRef,
+  bg: immersiveFeedBgRef,
+  center: immersiveFeedCenterRef,
+  dynamic: immersiveFeedDynamicRef,
 });
 
 const searchExpandPlayerRef = ref(null);
@@ -249,18 +249,18 @@ registerSearchExpandRefs({
   stage: searchExpandStageRef,
 });
 
-const shortsPanelCommentInputRef = ref(null);
+const immersivePanelCommentInputRef = ref(null);
 
 function onAuthorAvatarClick(event, authorId) {
   event?.stopPropagation?.();
   profileStore.openByAuthorId(authorId);
 }
 
-function onShortsPanelCommentEmojiPick(glyph) {
-  insertGlyphIntoCommentDraft(shortsPanelCommentDraft, shortsPanelCommentInputRef, glyph);
+function onImmersivePanelCommentEmojiPick(glyph) {
+  insertGlyphIntoCommentDraft(immersivePanelCommentDraft, immersivePanelCommentInputRef, glyph);
 }
 
-function onShortsPanelCommentUserClick(ev, userId) {
+function onImmersivePanelCommentUserClick(ev, userId) {
   if (userId == null || userId === "") {
     return;
   }
@@ -277,12 +277,12 @@ function onShortsPanelCommentUserClick(ev, userId) {
             aria-modal="true"
             aria-label="全屏播放"
           >
-            <div class="search-expand-shorts-shell">
-              <div ref="searchExpandStageRef" class="shorts-feed-center search-expand-shorts-center">
+            <div class="search-expand-immersive-shell">
+              <div ref="searchExpandStageRef" class="immersive-feed-center search-expand-immersive-center">
                 <button type="button" class="search-expand-close" aria-label="关闭" @click="closeSearchExpand">
                   <i class="ri-close-line"></i>
                 </button>
-                <div class="shorts-feed-stage-wrap">
+                <div class="immersive-feed-stage-wrap">
                   <div
                     class="short-video-stage short-video-stage--feed"
                     :class="{
@@ -315,39 +315,39 @@ function onShortsPanelCommentUserClick(ev, userId) {
                     />
                     <div
                       v-show="searchExpandPaused"
-                      class="shorts-feed-pause-overlay"
+                      class="immersive-feed-pause-overlay"
                       @click.stop="toggleSearchExpandPlay"
                     >
-                      <span class="shorts-feed-pause-overlay__icon" aria-hidden="true">
+                      <span class="immersive-feed-pause-overlay__icon" aria-hidden="true">
                         <i class="ri-play-fill"></i>
                       </span>
                     </div>
                   </div>
-                  <div class="shorts-feed-nav-side" aria-label="切换上一条下一条">
-                    <button type="button" class="shorts-feed-nav-line" title="上一条" @click.stop="searchExpandPrev">
+                  <div class="immersive-feed-nav-side" aria-label="切换上一条下一条">
+                    <button type="button" class="immersive-feed-nav-line" title="上一条" @click.stop="searchExpandPrev">
                       <i class="ri-arrow-up-s-line"></i>
                     </button>
-                    <button type="button" class="shorts-feed-nav-line" title="下一条" @click.stop="searchExpandNext">
+                    <button type="button" class="immersive-feed-nav-line" title="下一条" @click.stop="searchExpandNext">
                       <i class="ri-arrow-down-s-line"></i>
                     </button>
                   </div>
-                  <div class="shorts-feed-ui">
-                  <div class="shorts-feed-caption">
-                    <p class="shorts-feed-user">
+                  <div class="immersive-feed-ui">
+                  <div class="immersive-feed-caption">
+                    <p class="immersive-feed-user">
                       <button
                         v-if="searchExpandCard?.authorId != null && searchExpandCard?.authorId !== ''"
                         type="button"
-                        class="shorts-feed-user-link"
+                        class="immersive-feed-user-link"
                         title="查看作者主页"
                         @click.stop="onAuthorAvatarClick($event, searchExpandCard.authorId)"
                       >
                         @{{ searchExpandCard.authorNickname || searchExpandCard.author }}
                       </button>
                       <template v-else>@{{ searchExpandCard.authorNickname || searchExpandCard.author }}</template>
-                      <span v-if="formatSearchRelTime(searchExpandCard)" class="shorts-feed-time-dot"> · {{ formatSearchRelTime(searchExpandCard) }}</span>
+                      <span v-if="formatSearchRelTime(searchExpandCard)" class="immersive-feed-time-dot"> · {{ formatSearchRelTime(searchExpandCard) }}</span>
                     </p>
-                    <p class="shorts-feed-topic">{{ searchExpandCard.title }}</p>
-                    <p class="shorts-feed-desc">
+                    <p class="immersive-feed-topic">{{ searchExpandCard.title }}</p>
+                    <p class="immersive-feed-desc">
                       {{ searchExpandCard.description }}
                       <span v-if="parseSearchTagsArray(searchExpandCard).length" class="search-feed-tag-row">
                         <button
@@ -362,11 +362,11 @@ function onShortsPanelCommentUserClick(ev, userId) {
                       </span>
                     </p>
                   </div>
-                  <div class="shorts-feed-action-col">
-                    <div class="shorts-feed-author-block">
-                      <div class="shorts-feed-author-avatar-wrap">
+                  <div class="immersive-feed-action-col">
+                    <div class="immersive-feed-author-block">
+                      <div class="immersive-feed-author-avatar-wrap">
                         <img
-                          class="shorts-feed-author-avatar"
+                          class="immersive-feed-author-avatar"
                           :src="cardAuthorAvatar(searchExpandCard, searchExpandIndex)"
                           alt=""
                           role="button"
@@ -377,7 +377,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                         <button
                           v-if="!searchExpandIsSelf && !searchExpandIsFollowed"
                           type="button"
-                          class="shorts-feed-follow-btn"
+                          class="immersive-feed-follow-btn"
                           title="关注"
                           aria-label="关注"
                           @click.stop="toggleSearchExpandFollow"
@@ -387,7 +387,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                         <button
                           v-else-if="!searchExpandIsSelf"
                           type="button"
-                          class="shorts-feed-follow-btn shorts-feed-follow-btn--followed"
+                          class="immersive-feed-follow-btn immersive-feed-follow-btn--followed"
                           title="已关注"
                           aria-label="已关注"
                           @click.stop="toggleSearchExpandFollow"
@@ -396,35 +396,35 @@ function onShortsPanelCommentUserClick(ev, userId) {
                         </button>
                       </div>
                     </div>
-                    <div class="shorts-feed-action-item">
+                    <div class="immersive-feed-action-item">
                       <button
                         type="button"
-                        class="shorts-feed-action-btn"
-                        :class="{ 'shorts-feed-action-btn--active': searchExpandLikedDisplay }"
+                        class="immersive-feed-action-btn"
+                        :class="{ 'immersive-feed-action-btn--active': searchExpandLikedDisplay }"
                         title="点赞 / 取消赞"
                         aria-label="点赞"
                         @click.stop="onSearchExpandLikeClick"
                       >
                         <i :class="searchExpandLikedDisplay ? 'ri-heart-fill' : 'ri-heart-line'"></i>
                       </button>
-                      <span class="shorts-feed-action-count">{{ searchExpandCard?.likeCount ?? 0 }}</span>
+                      <span class="immersive-feed-action-count">{{ searchExpandCard?.likeCount ?? 0 }}</span>
                     </div>
-                    <div class="shorts-feed-action-item">
+                    <div class="immersive-feed-action-item">
                       <button
                         type="button"
-                        class="shorts-feed-action-btn"
+                        class="immersive-feed-action-btn"
                         title="评论"
                         aria-label="评论"
                         @click.stop="toggleSearchExpandCommentPanel"
                       >
                         <i class="ri-chat-3-line"></i>
                       </button>
-                      <span class="shorts-feed-action-count">{{ searchExpandCard?.commentCount ?? 0 }}</span>
+                      <span class="immersive-feed-action-count">{{ searchExpandCard?.commentCount ?? 0 }}</span>
                     </div>
-                    <div v-if="!searchExpandIsSelf" class="shorts-feed-action-item">
+                    <div v-if="!searchExpandIsSelf" class="immersive-feed-action-item">
                       <button
                         type="button"
-                        class="shorts-feed-action-btn"
+                        class="immersive-feed-action-btn"
                         title="不感兴趣"
                         aria-label="不感兴趣"
                         @click.stop="onSearchExpandDislikeClick"
@@ -432,18 +432,18 @@ function onShortsPanelCommentUserClick(ev, userId) {
                         <i class="ri-thumb-down-line"></i>
                       </button>
                     </div>
-                    <div class="shorts-feed-action-item">
-                      <button type="button" class="shorts-feed-action-btn" title="分享" aria-label="分享" @click.stop="onSearchExpandShareClick">
+                    <div class="immersive-feed-action-item">
+                      <button type="button" class="immersive-feed-action-btn" title="分享" aria-label="分享" @click.stop="onSearchExpandShareClick">
                         <i class="ri-share-forward-line"></i>
                       </button>
-                      <span class="shorts-feed-action-count">{{ searchExpandCard?.shareCount ?? 0 }}</span>
+                      <span class="immersive-feed-action-count">{{ searchExpandCard?.shareCount ?? 0 }}</span>
                     </div>
                   </div>
                 </div>
-                <div class="shorts-feed-bottom-bar shorts-feed-bottom-bar--search-expand">
+                <div class="immersive-feed-bottom-bar immersive-feed-bottom-bar--search-expand">
                   <input
                     type="range"
-                    class="shorts-feed-scrub"
+                    class="immersive-feed-scrub"
                     min="0"
                     :max="searchExpandScrubMax"
                     step="0.1"
@@ -451,20 +451,20 @@ function onShortsPanelCommentUserClick(ev, userId) {
                     :value="searchExpandScrubDisplayValue"
                     @input="onSearchExpandScrubInput"
                   />
-                  <div class="shorts-feed-bottom-bar__row">
-                    <span class="shorts-feed-time">
-                      {{ formatShortsTime(searchExpandCurrentTime) }} / {{ formatShortsTime(searchExpandDuration) }}
+                  <div class="immersive-feed-bottom-bar__row">
+                    <span class="immersive-feed-time">
+                      {{ formatPlaybackTime(searchExpandCurrentTime) }} / {{ formatPlaybackTime(searchExpandDuration) }}
                     </span>
-                    <div class="shorts-feed-tools">
-                      <button type="button" class="shorts-feed-tool-btn" title="小窗播放（画中画）" @click="searchExpandRequestPip">
+                    <div class="immersive-feed-tools">
+                      <button type="button" class="immersive-feed-tool-btn" title="小窗播放（画中画）" @click="searchExpandRequestPip">
                         <i class="ri-picture-in-picture-line"></i>
                       </button>
-                      <button type="button" class="shorts-feed-tool-btn" title="静音" @click="searchExpandToggleMute">
+                      <button type="button" class="immersive-feed-tool-btn" title="静音" @click="searchExpandToggleMute">
                         <i :class="searchExpandMuted ? 'ri-volume-mute-line' : 'ri-volume-up-line'"></i>
                       </button>
                       <input
                         type="range"
-                        class="shorts-feed-vol-range"
+                        class="immersive-feed-vol-range"
                         min="0"
                         max="1"
                         step="0.05"
@@ -473,15 +473,15 @@ function onShortsPanelCommentUserClick(ev, userId) {
                         aria-label="音量"
                         @input="onSearchExpandVolumeInput"
                       />
-                      <button type="button" class="shorts-feed-tool-btn" title="全屏" @click="searchExpandRequestFullscreen">
+                      <button type="button" class="immersive-feed-tool-btn" title="全屏" @click="searchExpandRequestFullscreen">
                         <i class="ri-fullscreen-line"></i>
                       </button>
-                      <button type="button" class="shorts-feed-tool-btn" title="转发" aria-label="转发" @click="onSearchExpandForwardClick">
+                      <button type="button" class="immersive-feed-tool-btn" title="转发" aria-label="转发" @click="onSearchExpandForwardClick">
                         <i class="ri-share-forward-line"></i>
                       </button>
                       <button
                         type="button"
-                        class="shorts-feed-tool-btn shorts-feed-tool-btn--playpause"
+                        class="immersive-feed-tool-btn immersive-feed-tool-btn--playpause"
                         :title="searchExpandPaused ? '播放' : '暂停'"
                         @click="toggleSearchExpandPlay"
                       >
@@ -497,72 +497,72 @@ function onShortsPanelCommentUserClick(ev, userId) {
         </Teleport>
         <Teleport to="body">
               <aside
-                v-if="shortsCommentPanelOpen || searchExpandCommentOpen || searchListCommentOpen"
-                class="shorts-feed-comments-panel shorts-feed-comments-panel--floating"
+                v-if="immersiveCommentPanelOpen || searchExpandCommentOpen || searchListCommentOpen"
+                class="immersive-feed-comments-panel immersive-feed-comments-panel--floating"
                 aria-label="评论"
                 @click.stop
               >
-                <div class="shorts-feed-comments-panel-head">
+                <div class="immersive-feed-comments-panel-head">
                   <h3>评论 {{ activeCommentVideo?.commentCount != null ? `（${activeCommentVideo.commentCount}）` : "" }}</h3>
                   <button
                     type="button"
-                    class="shorts-feed-comments-panel-close"
+                    class="immersive-feed-comments-panel-close"
                     aria-label="关闭评论"
-                    @click="closeShortsCommentPanel"
+                    @click="closeImmersiveCommentPanel"
                   >
                     <i class="ri-close-line"></i>
                   </button>
                 </div>
                 <span v-if="!activeCommentVideoAllowsComment" class="video-detail-comments-note">作者已关闭评论</span>
-                <p v-if="shortsPanelReplyTarget" class="video-detail-comment-reply-hint">
-                  回复 @{{ commentDisplayNickname(shortsPanelReplyTarget.userId, shortsPanelReplyTarget.nickname) }}
-                  <button type="button" class="video-detail-comment-reply-cancel" @click="setShortsPanelReplyTarget(null)">
+                <p v-if="immersivePanelReplyTarget" class="video-detail-comment-reply-hint">
+                  回复 @{{ commentDisplayNickname(immersivePanelReplyTarget.userId, immersivePanelReplyTarget.nickname) }}
+                  <button type="button" class="video-detail-comment-reply-cancel" @click="setImmersivePanelReplyTarget(null)">
                     取消
                   </button>
                 </p>
                 <div class="video-detail-comment-input">
                   <img :src="topbarAvatarSrc" alt="" class="video-detail-comment-avatar" @error="onTopbarAvatarError" />
                   <input
-                    ref="shortsPanelCommentInputRef"
-                    v-model="shortsPanelCommentDraft"
+                    ref="immersivePanelCommentInputRef"
+                    v-model="immersivePanelCommentDraft"
                     type="text"
                     class="video-detail-comment-field"
-                    :disabled="!isAuthed || !activeCommentVideoAllowsComment || shortsPanelCommentSubmitting"
+                    :disabled="!isAuthed || !activeCommentVideoAllowsComment || immersivePanelCommentSubmitting"
                     :placeholder="
                       !isAuthed
                         ? '登录后参与评论…'
                         : !activeCommentVideoAllowsComment
                           ? '评论已关闭'
-                          : shortsPanelReplyTarget
-                            ? `回复 @${commentDisplayNickname(shortsPanelReplyTarget.userId, shortsPanelReplyTarget.nickname)}…`
+                          : immersivePanelReplyTarget
+                            ? `回复 @${commentDisplayNickname(immersivePanelReplyTarget.userId, immersivePanelReplyTarget.nickname)}…`
                             : '添加评论…'
                     "
                     maxlength="500"
-                    @keyup.enter.prevent="submitShortsPanelComment"
+                    @keyup.enter.prevent="submitImmersivePanelComment"
                   />
                   <div class="video-detail-comment-input-actions">
                     <ChatEmojiPicker
-                      :disabled="!isAuthed || !activeCommentVideoAllowsComment || shortsPanelCommentSubmitting"
-                      @pick="onShortsPanelCommentEmojiPick"
+                      :disabled="!isAuthed || !activeCommentVideoAllowsComment || immersivePanelCommentSubmitting"
+                      @pick="onImmersivePanelCommentEmojiPick"
                     />
                     <button
                       type="button"
                       class="video-detail-comment-send"
                       :disabled="
-                        !isAuthed || !activeCommentVideoAllowsComment || shortsPanelCommentSubmitting || !shortsPanelCommentDraft.trim()
+                        !isAuthed || !activeCommentVideoAllowsComment || immersivePanelCommentSubmitting || !immersivePanelCommentDraft.trim()
                       "
-                      @click="submitShortsPanelComment"
+                      @click="submitImmersivePanelComment"
                     >
-                      {{ shortsPanelCommentSubmitting ? "发送中…" : "发送" }}
+                      {{ immersivePanelCommentSubmitting ? "发送中…" : "发送" }}
                     </button>
                   </div>
                 </div>
-                <div class="shorts-feed-comments-panel-scroll">
-                  <p v-if="shortsPanelCommentsLoading && !shortsPanelTopComments.length" class="video-detail-comments-empty">
+                <div class="immersive-feed-comments-panel-scroll">
+                  <p v-if="immersivePanelCommentsLoading && !immersivePanelTopComments.length" class="video-detail-comments-empty">
                     加载评论中…
                   </p>
-                  <ul v-else-if="shortsPanelTopComments.length" class="video-detail-comments-mock">
-                    <template v-for="c in shortsPanelTopComments" :key="`sp-top-${c.id}`">
+                  <ul v-else-if="immersivePanelTopComments.length" class="video-detail-comments-mock">
+                    <template v-for="c in immersivePanelTopComments" :key="`sp-top-${c.id}`">
                       <li class="video-detail-comment-item">
                         <img
                           :src="c.avatarUrl || profileAvatar"
@@ -571,8 +571,8 @@ function onShortsPanelCommentUserClick(ev, userId) {
                           role="button"
                           tabindex="0"
                           title="查看用户主页"
-                          @click.stop="onShortsPanelCommentUserClick($event, c.userId)"
-                          @keyup.enter.stop="onShortsPanelCommentUserClick($event, c.userId)"
+                          @click.stop="onImmersivePanelCommentUserClick($event, c.userId)"
+                          @keyup.enter.stop="onImmersivePanelCommentUserClick($event, c.userId)"
                           @error="(e) => { const t = e.target; if (t) t.src = profileAvatar; }"
                         />
                         <div class="video-detail-comment-body">
@@ -580,7 +580,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                             <button
                               type="button"
                               class="video-detail-comment-user video-detail-comment-user--link"
-                              @click.stop="onShortsPanelCommentUserClick($event, c.userId)"
+                              @click.stop="onImmersivePanelCommentUserClick($event, c.userId)"
                             >
                               {{ commentDisplayNickname(c.userId, c.nickname) }}
                             </button>
@@ -607,7 +607,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                               v-if="isAuthed && activeCommentVideoAllowsComment"
                               type="button"
                               class="video-detail-comment-action-btn"
-                              @click="setShortsPanelReplyTarget(c)"
+                              @click="setImmersivePanelReplyTarget(c)"
                             >
                               回复
                             </button>
@@ -615,7 +615,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                               v-if="isAuthed && currentUserId != null && String(c.userId) === String(currentUserId)"
                               type="button"
                               class="video-detail-comment-action-btn video-detail-comment-action-btn--danger"
-                              @click="onDeleteShortsPanelComment(c)"
+                              @click="onDeleteImmersivePanelComment(c)"
                             >
                               删除
                             </button>
@@ -637,17 +637,17 @@ function onShortsPanelCommentUserClick(ev, userId) {
                             v-if="c.replyCount > 0"
                             type="button"
                             class="video-detail-thread-toggle"
-                            @click="toggleShortsPanelThread(c.id)"
+                            @click="toggleImmersivePanelThread(c.id)"
                           >
                             {{
-                              shortsPanelExpandedRoots[String(c.id)]
+                              immersivePanelExpandedRoots[String(c.id)]
                                 ? "收起回复"
                                 : `展开 ${c.replyCount} 条回复`
                             }}
                           </button>
-                          <ul v-if="shortsPanelExpandedRoots[String(c.id)]" class="video-detail-comment-replies">
+                          <ul v-if="immersivePanelExpandedRoots[String(c.id)]" class="video-detail-comment-replies">
                             <li
-                              v-for="r in shortsPanelThreadByRootId[String(c.id)]?.list || []"
+                              v-for="r in immersivePanelThreadByRootId[String(c.id)]?.list || []"
                               :key="`sp-r-${r.id}`"
                               class="video-detail-comment-item video-detail-comment-item--reply"
                             >
@@ -658,8 +658,8 @@ function onShortsPanelCommentUserClick(ev, userId) {
                                 role="button"
                                 tabindex="0"
                                 title="查看用户主页"
-                                @click.stop="onShortsPanelCommentUserClick($event, r.userId)"
-                                @keyup.enter.stop="onShortsPanelCommentUserClick($event, r.userId)"
+                                @click.stop="onImmersivePanelCommentUserClick($event, r.userId)"
+                                @keyup.enter.stop="onImmersivePanelCommentUserClick($event, r.userId)"
                                 @error="(e) => { const t = e.target; if (t) t.src = profileAvatar; }"
                               />
                               <div class="video-detail-comment-body">
@@ -667,7 +667,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                                   <button
                                     type="button"
                                     class="video-detail-comment-user video-detail-comment-user--link"
-                                    @click.stop="onShortsPanelCommentUserClick($event, r.userId)"
+                                    @click.stop="onImmersivePanelCommentUserClick($event, r.userId)"
                                   >
                                     {{ commentDisplayNickname(r.userId, r.nickname) }}
                                   </button>
@@ -681,7 +681,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                                     v-if="r.replyNickname && r.replyUserId != null && r.replyUserId !== ''"
                                     type="button"
                                     class="video-detail-comment-at video-detail-comment-at--link"
-                                    @click.stop="onShortsPanelCommentUserClick($event, r.replyUserId)"
+                                    @click.stop="onImmersivePanelCommentUserClick($event, r.replyUserId)"
                                   >
                                     @{{ commentDisplayNickname(r.replyUserId, r.replyNickname) }}
                                   </button>
@@ -710,7 +710,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                                     v-if="isAuthed && activeCommentVideoAllowsComment"
                                     type="button"
                                     class="video-detail-comment-action-btn"
-                                    @click="setShortsPanelReplyTarget(r)"
+                                    @click="setImmersivePanelReplyTarget(r)"
                                   >
                                     回复
                                   </button>
@@ -718,7 +718,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                                     v-if="isAuthed && currentUserId != null && String(r.userId) === String(currentUserId)"
                                     type="button"
                                     class="video-detail-comment-action-btn video-detail-comment-action-btn--danger"
-                                    @click="onDeleteShortsPanelComment(r)"
+                                    @click="onDeleteImmersivePanelComment(r)"
                                   >
                                     删除
                                   </button>
@@ -739,7 +739,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
                               </div>
                             </li>
                             <li
-                              v-if="shortsPanelThreadByRootId[String(c.id)]?.loading"
+                              v-if="immersivePanelThreadByRootId[String(c.id)]?.loading"
                               class="video-detail-comment-item video-detail-comment-item--reply"
                             >
                               <span class="video-detail-comments-empty">加载回复中…</span>
@@ -749,14 +749,14 @@ function onShortsPanelCommentUserClick(ev, userId) {
                       </li>
                     </template>
                   </ul>
-                  <div v-if="shortsPanelCommentHasMore()" class="video-detail-comments-more">
+                  <div v-if="immersivePanelCommentHasMore()" class="video-detail-comments-more">
                     <button
                       type="button"
                       class="history-layout-btn"
-                      :disabled="shortsPanelCommentsLoading"
-                      @click="loadMoreShortsPanelComments"
+                      :disabled="immersivePanelCommentsLoading"
+                      @click="loadMoreImmersivePanelComments"
                     >
-                      {{ shortsPanelCommentsLoading ? "加载中…" : "加载更多评论" }}
+                      {{ immersivePanelCommentsLoading ? "加载中…" : "加载更多评论" }}
                     </button>
                   </div>
                 </div>
@@ -764,8 +764,8 @@ function onShortsPanelCommentUserClick(ev, userId) {
         </Teleport>
         <div
           v-if="profileFeedOpen || (!showProfileCenter && (activeMenuKey === 'immersive' || activeMenuKey === 'subscribed'))"
-          class="shorts-feed-shell"
-          :class="{ 'shorts-feed-shell--with-sidebar': activeMenuKey === 'subscribed' && !profileFeedOpen }"
+          class="immersive-feed-shell"
+          :class="{ 'immersive-feed-shell--with-sidebar': activeMenuKey === 'subscribed' && !profileFeedOpen }"
         >
           <aside
             v-if="activeMenuKey === 'subscribed' && !profileFeedOpen"
@@ -823,144 +823,144 @@ function onShortsPanelCommentUserClick(ev, userId) {
           </aside>
           <section
             :class="[
-              profileFeedOpen ? 'profile-feed-overlay' : 'shorts-feed',
-              { 'shorts-feed--follow-main': activeMenuKey === 'subscribed' && !profileFeedOpen },
+              profileFeedOpen ? 'profile-feed-overlay' : 'immersive-feed',
+              { 'immersive-feed--follow-main': activeMenuKey === 'subscribed' && !profileFeedOpen },
             ]"
           >
           <button
             v-if="profileFeedOpen"
             type="button"
             class="profile-feed-close"
-            :class="{ 'profile-feed-close--comments-open': shortsCommentPanelOpen }"
+            :class="{ 'profile-feed-close--comments-open': immersiveCommentPanelOpen }"
             :aria-label="feedScope === 'liked' ? '关闭赞过视频连播' : '关闭作品连播'"
             @click="closeProfileFeed"
           >
             <i class="ri-close-line"></i>
           </button>
-          <div v-if="loading && !profileFeedOpen" class="shorts-feed-loading">
+          <div v-if="loading && !profileFeedOpen" class="immersive-feed-loading">
             {{ activeMenuKey === "subscribed" ? "正在加载关注动态…" : "正在加载沉浸内容…" }}
           </div>
-          <template v-else-if="shortsFeedVideoSrc || shortsFeedIsDynamic">
-            <div class="shorts-feed-body" :class="{ 'shorts-feed-body--comments-open': shortsCommentPanelOpen }">
-              <div class="shorts-feed-player-column">
+          <template v-else-if="immersiveFeedVideoSrc || immersiveFeedIsDynamic">
+            <div class="immersive-feed-body" :class="{ 'immersive-feed-body--comments-open': immersiveCommentPanelOpen }">
+              <div class="immersive-feed-player-column">
               <div
-                ref="shortsFeedCenterRef"
-                class="shorts-feed-center"
-                @wheel.prevent="onShortsFeedWheel"
-                @touchstart="onShortsFeedTouchStart"
-                @touchend="onShortsFeedTouchEnd"
+                ref="immersiveFeedCenterRef"
+                class="immersive-feed-center"
+                @wheel.prevent="onImmersiveFeedWheel"
+                @touchstart="onImmersiveFeedTouchStart"
+                @touchend="onImmersiveFeedTouchEnd"
               >
-                <div class="shorts-feed-stage-wrap">
+                <div class="immersive-feed-stage-wrap">
                   <div
                     class="short-video-stage short-video-stage--feed"
                     :class="{
-                      'short-video-stage--portrait': shortsFeedIsPortrait,
-                      'short-video-stage--landscape': !shortsFeedIsPortrait,
+                      'short-video-stage--portrait': immersiveFeedIsPortrait,
+                      'short-video-stage--landscape': !immersiveFeedIsPortrait,
                     }"
                   >
                     <DynamicPlayer
-                      v-if="shortsFeedIsDynamic && dynamicDetail"
-                      ref="shortsFeedDynamicRef"
+                      v-if="immersiveFeedIsDynamic && dynamicDetail"
+                      ref="immersiveFeedDynamicRef"
                       :key="dynamicDetail.id"
-                      class="shorts-feed-dynamic"
+                      class="immersive-feed-dynamic"
                       :dynamic="dynamicDetail"
                       :loop="false"
                       controlled
-                      :paused="shortsFeedPaused"
-                      :muted="shortsFeedMuted"
-                      :volume="shortsFeedVolume"
-                      @ended="onShortsFeedFgEnded"
+                      :paused="immersiveFeedPaused"
+                      :muted="immersiveFeedMuted"
+                      :volume="immersiveFeedVolume"
+                      @ended="onImmersiveFeedFgEnded"
                       @durationchange="onImmersiveDynamicReady"
                       @timeupdate="onImmersiveDynamicTimeUpdate"
-                      @request-toggle-play="shortsTogglePlay"
-                      @request-toggle-mute="shortsToggleMute"
+                      @request-toggle-play="immersiveTogglePlay"
+                      @request-toggle-mute="immersiveToggleMute"
                     />
                     <video
-                      v-if="!shortsFeedIsDynamic"
-                      :key="shortsFeedCurrent?.id"
-                      ref="shortsFeedBgRef"
+                      v-if="!immersiveFeedIsDynamic"
+                      :key="immersiveFeedCurrent?.id"
+                      ref="immersiveFeedBgRef"
                       class="short-video-bg"
-                      :data-play-token="shortsFeedPlayToken"
+                      :data-play-token="immersiveFeedPlayToken"
                       muted
                       playsinline
                       preload="metadata"
-                      :src="shortsFeedVideoSrc"
+                      :src="immersiveFeedVideoSrc"
                     ></video>
                     <video
-                      v-if="!shortsFeedIsDynamic"
-                      :key="shortsFeedCurrent?.id"
-                      ref="shortsFeedFgRef"
+                      v-if="!immersiveFeedIsDynamic"
+                      :key="immersiveFeedCurrent?.id"
+                      ref="immersiveFeedFgRef"
                       class="short-video-fg"
-                      :data-play-token="shortsFeedPlayToken"
+                      :data-play-token="immersiveFeedPlayToken"
                       playsinline
                       preload="metadata"
-                      :src="shortsFeedVideoSrc"
-                      @click="shortsTogglePlay"
-                      @loadstart="onShortsFeedFgLoadStart"
-                      @canplay="onShortsFeedFgCanPlay"
-                      @error="onShortsFeedFgMediaError"
-                      @loadedmetadata="onShortsFeedFgLoadedMetadata"
-                      @durationchange="onShortsFeedFgDurationChange"
-                      @timeupdate="onShortsFeedFgTimeUpdate"
-                      @play="onShortsFeedFgPlay"
-                      @pause="onShortsFeedFgPause"
-                      @seeked="onShortsFeedFgSeeked"
-                      @ended="onShortsFeedFgEnded"
+                      :src="immersiveFeedVideoSrc"
+                      @click="immersiveTogglePlay"
+                      @loadstart="onImmersiveFeedFgLoadStart"
+                      @canplay="onImmersiveFeedFgCanPlay"
+                      @error="onImmersiveFeedFgMediaError"
+                      @loadedmetadata="onImmersiveFeedFgLoadedMetadata"
+                      @durationchange="onImmersiveFeedFgDurationChange"
+                      @timeupdate="onImmersiveFeedFgTimeUpdate"
+                      @play="onImmersiveFeedFgPlay"
+                      @pause="onImmersiveFeedFgPause"
+                      @seeked="onImmersiveFeedFgSeeked"
+                      @ended="onImmersiveFeedFgEnded"
                     ></video>
                     <div
-                      v-show="shortsFeedVideoBuffering && shortsFeedVideoSrc"
-                      class="video-player-loading video-player-loading--shorts"
+                      v-show="immersiveFeedVideoBuffering && immersiveFeedVideoSrc"
+                      class="video-player-loading video-player-loading--immersive"
                       aria-live="polite"
                       aria-busy="true"
                     >
-                      <div class="video-player-loading__shimmer video-player-loading__shimmer--shorts" aria-hidden="true" />
+                      <div class="video-player-loading__shimmer video-player-loading__shimmer--immersive" aria-hidden="true" />
                       <div class="video-player-loading__inner">
-                        <span class="video-player-loading__ring video-player-loading__ring--shorts" />
-                        <span class="video-player-loading__text video-player-loading__text--shorts">正在加载</span>
+                        <span class="video-player-loading__ring video-player-loading__ring--immersive" />
+                        <span class="video-player-loading__text video-player-loading__text--immersive">正在加载</span>
                       </div>
                     </div>
                     <div
-                      v-show="shortsFeedPaused"
-                      class="shorts-feed-pause-overlay"
-                      @click.stop="shortsTogglePlay"
+                      v-show="immersiveFeedPaused"
+                      class="immersive-feed-pause-overlay"
+                      @click.stop="immersiveTogglePlay"
                     >
-                      <span class="shorts-feed-pause-overlay__icon" aria-hidden="true">
+                      <span class="immersive-feed-pause-overlay__icon" aria-hidden="true">
                         <i class="ri-play-fill"></i>
                       </span>
                     </div>
                   </div>
-                  <div class="shorts-feed-nav-side" aria-label="切换视频">
-                    <button type="button" class="shorts-feed-nav-line" title="上一条" @click.stop="shortsFeedPrev">
+                  <div class="immersive-feed-nav-side" aria-label="切换视频">
+                    <button type="button" class="immersive-feed-nav-line" title="上一条" @click.stop="immersiveFeedPrev">
                       <i class="ri-arrow-up-s-line"></i>
                     </button>
-                    <button type="button" class="shorts-feed-nav-line" title="下一条" @click.stop="shortsFeedNext">
+                    <button type="button" class="immersive-feed-nav-line" title="下一条" @click.stop="immersiveFeedNext">
                       <i class="ri-arrow-down-s-line"></i>
                     </button>
                   </div>
-                  <div class="shorts-feed-ui">
-                    <div class="shorts-feed-caption">
-                      <p class="shorts-feed-user">
+                  <div class="immersive-feed-ui">
+                    <div class="immersive-feed-caption">
+                      <p class="immersive-feed-user">
                         <button
-                          v-if="shortsFeedCurrent?.authorId != null && shortsFeedCurrent?.authorId !== ''"
+                          v-if="immersiveFeedCurrent?.authorId != null && immersiveFeedCurrent?.authorId !== ''"
                           type="button"
-                          class="shorts-feed-user-link"
+                          class="immersive-feed-user-link"
                           title="查看作者主页"
-                          @click.stop="onAuthorAvatarClick($event, shortsFeedCurrent.authorId)"
+                          @click.stop="onAuthorAvatarClick($event, immersiveFeedCurrent.authorId)"
                         >
-                          @{{ shortsFeedAuthorName }}
+                          @{{ immersiveFeedAuthorName }}
                         </button>
-                        <template v-else>@{{ shortsFeedAuthorName }}</template>
-                        <span v-if="shortsFeedMetaTimeText" class="shorts-feed-time-dot"> · {{ shortsFeedMetaTimeText }}</span>
+                        <template v-else>@{{ immersiveFeedAuthorName }}</template>
+                        <span v-if="immersiveFeedMetaTimeText" class="immersive-feed-time-dot"> · {{ immersiveFeedMetaTimeText }}</span>
                       </p>
-                      <p class="shorts-feed-topic">{{ shortsFeedTitleText }}</p>
-                      <p class="shorts-feed-desc">
-                        {{ shortsFeedDescText }}
-                        <span v-if="parseSearchTagsArray(shortsFeedCurrent).length" class="search-feed-tag-row search-feed-tag-row--shorts-overlay">
+                      <p class="immersive-feed-topic">{{ immersiveFeedTitleText }}</p>
+                      <p class="immersive-feed-desc">
+                        {{ immersiveFeedDescText }}
+                        <span v-if="parseSearchTagsArray(immersiveFeedCurrent).length" class="search-feed-tag-row search-feed-tag-row--immersive-overlay">
                           <button
-                            v-for="tg in parseSearchTagsArray(shortsFeedCurrent)"
-                            :key="'shtg-' + String(shortsFeedCurrent?.id ?? '') + '-' + tg"
+                            v-for="tg in parseSearchTagsArray(immersiveFeedCurrent)"
+                            :key="'shtg-' + String(immersiveFeedCurrent?.id ?? '') + '-' + tg"
                             type="button"
-                            class="search-feed-tag-chip search-feed-tag-chip--shorts-overlay"
+                            class="search-feed-tag-chip search-feed-tag-chip--immersive-overlay"
                             @click.stop="onSearchTagNavigate(tg)"
                           >
                             {{ tg.startsWith("#") ? tg : "#" + tg }}
@@ -968,165 +968,165 @@ function onShortsPanelCommentUserClick(ev, userId) {
                         </span>
                       </p>
                     </div>
-                    <div class="shorts-feed-action-col">
-                      <div class="shorts-feed-author-block">
-                        <div class="shorts-feed-author-avatar-wrap">
+                    <div class="immersive-feed-action-col">
+                      <div class="immersive-feed-author-block">
+                        <div class="immersive-feed-author-avatar-wrap">
                           <img
-                            class="shorts-feed-author-avatar"
-                            :src="shortsFeedAuthorAvatar"
+                            class="immersive-feed-author-avatar"
+                            :src="immersiveFeedAuthorAvatar"
                             alt=""
                             role="button"
                             title="查看作者主页"
-                            @click.stop="onAuthorAvatarClick($event, shortsFeedCurrent?.authorId)"
+                            @click.stop="onAuthorAvatarClick($event, immersiveFeedCurrent?.authorId)"
                             @error="(e) => { e.target.src = profileAvatar; }"
                           />
                           <button
-                            v-if="!shortsIsSelfCurrent && !shortsIsFollowedCurrent"
+                            v-if="!immersiveIsSelfCurrent && !immersiveIsFollowedCurrent"
                             type="button"
-                            class="shorts-feed-follow-btn"
+                            class="immersive-feed-follow-btn"
                             title="关注"
                             aria-label="关注"
-                            @click.stop="toggleShortsFollow"
+                            @click.stop="toggleImmersiveFollow"
                           >
                             <i class="ri-add-line"></i>
                           </button>
                           <button
-                            v-else-if="!shortsIsSelfCurrent"
+                            v-else-if="!immersiveIsSelfCurrent"
                             type="button"
-                            class="shorts-feed-follow-btn shorts-feed-follow-btn--followed"
+                            class="immersive-feed-follow-btn immersive-feed-follow-btn--followed"
                             title="已关注"
                             aria-label="已关注"
-                            @click.stop="toggleShortsFollow"
+                            @click.stop="toggleImmersiveFollow"
                           >
                             <i class="ri-check-line"></i>
                           </button>
                         </div>
                       </div>
-                      <div class="shorts-feed-action-item">
+                      <div class="immersive-feed-action-item">
                         <button
                           type="button"
-                          class="shorts-feed-action-btn"
-                          :class="{ 'shorts-feed-action-btn--active': shortsFeedLikedDisplay }"
+                          class="immersive-feed-action-btn"
+                          :class="{ 'immersive-feed-action-btn--active': immersiveFeedLikedDisplay }"
                           title="点赞 / 取消赞"
                           aria-label="点赞"
-                          @click="onShortsLikeClick"
+                          @click="onImmersiveLikeClick"
                         >
-                          <i :class="shortsFeedLikedDisplay ? 'ri-heart-fill' : 'ri-heart-line'"></i>
+                          <i :class="immersiveFeedLikedDisplay ? 'ri-heart-fill' : 'ri-heart-line'"></i>
                         </button>
-                        <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.likeCount ?? 0 }}</span>
+                        <span class="immersive-feed-action-count">{{ immersiveFeedCurrent?.likeCount ?? 0 }}</span>
                       </div>
-                      <div class="shorts-feed-action-item">
+                      <div class="immersive-feed-action-item">
                         <button
                           type="button"
-                          class="shorts-feed-action-btn"
+                          class="immersive-feed-action-btn"
                           title="评论"
                           aria-label="评论"
-                          @click.stop="toggleShortsCommentPanel"
+                          @click.stop="toggleImmersiveCommentPanel"
                         >
                           <i class="ri-chat-3-line"></i>
                         </button>
-                        <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.commentCount ?? 0 }}</span>
+                        <span class="immersive-feed-action-count">{{ immersiveFeedCurrent?.commentCount ?? 0 }}</span>
                       </div>
-                      <div v-if="!shortsIsSelfCurrent" class="shorts-feed-action-item">
+                      <div v-if="!immersiveIsSelfCurrent" class="immersive-feed-action-item">
                         <button
                           type="button"
-                          class="shorts-feed-action-btn"
+                          class="immersive-feed-action-btn"
                           title="不感兴趣"
                           aria-label="不感兴趣"
-                          @click="onShortsDislikeClick"
+                          @click="onImmersiveDislikeClick"
                         >
                           <i class="ri-thumb-down-line"></i>
                         </button>
                       </div>
-                      <div v-else-if="shortsIsSelfCurrent" class="shorts-feed-action-item shorts-feed-action-item--menu">
+                      <div v-else-if="immersiveIsSelfCurrent" class="immersive-feed-action-item immersive-feed-action-item--menu">
                         <button
                           type="button"
-                          class="shorts-feed-action-btn"
+                          class="immersive-feed-action-btn"
                           title="更多操作"
                           aria-label="更多操作"
                           @click.stop="toggleSelfVideoActionMenu"
                         >
                           <i class="ri-more-fill"></i>
                         </button>
-                        <div v-if="selfVideoActionOpen" class="shorts-self-action-menu" @click.stop>
-                          <button type="button" class="shorts-self-action-btn" @click="toggleCurrentSelfVideoVisibility">
-                            {{ String(shortsFeedCurrent?.visibility || '').toUpperCase() === 'PRIVATE' ? '设为公开' : '设为私密' }}
+                        <div v-if="selfVideoActionOpen" class="immersive-self-action-menu" @click.stop>
+                          <button type="button" class="immersive-self-action-btn" @click="toggleCurrentSelfVideoVisibility">
+                            {{ String(immersiveFeedCurrent?.visibility || '').toUpperCase() === 'PRIVATE' ? '设为公开' : '设为私密' }}
                           </button>
-                          <button type="button" class="shorts-self-action-btn" @click="toggleCurrentSelfVideoAllowComment">
-                            {{ Number(shortsFeedCurrent?.allowComment ?? 1) === 1 ? '关闭评论' : '开启评论' }}
+                          <button type="button" class="immersive-self-action-btn" @click="toggleCurrentSelfVideoAllowComment">
+                            {{ Number(immersiveFeedCurrent?.allowComment ?? 1) === 1 ? '关闭评论' : '开启评论' }}
                           </button>
                           <button
-                            v-if="shortsIsSelfCurrent"
+                            v-if="immersiveIsSelfCurrent"
                             type="button"
-                            class="shorts-self-action-btn shorts-self-action-btn--danger"
+                            class="immersive-self-action-btn immersive-self-action-btn--danger"
                             @click="requestDeleteCurrentSelfVideo"
                           >
                             删除
                           </button>
                         </div>
                       </div>
-                      <div class="shorts-feed-action-item">
-                        <button type="button" class="shorts-feed-action-btn" title="转发" aria-label="转发" @click.stop="onShortsForwardClick">
+                      <div class="immersive-feed-action-item">
+                        <button type="button" class="immersive-feed-action-btn" title="转发" aria-label="转发" @click.stop="onImmersiveForwardClick">
                           <i class="ri-share-forward-line"></i>
                         </button>
-                        <span class="shorts-feed-action-count">{{ shortsFeedCurrent?.shareCount ?? 0 }}</span>
+                        <span class="immersive-feed-action-count">{{ immersiveFeedCurrent?.shareCount ?? 0 }}</span>
                       </div>
-                      <div class="shorts-feed-action-item">
+                      <div class="immersive-feed-action-item">
                         <button
                           type="button"
-                          class="shorts-feed-action-btn"
-                          :title="shortsFeedIsDynamic ? '下载成片' : '下载视频'"
+                          class="immersive-feed-action-btn"
+                          :title="immersiveFeedIsDynamic ? '下载成片' : '下载视频'"
                           aria-label="下载"
-                          @click.stop="shortsDownloadCurrent"
+                          @click.stop="immersiveDownloadCurrent"
                         >
                           <i class="ri-download-2-line"></i>
                         </button>
                       </div>
                     </div>
                   </div>
-                  <div class="shorts-feed-bottom-bar">
+                  <div class="immersive-feed-bottom-bar">
                     <input
                       type="range"
-                      class="shorts-feed-scrub"
+                      class="immersive-feed-scrub"
                       min="0"
-                      :max="shortsScrubMax"
+                      :max="immersiveScrubMax"
                       step="0.1"
-                      :disabled="!shortsDurationReady"
-                      :value="shortsScrubDisplayValue"
-                      @input="onShortsScrubInput"
+                      :disabled="!immersiveDurationReady"
+                      :value="immersiveScrubDisplayValue"
+                      @input="onImmersiveScrubInput"
                     />
-                    <div class="shorts-feed-bottom-bar__row">
-                      <span class="shorts-feed-time">
-                        {{ formatShortsTime(shortsFeedCurrentTime) }} / {{ formatShortsTime(shortsFeedDuration) }}
+                    <div class="immersive-feed-bottom-bar__row">
+                      <span class="immersive-feed-time">
+                        {{ formatPlaybackTime(immersiveFeedCurrentTime) }} / {{ formatPlaybackTime(immersiveFeedDuration) }}
                       </span>
-                      <div class="shorts-feed-tools">
-                        <button type="button" class="shorts-feed-tool-btn" title="小窗播放（画中画）" @click="shortsRequestPip">
+                      <div class="immersive-feed-tools">
+                        <button type="button" class="immersive-feed-tool-btn" title="小窗播放（画中画）" @click="immersiveRequestPip">
                           <i class="ri-picture-in-picture-line"></i>
                         </button>
-                        <button type="button" class="shorts-feed-tool-btn" title="静音" @click="shortsToggleMute">
-                          <i :class="shortsFeedMuted ? 'ri-volume-mute-line' : 'ri-volume-up-line'"></i>
+                        <button type="button" class="immersive-feed-tool-btn" title="静音" @click="immersiveToggleMute">
+                          <i :class="immersiveFeedMuted ? 'ri-volume-mute-line' : 'ri-volume-up-line'"></i>
                         </button>
                         <input
                           type="range"
-                          class="shorts-feed-vol-range"
+                          class="immersive-feed-vol-range"
                           min="0"
                           max="1"
                           step="0.05"
-                          :value="shortsFeedVolume"
+                          :value="immersiveFeedVolume"
                           title="音量"
                           aria-label="音量"
-                          @input="onShortsVolumeInput"
+                          @input="onImmersiveVolumeInput"
                         />
-                        <button type="button" class="shorts-feed-tool-btn" title="全屏" @click="shortsRequestFullscreen">
+                        <button type="button" class="immersive-feed-tool-btn" title="全屏" @click="immersiveRequestFullscreen">
                           <i class="ri-fullscreen-line"></i>
                         </button>
                         <button
                           type="button"
-                          class="shorts-feed-tool-btn shorts-feed-tool-btn--playpause"
-                          :title="shortsFeedPaused ? '播放' : '暂停'"
-                          @click="shortsTogglePlay"
+                          class="immersive-feed-tool-btn immersive-feed-tool-btn--playpause"
+                          :title="immersiveFeedPaused ? '播放' : '暂停'"
+                          @click="immersiveTogglePlay"
                         >
-                          <i :class="shortsFeedPaused ? 'ri-play-fill' : 'ri-pause-fill'"></i>
+                          <i :class="immersiveFeedPaused ? 'ri-play-fill' : 'ri-pause-fill'"></i>
                         </button>
                       </div>
                     </div>
@@ -1164,7 +1164,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
 }
 
 /* 搜索全屏：与短视频 feed 同一套 stage（short-video-bg + short-video-fg），非独立卡片 */
-.search-expand-shorts-shell {
+.search-expand-immersive-shell {
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -1173,7 +1173,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   background: var(--black);
 }
 
-.search-expand-overlay--fullscreen .shorts-feed-center.search-expand-shorts-center {
+.search-expand-overlay--fullscreen .immersive-feed-center.search-expand-immersive-center {
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -1182,7 +1182,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   border: none;
 }
 
-.shorts-feed-bottom-bar--search-expand {
+.immersive-feed-bottom-bar--search-expand {
   position: relative;
   z-index: 10;
   flex-shrink: 0;
@@ -1190,7 +1190,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   margin-top: auto;
 }
 
-.shorts-feed-comments-panel--floating {
+.immersive-feed-comments-panel--floating {
   position: fixed;
   top: 0;
   right: 0;
@@ -1225,16 +1225,16 @@ function onShortsPanelCommentUserClick(ev, userId) {
   background: rgb(var(--slate-900-rgb) / 0.65);
 }
 
-.search-expand-overlay--fullscreen .shorts-feed-ui {
+.search-expand-overlay--fullscreen .immersive-feed-ui {
   padding-bottom: max(var(--space-96), calc(env(safe-area-inset-bottom, 0px) + var(--space-72)));
 }
 
-.video-player-loading--shorts {
+.video-player-loading--immersive {
   z-index: 3;
   background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(30, 35, 45, 0.88), rgba(6, 8, 12, 0.94));
 }
 
-.video-player-loading__shimmer--shorts {
+.video-player-loading__shimmer--immersive {
   opacity: 0.35;
   background: linear-gradient(
     105deg,
@@ -1244,18 +1244,18 @@ function onShortsPanelCommentUserClick(ev, userId) {
   );
 }
 
-.video-player-loading__ring--shorts {
+.video-player-loading__ring--immersive {
   width: 40px;
   height: 40px;
   border: 3px solid rgb(var(--white-rgb) / 0.14);
   border-top-color: var(--blue-300);
 }
 
-.video-player-loading__text--shorts {
+.video-player-loading__text--immersive {
   color: rgb(var(--white-rgb) / 0.78);
 }
 
-.shorts-feed-shell--with-sidebar .shorts-feed--follow-main {
+.immersive-feed-shell--with-sidebar .immersive-feed--follow-main {
   min-width: 0;
 }
 
@@ -1377,7 +1377,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
 }
 
 @media (max-width: 900px) {
-  .shorts-feed-shell--with-sidebar {
+  .immersive-feed-shell--with-sidebar {
     flex-direction: column;
   }
 
@@ -1391,7 +1391,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
 }
 
 @media (max-width: 900px) {
-  .shorts-feed-shell--with-sidebar {
+  .immersive-feed-shell--with-sidebar {
     flex-direction: column;
   }
 
@@ -1404,7 +1404,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   }
 }
 
-.shorts-feed-center {
+.immersive-feed-center {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -1417,14 +1417,14 @@ function onShortsPanelCommentUserClick(ev, userId) {
   touch-action: pan-y;
 }
 
-.profile-feed-overlay .shorts-feed-center {
+.profile-feed-overlay .immersive-feed-center {
   width: 100vw;
   height: 100vh;
   border-radius: 0;
   border: none;
 }
 
-.shorts-feed-stage-wrap {
+.immersive-feed-stage-wrap {
   position: relative;
   flex: 1;
   min-height: 0;
@@ -1433,12 +1433,12 @@ function onShortsPanelCommentUserClick(ev, userId) {
   flex-direction: column;
 }
 
-.profile-feed-overlay .shorts-feed-stage-wrap {
+.profile-feed-overlay .immersive-feed-stage-wrap {
   height: 100%;
 }
 
 /* 左侧细线型上下切换，叠在视频上层 */
-.shorts-feed-nav-side {
+.immersive-feed-nav-side {
   position: absolute;
   left: 8px;
   top: 50%;
@@ -1450,7 +1450,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   pointer-events: auto;
 }
 
-.shorts-feed-nav-line {
+.immersive-feed-nav-line {
   width: auto;
   height: auto;
   padding: var(--space-4);
@@ -1465,15 +1465,15 @@ function onShortsPanelCommentUserClick(ev, userId) {
   filter: drop-shadow(0 1px 2px rgb(var(--black-rgb) / 0.65));
 }
 
-.shorts-feed-nav-line:hover {
+.immersive-feed-nav-line:hover {
   color: rgb(var(--white-rgb) / 0.78);
 }
 
-.shorts-feed-nav-line:active {
+.immersive-feed-nav-line:active {
   color: var(--color-text-inverse);
 }
 
-.shorts-feed-pause-overlay {
+.immersive-feed-pause-overlay {
   position: absolute;
   inset: 0;
   z-index: 5;
@@ -1485,7 +1485,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   background: rgb(var(--black-rgb) / 0.12);
 }
 
-.shorts-feed-pause-overlay__icon {
+.immersive-feed-pause-overlay__icon {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1500,7 +1500,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   box-shadow: 0 8px 28px rgb(var(--black-rgb) / 0.35);
 }
 
-.shorts-feed-ui {
+.immersive-feed-ui {
   position: absolute;
   inset: 0;
   z-index: 6;
@@ -1512,7 +1512,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   gap: var(--space-12);
 }
 
-.shorts-feed-caption {
+.immersive-feed-caption {
   pointer-events: none;
   color: var(--color-text-inverse);
   max-width: min(78%, 520px);
@@ -1525,7 +1525,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   text-shadow: 0 1px 4px rgb(var(--black-rgb) / 0.55);
 }
 
-.shorts-feed-action-col {
+.immersive-feed-action-col {
   pointer-events: auto;
   display: flex;
   flex-direction: column;
@@ -1534,17 +1534,17 @@ function onShortsPanelCommentUserClick(ev, userId) {
   padding-bottom: var(--space-4);
 }
 
-.shorts-feed-author-block {
+.immersive-feed-author-block {
   margin-bottom: var(--space-2);
 }
 
-.shorts-feed-author-avatar-wrap {
+.immersive-feed-author-avatar-wrap {
   position: relative;
   width: 48px;
   height: 48px;
 }
 
-.shorts-feed-follow-btn {
+.immersive-feed-follow-btn {
   position: absolute;
   bottom: -2px;
   left: 50%;
@@ -1565,16 +1565,16 @@ function onShortsPanelCommentUserClick(ev, userId) {
   box-shadow: 0 2px 6px rgb(var(--black-rgb) / 0.35);
 }
 
-.shorts-feed-follow-btn:hover {
+.immersive-feed-follow-btn:hover {
   filter: brightness(1.08);
 }
 
-.shorts-feed-follow-btn--followed {
+.immersive-feed-follow-btn--followed {
   background: rgb(var(--white-rgb) / 0.92);
   color: var(--ink-980);
 }
 
-.shorts-feed-action-btn {
+.immersive-feed-action-btn {
   width: auto;
   height: auto;
   border-radius: 0;
@@ -1591,22 +1591,22 @@ function onShortsPanelCommentUserClick(ev, userId) {
   padding: 0;
 }
 
-.shorts-feed-action-btn:hover {
+.immersive-feed-action-btn:hover {
   opacity: 0.9;
   transform: scale(1.05);
 }
 
-.shorts-feed-action-btn--active {
+.immersive-feed-action-btn--active {
   color: var(--red-hot);
   filter: drop-shadow(0 0 8px rgb(var(--red-hot-rgb) / 0.65));
 }
 
-.shorts-feed-action-btn--active i {
+.immersive-feed-action-btn--active i {
   color: var(--red-hot);
   -webkit-text-fill-color: var(--red-hot);
 }
 
-.shorts-feed-action-item {
+.immersive-feed-action-item {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1615,12 +1615,12 @@ function onShortsPanelCommentUserClick(ev, userId) {
   position: relative;
 }
 
-.shorts-feed-action-item--menu {
+.immersive-feed-action-item--menu {
   overflow: visible;
 }
 
 /* 观看自己的短视频：三点菜单（浅色浮层，与创作中心行内菜单一致） */
-.shorts-self-action-menu {
+.immersive-self-action-menu {
   position: absolute;
   right: 44px;
   top: 50%;
@@ -1637,7 +1637,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   z-index: 30;
 }
 
-.shorts-self-action-btn {
+.immersive-self-action-btn {
   border: 1px solid var(--color-border-strong);
   background: var(--color-bg-sunken);
   color: var(--color-text-strong);
@@ -1650,23 +1650,23 @@ function onShortsPanelCommentUserClick(ev, userId) {
   font-weight: 500;
 }
 
-.shorts-self-action-btn:hover {
+.immersive-self-action-btn:hover {
   background: var(--color-bg-hover);
   border-color: var(--slate-400);
 }
 
-.shorts-self-action-btn--danger {
+.immersive-self-action-btn--danger {
   color: var(--red-700);
   border-color: rgb(var(--red-700-rgb) / 0.4);
   background: var(--red-50);
 }
 
-.shorts-self-action-btn--danger:hover {
+.immersive-self-action-btn--danger:hover {
   background: var(--red-100);
   border-color: rgb(var(--red-700-rgb) / 0.55);
 }
 
-.shorts-feed-action-count {
+.immersive-feed-action-count {
   font-size: var(--font-size-12);
   line-height: 1;
   color: var(--color-text-inverse);
@@ -1674,7 +1674,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   white-space: nowrap;
 }
 
-.shorts-feed-bottom-bar {
+.immersive-feed-bottom-bar {
   position: absolute;
   left: 0;
   right: 0;
@@ -1700,7 +1700,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   margin: 0;
 }
 
-.shorts-feed-player-column {
+.immersive-feed-player-column {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -1708,7 +1708,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   flex-direction: column;
 }
 
-.shorts-feed-comments-panel-head {
+.immersive-feed-comments-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1720,7 +1720,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   box-shadow: 0 1px 0 rgb(var(--white-rgb) / 0.75);
 }
 
-.shorts-feed-comments-panel-head h3 {
+.immersive-feed-comments-panel-head h3 {
   margin: 0;
   font-size: var(--font-size-16);
   font-weight: 700;
@@ -1728,7 +1728,7 @@ function onShortsPanelCommentUserClick(ev, userId) {
   color: var(--text);
 }
 
-.shorts-feed-comments-panel-close {
+.immersive-feed-comments-panel-close {
   width: 36px;
   height: 36px;
   border: 1px solid rgb(var(--slate-900-rgb) / 0.08);
@@ -1744,12 +1744,12 @@ function onShortsPanelCommentUserClick(ev, userId) {
   box-shadow: 0 1px 2px rgb(var(--slate-900-rgb) / 0.06), inset 0 1px 0 rgb(var(--white-rgb) / 0.95);
 }
 
-.shorts-feed-comments-panel-close:hover {
+.immersive-feed-comments-panel-close:hover {
   background: linear-gradient(180deg, var(--slate-50) 0%, var(--slate-200) 100%);
   color: var(--color-text-strong);
 }
 
-.shorts-feed-comments-panel-scroll {
+.immersive-feed-comments-panel-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;

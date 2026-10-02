@@ -7,7 +7,7 @@ import { useAuthStore } from "./stores/authStore";
 import { useSearchStore, registerSearchExpandHooks, registerSearchBridgeHooks, SEARCH_UI } from "./stores/searchStore";
 import { useLikedStore, registerLikedHooks } from "./stores/likedStore";
 import { useHomeStore, registerHomeHooks } from "./stores/homeStore";
-import { useShortsStore } from "./stores/shortsStore";
+import { useImmersiveStore } from "./stores/immersiveStore";
 import { useProfileStore, registerProfileHooks } from "./stores/profileStore";
 import { useDetailStore, registerDetailHooks } from "./stores/detailStore";
 import { useCommentPanelStore } from "./stores/commentPanelStore";
@@ -19,7 +19,7 @@ import { registerMenuOrchestrationHooks, useMenuOrchestrationStore } from "./sto
 import { useShareStore } from "./stores/shareStore";
 import { useStudioStore, registerStudioHooks } from "./stores/studioStore";
 import { useHoverPreviewStore } from "./stores/hoverPreviewStore";
-import { registerShortsHooks } from "./stores/shortsStore";
+import { registerImmersiveHooks } from "./stores/immersiveStore";
 import {
   resolveVideoUrl,
   resolveVideoUrlFromLists,
@@ -46,7 +46,7 @@ import { parseDigitSnowflakeId } from "./utils/snowflakeId.js";
 /** 短视频无接口数据时的本地 fallback（static 目录下四个 mp4） */
 import appIco from "../static/狗.png?url";
 const SearchView = defineAsyncComponent(() => import("./views/SearchView.vue"));
-const ShortsView = defineAsyncComponent(() => import("./views/ShortsView.vue"));
+const ImmersiveView = defineAsyncComponent(() => import("./views/ImmersiveView.vue"));
 import MusicPlayerAudioHost from "./components/MusicPlayerAudioHost.vue";
 import MusicMiniPlayer from "./components/MusicMiniPlayer.vue";
 import { MenuView, StudioView, ProfileCenterView } from "./router/views.js";
@@ -292,8 +292,8 @@ const openVideoDetail = (card, opts) => detailStore.openDetail(card, opts);
 const closeVideoDetail = () => detailStore.closeDetail();
 const restoreVideoDetailFromUrl = (vidRaw) => detailStore.restoreFromUrl(vidRaw);
 const hideDetailBufferingOverlay = () => detailStore.hideBufferingOverlay();
-/** 短视频播放器域状态在 pinia shortsStore（含历史/赞过/主页/关注共用的全屏队列），同名解构零引用改动 */
-const shortsStore = useShortsStore();
+/** 短视频播放器域状态在 pinia immersiveStore（含历史/赞过/主页/关注共用的全屏队列），同名解构零引用改动 */
+const immersiveStore = useImmersiveStore();
 /** 跨列表补丁的协调者在 feedPatchStore，各域 store 只改自己的列表 */
 const feedPatch = useFeedPatchStore();
 const {
@@ -306,41 +306,41 @@ const {
   profileFeedOpen,
   /** 队列推导出的当前条与「当前评论目标」，播放器与评论侧栏共用 */
   unifiedFeedList,
-  shortsFeedCurrent,
+  immersiveFeedCurrent,
   activeCommentVideo,
   /** 当前条的展示值：模板与桥直接消费，推导逻辑在 store */
-  shortsFeedVideoSrc,
-  shortsFeedIndex,
-  shortsFeedAutoplayPending,
+  immersiveFeedVideoSrc,
+  immersiveFeedIndex,
+  immersiveFeedAutoplayPending,
   selfVideoActionOpen,
   selfVideoDeleteConfirmOpen,
-} = storeToRefs(shortsStore);
+} = storeToRefs(immersiveStore);
 /** 评论面板开关在 commentPanelStore：短视频侧栏 / 搜索放大层 / 搜索列表三个入口互斥 */
 const {
-  shortsCommentPanelOpen,
+  immersiveCommentPanelOpen,
   searchExpandCommentOpen,
   searchListCommentOpen,
 } = storeToRefs(useCommentPanelStore());
-/** 播放缓冲遮罩：实现已移入 shortsStore，这里保留同名薄封装供桥与生命周期调用 */
-const hideShortsBufferingOverlay = () => shortsStore.hideShortsBufferingOverlay();
+/** 播放缓冲遮罩：实现已移入 immersiveStore，这里保留同名薄封装供桥与生命周期调用 */
+const hideImmersiveBufferingOverlay = () => immersiveStore.hideImmersiveBufferingOverlay();
 
 /**
- * 短视频播放控制：实现已移入 shortsStore（播放器 DOM ref 归 ShortsView 持有并注册），
+ * 短视频播放控制：实现已移入 immersiveStore（播放器 DOM ref 归 ImmersiveView 持有并注册），
  * 这里保留同名薄封装，使生命周期与详情/主页等域调用点零改动。
  */
-const shortsFeedPrev = () => shortsStore.shortsFeedPrev();
-const shortsFeedNext = () => shortsStore.shortsFeedNext();
-const shortsTogglePlay = () => shortsStore.shortsTogglePlay();
-const onShortsFeedKeydown = (ev) => shortsStore.onShortsFeedKeydown(ev);
-const pauseShortsFeedVideos = (opts) => shortsStore.pauseShortsFeedVideos(opts);
-const restoreShortsFeedForegroundMuteFromState = () =>
-  shortsStore.restoreShortsFeedForegroundMuteFromState();
-const resetShortsFeedProgressUiForSwitch = () => shortsStore.resetShortsFeedProgressUiForSwitch();
-const flushShortsLongPlaybackResume = (reason) => shortsStore.flushShortsLongPlaybackResume(reason);
+const immersiveFeedPrev = () => immersiveStore.immersiveFeedPrev();
+const immersiveFeedNext = () => immersiveStore.immersiveFeedNext();
+const immersiveTogglePlay = () => immersiveStore.immersiveTogglePlay();
+const onImmersiveFeedKeydown = (ev) => immersiveStore.onImmersiveFeedKeydown(ev);
+const pauseImmersiveFeedVideos = (opts) => immersiveStore.pauseImmersiveFeedVideos(opts);
+const restoreImmersiveFeedForegroundMuteFromState = () =>
+  immersiveStore.restoreImmersiveFeedForegroundMuteFromState();
+const resetImmersiveFeedProgressUiForSwitch = () => immersiveStore.resetImmersiveFeedProgressUiForSwitch();
+const flushImmersiveLongPlaybackResume = (reason) => immersiveStore.flushImmersiveLongPlaybackResume(reason);
 
 
-/** 关注页数据源与侧栏筛选：实现已移入 shortsStore */
-const maybePrefetchFollowFeed = () => shortsStore.maybePrefetchFollowFeed();
+/** 关注页数据源与侧栏筛选：实现已移入 immersiveStore */
+const maybePrefetchFollowFeed = () => immersiveStore.maybePrefetchFollowFeed();
 /** 详情深链/刷新恢复经 route watcher 与 sessionStorage 快照（detailStore.restoreFromUrl） */
 
 /** 按作者 ID 覆盖关注状态（乐观更新后优先于接口返回的 isFollow），状态在 pinia followStore */
@@ -491,7 +491,7 @@ watch(
     if (p.startsWith("/feed/")) {
       enterFeedFromRoute(p);
     } else if (profileFeedOpen.value) {
-      shortsStore.closeProfileFeed();
+      immersiveStore.closeProfileFeed();
     }
     if (p.startsWith("/video/")) {
       enterVideoDetailFromRoute(p);
@@ -578,15 +578,15 @@ function captureProfileReturnContext() {
       menuKey: activeMenuKey.value,
     };
   }
-  const cur = shortsFeedCurrent.value;
+  const cur = immersiveFeedCurrent.value;
   const curVid = cur?.id ?? cur?.videoId;
   /** 含：短视频/关注主 feed，以及历史、赞过、个人作品等全屏 overlay（此时 menu 可能仍是 history/liked） */
-  const inUnifiedShortsPlayback =
+  const inUnifiedImmersivePlayback =
     activeMenuKey.value === "immersive" ||
     activeMenuKey.value === "subscribed" ||
     profileFeedOpen.value;
   if (
-    inUnifiedShortsPlayback &&
+    inUnifiedImmersivePlayback &&
     unifiedFeedList.value.length &&
     cur &&
     curVid != null &&
@@ -594,13 +594,13 @@ function captureProfileReturnContext() {
   ) {
     const list = unifiedFeedList.value;
     return {
-      kind: "shortsFeed",
+      kind: "immersiveFeed",
       menuKey: activeMenuKey.value,
       feedState: {
         feedScope: feedScope.value,
         profileFeedOpen: profileFeedOpen.value,
-        shortsFeedIndex: shortsFeedIndex.value,
-        shortsCommentPanelOpen: shortsCommentPanelOpen.value,
+        immersiveFeedIndex: immersiveFeedIndex.value,
+        immersiveCommentPanelOpen: immersiveCommentPanelOpen.value,
         followSubscribedFilterAuthorId: followSubscribedFilterAuthorId.value,
         queueCopy: list.map((row) => ({ ...row })),
       },
@@ -618,7 +618,7 @@ async function restoreProfileReturnContext(ctx) {
     await restoreVideoDetailFromUrl(ctx.videoId);
     return;
   }
-  if (ctx.kind !== "shortsFeed") {
+  if (ctx.kind !== "immersiveFeed") {
     return;
   }
   const st = ctx.feedState;
@@ -642,11 +642,11 @@ async function restoreProfileReturnContext(ctx) {
   }
   profileFeedOpen.value = st.profileFeedOpen;
   const maxI = Math.max(0, copy.length - 1);
-  shortsFeedIndex.value = Math.min(Math.max(0, st.shortsFeedIndex), maxI);
-  shortsCommentPanelOpen.value = st.shortsCommentPanelOpen;
-  shortsFeedAutoplayPending.value = true;
+  immersiveFeedIndex.value = Math.min(Math.max(0, st.immersiveFeedIndex), maxI);
+  immersiveCommentPanelOpen.value = st.immersiveCommentPanelOpen;
+  immersiveFeedAutoplayPending.value = true;
   await nextTick();
-  shortsStore.reloadFeedPlayers();
+  immersiveStore.reloadFeedPlayers();
   profileStore.clearReturnContext();
 }
 
@@ -659,15 +659,15 @@ async function reloadFeedAfterLeavingDetail() {
   await loadModuleCards(menu);
   if (menu.key === "immersive" || menu.key === "subscribed") {
     nextTick(() => {
-      shortsStore.reloadFeedPlayers();
+      immersiveStore.reloadFeedPlayers();
     });
   }
 }
 
-/** 短视频评论面板：状态与请求已移入 shortsStore，这里保留同名薄封装供跨域调用 */
-const resetShortsPanelCommentsState = () => shortsStore.resetShortsPanelCommentsState();
-const closeShortsCommentPanel = () => shortsStore.closeShortsCommentPanel();
-const loadShortsPanelTopComments = (reset, opts) => shortsStore.loadShortsPanelTopComments(reset, opts);
+/** 短视频评论面板：状态与请求已移入 immersiveStore，这里保留同名薄封装供跨域调用 */
+const resetImmersivePanelCommentsState = () => immersiveStore.resetImmersivePanelCommentsState();
+const closeImmersiveCommentPanel = () => immersiveStore.closeImmersiveCommentPanel();
+const loadImmersivePanelTopComments = (reset, opts) => immersiveStore.loadImmersivePanelTopComments(reset, opts);
 function onWindowResize() {
 }
 
@@ -687,7 +687,7 @@ function onImmersiveStripWheel(e) {
 }
 
 /** 首页沉浸条：接近列表末尾时预拉下一页（与横向条共用 loadImmersiveMore） */
-const HOME_SHORTS_FEED_PREFETCH_THRESHOLD = 3;
+const HOME_IMMERSIVE_FEED_PREFETCH_THRESHOLD = 3;
 
 function maybePrefetchImmersiveForFeed() {
   if (feedScope.value !== "immersive") {
@@ -697,12 +697,12 @@ function maybePrefetchImmersiveForFeed() {
     return;
   }
   const list = immersiveRows.value;
-  const i = shortsFeedIndex.value;
+  const i = immersiveFeedIndex.value;
   if (!list.length) {
     return;
   }
   const remainToEnd = list.length - 1 - i;
-  if (remainToEnd < HOME_SHORTS_FEED_PREFETCH_THRESHOLD) {
+  if (remainToEnd < HOME_IMMERSIVE_FEED_PREFETCH_THRESHOLD) {
     void homeStore.loadImmersiveMore();
   }
 }
@@ -728,8 +728,8 @@ function openImmersiveFeedFromCard(card, index) {
 
   feedScope.value = "immersive";
   const idx = immersiveRows.value.findIndex((c) => c && card && String(c.id) === String(card.id));
-  shortsFeedIndex.value = idx >= 0 ? idx : Math.max(0, Number(index) || 0);
-  shortsFeedAutoplayPending.value = true;
+  immersiveFeedIndex.value = idx >= 0 ? idx : Math.max(0, Number(index) || 0);
+  immersiveFeedAutoplayPending.value = true;
 
   activeMenuKey.value = "immersive";
   const immersiveMenu = primaryMenus.find((m) => m.key === "immersive");
@@ -739,7 +739,7 @@ function openImmersiveFeedFromCard(card, index) {
   }
 
   nextTick(() => {
-    shortsStore.reloadFeedPlayers();
+    immersiveStore.reloadFeedPlayers();
     maybePrefetchImmersiveForFeed();
   });
 }
@@ -834,7 +834,7 @@ function onCreate() {
     closeProfileFeed();
   }
   if (activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed") {
-    pauseShortsFeedVideos({ muteForeground: true });
+    pauseImmersiveFeedVideos({ muteForeground: true });
   }
   showVideoDetail.value = false;
   videoDetail.value = null;
@@ -920,17 +920,17 @@ const patchIsFollowForAuthor = (authorId, isFollow) =>
 /** 评论侧栏：短视频流、搜索全屏放大或搜索列表共用同一套列表与接口 */
 
 watch(
-  () => shortsFeedVideoSrc.value,
+  () => immersiveFeedVideoSrc.value,
   (src) => {
     if (!src) {
-      hideShortsBufferingOverlay();
+      hideImmersiveBufferingOverlay();
     }
   }
 );
 
 watch(
   () => [
-    shortsCommentPanelOpen.value,
+    immersiveCommentPanelOpen.value,
     searchExpandCommentOpen.value,
     searchListCommentOpen.value,
     String(activeCommentVideo.value?.id ?? ""),
@@ -938,24 +938,24 @@ watch(
   ([openS, openE, openList, idStr]) => {
     const open = openS || openE || openList;
     if (!open) {
-      resetShortsPanelCommentsState();
+      resetImmersivePanelCommentsState();
       return;
     }
     if (!idStr) {
       return;
     }
-    resetShortsPanelCommentsState();
-    void loadShortsPanelTopComments(true);
+    resetImmersivePanelCommentsState();
+    void loadImmersivePanelTopComments(true);
   },
 );
 
-const cancelDeleteCurrentSelfVideo = () => shortsStore.cancelDeleteCurrentSelfVideo();
-const confirmDeleteCurrentSelfVideo = () => shortsStore.confirmDeleteCurrentSelfVideo();
+const cancelDeleteCurrentSelfVideo = () => immersiveStore.cancelDeleteCurrentSelfVideo();
+const confirmDeleteCurrentSelfVideo = () => immersiveStore.confirmDeleteCurrentSelfVideo();
 
 function onStudioRowRequestDelete(row) {
   if (!row?.id) return;
-  shortsStore.pendingDeleteVideoId = String(row.id);
-  shortsStore.selfVideoDeleteConfirmOpen = true;
+  immersiveStore.pendingDeleteVideoId = String(row.id);
+  immersiveStore.selfVideoDeleteConfirmOpen = true;
   closeStudioRowMenu();
 }
 
@@ -976,7 +976,7 @@ function onDetailLayerBack() {
 }
 watch(isDynamicDetailRoute, (active) => {
   if (active) {
-    pauseShortsFeedVideos({ muteForeground: true });
+    pauseImmersiveFeedVideos({ muteForeground: true });
   }
 });
 
@@ -1026,11 +1026,11 @@ function openFollowFeedFromCard(item) {
   const idx = playableQueue.findIndex((x) => String(x.id) === String(item.id));
   feedScope.value = "follow";
   followFeedQueue.value = playableQueue;
-  shortsFeedIndex.value = idx >= 0 ? idx : 0;
-  shortsFeedAutoplayPending.value = true;
+  immersiveFeedIndex.value = idx >= 0 ? idx : 0;
+  immersiveFeedAutoplayPending.value = true;
   profileFeedOpen.value = activeMenuKey.value !== "subscribed";
   nextTick(() => {
-    shortsStore.reloadFeedPlayers();
+    immersiveStore.reloadFeedPlayers();
   });
 }
 
@@ -1051,8 +1051,8 @@ function closeTopMostOverlayByEsc() {
     profileStore.closeEdit();
     return true;
   }
-  if (shortsCommentPanelOpen.value || searchExpandCommentOpen.value || searchListCommentOpen.value) {
-    closeShortsCommentPanel();
+  if (immersiveCommentPanelOpen.value || searchExpandCommentOpen.value || searchListCommentOpen.value) {
+    closeImmersiveCommentPanel();
     return true;
   }
   if (profileFeedOpen.value) {
@@ -1104,7 +1104,7 @@ async function openProfileWorkFeed(item) {
     pageHint.value = "该作者暂无可播放作品";
     return;
   }
-  resetShortsFeedProgressUiForSwitch();
+  resetImmersiveFeedProgressUiForSwitch();
   const selectedUrl = resolveVideoUrl(item) || resolveVideoUrlForListItem(item.id, item);
   if (!selectedUrl) {
     pageHint.value = "该内容暂无视频地址";
@@ -1144,18 +1144,18 @@ async function openProfileWorkFeed(item) {
   const idx = playableQueue.findIndex((x) => String(x.id) === String(item.id));
   feedScope.value = "profile";
   profileFeedQueue.value = playableQueue;
-  shortsFeedIndex.value = idx >= 0 ? idx : 0;
-  shortsFeedAutoplayPending.value = true;
+  immersiveFeedIndex.value = idx >= 0 ? idx : 0;
+  immersiveFeedAutoplayPending.value = true;
   profileFeedOpen.value = true;
   nextTick(() => {
-    shortsStore.reloadFeedPlayers();
+    immersiveStore.reloadFeedPlayers();
   });
 }
 
-/** 赞过连播：实现已移入 shortsStore.openLikedFeed */
+/** 赞过连播：实现已移入 immersiveStore.openLikedFeed */
 
-/** 退出全屏流：实现已移入 shortsStore */
-const closeProfileFeed = () => shortsStore.closeProfileFeed();
+/** 退出全屏流：实现已移入 immersiveStore */
+const closeProfileFeed = () => immersiveStore.closeProfileFeed();
 
 /** 关闭全屏连播后同步 URL：有来路则回退，深链直入则回当前菜单页 */
 function leaveFeedRoute() {
@@ -1169,8 +1169,8 @@ function leaveFeedRoute() {
 
 function onProfileFeedKeydown(ev) {
   if (ev.key === "Escape") {
-    if (shortsCommentPanelOpen.value) {
-      closeShortsCommentPanel();
+    if (immersiveCommentPanelOpen.value) {
+      closeImmersiveCommentPanel();
       return;
     }
     closeProfileFeed();
@@ -1183,23 +1183,23 @@ function onProfileFeedKeydown(ev) {
   const k = ev.key;
   if (k === "ArrowUp" || k === "w" || k === "W") {
     ev.preventDefault();
-    shortsFeedPrev();
+    immersiveFeedPrev();
   } else if (k === "ArrowDown" || k === "s" || k === "S") {
     ev.preventDefault();
-    shortsFeedNext();
+    immersiveFeedNext();
   } else if (k === " ") {
     ev.preventDefault();
-    shortsTogglePlay();
+    immersiveTogglePlay();
   }
 }
 
 watch(unifiedFeedList, (list) => {
   if (!list.length) {
-    shortsFeedIndex.value = 0;
+    immersiveFeedIndex.value = 0;
     return;
   }
-  if (shortsFeedIndex.value >= list.length) {
-    shortsFeedIndex.value = 0;
+  if (immersiveFeedIndex.value >= list.length) {
+    immersiveFeedIndex.value = 0;
   }
 });
 
@@ -1228,7 +1228,7 @@ watch(profileFeedOpen, (open) => {
  * 注意：不能用数组作为 watch 源，否则列表对象 patch 后也会触发，导致把刚点的红心重置掉。
  */
 watch(
-  () => `${feedScope.value}:${String(shortsFeedCurrent.value?.id ?? "")}`,
+  () => `${feedScope.value}:${String(immersiveFeedCurrent.value?.id ?? "")}`,
   () => {
     selfVideoActionOpen.value = false;
   }
@@ -1243,7 +1243,7 @@ watch(showStudio, (open) => {
 watch(activeMenuKey, (key) => {
   stopCardHoverPreview();
   if (key !== "immersive" && key !== "subscribed") {
-    pauseShortsFeedVideos({ muteForeground: true });
+    pauseImmersiveFeedVideos({ muteForeground: true });
   }
 });
 
@@ -1251,24 +1251,24 @@ watch(
   () => !showProfileCenter.value && (activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed"),
   (on) => {
     if (on) {
-      window.addEventListener("keydown", onShortsFeedKeydown);
+      window.addEventListener("keydown", onImmersiveFeedKeydown);
     } else {
-      window.removeEventListener("keydown", onShortsFeedKeydown);
+      window.removeEventListener("keydown", onImmersiveFeedKeydown);
     }
   },
   { immediate: true }
 );
 
-watch(shortsFeedIndex, () => {
-  shortsStore.bumpPlayToken();
-  resetShortsFeedProgressUiForSwitch();
-  const tokenAtSwitch = shortsStore.shortsFeedPlayToken;
+watch(immersiveFeedIndex, () => {
+  immersiveStore.bumpPlayToken();
+  resetImmersiveFeedProgressUiForSwitch();
+  const tokenAtSwitch = immersiveStore.immersiveFeedPlayToken;
   nextTick(() => {
     const inMainImmersive =
       activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed";
     if (!inMainImmersive && !profileFeedOpen.value) return;
-    if (tokenAtSwitch !== shortsStore.shortsFeedPlayToken) return;
-    shortsStore.reloadFeedPlayers();
+    if (tokenAtSwitch !== immersiveStore.immersiveFeedPlayToken) return;
+    immersiveStore.reloadFeedPlayers();
     maybePrefetchImmersiveForFeed();
     maybePrefetchFollowFeed();
   });
@@ -1276,10 +1276,10 @@ watch(shortsFeedIndex, () => {
 
 watch(showVideoDetail, (open) => {
   if (open) {
-    pauseShortsFeedVideos({ muteForeground: true });
+    pauseImmersiveFeedVideos({ muteForeground: true });
   } else {
     nextTick(() => {
-      restoreShortsFeedForegroundMuteFromState();
+      restoreImmersiveFeedForegroundMuteFromState();
     });
   }
 });
@@ -1423,7 +1423,7 @@ function onWindowPopState() {
   const returnCtx = profileStore.readReturnContext();
   showProfileCenter.value = false;
   profileTargetUserId.value = null;
-  if (returnCtx?.kind === "shortsFeed") {
+  if (returnCtx?.kind === "immersiveFeed") {
     profileStore.clearReturnContext();
     void restoreProfileReturnContext(returnCtx);
     return;
@@ -1507,7 +1507,7 @@ watch(
       }
     } else {
       notificationStore.stopSession();
-      hideShortsBufferingOverlay();
+      hideImmersiveBufferingOverlay();
     }
   },
   { immediate: true }
@@ -1657,11 +1657,11 @@ registerSearchExpandHooks({
     if (card?.id != null) void router.push(`/dynamic/${card.id}`);
   },
 });
-/** shortsStore 的宿主依赖：评论数变更跨多份列表打补丁，菜单归属与播放代次仍在 App */
-registerShortsHooks({
+/** immersiveStore 的宿主依赖：评论数变更跨多份列表打补丁，菜单归属与播放代次仍在 App */
+registerImmersiveHooks({
   patchFeedVideoById: (id, patch) => patchFeedVideoById(id, patch),
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
-  isShortsMenuActive: () => activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed",
+  isImmersiveMenuActive: () => activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed",
   isSubscribedMenuActive: () => activeMenuKey.value === "subscribed",
   removeVideoById: (id) => feedPatch.removeVideoById(id),
   notify: (msg) => {
@@ -1672,7 +1672,7 @@ registerShortsHooks({
 
 /** detailStore 的宿主依赖：打开详情要收起 App 级遮罩，路由进出来自 App（router as history manager） */
 registerDetailHooks({
-  pauseShortsFeed: () => pauseShortsFeedVideos({ muteForeground: true }),
+  pauseImmersiveFeed: () => pauseImmersiveFeedVideos({ muteForeground: true }),
   closeProfileFeedIfOpen: () => {
     if (profileFeedOpen.value) {
       closeProfileFeed();
@@ -1711,7 +1711,7 @@ registerProfileHooks({
       homeStore.saveSnapshot();
     }
     if (activeMenuKey.value === "immersive" || activeMenuKey.value === "subscribed") {
-      pauseShortsFeedVideos({ muteForeground: true });
+      pauseImmersiveFeedVideos({ muteForeground: true });
     }
     const returnCtx = captureProfileReturnContext();
     if (profileFeedOpen.value) {
@@ -1753,7 +1753,7 @@ onMounted(async () => {
   // 关闭/切走页面兜底：用 keepalive 尽量发送
   window.addEventListener("pagehide", () => {
     if (profileFeedOpen.value) {
-      void flushShortsLongPlaybackResume("unload");
+      void flushImmersiveLongPlaybackResume("unload");
     }
     if (searchExpandOpen.value) {
       void flushSearchExpandPlaybackResume("unload");
@@ -1764,7 +1764,7 @@ onMounted(async () => {
   window.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
         if (profileFeedOpen.value) {
-        void flushShortsLongPlaybackResume("unload");
+        void flushImmersiveLongPlaybackResume("unload");
       }
     }
     // 切后台时也尽量保存（只有长视频且播放中才会真正 flush）
@@ -1811,7 +1811,7 @@ onMounted(async () => {
     await loadModuleCards(menu);
     if (menu.key === "immersive" || menu.key === "subscribed") {
       nextTick(() => {
-        shortsStore.reloadFeedPlayers();
+        immersiveStore.reloadFeedPlayers();
       });
     }
   }
@@ -1820,7 +1820,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   teardownSearchVideoObserver();
   searchStore.detachSearchExpandEscape();
-  shortsStore.clearShortsBufferingUITimer();
+  immersiveStore.clearImmersiveBufferingUITimer();
   notificationStore.stopSession();
   stopCardHoverPreview();
   window.removeEventListener("resize", onWindowResize);
@@ -1872,7 +1872,7 @@ onBeforeUnmount(() => {
         class="content"
         @scroll.passive="onContentScroll"
         :class="{
-          'content--shorts':
+          'content--immersive':
             !showProfileCenter &&
             (activeMenuKey === 'immersive' || activeMenuKey === 'subscribed') &&
             !showStudio &&
@@ -1889,7 +1889,7 @@ onBeforeUnmount(() => {
         <component :is="mainView" />
         <SearchView v-if="searchActive && !showStudio" :scroll-ref="searchFeedScrollRef" />
         <!-- 常驻：搜索结果页复用同一 feed 实例防双开 -->
-        <ShortsView v-if="!showStudio" />
+        <ImmersiveView v-if="!showStudio" />
       </main>
 
       <!-- 视频详情：路由命名视图，渲染在 main 之外（main 被 v-show 隐藏） -->
@@ -1899,17 +1899,17 @@ onBeforeUnmount(() => {
 
       <BaseModal
         :open="selfVideoDeleteConfirmOpen"
-        overlay-class="shorts-delete-modal-overlay"
-        card-class="modal-card shorts-delete-modal"
+        overlay-class="immersive-delete-modal-overlay"
+        card-class="modal-card immersive-delete-modal"
         :close-on-esc="false"
         aria-label="确认删除视频"
         @close="cancelDeleteCurrentSelfVideo"
       >
         <h3>删除视频</h3>
-        <p class="shorts-delete-modal-text">确定删除该视频吗？删除后将无法恢复。</p>
-        <div class="shorts-delete-modal-actions">
+        <p class="immersive-delete-modal-text">确定删除该视频吗？删除后将无法恢复。</p>
+        <div class="immersive-delete-modal-actions">
           <button type="button" class="action-btn" @click="cancelDeleteCurrentSelfVideo">取消</button>
-          <button type="button" class="action-btn shorts-delete-btn" @click="confirmDeleteCurrentSelfVideo">确认删除</button>
+          <button type="button" class="action-btn immersive-delete-btn" @click="confirmDeleteCurrentSelfVideo">确认删除</button>
         </div>
       </BaseModal>
 

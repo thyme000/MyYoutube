@@ -184,7 +184,7 @@ export function normalizeVideoListVo(item, index) {
     createTime: pickDateTime(item),
     playbackTime: item.playbackTime ?? 0,
     authorNickname: nick || undefined,
-    /** 当前用户是否已关注作者（搜索 ShortsVO 等接口） */
+    /** 当前用户是否已关注作者（搜索等接口） */
     isFollow:
       item.isFollow === true || item.isFollow === 1
         ? true

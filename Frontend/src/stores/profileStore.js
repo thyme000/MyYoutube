@@ -60,7 +60,7 @@ const hooks = {
   prepareOpen: () => null,
   /** 写入 history state，使浏览器后退能退出主页 */
   pushHistory: () => {},
-  /** 作品卡进入全屏短视频流（shorts 域） */
+  /** 作品卡进入全屏短视频流（immersive 域） */
   openWorkFeed: () => {},
   /** 跨列表同步同一作者的 isFollow */
   patchAuthorFollow: () => {},

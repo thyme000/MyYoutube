@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { registerNavigationHooks, useNavigationStore } from "../navigationStore";
 import { useSearchStore } from "../searchStore";
-import { useShortsStore } from "../shortsStore";
+import { useImmersiveStore } from "../immersiveStore";
 import { useDetailStore } from "../detailStore";
 
 let closeAppOverlays;
 let search;
-let shorts;
+let immersive;
 let detail;
 
 beforeEach(() => {
@@ -16,13 +16,13 @@ beforeEach(() => {
   registerNavigationHooks({ closeAppOverlays });
 
   search = useSearchStore();
-  shorts = useShortsStore();
+  immersive = useImmersiveStore();
   detail = useDetailStore();
   // 真实实现会碰 DOM / 发请求，这里只验证编排关系
   vi.spyOn(search, "closeSearchExpand").mockImplementation(() => {});
   vi.spyOn(search, "loadTabResults").mockResolvedValue(undefined);
-  vi.spyOn(shorts, "closeShortsCommentPanel").mockImplementation(() => {});
-  vi.spyOn(shorts, "closeProfileFeed").mockImplementation(() => {});
+  vi.spyOn(immersive, "closeImmersiveCommentPanel").mockImplementation(() => {});
+  vi.spyOn(immersive, "closeProfileFeed").mockImplementation(() => {});
   vi.spyOn(detail, "closeDetail").mockImplementation(() => {});
 });
 
@@ -74,22 +74,22 @@ describe("navigationStore.navigateToTag", () => {
 
   it("已打开的放大层 / 评论面板 / 主页全屏流 / 详情都会被收起", () => {
     search.searchExpandOpen = true;
-    shorts.profileFeedOpen = true;
+    immersive.profileFeedOpen = true;
     detail.open = true;
 
     useNavigationStore().navigateToTag("旅行");
 
     expect(search.closeSearchExpand).toHaveBeenCalledTimes(1);
-    expect(shorts.closeShortsCommentPanel).toHaveBeenCalledTimes(1);
-    expect(shorts.closeProfileFeed).toHaveBeenCalledTimes(1);
+    expect(immersive.closeImmersiveCommentPanel).toHaveBeenCalledTimes(1);
+    expect(immersive.closeProfileFeed).toHaveBeenCalledTimes(1);
     expect(detail.closeDetail).toHaveBeenCalledTimes(1);
   });
 
   it("评论侧栏无条件收起，其余本就关着的弹层不会被误关", () => {
     useNavigationStore().navigateToTag("旅行");
-    expect(shorts.closeShortsCommentPanel).toHaveBeenCalledTimes(1);
+    expect(immersive.closeImmersiveCommentPanel).toHaveBeenCalledTimes(1);
     expect(search.closeSearchExpand).not.toHaveBeenCalled();
-    expect(shorts.closeProfileFeed).not.toHaveBeenCalled();
+    expect(immersive.closeProfileFeed).not.toHaveBeenCalled();
     expect(detail.closeDetail).not.toHaveBeenCalled();
   });
 });
