@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.mq.message;
+package cn.diaojiahong.myyoutube.common.mq.message;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

@@ -74,6 +74,13 @@ public class S3StorageUtil {
     }
 
     /**
+     * 上传到指定 objectKey（同内容幂等覆盖，适合默认资源等固定键场景）。
+     */
+    public void uploadWithKey(byte[] bytes, String objectKey) {
+        putObject(bytes, objectKey);
+    }
+
+    /**
      * 生成对象键：uploads/{biz}/{userId|anonymous}/{yyyyMMdd}/{uuid}_{safeName}
      */
     public String buildUniqueObjectKey(Long userId, String bizPrefix, String originalFilename) {

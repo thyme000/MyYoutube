@@ -26,6 +26,8 @@
 		<module>my-youtube-user-api</module>
 		<module>my-youtube-search-api</module>
 		<module>my-youtube-chat-api</module>
+		<module>my-youtube-transcode-api</module>
+		<module>my-youtube-transcode</module>
 		<module>my-youtube-admin</module>
 	</modules>
 

@@ -227,3 +227,24 @@ CREATE TABLE IF NOT EXISTS `emoji_item` (
     PRIMARY KEY (`id`),
     KEY `idx_category_sort` (`category_code`, `sort_order`)
 ) ENGINE=InnoDB COMMENT='表情项';
+
+-- ==================== transcode_db: 转码库(transcode-svc) ====================
+CREATE DATABASE IF NOT EXISTS transcode_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE transcode_db;
+
+-- 懒转码任务表(动态成片生成; task_key 为元数据内容哈希, 同 key 在途任务复用即幂等)
+CREATE TABLE IF NOT EXISTS `transcode_task` (
+    `id`                BIGINT       NOT NULL COMMENT '雪花ID',
+    `task_key`          VARCHAR(64)  NOT NULL COMMENT '请求内容SHA-256, 兼作成片缓存key',
+    `dynamic_id`        BIGINT       NOT NULL COMMENT '来源动态ID',
+    `user_id`           BIGINT       NOT NULL COMMENT '触发下载的用户ID',
+    `status`            VARCHAR(16)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/PROCESSING/DONE/FAILED',
+    `request_json`      TEXT         NOT NULL COMMENT '转码参数快照(canvas/transition/timeline/audio)',
+    `result_object_key` VARCHAR(512)          DEFAULT '' COMMENT '成片objectKey, LRU清理后置空',
+    `error_message`     VARCHAR(500)          DEFAULT NULL,
+    `create_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_key_status` (`task_key`, `status`),
+    KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB COMMENT='动态成片转码任务';

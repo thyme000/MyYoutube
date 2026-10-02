@@ -4,8 +4,8 @@ public class MqConstants {
 
     // 视频封面生成
     public static final String TOPIC_VIDEO_COVER = "video_cover_topic";
-    // 多图合成视频
-    public static final String TOPIC_MERGE_PICTURES = "merge_pictures_topic";
+    // 封面生成结果回传: transcode -> video
+    public static final String TOPIC_VIDEO_COVER_RESULT = "video_cover_result_topic";
     // 评论互动, tag 区分: like/unlike/publish
     public static final String TOPIC_COMMENT_ACTION = "comment_action_topic";
     // ES 文档同步, tag 区分: user
@@ -16,6 +16,8 @@ public class MqConstants {
     public static final String TOPIC_CHAT_READ = "chat_read_topic";
     // 群解散通知
     public static final String TOPIC_CHAT_GROUP_DELETED = "chat_group_deleted_topic";
+    // 动态成片懒转码, 消息体只带 taskId
+    public static final String TOPIC_DYNAMIC_TRANSCODE = "dynamic_transcode_topic";
 
     public static final String TAG_LIKE = "like";
     public static final String TAG_UNLIKE = "unlike";

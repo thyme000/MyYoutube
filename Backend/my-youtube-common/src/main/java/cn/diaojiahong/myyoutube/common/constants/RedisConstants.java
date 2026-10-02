@@ -81,15 +81,14 @@ public class RedisConstants {
     // 1天后过期
     public static final Long USER_CONVERSATION_EXPIRE = 1L;
 
-    /** 多图合成视频任务 merge:pic:job:{jobId} */
-    public static final String MERGE_PICTURE_JOB = "merge:pic:job:";
-    /** 任务状态在 Redis 中的保留时间（分钟） */
-    public static final long MERGE_PICTURE_JOB_EXPIRE_MINUTES = 60L;
 
     /** 多实例推送扇出: 聊天 WS 通道(承载聊天事件报文) */
     public static final String PUSH_CHANNEL_WS = "push:channel:ws";
     /** 多实例推送扇出: SSE 门铃通道(只承载"有新通知"轻量信号) */
     public static final String PUSH_CHANNEL_SSE = "push:channel:sse";
+
+    /** 动态成片 LRU: zset member=taskKey, score=最近访问毫秒 */
+    public static final String TRANSCODE_LRU = "transcode:lru";
 
     // ==================== 计数落库缓冲 ====================
     /** 累积增量 pending:{type}:{id}; 每轮落库后 DEL, 故不设 TTL —— 设了反而会在任务停摆时丢增量 */

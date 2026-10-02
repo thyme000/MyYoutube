@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.common.utils;
+package cn.diaojiahong.myyoutube.transcode.ffmpeg;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -34,10 +34,6 @@ public final class FFmpegUtil {
     private FFmpegUtil() {
     }
 
-    /** 默认视频封面（抽帧失败时可直接回退该 URL） */
-    public static final String DEFAULT_FALLBACK_COVER_URL =
-            "https://thyme.oss-ap-southeast-1.aliyuncs.com/default-video-cover/%E9%BB%98%E8%AE%A4%E8%A7%86%E9%A2%91%E5%B0%81%E9%9D%A2.jpg";
-
     public static final class Options {
         /** ffmpeg 命令名或绝对路径 */
         public String ffmpegCommand = "ffmpeg";
@@ -57,8 +53,6 @@ public final class FFmpegUtil {
         public int ffmpegThreads = 1;
         /** 默认封面本地路径（失败回退，可为空） */
         public Path fallbackCoverPath;
-        /** 默认封面 URL（未设置时使用 {@link #DEFAULT_FALLBACK_COVER_URL}） */
-        public String fallbackCoverUrl = DEFAULT_FALLBACK_COVER_URL;
     }
 
     public record FrameScore(
@@ -160,19 +154,10 @@ public final class FFmpegUtil {
                 return new Result(target, null, true, reason, List.of());
             } catch (IOException e) {
                 log.warn("自动封面失败且默认图复制失败: {}, err={}", reason, e.getMessage());
-                return new Result(null, resolveFallbackCoverUrl(options), true, reason + "；默认图复制失败: " + e.getMessage(), List.of());
             }
         }
-        String fallbackUrl = resolveFallbackCoverUrl(options);
-        log.warn("自动封面失败，回退默认封面URL: {}, reason={}", fallbackUrl, reason);
-        return new Result(null, fallbackUrl, true, reason, List.of());
-    }
-
-    private static String resolveFallbackCoverUrl(Options options) {
-        if (options == null || options.fallbackCoverUrl == null || options.fallbackCoverUrl.isBlank()) {
-            return DEFAULT_FALLBACK_COVER_URL;
-        }
-        return options.fallbackCoverUrl;
+        log.warn("自动封面失败: {}", reason);
+        return new Result(null, null, true, reason, List.of());
     }
 
     private static void cleanupCandidates(List<FrameScore> candidates, Path keepPath) {
@@ -360,141 +345,4 @@ public final class FFmpegUtil {
     private record CommandResult(int exitCode, String output) {
     }
 
-    /**
-     * 静态图幻灯片 + 可选音轨 → 单文件 MP4（依赖系统 ffmpeg）
-     */
-    @Slf4j
-    public static final class PictureSlideshowFfmpegUtil {
-
-        private PictureSlideshowFfmpegUtil() {
-        }
-
-        /**
-         * @param imagePaths      按顺序的图片本地路径
-         * @param secondsPerImage 每张展示秒数
-         * @param audioPath       可为 null：成片带静音 AAC；否则 mux 用户音频
-         * @param workDir         工作目录（写入 clip、concat.txt、输出文件）
-         * @param outputMp4       输出 mp4 绝对路径（建议在 workDir 下）
-         */
-        public static void mergeToMp4(
-                List<Path> imagePaths,
-                double secondsPerImage,
-                Path audioPath,
-                Path workDir,
-                Path outputMp4,
-                String ffmpegCommand
-        ) throws IOException, InterruptedException {
-            if (imagePaths == null || imagePaths.isEmpty()) {
-                throw new IllegalArgumentException("图片列表不能为空");
-            }
-            if (secondsPerImage <= 0) {
-                throw new IllegalArgumentException("secondsPerImage 必须大于 0");
-            }
-            if (workDir == null || outputMp4 == null) {
-                throw new IllegalArgumentException("workDir/outputMp4 不能为空");
-            }
-            String ff = (ffmpegCommand == null || ffmpegCommand.isBlank()) ? "ffmpeg" : ffmpegCommand;
-            Files.createDirectories(workDir);
-
-            List<Path> clips = new ArrayList<>();
-            String secStr = String.format(Locale.US, "%.3f", secondsPerImage);
-            for (int i = 0; i < imagePaths.size(); i++) {
-                Path img = imagePaths.get(i);
-                if (!Files.exists(img)) {
-                    throw new IOException("图片不存在: " + img);
-                }
-                Path clip = workDir.resolve("clip-" + i + ".mp4");
-                List<String> clipCmd = List.of(
-                        ff,
-                        "-y",
-                        "-loop", "1",
-                        "-i", img.toAbsolutePath().toString(),
-                        "-t", secStr,
-                        "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
-                                + "pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p",
-                        "-r", "30",
-                        "-c:v", "libx264",
-                        "-pix_fmt", "yuv420p",
-                        clip.toAbsolutePath().toString()
-                );
-                runFfmpeg(clipCmd, workDir, Duration.ofMinutes(3));
-                clips.add(clip);
-            }
-
-            Path concatList = workDir.resolve("concat.txt");
-            StringBuilder sb = new StringBuilder();
-            for (Path c : clips) {
-                sb.append("file '").append(c.getFileName().toString()).append("'\n");
-            }
-            Files.writeString(concatList, sb.toString(), StandardCharsets.UTF_8);
-
-            double totalSec = secondsPerImage * imagePaths.size();
-            String totalStr = String.format(Locale.US, "%.3f", totalSec);
-
-            List<String> finalCmd = new ArrayList<>();
-            finalCmd.add(ff);
-            finalCmd.add("-y");
-            finalCmd.add("-f");
-            finalCmd.add("concat");
-            finalCmd.add("-safe");
-            finalCmd.add("0");
-            finalCmd.add("-i");
-            finalCmd.add(concatList.getFileName().toString());
-            if (audioPath != null && Files.exists(audioPath)) {
-                finalCmd.add("-i");
-                finalCmd.add(audioPath.toAbsolutePath().toString());
-                finalCmd.add("-c:v");
-                finalCmd.add("copy");
-                finalCmd.add("-c:a");
-                finalCmd.add("aac");
-                finalCmd.add("-b:a");
-                finalCmd.add("192k");
-            } else {
-                finalCmd.add("-f");
-                finalCmd.add("lavfi");
-                finalCmd.add("-i");
-                finalCmd.add("anullsrc=r=48000:cl=stereo");
-                finalCmd.add("-c:v");
-                finalCmd.add("copy");
-                finalCmd.add("-c:a");
-                finalCmd.add("aac");
-                finalCmd.add("-b:a");
-                finalCmd.add("128k");
-            }
-            finalCmd.add("-t");
-            finalCmd.add(totalStr);
-            finalCmd.add(outputMp4.getFileName().toString());
-
-            runFfmpeg(finalCmd, workDir, Duration.ofMinutes(15));
-
-            if (!Files.exists(outputMp4) || Files.size(outputMp4) < 100) {
-                throw new IOException("合成输出无效: " + outputMp4);
-            }
-        }
-
-        private static void runFfmpeg(List<String> cmd, Path workDir, Duration timeout) throws IOException, InterruptedException {
-            ProcessBuilder pb = new ProcessBuilder(cmd);
-            pb.directory(workDir.toFile());
-            pb.redirectErrorStream(true);
-            StringBuilder out = new StringBuilder();
-            Process p = pb.start();
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    out.append(line).append('\n');
-                }
-            }
-            boolean ok = p.waitFor(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-            if (!ok) {
-                p.destroyForcibly();
-                throw new IOException("ffmpeg 超时: " + out);
-            }
-            int code = p.exitValue();
-            if (code != 0) {
-                log.warn("ffmpeg 非零退出: code={} out={}", code, out);
-                throw new IOException("ffmpeg 失败 exit=" + code + ": " + out);
-            }
-        }
-    }
 }
-

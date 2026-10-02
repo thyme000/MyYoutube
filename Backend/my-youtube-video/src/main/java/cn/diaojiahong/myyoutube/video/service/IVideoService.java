@@ -3,7 +3,7 @@ package cn.diaojiahong.myyoutube.video.service;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.mq.message.VideoCoverMessage;
+import cn.diaojiahong.myyoutube.common.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.*;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.domain.vo.*;
@@ -56,7 +56,4 @@ public interface IVideoService extends IService<Video> {
 
     Result<Void> closeComment(Long videoId);
 
-    Result<String> mergePictures(PictureToVideoDTO pictureForVideoDTO);
-
-    Result<MergePictureJobStatusVO> getMergePictureJobStatus(String jobId);
 }
