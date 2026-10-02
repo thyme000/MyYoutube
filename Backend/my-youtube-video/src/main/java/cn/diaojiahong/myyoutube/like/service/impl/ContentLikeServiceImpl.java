@@ -14,6 +14,8 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.like.domain.constants.ContentLikeConstants;
 import cn.diaojiahong.myyoutube.like.domain.po.ContentCommentLike;
@@ -60,6 +62,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
     private final IVideoService videoService;
     private final IContentService contentService;
+    private final ContentSummaryPort contentSummaryPort;
     private final StringRedisTemplate redisTemplate;
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
@@ -167,43 +170,22 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
     @Override
     public Result<PageResult<LikeVideoVO>> getLikeVideoList(Long userId, PageQuery pageQuery) {
-        // 查询用户点过赞的视频id
+        // 查询用户点过赞的内容id(动态/视频同池)
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
-        List<Long> videoIds = contentLikeMapper.selectListByUserId(userId, offset, pageQuery.getPageSize());
-        if (videoIds == null || videoIds.isEmpty()) {
-            // 没有点过赞的视频,直接返回空列表
+        List<Long> contentIds = contentLikeMapper.selectListByUserId(userId, offset, pageQuery.getPageSize());
+        if (contentIds == null || contentIds.isEmpty()) {
+            // 没有点过赞的内容,直接返回空列表
             return Result.success(PageResult.of(0, 0, List.of()));
         }
 
-        // 查询视频列表
-        List<Video> videoList = videoService.lambdaQuery()
-                .eq(Video::getIsDelete, 0)
-                .eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC)
-                .eq(Video::getStatus, VideoStatusEnum.PUBLISHED)
-                .in(Video::getId, videoIds)
-                .list();
+        // 统一内容摘要装配(视频+动态跨类型), 返回顺序与入参一致
+        List<ContentSummary> summaries = contentSummaryPort.listByIdsOrdered(
+                contentIds.stream().map(String::valueOf).collect(Collectors.toSet()));
 
-        Map<Long, Video> videoMap = videoList.stream()
-                .collect(Collectors.toMap(Video::getId, Function.identity()));
-        List<Video> orderedVideoList = videoIds.stream()
-                .map(videoMap::get)
-                .filter(Objects::nonNull)  // 过滤掉不存在的记录
-                .toList();
-
-        // 转换成vo(计数从 content 池取)
-        Map<Long, Content> contents = orderedVideoList.isEmpty() ? Map.of()
-                : contentService.listByIds(orderedVideoList.stream().map(Video::getId).toList()).stream()
-                        .collect(Collectors.toMap(Content::getId, c -> c));
-        List<LikeVideoVO> voList = orderedVideoList.stream()
-                .map(video -> {
-                    LikeVideoVO vo = BeanUtil.toBean(video, LikeVideoVO.class);
-                    Content c = contents.get(video.getId());
-                    if (c != null) {
-                        vo.setLikeCount(c.getLikeCount());
-                        vo.setPlayCount(c.getPlayCount());
-                        vo.setShareCount(c.getShareCount());
-                        vo.setCommentCount(c.getCommentCount());
-                    }
+        List<LikeVideoVO> voList = summaries.stream()
+                .map(s -> {
+                    LikeVideoVO vo = BeanUtil.toBean(s, LikeVideoVO.class);
+                    vo.setId(String.valueOf(s.getId()));
                     return vo;
                 }).toList();
         // 填充作者昵称和头像url

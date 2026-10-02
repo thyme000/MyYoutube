@@ -8,6 +8,12 @@ import java.time.LocalDateTime;
 public class LikeVideoVO {
     // 视频id
     private String id;
+
+    /** 内容类型: video/dynamic(统一内容池) */
+    private String type;
+
+    /** 动态成片总时长(毫秒), 视频无 */
+    private Integer totalDurationMs;
     // 视频标题
     private String title;
     // 视频描述

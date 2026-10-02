@@ -43,6 +43,14 @@ public class ContentController {
         return Result.success(contentFeedService.list(getUserId(), sort, category, pageQuery));
     }
 
+    /**
+     * 我的内容(创作中心/我的作品): 视频与动态同列, 含审核状态与可见性
+     */
+    @GetMapping("/mine")
+    public Result<PageResult<ContentFeedVO>> mine(@ModelAttribute PageQuery pageQuery) {
+        return Result.success(contentFeedService.mine(getUserId(), pageQuery));
+    }
+
     private static Long getUserId() {
         String userId = UserContext.getUserId();
         if (userId == null) {

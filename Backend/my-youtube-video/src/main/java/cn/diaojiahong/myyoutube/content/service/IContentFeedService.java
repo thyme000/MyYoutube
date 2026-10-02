@@ -19,4 +19,9 @@ public interface IContentFeedService {
      * 首页混排网格: RECOMMENDED 走推荐, 其余按 content 计数/时间排序; category 过滤时仅视频
      */
     PageResult<ContentFeedVO> list(Long userId, VideoSortEnum sort, String category, PageQuery pageQuery);
+
+    /**
+     * 我的内容(创作中心/我的作品): 视频与动态同列, 含审核状态与可见性, 不做公开性过滤
+     */
+    PageResult<ContentFeedVO> mine(Long userId, PageQuery pageQuery);
 }

@@ -5,7 +5,7 @@
     <select id="selectListByUserId" resultType="java.lang.Long">
         SELECT cl.content_id
         FROM content_like cl
-                 INNER JOIN video v ON cl.content_id = v.id AND v.is_delete = 0
+                 INNER JOIN content c ON cl.content_id = c.id
         WHERE cl.user_id = #{userId}
           AND cl.is_liked = 1
         ORDER BY cl.update_time DESC
@@ -15,8 +15,7 @@
     <select id="selectUserLikedCount" resultType="java.lang.Integer">
         SELECT COUNT(*)
         FROM content_like cl
-                 INNER JOIN video v ON cl.content_id = v.id AND v.is_delete = 0
-                 AND v.status = 'published' AND v.visibility = 'public'
+                 INNER JOIN content c ON cl.content_id = c.id
         WHERE cl.user_id = #{userId}
           AND cl.is_liked = 1
     </select>

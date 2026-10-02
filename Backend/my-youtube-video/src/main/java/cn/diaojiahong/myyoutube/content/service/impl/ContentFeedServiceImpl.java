@@ -15,6 +15,10 @@ import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
+import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
+import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -47,6 +51,8 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     private final S3StorageUtil storageUtil;
     private final RecommendPort recommendPort;
     private final VideoMapper videoMapper;
+    private final DynamicMapper dynamicMapper;
+    private final ObjectMapper objectMapper;
 
     @Override
     public PageResult<ContentFeedVO> feed(Long userId, PageQuery pageQuery) {
@@ -91,6 +97,89 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         PageResult<ContentFeedVO> result = PageResult.of(total,
                 (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize(), list);
         return result;
+    }
+
+    @Override
+    public PageResult<ContentFeedVO> mine(Long userId, PageQuery pageQuery) {
+        // 我的内容: 不做公开性过滤, 创作中心要展示审核状态
+        Page<Content> page = contentService.page(pageQuery.toPage(),
+                new LambdaQueryWrapper<Content>()
+                        .eq(Content::getAuthorId, userId)
+                        .orderByDesc(Content::getCreateTime));
+        List<Long> ids = page.getRecords().stream().map(Content::getId).toList();
+        if (ids.isEmpty()) {
+            return PageResult.of(page.getTotal(), page.getPages(), List.of());
+        }
+        Map<Long, Content> contents = page.getRecords().stream()
+                .collect(Collectors.toMap(Content::getId, Function.identity()));
+
+        Map<Long, Video> videos = videoMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(Video::getId, Function.identity()));
+        Map<Long, Dynamic> dynamics = dynamicMapper.selectList(
+                        new LambdaQueryWrapper<Dynamic>().in(Dynamic::getId, ids).eq(Dynamic::getIsDelete, 0))
+                .stream().collect(Collectors.toMap(Dynamic::getId, Function.identity()));
+
+        Map<Long, String> nicknames = userPort.getNicknames(List.of(userId));
+        Map<Long, String> avatars = userPort.getAvatars(List.of(userId));
+
+        List<ContentFeedVO> list = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            Content c = contents.get(id);
+            Video v = videos.get(id);
+            Dynamic d = dynamics.get(id);
+            if (v == null && d == null) {
+                continue;
+            }
+            ContentFeedVO vo = new ContentFeedVO();
+            vo.setId(String.valueOf(id));
+            vo.setType(c.getType() != null ? c.getType().getCode() : null);
+            vo.setLikeCount(c.getLikeCount());
+            vo.setPlayCount(c.getPlayCount());
+            vo.setCommentCount(c.getCommentCount());
+            vo.setShareCount(c.getShareCount());
+            vo.setCreateTime(c.getCreateTime());
+            vo.setAuthorId(userId);
+            vo.setAuthorNickname(nicknames.get(userId));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(avatars.get(userId), URL_SIGN_EXPIRE_SECONDS));
+            if (v != null) {
+                vo.setType("video");
+                vo.setTitle(v.getTitle());
+                vo.setDescription(v.getDescription());
+                vo.setCoverUrl(storageUtil.signGetUrl(v.getCoverUrl(), URL_SIGN_EXPIRE_SECONDS));
+                vo.setVideoUrl(storageUtil.signGetUrl(v.getVideoUrl(), URL_SIGN_EXPIRE_SECONDS));
+                vo.setDuration(v.getDuration());
+                vo.setAllowComment(v.getAllowComment());
+                vo.setStatus(v.getStatus() != null ? v.getStatus().getCode() : null);
+                vo.setVisibility(v.getVisibility() != null ? v.getVisibility().getCode() : null);
+            } else {
+                vo.setType("dynamic");
+                vo.setTitle(d.getTitle());
+                vo.setCoverUrl(storageUtil.signGetUrl(firstFrameKey(d.getTimelineJson()), URL_SIGN_EXPIRE_SECONDS));
+                vo.setTotalDurationMs(d.getTotalDurationMs());
+                vo.setAllowComment(1);
+                vo.setStatus(c.getStatus());
+                vo.setVisibility("public");
+            }
+            list.add(vo);
+        }
+        return PageResult.of(page.getTotal(), page.getPages(), list);
+    }
+
+    /** 从时间轴 JSON 里取首帧图片 objectKey 作封面 */
+    private String firstFrameKey(String timelineJson) {
+        if (timelineJson == null) {
+            return null;
+        }
+        try {
+            List<Map<String, Object>> timeline = objectMapper.readValue(timelineJson,
+                    new TypeReference<List<Map<String, Object>>>() {});
+            if (!timeline.isEmpty() && timeline.get(0).get("imageObjectKey") != null) {
+                return String.valueOf(timeline.get(0).get("imageObjectKey"));
+            }
+        } catch (Exception ignored) {
+            // 时间轴解析失败时封面留空
+        }
+        return null;
     }
 
     private void applyContentSort(LambdaQueryWrapper<Content> q, VideoSortEnum sort) {

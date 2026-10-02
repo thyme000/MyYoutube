@@ -40,6 +40,15 @@ public class ContentFeedVO {
 
     private Long shareCount;
 
+    /** 审核状态(published/review/banned), 创作中心用 */
+    private String status;
+
+    /** 可见性(public/private/unlisted), 视频域; 动态恒 public */
+    private String visibility;
+
+    /** 是否允许评论(视频域开关); 动态恒允许 */
+    private Integer allowComment;
+
     private Long authorId;
 
     private String authorNickname;
