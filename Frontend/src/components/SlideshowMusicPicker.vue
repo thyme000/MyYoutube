@@ -466,31 +466,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* 幻灯片：云端选曲弹层（高于上传弹窗 1002） */
-.slideshow-music-picker-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  background: rgb(var(--black-rgb) / 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-16);
-}
-
-.slideshow-music-picker {
-  position: relative;
-  width: min(440px, 100%);
-  max-height: min(86vh, 720px);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-4xl);
-  background: var(--ink-980);
-  border: 1px solid rgb(var(--white-rgb) / 0.1);
-  color: var(--gray-200);
-  box-shadow: 0 20px 60px rgb(var(--black-rgb) / 0.5);
-}
+/* 幻灯片：云端选曲弹层。卡片与遮罩的盒子样式在全局 main.css（BaseModal 内部渲染 scoped 够不到） */
 
 .smp-head {
   display: flex;

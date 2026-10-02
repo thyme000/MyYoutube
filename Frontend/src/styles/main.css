@@ -311,6 +311,43 @@ body {
   font-size: var(--font-size-16);
 }
 
+/* 发布动态弹窗：卡片由 BaseModal 内部渲染，scoped 样式够不到，只能写在这里 */
+.dynpub-card {
+  width: min(760px, 92vw);
+  max-height: 86vh;
+  overflow: auto;
+  background: rgba(20, 20, 20, 0.92);
+  border: none;
+  border-radius: var(--radius-3xl);
+  padding: var(--space-18);
+  color: var(--color-text-inverse, #fff);
+}
+
+/* 曲库选段弹层：卡片与遮罩由 BaseModal 内部渲染，scoped 样式够不到，只能写在这里；variant=none 遮罩样式需自备 */
+.slideshow-music-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgb(var(--black-rgb) / 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slideshow-music-picker {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(440px, 100%);
+  max-height: min(86vh, 720px);
+  overflow: hidden;
+  background: var(--ink-980);
+  border: 1px solid rgb(var(--white-rgb) / 0.1);
+  border-radius: var(--radius-4xl);
+  color: var(--gray-200);
+  box-shadow: 0 20px 60px rgb(var(--black-rgb) / 0.5);
+}
+
 /* 头像/背景预览：强制白色卡片。卡片由 BaseModal 内部渲染，scoped 样式够不到，只能写在这里 */
 .media-preview-card--light {
   max-width: min(920px, 96vw);

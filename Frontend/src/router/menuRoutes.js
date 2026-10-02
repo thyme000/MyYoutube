@@ -4,6 +4,7 @@
  */
 export const MENU_ROUTES = [
   { key: "home", path: "/", label: "首页" },
+  { key: "dynamics", path: "/dynamics", label: "动态" },
   { key: "shorts", path: "/shorts", label: "短视频" },
   { key: "subscribed", path: "/subscribed", label: "关注" },
   { key: "history", path: "/history", label: "历史播放记录" },

@@ -45,6 +45,11 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
+      // 带尾斜杠: 裸 /dynamics 是动态页的 SPA 路由, 深链刷新不应转发给后端
+      "/dynamics/": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
       "/audios": {
         target: "http://localhost:8080",
         changeOrigin: true,

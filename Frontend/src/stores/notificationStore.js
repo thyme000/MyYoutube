@@ -21,6 +21,7 @@ import {
 } from "../utils/notifyWs";
 import { parseDigitSnowflakeId } from "../utils/snowflakeId";
 import { useAuthStore } from "./authStore";
+import { useDynamicStore } from "./dynamicStore";
 import { useNavigationStore } from "./navigationStore";
 import { useDetailStore } from "./detailStore";
 import { useToastStore } from "./toastStore";
@@ -171,8 +172,8 @@ export const useNotificationStore = defineStore("notification", {
         useToastStore().pushToast(e?.message || "删除失败", "error");
       }
     },
-    /** SSE 门铃信号分拣：通知红点 / 聊天红点(未进聊天页时) */
-    onSseSignal(type) {
+    /** SSE 门铃信号分拣：通知红点 / 聊天红点(未进聊天页时) / 转码完成 */
+    onSseSignal(type, payload) {
       if (type === "NOTIFY_DIRTY") {
         void this.onNotifyDirty();
         return;
@@ -181,6 +182,10 @@ export const useNotificationStore = defineStore("notification", {
         // 在聊天页时聊天 WS 实时报文已处理增量, 门铃只补「没进聊天页」的红点与 toast
         if (isChatWebSocketOpen()) return;
         void this.onChatDoorbell();
+        return;
+      }
+      if (type === "TRANSCODE_DONE" || type === "TRANSCODE_FAILED") {
+        void useDynamicStore().onTranscodeSignal(type, payload);
       }
     },
     /** 站内通知有更新：未读数涨了才弹 toast（内容从拉到的最新一条取） */
@@ -297,7 +302,7 @@ export const useNotificationStore = defineStore("notification", {
     /** 登录后接通知链路：未读数 → SSE 门铃 → 轮询兜底 */
     async startSession() {
       await this.refreshNotifyUnreadCount();
-      startNotifySse({ onSignal: (type) => this.onSseSignal(type) });
+      startNotifySse({ onSignal: (type, payload) => this.onSseSignal(type, payload) });
       this.startNotifyUnreadPoll();
     },
     /** 登出 / 过期：断链路并清空面板 */

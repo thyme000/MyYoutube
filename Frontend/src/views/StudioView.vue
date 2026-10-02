@@ -8,9 +8,13 @@ import { storeToRefs } from "pinia";
 import { useStudioStore, studioBridgeHooks, studioTabs, formatStudioDate, formatStudioVisibility, rowVisibilityIsPrivate } from "../stores/studioStore";
 import { DEFAULT_PROFILE_BG_URL as profileBanner } from "../utils/userProfile";
 import { useAuthStore } from "../stores/authStore";
+import { useDynamicStore } from "../stores/dynamicStore";
+import DynamicPublishModal from "../components/DynamicPublishModal.vue";
 
 const auth = useAuthStore();
 const sb = studioBridgeHooks;
+const dynamicStore = useDynamicStore();
+const { publishOpen } = storeToRefs(dynamicStore);
 /** 侧栏昵称/头像直接取 authStore 的自有资料，与 App 同源 */
 const displayNickname = computed(() => {
   const u = auth.selfProfile;
@@ -176,11 +180,15 @@ const {
                   </button>
                 </div>
                 <p v-if="studioMsg && studioContentTab !== 'live'" class="studio-hint">{{ studioMsg }}</p>
-                <button type="button" class="studio-upload-fab" @click="sb.openUploadModal">上传视频</button>
+                <div class="studio-fab-group">
+                  <button type="button" class="studio-upload-fab" @click="publishOpen = true">发布动态</button>
+                  <button type="button" class="studio-upload-fab" @click="sb.openUploadModal">上传视频</button>
+                </div>
               </div>
             </template>
           </div>
         </div>
+        <DynamicPublishModal :open="publishOpen" @close="publishOpen = false" />
 </template>
 
 <style scoped>
@@ -449,10 +457,15 @@ const {
   color: var(--amber-700);
 }
 
-.studio-upload-fab {
+.studio-fab-group {
   position: absolute;
   right: 16px;
   bottom: 16px;
+  display: flex;
+  gap: 10px;
+}
+
+.studio-upload-fab {
   border: none;
   border-radius: var(--radius-full);
   padding: var(--space-10) var(--space-20);

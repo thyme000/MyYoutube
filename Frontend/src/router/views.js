@@ -6,6 +6,7 @@ import { defineAsyncComponent } from "vue";
  */
 export const loadMenuView = {
   home: () => import("../views/HomeView.vue"),
+  dynamics: () => import("../views/DynamicsView.vue"),
   history: () => import("../views/HistoryView.vue"),
   liked: () => import("../views/LikedView.vue"),
   music: () => import("../views/MusicView.vue"),
