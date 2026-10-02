@@ -45,6 +45,10 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
+      "/audios": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
       "/search": {
         target: "http://localhost:8080",
         changeOrigin: true,
