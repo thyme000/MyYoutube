@@ -4,7 +4,7 @@ import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageWithdrawDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.MessageListPageQuery;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ack.ChatMessageAckDTO;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.MessageStatusEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
@@ -374,11 +374,11 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             vo.setSenderNickName(authorNicknames.get(doc.getSenderId()));
             vo.setSenderAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(doc.getSenderId()), STORAGE_EXPIRE));
             vo.setContentType(doc.getContentType());
-            if (vo.getContentType() == ContentTypeEnum.FILE || vo.getContentType() == ContentTypeEnum.IMAGE) {
+            if (vo.getContentType() == ChatContentTypeEnum.FILE || vo.getContentType() == ChatContentTypeEnum.IMAGE) {
                 if (doc.getContent().getObjectKey() != null && !doc.getContent().getObjectKey().isBlank()) {
                     doc.getContent().setObjectKey(storageUtil.signGetUrl(doc.getContent().getObjectKey(), STORAGE_EXPIRE));
                 }
-            } else if (vo.getContentType() == ContentTypeEnum.FORWARD_VIDEO) {
+            } else if (vo.getContentType() == ChatContentTypeEnum.FORWARD_VIDEO) {
                 if (doc.getContent().getForwardVideoCoverObjectKey() != null && !doc.getContent().getForwardVideoCoverObjectKey().isBlank()) {
                     doc.getContent().setForwardVideoCoverObjectKey(storageUtil.signGetUrl(doc.getContent().getForwardVideoCoverObjectKey(), STORAGE_EXPIRE));
                 }
@@ -525,11 +525,11 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             vo.setSenderAvatarUrl(storageUtil.signGetUrl(avMap.get(doc.getSenderId()), STORAGE_EXPIRE));
             ChatContent content = doc.getContent();
             if (content != null
-                    && (doc.getContentType() == ContentTypeEnum.FILE || doc.getContentType() == ContentTypeEnum.IMAGE)
+                    && (doc.getContentType() == ChatContentTypeEnum.FILE || doc.getContentType() == ChatContentTypeEnum.IMAGE)
                     && content.getObjectKey() != null) {
                 content.setObjectKey(storageUtil.signGetUrl(content.getObjectKey(), STORAGE_EXPIRE));
                 vo.setContent(content);
-            } else if (content != null && doc.getContentType() == ContentTypeEnum.FORWARD_VIDEO) {
+            } else if (content != null && doc.getContentType() == ChatContentTypeEnum.FORWARD_VIDEO) {
                 if (content.getForwardVideoCoverObjectKey() != null && !content.getForwardVideoCoverObjectKey().isBlank()) {
                     content.setForwardVideoCoverObjectKey(storageUtil.signGetUrl(content.getForwardVideoCoverObjectKey(), STORAGE_EXPIRE));
                 }

@@ -118,17 +118,6 @@ public class VideoController {
     }
 
     /**
-     * 在redis中记录用户观看短视频的记录
-     * @param userShortsWatchRecords
-     * @return
-     */
-    @Operation(summary = "用户观看短视频记录")
-    @PutMapping("/shorts/play")
-    public Result<Void> recordShortsPlay(@RequestBody UserShortsWatchRecords userShortsWatchRecords) {
-        return videoService.recordShortsPlay(userShortsWatchRecords);
-    }
-
-    /**
      * 用户查看他人公开的视频列表
      * @param userId 用户id
      * @param pageQuery 分页参数

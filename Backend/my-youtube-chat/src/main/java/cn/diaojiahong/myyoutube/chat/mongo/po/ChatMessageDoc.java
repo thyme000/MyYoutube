@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.chat.mongo.po;
 
 import cn.diaojiahong.myyoutube.chat.mongo.base.BaseMongoEntity;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.MessageStatusEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
 import lombok.Data;
@@ -25,7 +25,7 @@ public class ChatMessageDoc extends BaseMongoEntity {
     // 发送者id
     private Long senderId;
     // 消息类型
-    private ContentTypeEnum contentType; // text/image/file/system
+    private ChatContentTypeEnum contentType; // text/image/file/system
     // 消息体
     private ChatContent content;
 

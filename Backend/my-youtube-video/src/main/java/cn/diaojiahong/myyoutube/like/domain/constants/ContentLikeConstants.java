@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.like.domain.constants;
 
-public class VideoLikeConstants {
+public class ContentLikeConstants {
     // 点赞
     public static final int LIKE = 1;
     // 取消点赞

@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.mq.message;
 
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -21,7 +21,7 @@ public class ChatMessageMessage {
     // 发送人id
     private Long senderId;
     // 消息类型
-    private ContentTypeEnum contentType;
+    private ChatContentTypeEnum contentType;
     // 消息内容(只有文本消息时才有值)
     private String content;
     // 递增序号

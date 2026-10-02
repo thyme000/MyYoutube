@@ -17,8 +17,6 @@ public class AdminVideoVO {
     private String coverUrl;
     // 视频url
     private String videoUrl;
-    // 视频类型
-    private String videoType;
     // 视频种类
     private VideoCategoryEnum videoCategory;
     // 视频创建时间

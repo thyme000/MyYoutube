@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.video.domain.vo;
 
 import cn.diaojiahong.myyoutube.video.api.enums.VideoCategoryEnum;
-import cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
@@ -32,8 +31,6 @@ public class VideoDetailVO {
     private String videoUrl;
     // 时长（秒）
     private Integer duration;
-    // 视频形态 short / long
-    private VideoTypeEnum videoType;
     // 视频分类
     private VideoCategoryEnum category;
     // 标签

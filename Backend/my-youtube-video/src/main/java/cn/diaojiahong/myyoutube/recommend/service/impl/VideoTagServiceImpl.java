@@ -59,10 +59,9 @@ public class VideoTagServiceImpl extends ServiceImpl<VideoTagMapper, VideoTag> i
                         .videoId(video.getId()).title(video.getTitle()).description(video.getDescription())
                         .coverUrl(video.getCoverUrl()).tags(video.getTags())
                         .categoryCode(video.getCategory() != null ? video.getCategory().getCode() : null)
-                        .videoType(video.getVideoType())
                         .statusCode(video.getStatus() != null ? video.getStatus().getCode() : null)
                         .visibilityCode(video.getVisibility() != null ? video.getVisibility().getCode() : null)
-                        .authorId(video.getAuthorId()).playCount(video.getPlayCount()).likeCount(video.getLikeCount())
+                        .authorId(video.getAuthorId())
                         .createTime(video.getCreateTime()).tagIds(tagIds)
                         .build(), 5);
     }

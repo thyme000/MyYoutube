@@ -9,7 +9,6 @@ import cn.diaojiahong.myyoutube.user.domain.dto.UserHistoryPageQuery;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserLongHistoryVideoVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
-import cn.diaojiahong.myyoutube.user.domain.vo.UserShortsVideoVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -104,17 +103,6 @@ public class UserController {
     @GetMapping("/history/long")
     public Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(@ModelAttribute PageQuery pageQuery) {
         return userService.getLongHistory(pageQuery);
-    }
-
-    /**
-     * 用户查看短视频观看记录
-     * @param pageQuery
-     * @return
-     */
-    @Operation(summary = "用户查看短视频观看记录")
-    @GetMapping("/history/short")
-    public Result<PageResult<UserShortsVideoVO>> getShortsHistory(@ModelAttribute PageQuery pageQuery) {
-        return userService.getShortsHistory(pageQuery);
     }
 
 }

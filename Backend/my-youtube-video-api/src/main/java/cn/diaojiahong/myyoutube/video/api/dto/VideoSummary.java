@@ -22,7 +22,6 @@ public class VideoSummary {
     private Integer allowComment;
     private Long authorId;
     private LocalDateTime createTime;
-    private String videoType;
     private String tags;
     private String status;
     private String categoryCode;

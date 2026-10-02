@@ -2,8 +2,8 @@ package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
-import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
+import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
+import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
@@ -25,7 +25,7 @@ import org.springframework.stereotype.Component;
         maxReconsumeTimes = 3)
 public class LikeCommentListener implements RocketMQListener<LikeCommentMessage> {
 
-    private final IVideoCommentService videoCommentService;
+    private final IContentCommentService videoCommentService;
     private final IUserNotificationService userNotificationService;
     private final PushFanoutPublisher pushFanoutPublisher;
 
@@ -36,8 +36,8 @@ public class LikeCommentListener implements RocketMQListener<LikeCommentMessage>
     public void onMessage(LikeCommentMessage lc) {
         log.info("handleLikeCommentMessage: {}", lc);
 
-        VideoComment one = videoCommentService.lambdaQuery()
-                .eq(VideoComment::getId, lc.getCommentId()).eq(VideoComment::getStatus, CommentStatusEnum.VISIBLE).one();
+        ContentComment one = videoCommentService.lambdaQuery()
+                .eq(ContentComment::getId, lc.getCommentId()).eq(ContentComment::getStatus, CommentStatusEnum.VISIBLE).one();
         if (one == null) {
             // 评论不存在说明可能被删除了
             return;

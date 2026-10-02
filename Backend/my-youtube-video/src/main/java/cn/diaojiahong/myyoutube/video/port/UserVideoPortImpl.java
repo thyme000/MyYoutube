@@ -1,9 +1,11 @@
 package cn.diaojiahong.myyoutube.video.port;
 
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
-import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
-import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
+import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
+import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
 import cn.diaojiahong.myyoutube.video.api.dto.VideoSummary;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -23,13 +25,18 @@ import java.util.stream.Collectors;
 public class UserVideoPortImpl implements UserVideoPort {
 
     private final VideoMapper videoMapper;
-    private final VideoLikeMapper videoLikeMapper;
+    private final ContentLikeMapper contentLikeMapper;
+    private final IContentService contentService;
     private final UserFollowMapper userFollowMapper;
 
     @Override
     public List<VideoSummary> listByIdsOrdered(Set<String> ids) {
         List<Video> videos = videoMapper.selectOrderedList(ids);
+        Map<Long, Content> contents = contentService.listByIds(
+                        videos.stream().map(Video::getId).toList()).stream()
+                .collect(Collectors.toMap(Content::getId, c -> c));
         return videos.stream().map(v -> {
+            Content c = contents.get(v.getId());
             VideoSummary s = new VideoSummary();
             s.setId(v.getId());
             s.setTitle(v.getTitle());
@@ -37,10 +44,10 @@ public class UserVideoPortImpl implements UserVideoPort {
             s.setCoverUrl(v.getCoverUrl());
             s.setVideoUrl(v.getVideoUrl());
             s.setDuration(v.getDuration());
-            s.setLikeCount(v.getLikeCount());
-            s.setPlayCount(v.getPlayCount());
-            s.setShareCount(v.getShareCount());
-            s.setCommentCount(v.getCommentCount());
+            s.setLikeCount(c != null ? c.getLikeCount() : 0L);
+            s.setPlayCount(c != null ? c.getPlayCount() : 0L);
+            s.setShareCount(c != null ? c.getShareCount() : 0L);
+            s.setCommentCount(c != null ? c.getCommentCount() : 0L);
             s.setAllowComment(v.getAllowComment());
             s.setAuthorId(v.getAuthorId());
             s.setCreateTime(v.getCreateTime());
@@ -54,11 +61,11 @@ public class UserVideoPortImpl implements UserVideoPort {
         if (videoIds == null || videoIds.isEmpty()) {
             return Map.of();
         }
-        return new LambdaQueryChainWrapper<>(videoLikeMapper)
-                .eq(VideoLike::getUserId, userId)
-                .eq(VideoLike::getIsLiked, true)
-                .in(VideoLike::getVideoId, videoIds)
-                .list().stream().collect(Collectors.toMap(VideoLike::getVideoId, v -> true));
+        return new LambdaQueryChainWrapper<>(contentLikeMapper)
+                .eq(ContentLike::getUserId, userId)
+                .eq(ContentLike::getIsLiked, true)
+                .in(ContentLike::getContentId, videoIds)
+                .list().stream().collect(Collectors.toMap(ContentLike::getContentId, v -> true));
     }
 
     @Override

@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.like.service.impl;
 
-import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
-import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
+import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
+import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
@@ -12,14 +12,16 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
-import cn.diaojiahong.myyoutube.like.domain.constants.VideoLikeConstants;
-import cn.diaojiahong.myyoutube.like.domain.po.VideoCommentLike;
-import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
+import cn.diaojiahong.myyoutube.like.domain.constants.ContentLikeConstants;
+import cn.diaojiahong.myyoutube.like.domain.po.ContentCommentLike;
+import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
 import cn.diaojiahong.myyoutube.like.domain.vo.LikeVideoVO;
-import cn.diaojiahong.myyoutube.like.mapper.VideoCommentLikeMapper;
-import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
-import cn.diaojiahong.myyoutube.like.service.IVideoLikeService;
+import cn.diaojiahong.myyoutube.like.mapper.ContentCommentLikeMapper;
+import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
+import cn.diaojiahong.myyoutube.like.service.IContentLikeService;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
@@ -45,7 +47,7 @@ import java.util.stream.Collectors;
 
 /**
  * <p>
- * 视频点赞表 服务实现类
+ * 内容点赞表 服务实现类
  * </p>
  *
  * @author thyme
@@ -54,15 +56,16 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike> implements IVideoLikeService {
+public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, ContentLike> implements IContentLikeService {
 
     private final IVideoService videoService;
+    private final IContentService contentService;
     private final StringRedisTemplate redisTemplate;
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
-    private final VideoLikeMapper videoLikeMapper;
-    private final VideoCommentLikeMapper videoCommentLikeMapper;
-    private final IVideoCommentService videoCommentService;
+    private final ContentLikeMapper contentLikeMapper;
+    private final ContentCommentLikeMapper contentCommentLikeMapper;
+    private final IContentCommentService contentCommentService;
     private final RocketMQTemplate rocketMQTemplate;
     private final IUserFollowService userFollowService;
     private final CounterBuffer counterBuffer;
@@ -77,28 +80,28 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         Long userId = getUserId();
 
         // 判断用户是否已经点过赞
-        VideoLike like = lambdaQuery()
-                .eq(VideoLike::getUserId, userId)
-                .eq(VideoLike::getVideoId, videoId).one();
-        if (like != null && like.getIsLiked() == VideoLikeConstants.LIKE) {
+        ContentLike like = lambdaQuery()
+                .eq(ContentLike::getUserId, userId)
+                .eq(ContentLike::getContentId, videoId).one();
+        if (like != null && like.getIsLiked() == ContentLikeConstants.LIKE) {
             // 已经点过赞了直接返回
             return Result.success();
         }
 
-        // 作者 id 必须在写计数之前取: 原先排在 UPDATE video 之后, 等于把这次额外查询也算进热点行的锁持有时间
+        // 作者 id 必须在写计数之前取: 原先排在 UPDATE 计数之后, 等于把这次额外查询也算进热点行的锁持有时间
         Long authorId = findAuthorId(videoId);
 
         // 点赞数只累加到 Redis, 由落库任务合并成一次 UPDATE
-        counterBuffer.add(CounterType.VIDEO_LIKE, videoId, 1);
+        counterBuffer.add(CounterType.CONTENT_LIKE, videoId, 1);
 
         // 保存点赞记录
         if (like != null) {
             // 已有记录，更新
-            like.setIsLiked(VideoLikeConstants.LIKE);
+            like.setIsLiked(ContentLikeConstants.LIKE);
             updateById(like);
         } else {
             // 没有记录，新增
-            save(new VideoLike().setUserId(userId).setVideoId(videoId).setIsLiked(VideoLikeConstants.LIKE));
+            save(new ContentLike().setUserId(userId).setContentId(videoId).setIsLiked(ContentLikeConstants.LIKE));
         }
         // 更新作者获赞量
         counterBuffer.add(CounterType.USER_LIKE, authorId, 1);
@@ -107,11 +110,11 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     }
 
     private Long findAuthorId(Long videoId) {
-        Video video = videoService.lambdaQuery().eq(Video::getId, videoId).select(Video::getAuthorId).one();
-        if (video == null) {
-            throw new BizException(BizException.USER_ERROR, "视频不存在");
+        Content content = contentService.lambdaQuery().eq(Content::getId, videoId).select(Content::getAuthorId).one();
+        if (content == null) {
+            throw new BizException(BizException.USER_ERROR, "内容不存在");
         }
-        return video.getAuthorId();
+        return content.getAuthorId();
     }
 
     private Long getUserId() {
@@ -129,21 +132,21 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         Long userId = getUserId();
 
         // 判断用户是否点过赞
-        VideoLike like = lambdaQuery()
-                .eq(VideoLike::getUserId, userId)
-                .eq(VideoLike::getVideoId, videoId)
+        ContentLike like = lambdaQuery()
+                .eq(ContentLike::getUserId, userId)
+                .eq(ContentLike::getContentId, videoId)
                 .one();
-        if (like == null || like.getIsLiked() == VideoLikeConstants.CANCEL_LIKE) {
+        if (like == null || like.getIsLiked() == ContentLikeConstants.CANCEL_LIKE) {
             // 未点赞或已取消点赞直接返回
             return Result.success();
         }
 
         Long authorId = findAuthorId(videoId);
 
-        counterBuffer.add(CounterType.VIDEO_LIKE, videoId, -1);
+        counterBuffer.add(CounterType.CONTENT_LIKE, videoId, -1);
 
         // 修改点赞记录
-        like.setIsLiked(VideoLikeConstants.CANCEL_LIKE);
+        like.setIsLiked(ContentLikeConstants.CANCEL_LIKE);
         updateById(like);
 
         // 更新用户获赞量
@@ -166,7 +169,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     public Result<PageResult<LikeVideoVO>> getLikeVideoList(Long userId, PageQuery pageQuery) {
         // 查询用户点过赞的视频id
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
-        List<Long> videoIds = videoLikeMapper.selectListByUserId(userId, offset, pageQuery.getPageSize());
+        List<Long> videoIds = contentLikeMapper.selectListByUserId(userId, offset, pageQuery.getPageSize());
         if (videoIds == null || videoIds.isEmpty()) {
             // 没有点过赞的视频,直接返回空列表
             return Result.success(PageResult.of(0, 0, List.of()));
@@ -187,9 +190,22 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
                 .filter(Objects::nonNull)  // 过滤掉不存在的记录
                 .toList();
 
-        // 转换成vo
+        // 转换成vo(计数从 content 池取)
+        Map<Long, Content> contents = orderedVideoList.isEmpty() ? Map.of()
+                : contentService.listByIds(orderedVideoList.stream().map(Video::getId).toList()).stream()
+                        .collect(Collectors.toMap(Content::getId, c -> c));
         List<LikeVideoVO> voList = orderedVideoList.stream()
-                .map(video -> BeanUtil.toBean(video, LikeVideoVO.class)).toList();
+                .map(video -> {
+                    LikeVideoVO vo = BeanUtil.toBean(video, LikeVideoVO.class);
+                    Content c = contents.get(video.getId());
+                    if (c != null) {
+                        vo.setLikeCount(c.getLikeCount());
+                        vo.setPlayCount(c.getPlayCount());
+                        vo.setShareCount(c.getShareCount());
+                        vo.setCommentCount(c.getCommentCount());
+                    }
+                    return vo;
+                }).toList();
         // 填充作者昵称和头像url
         List<Long> authorIds = voList.stream().map(LikeVideoVO::getAuthorId).toList();
         Map<Long, String> authorNicknames = userPort.getNicknames(authorIds);
@@ -209,7 +225,7 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
             voList.get(i).setIsFollow(isFollows.get(i));
         }
 
-        int total = videoLikeMapper.selectUserLikedCount(userId);
+        int total = contentLikeMapper.selectUserLikedCount(userId);
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
 
         return Result.success(PageResult.of(total, totalPages, voList));
@@ -218,11 +234,11 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
     @Override
     public Result<Boolean> getLikeStatus(Long videoId) {
         // 查询用户是否点过赞
-        VideoLike like = lambdaQuery()
-                .eq(VideoLike::getUserId, UserContext.getUserId())
-                .eq(VideoLike::getVideoId, videoId)
+        ContentLike like = lambdaQuery()
+                .eq(ContentLike::getUserId, UserContext.getUserId())
+                .eq(ContentLike::getContentId, videoId)
                 .one();
-        return Result.success(like != null && like.getIsLiked() == VideoLikeConstants.LIKE);
+        return Result.success(like != null && like.getIsLiked() == ContentLikeConstants.LIKE);
     }
 
     @Override
@@ -230,17 +246,17 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         // 获取用户id
         Long userId = getUserId();
 
-        VideoCommentLike like = videoCommentLikeMapper.selectOne(new LambdaQueryWrapper<VideoCommentLike>()
-                .eq(VideoCommentLike::getUserId, userId)
-                .eq(VideoCommentLike::getCommentId, commentId));
-        if (like != null && like.getIsLiked() == VideoLikeConstants.LIKE) {
+        ContentCommentLike like = contentCommentLikeMapper.selectOne(new LambdaQueryWrapper<ContentCommentLike>()
+                .eq(ContentCommentLike::getUserId, userId)
+                .eq(ContentCommentLike::getCommentId, commentId));
+        if (like != null && like.getIsLiked() == ContentLikeConstants.LIKE) {
             // 已经点过赞了直接返回; 顺手补一下 Redis 展示集合(ZSet 只有 10 天寿命, 过期后会误判成未点赞)
             markCommentLiked(userId, commentId);
             return Result.success();
         }
 
-        VideoComment comment = videoCommentService.lambdaQuery()
-                .eq(VideoComment::getId, commentId).select(VideoComment::getUserId).one();
+        ContentComment comment = contentCommentService.lambdaQuery()
+                .eq(ContentComment::getId, commentId).select(ContentComment::getUserId).one();
         if (comment == null) {
             throw new BizException(BizException.USER_ERROR, "评论不存在");
         }
@@ -248,11 +264,11 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         // 点赞数只累加到 Redis
         counterBuffer.add(CounterType.COMMENT_LIKE, commentId, 1);
         if (like != null) {
-            like.setIsLiked(VideoLikeConstants.LIKE);
-            videoCommentLikeMapper.updateById(like);
+            like.setIsLiked(ContentLikeConstants.LIKE);
+            contentCommentLikeMapper.updateById(like);
         } else {
-            videoCommentLikeMapper.insert(new VideoCommentLike()
-                    .setUserId(userId).setCommentId(commentId).setIsLiked(VideoLikeConstants.LIKE));
+            contentCommentLikeMapper.insert(new ContentCommentLike()
+                    .setUserId(userId).setCommentId(commentId).setIsLiked(ContentLikeConstants.LIKE));
         }
         markCommentLiked(userId, commentId);
 
@@ -271,22 +287,22 @@ public class VideoLikeServiceImpl extends ServiceImpl<VideoLikeMapper, VideoLike
         // 获取用户id
         Long userId = getUserId();
 
-        VideoCommentLike like = videoCommentLikeMapper.selectOne(new LambdaQueryWrapper<VideoCommentLike>()
-                .eq(VideoCommentLike::getUserId, userId)
-                .eq(VideoCommentLike::getCommentId, commentId));
-        if (like == null || like.getIsLiked() == VideoLikeConstants.CANCEL_LIKE) {
+        ContentCommentLike like = contentCommentLikeMapper.selectOne(new LambdaQueryWrapper<ContentCommentLike>()
+                .eq(ContentCommentLike::getUserId, userId)
+                .eq(ContentCommentLike::getCommentId, commentId));
+        if (like == null || like.getIsLiked() == ContentLikeConstants.CANCEL_LIKE) {
             // 未点赞或已取消, 直接返回
             return Result.success();
         }
 
         counterBuffer.add(CounterType.COMMENT_LIKE, commentId, -1);
-        like.setIsLiked(VideoLikeConstants.CANCEL_LIKE);
-        videoCommentLikeMapper.updateById(like);
+        like.setIsLiked(ContentLikeConstants.CANCEL_LIKE);
+        contentCommentLikeMapper.updateById(like);
         redisTemplate.opsForZSet().remove(RedisConstants.USER_LIKE_COMMENT + userId, commentId.toString());
 
         // 发送取消点赞通知(MQ)
-        VideoComment comment = videoCommentService.lambdaQuery()
-            .eq(VideoComment::getId, commentId).select(VideoComment::getUserId).one();
+        ContentComment comment = contentCommentService.lambdaQuery()
+            .eq(ContentComment::getId, commentId).select(ContentComment::getUserId).one();
         if (comment != null && !Objects.equals(comment.getUserId(), userId)) {
             LikeCommentMessage lc = LikeCommentMessage
                     .builder().senderId(userId).commentId(commentId).build();

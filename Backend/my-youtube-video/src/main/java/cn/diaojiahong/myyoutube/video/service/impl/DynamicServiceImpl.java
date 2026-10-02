@@ -10,7 +10,11 @@ import cn.diaojiahong.myyoutube.transcode.api.TranscodePort;
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeItemDTO;
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeSubmitDTO;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.dto.DynamicPublishDTO;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
 import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
@@ -20,11 +24,13 @@ import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
 import cn.diaojiahong.myyoutube.video.service.IAudioService;
 import cn.diaojiahong.myyoutube.video.service.IDynamicService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.ZoneId;
@@ -50,6 +56,7 @@ public class DynamicServiceImpl implements IDynamicService {
     private static final long AUDIO_MAX_DURATION_MS = 60_000L;
 
     private final DynamicMapper dynamicMapper;
+    private final ContentMapper contentMapper;
     private final S3StorageUtil storageUtil;
     private final ObjectMapper objectMapper;
     private final UserPort userPort;
@@ -57,6 +64,7 @@ public class DynamicServiceImpl implements IDynamicService {
     private final IAudioService audioService;
 
     @Override
+    @Transactional
     public Result<String> publish(DynamicPublishDTO dto) {
         if (dto == null || dto.getItems() == null || dto.getItems().isEmpty()) {
             return Result.fail("图片列表不能为空");
@@ -157,6 +165,15 @@ public class DynamicServiceImpl implements IDynamicService {
             return Result.fail("发布失败");
         }
         dynamic.setIsDelete(0);
+        // content 池先行: 预分配雪花id, 动态表主键与之相同
+        Content content = new Content()
+                .setId(IdWorker.getId())
+                .setType(ContentTypeEnum.DYNAMIC)
+                .setAuthorId(userId)
+                .setStatus(VideoStatusEnum.PUBLISHED.getCode())
+                .setCreateTime(dynamic.getCreateTime());
+        dynamic.setId(content.getId());
+        contentMapper.insert(content);
         dynamicMapper.insert(dynamic);
         return Result.success(String.valueOf(dynamic.getId()));
     }

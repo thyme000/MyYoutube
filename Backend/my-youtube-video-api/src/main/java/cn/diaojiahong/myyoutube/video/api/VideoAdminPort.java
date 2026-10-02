@@ -47,7 +47,6 @@ public interface VideoAdminPort {
     class AdminVideoQuery {
         private String statusCode;
         private String categoryCode;
-        private String typeCode;
         private Long userId;
         private long pageNo;
         private long pageSize;

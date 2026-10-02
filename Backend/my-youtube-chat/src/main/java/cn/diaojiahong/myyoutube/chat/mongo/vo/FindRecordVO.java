@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.mongo.vo;
 
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
 import lombok.Data;
 
@@ -11,7 +11,7 @@ public class FindRecordVO {
     // 序列号
     private Long seq;
     // 消息类型
-    private ContentTypeEnum contentType;
+    private ChatContentTypeEnum contentType;
     // 消息内容
     private ChatContent content;
     // 发送人昵称

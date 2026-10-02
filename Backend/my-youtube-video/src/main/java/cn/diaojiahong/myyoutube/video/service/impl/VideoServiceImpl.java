@@ -10,8 +10,8 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
-import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
-import cn.diaojiahong.myyoutube.like.mapper.VideoLikeMapper;
+import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
+import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IVideoTagService;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
@@ -19,6 +19,10 @@ import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.common.mq.message.VideoCoverMessage;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.dto.*;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
@@ -54,8 +58,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum.*;
-import static cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum.LONG_VIDEO;
-import static cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum.SHORT_VIDEO;
 
 /**
  * 视频信息表 服务实现类
@@ -72,11 +74,12 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     private final RecommendPort recommendPort;
     private final StringRedisTemplate redisTemplate;
     private final IUserFollowService userFollowService;
-    private final VideoLikeMapper videoLikeMapper;
+    private final ContentLikeMapper contentLikeMapper;
+    private final ContentMapper contentMapper;
+    private final IContentService contentService;
     private final VideoDocPort videoDocPort;
     private final ObjectMapper objectMapper;
 
-    private static final int SHORT_VIDEO_DURATION = 300;
     private static final long STORAGE_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
     @Transactional
@@ -96,11 +99,6 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (video.getDuration() == null) {
             return Result.fail("视频时长不能为空～");
         }
-        if (video.getDuration() <= SHORT_VIDEO_DURATION) {
-            video.setVideoType(SHORT_VIDEO.getCode());
-        } else {
-            video.setVideoType(LONG_VIDEO.getCode());
-        }
 
         // 判断用户有没有输入标签
         if (StrUtils.isEmpty(videoDTO.getTags())) {
@@ -109,7 +107,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
         video.setCreateTime(LocalDateTime.now());
         video.setStatus(REVIEW);
-        // 预分配雪花id, 事务消息回查时按它判断入库结果
+        // 预分配雪花id, content 池与领域表共用; 事务消息回查时按它判断入库结果
         video.setId(IdWorker.getId());
 
         // 事务消息: half 消息先发出, 本地事务入库成功才提交, 保证"视频入库"与"封面任务"原子性
@@ -129,6 +127,14 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     @Transactional
     @Override
     public void persistNewVideo(Video video) {
+        // content 池先行: 同一雪花id下先有"内容"再有领域记录
+        Content content = new Content()
+                .setId(video.getId())
+                .setType(ContentTypeEnum.VIDEO)
+                .setAuthorId(video.getAuthorId())
+                .setStatus(video.getStatus() != null ? video.getStatus().getCode() : null)
+                .setCreateTime(video.getCreateTime());
+        contentMapper.insert(content);
         save(video);
         // 异步保存到标签表中
         videoTagService.saveTagsAsync(video.getTags(), video.getId(), video);
@@ -143,7 +149,6 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             List<Long> ids = recommendPort.recommend(new RecommendPort.RecommendQuery(
                     userId,
                     pageQuery.getCategory() != null ? pageQuery.getCategory().getCode() : null,
-                    pageQuery.getVideoType() != null ? pageQuery.getVideoType().getCode() : null,
                     pageQuery.getPageNo(),
                     pageQuery.getPageSize()
             ));
@@ -155,10 +160,11 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 // 保持 ES 返回的顺序 (listByIds不保证返回的顺序)
                 Map<Long, Video> map = videos.stream()
                         .collect(Collectors.toMap(Video::getId, v -> v));
+                Map<Long, Content> contents = loadContents(videos);
                 List<VideoListVO> list = ids.stream()
                         .map(map::get)
                         .filter(Objects::nonNull)
-                        .map(VideoVoConverter::toListVo)
+                        .map(v -> VideoVoConverter.toListVo(v, contents.get(v.getId())))
                         .toList();
                 fillAuthorNicknames(list);
                 fillAuthorAvatarUrls(list);
@@ -201,16 +207,42 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 排除自己的视频
         q.ne(Video::getAuthorId, userId);
 
-        applySort(q, pageQuery.getSort());
-        Page<Video> result = page(page, q.eq(Video::getStatus, PUBLISHED));
-        List<VideoListVO> list = result.getRecords().stream()
-                .map(VideoVoConverter::toListVo)
-                .collect(Collectors.toList());
+        Page<Video> result;
+        VideoSortEnum sort = pageQuery.getSort();
+        if (sort == VideoSortEnum.MOST_LIKED || sort == VideoSortEnum.MOST_SHARED
+                || sort == VideoSortEnum.MOST_PLAYED || sort == VideoSortEnum.RECOMMENDED) {
+            // 计数列在 content 表, 计数类排序走联表查询
+            result = baseMapper.selectPageSorted(pageQuery.toPage(), userId,
+                    pageQuery.getCategory() != null ? pageQuery.getCategory().getCode() : null,
+                    pageQuery.getBegin(), pageQuery.getEnd(),
+                    pageQuery.getTags() != null && !pageQuery.getTags().isBlank() ? pageQuery.getTags().trim() : null,
+                    sort.name());
+        } else {
+            q.orderByDesc(Video::getCreateTime);
+            result = page(pageQuery.toPage(), q.eq(Video::getStatus, PUBLISHED));
+        }
+        List<VideoListVO> list = toListVosWithCounts(result.getRecords());
         fillAuthorNicknames(list);
         fillAuthorAvatarUrls(list);
         signListCoverUrlsForVideoListVO(list);
         signListVideoUrlsForVideoListVO(list);
         return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
+    }
+
+    private Map<Long, Content> loadContents(List<Video> videos) {
+        List<Long> ids = videos.stream().map(Video::getId).toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return contentService.listByIds(ids).stream()
+                .collect(Collectors.toMap(Content::getId, c -> c));
+    }
+
+    private List<VideoListVO> toListVosWithCounts(List<Video> videos) {
+        Map<Long, Content> contents = loadContents(videos);
+        return videos.stream()
+                .map(v -> VideoVoConverter.toListVo(v, contents.get(v.getId())))
+                .collect(Collectors.toList());
     }
 
     private void fillAuthorAvatarUrls(List<VideoListVO> list) {
@@ -238,7 +270,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             return Result.fail("视频已私密或已被封禁～");
         }
 
-        VideoDetailVO detailVo = VideoVoConverter.toDetailVo(video);
+        VideoDetailVO detailVo = VideoVoConverter.toDetailVo(video, contentService.getById(videoId));
         detailVo.setVideoUrl(storageUtil.signGetUrl(detailVo.getVideoUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         detailVo.setCoverUrl(storageUtil.signGetUrl(detailVo.getCoverUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
 
@@ -265,58 +297,34 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
     @Override
     public Result<PageResult<VideoListVO>> getVideoListByAuthorId(Long authorId, VideoPageQuery pageQuery) {
-        Page<Video> page = pageQuery.toPage();
-        LambdaQueryWrapper<Video> q = new LambdaQueryWrapper<>();
-        q.eq(Video::getIsDelete, 0);
-        q.eq(Video::getAuthorId, authorId);
-        q.eq(Video::getStatus, PUBLISHED);
-        q.eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC);
-        q.orderByDesc(Video::getCreateTime);
-        // 判断是查询视频的类型
-        List<VideoListVO> list;
-        Page<Video> result;
-        if (pageQuery.getVideoType() == null) {
-            // 查询所有
-            result = page(page, q);
-            list = result.getRecords().stream()
-                    .map(VideoVoConverter::toListVo)
-                    .toList();
-            fillAuthorNicknames(list);
-            signListCoverUrlsForVideoListVO(list);
-            return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
-        } else {
-            // 查询短视频或长视频
-            result = page(page, q.eq(Video::getVideoType, pageQuery.getVideoType().getCode()));
-            list = result.getRecords().stream()
-                .map(VideoVoConverter::toListVo)
-                    .toList();
-            fillAuthorNicknames(list);
-            signListCoverUrlsForVideoListVO(list);
-            return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
-        }
+        Page<Video> result = lambdaQuery()
+                .eq(Video::getIsDelete, 0)
+                .eq(Video::getAuthorId, authorId)
+                .eq(Video::getStatus, PUBLISHED)
+                .eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC)
+                .orderByDesc(Video::getCreateTime)
+                .page(pageQuery.toPage());
+        List<VideoListVO> list = toListVosWithCounts(result.getRecords());
+        fillAuthorNicknames(list);
+        signListCoverUrlsForVideoListVO(list);
+        return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
     }
 
     @Override
     public Result<PageResult<VideoListVO>> getMyVideoList(VideoPageQuery pageQuery) {
         Long userId = getUserId();
-        Page<Video> page = pageQuery.toPage();
 
         LambdaQueryWrapper<Video> q = new LambdaQueryWrapper<>();
         q.eq(Video::getAuthorId, userId);
         q.eq(Video::getIsDelete, 0);
         q.orderByDesc(Video::getCreateTime);
-        if (pageQuery.getVideoType() != null) {
-            q.eq(Video::getVideoType, pageQuery.getVideoType().getCode());
-        }
         if (pageQuery.getVisibility() != null) {
             // 查询指定可见性
             q.eq(Video::getVisibility, pageQuery.getVisibility().getCode());
         }
-        Page<Video> list = page(page, q);
+        Page<Video> list = page(pageQuery.toPage(), q);
 
-        List<VideoListVO> result = list.getRecords().stream()
-                .map(VideoVoConverter::toListVo)
-                .toList();
+        List<VideoListVO> result = toListVosWithCounts(list.getRecords());
         // 封面url
         signListCoverUrlsForVideoListVO(result);
         // 视频url
@@ -363,10 +371,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     @Override
     public Result<PageResult<ShortsVO>> getShortsFeed(PageQuery pageQuery) {
         Long userId = getUserId();
-        // 获得推荐短视频id
+        // 连播池不过滤形态, 全量混排
         List<Long> videoIds = recommendPort.recommend(new RecommendPort.RecommendQuery(
-                userId, null, SHORT_VIDEO.getCode(),
-                pageQuery.getPageNo(), pageQuery.getPageSize()));
+                userId, null, pageQuery.getPageNo(), pageQuery.getPageSize()));
         if (videoIds.isEmpty()) {
             // 直接返回空列表
             return Result.success(PageResult.of(0,0, Collections.emptyList()));
@@ -378,10 +385,11 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .list();
         Map<Long, Video> map = videos.stream()
                 .collect(Collectors.toMap(Video::getId, v -> v));
+        Map<Long, Content> contents = loadContents(videos);
         List<ShortsVO> voList = videoIds.stream()
                 .map(map::get)
                 .filter(Objects::nonNull)
-                .map(VideoVoConverter::toShortsVo)
+                .map(v -> VideoVoConverter.toShortsVo(v, contents.get(v.getId())))
                 .toList();
 
         // 获取所有作者id
@@ -429,14 +437,14 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (videoIds == null || videoIds.isEmpty()) {
             return Collections.emptyList();
         }
-        List<VideoLike> list = new LambdaQueryChainWrapper<>(videoLikeMapper)
-                .eq(VideoLike::getIsLiked, 1)
-                .eq(VideoLike::getUserId, userId)
-                .in(VideoLike::getVideoId, videoIds).list();
+        List<ContentLike> list = new LambdaQueryChainWrapper<>(contentLikeMapper)
+                .eq(ContentLike::getIsLiked, 1)
+                .eq(ContentLike::getUserId, userId)
+                .in(ContentLike::getContentId, videoIds).list();
         if (list == null || list.isEmpty()) {
             return Collections.emptyList();
         }
-        return list.stream().map(VideoLike::getVideoId).toList();
+        return list.stream().map(ContentLike::getContentId).toList();
     }
 
     @Override
@@ -458,30 +466,6 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     }
 
     @Override
-    public Result<Void> recordShortsPlay(UserShortsWatchRecords userShortsWatchRecords) {
-        Long userId = userShortsWatchRecords.getUserId();
-        if (userId == null) {
-            throw new BizException(BizException.USER_ERROR, "用户id不能为空");
-        }
-        Set<Long> shortIds = userShortsWatchRecords.getShortIds();
-        if (shortIds == null || shortIds.isEmpty()) {
-            // 短视频id集合为空，直接返回成功
-            return Result.success();
-        }
-
-        // 批量插入 ZSet(当前时间戳)
-        Set<ZSetOperations.TypedTuple<String>> tuples = new HashSet<>();
-        for (Long id : shortIds) {
-            tuples.add(new DefaultTypedTuple<>(id.toString(), (double) System.currentTimeMillis()));
-        }
-        redisTemplate.opsForZSet().add(RedisConstants.USER_SHORTS_PLAY + userId, tuples);
-        // 过期时间30天
-        redisTemplate.expire(RedisConstants.USER_SHORTS_PLAY + userId, RedisConstants.USER_SHORTS_PLAY_EXPIRE, TimeUnit.DAYS);
-
-        return Result.success();
-    }
-
-    @Override
     public Result<PageResult<VideoListVO>> getOtherUserVideoList(Long userId, PageQuery pageQuery) {
         // 查询他人公开的视频
         Page<Video> page = lambdaQuery().eq(Video::getAuthorId, userId)
@@ -495,7 +479,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             return Result.success(PageResult.of(0,0, Collections.emptyList()));
         }
         // 转换为VO
-        List<VideoListVO> voList = videoList.stream().map(v -> BeanUtil.toBean(v, VideoListVO.class)).toList();
+        List<VideoListVO> voList = toListVosWithCounts(videoList);
 
         // 获取作者昵称
         UserSummary author = userPort.getUser(userId);
@@ -538,8 +522,20 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         Set<String> collect = videoIds.stream().map(String::valueOf).collect(Collectors.toSet());
         List<Video> videos = baseMapper.selectOrderedList(collect);
 
-        // 转换为VO
-        List<FollowVideoVO> voList = videos.stream().map(v -> BeanUtil.toBean(v, FollowVideoVO.class)).toList();
+        // 转换为VO(计数从 content 池取)
+        Map<Long, Content> contents = loadContents(videos);
+        List<FollowVideoVO> voList = videos.stream()
+                .map(v -> {
+                    FollowVideoVO vo = BeanUtil.toBean(v, FollowVideoVO.class);
+                    Content c = contents.get(v.getId());
+                    if (c != null) {
+                        vo.setLikeCount(c.getLikeCount());
+                        vo.setPlayCount(c.getPlayCount());
+                        vo.setShareCount(c.getShareCount());
+                        vo.setCommentCount(c.getCommentCount());
+                    }
+                    return vo;
+                }).toList();
         // 填充作者昵称
         Map<Long, String> idToNick = userPort.getNicknames(videoIds);
         for (FollowVideoVO vo : voList) {
@@ -725,18 +721,4 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
     }
 
-    private static void applySort(LambdaQueryWrapper<Video> q, VideoSortEnum sort) {
-        if (sort == null) {
-            q.orderByDesc(Video::getCreateTime);
-            return;
-        }
-        switch (sort) {
-            case LATEST -> q.orderByDesc(Video::getCreateTime);
-            case MOST_LIKED -> q.orderByDesc(Video::getLikeCount);
-            case MOST_SHARED -> q.orderByDesc(Video::getShareCount);
-            case MOST_PLAYED -> q.orderByDesc(Video::getPlayCount);
-            case RECOMMENDED -> q.orderByDesc(Video::getPlayCount);
-            default -> q.orderByDesc(Video::getCreateTime);
-        }
-    }
 }

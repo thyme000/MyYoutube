@@ -27,8 +27,6 @@ public class VideoListVO {
     private String coverUrl;
     // 时长（秒）
     private Integer duration;
-    // 视频形态 short / long
-    private String videoType;
     // 视频分类
     private VideoCategoryEnum category;
     // 播放量

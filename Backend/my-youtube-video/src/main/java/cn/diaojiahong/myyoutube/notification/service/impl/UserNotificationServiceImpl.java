@@ -1,8 +1,8 @@
 package cn.diaojiahong.myyoutube.notification.service.impl;
 
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
-import cn.diaojiahong.myyoutube.comment.domain.po.VideoComment;
-import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
+import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
+import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -38,7 +38,7 @@ import java.util.Objects;
 public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMapper, UserNotification> implements IUserNotificationService {
 
     private final UserPort userPort;
-    private final IVideoCommentService videoCommentService;
+    private final IContentCommentService videoCommentService;
     private final S3StorageUtil storageUtil;
 
     @Override
@@ -65,9 +65,9 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
                 vo.setVideoId(r.getRefId());
             } else if (r.getType().equals(NotificationTypeEnum.COMMENT_LIKE.getCode()) ||
                     r.getType().equals(NotificationTypeEnum.COMMENT_REPLY.getCode())) {
-                VideoComment comment = videoCommentService.getById(r.getRefId());
+                ContentComment comment = videoCommentService.getById(r.getRefId());
                 if (comment != null && !comment.getStatus().equals(CommentStatusEnum.DELETED.getCode())) {
-                    vo.setVideoId(comment.getVideoId());
+                    vo.setVideoId(comment.getContentId());
                 }
             }
             vo.setContent(r.getContent());

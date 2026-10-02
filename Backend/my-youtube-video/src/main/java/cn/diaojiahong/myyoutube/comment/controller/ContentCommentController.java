@@ -4,7 +4,7 @@ package cn.diaojiahong.myyoutube.comment.controller;
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentDTO;
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentPageQuery;
 import cn.diaojiahong.myyoutube.comment.domain.vo.CommentVO;
-import cn.diaojiahong.myyoutube.comment.service.IVideoCommentService;
+import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,9 +24,9 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/comment")
 @Tag(name = "评论模块")
 @RequiredArgsConstructor
-public class VideoCommentController {
+public class ContentCommentController {
 
-    private final IVideoCommentService videoCommentService;
+    private final IContentCommentService videoCommentService;
 
     /**
      * 用户发布评论

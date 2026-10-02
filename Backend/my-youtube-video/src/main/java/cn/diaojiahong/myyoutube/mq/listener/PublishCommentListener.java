@@ -42,12 +42,12 @@ public class PublishCommentListener implements RocketMQListener<CommentMessage> 
         UserNotification userNotification = new UserNotification();
         userNotification.setReceiverId(message.getReceiverId());
         userNotification.setSenderId(message.getSenderId());
-        userNotification.setType(message.getIsVideoComment() ?
+        userNotification.setType(message.getIsContentComment() ?
                 NotificationTypeEnum.VIDEO_COMMENT.getCode() :
                 NotificationTypeEnum.COMMENT_REPLY.getCode());
         userNotification.setContent(message.getContent());
         userNotification.setRefType(RefTypeEnum.COMMENT.getCode());
-        userNotification.setRefId(message.getIsVideoComment() ? message.getVideoId() : message.getCommentId());
+        userNotification.setRefId(message.getIsContentComment() ? message.getContentId() : message.getCommentId());
         return userNotification;
     }
 

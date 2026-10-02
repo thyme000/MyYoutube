@@ -28,7 +28,6 @@ public interface RecommendPort {
     class RecommendQuery {
         private Long userId;
         private String category;
-        private String videoType;
         private int page;
         private int size;
     }

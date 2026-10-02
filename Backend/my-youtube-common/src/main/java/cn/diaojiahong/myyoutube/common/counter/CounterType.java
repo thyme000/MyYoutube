@@ -6,7 +6,7 @@ package cn.diaojiahong.myyoutube.common.counter;
  */
 public enum CounterType {
 
-    VIDEO_LIKE("video:like", true),
+    CONTENT_LIKE("content:like", true),
     COMMENT_LIKE("comment:like", true),
     USER_FANS("user:fans", true),
     USER_ATTENTION("user:attention", true),

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
@@ -33,6 +35,7 @@ import java.util.List;
 public class InternalVideoController {
 
     private final IVideoService videoService;
+    private final IContentService contentService;
     private final IUserFollowService userFollowService;
     private final IUserNotificationService userNotificationService;
     private final IUserTagPreferenceService userTagPreferenceService;
@@ -48,11 +51,8 @@ public class InternalVideoController {
 
     @PostMapping("/video/share/{videoId}")
     public boolean incrementShareCount(@PathVariable Long videoId) {
-        return videoService.lambdaUpdate().eq(Video::getId, videoId)
-                .eq(Video::getIsDelete, false)
-                .eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC)
-                .eq(Video::getStatus, VideoStatusEnum.PUBLISHED)
-                .setIncrBy(Video::getShareCount, 1)
+        return contentService.lambdaUpdate().eq(Content::getId, videoId)
+                .setIncrBy(Content::getShareCount, 1)
                 .update();
     }
 

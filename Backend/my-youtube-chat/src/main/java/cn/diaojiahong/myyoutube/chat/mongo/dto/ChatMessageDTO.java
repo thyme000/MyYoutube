@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.mongo.dto;
 
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -16,7 +16,7 @@ public class ChatMessageDTO {
     private Long senderId;
     // 消息类型
     @NotNull(message = "contentType不能为空")
-    private ContentTypeEnum contentType;
+    private ChatContentTypeEnum contentType;
     // 消息体
     @NotNull(message = "content不能为空")
     private ChatContent content;

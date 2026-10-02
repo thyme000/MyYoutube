@@ -51,7 +51,7 @@ public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorM
 
         UserVideoBehavior userVideoBehavior = new UserVideoBehavior();
         userVideoBehavior.setUserId(userId);
-        userVideoBehavior.setVideoId(videoId);
+        userVideoBehavior.setContentId(videoId);
         userVideoBehavior.setCreatedAt(behaviorDTO.getWatchTime());
         userVideoBehavior.setDurationMs(behaviorDTO.getWatchDuration());
         userVideoBehavior.setEventType(behaviorDTO.getEvent());

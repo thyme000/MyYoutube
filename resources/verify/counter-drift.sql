@@ -4,24 +4,24 @@
 --
 -- 用法: docker exec -i myyoutube-mysql mysql -uroot -p*** < resources/verify/counter-drift.sql
 
--- video.like_count  vs  COUNT(video_like WHERE is_liked=1)
-SELECT 'video.like_count' AS counter,
+-- content.like_count  vs  COUNT(content_like WHERE is_liked=1)
+SELECT 'content.like_count' AS counter,
        COUNT(*)                          AS rows_total,
        COALESCE(SUM(diff = 0), 0)        AS diff_zero,
        COALESCE(SUM(diff > 0), 0)        AS db_higher,
        COALESCE(SUM(diff < 0), 0)        AS db_lower,
        COALESCE(MIN(diff), 0)            AS min_diff,
        COALESCE(MAX(diff), 0)            AS max_diff
-FROM (SELECT v.id, v.like_count - COALESCE(l.cnt, 0) AS diff
-      FROM video_db.video v
-               LEFT JOIN (SELECT video_id, COUNT(*) AS cnt
-                          FROM video_db.video_like
+FROM (SELECT c.id, c.like_count - COALESCE(l.cnt, 0) AS diff
+      FROM video_db.content c
+               LEFT JOIN (SELECT content_id, COUNT(*) AS cnt
+                          FROM video_db.content_like
                           WHERE is_liked = 1
-                          GROUP BY video_id) l ON l.video_id = v.id) t
+                          GROUP BY content_id) l ON l.content_id = c.id) t
 
 UNION ALL
 
--- comment.like_count vs COUNT(video_comment_like WHERE is_liked=1)
+-- comment.like_count vs COUNT(content_comment_like WHERE is_liked=1)
 SELECT 'comment.like_count',
        COUNT(*),
        COALESCE(SUM(diff = 0), 0),
@@ -30,9 +30,9 @@ SELECT 'comment.like_count',
        COALESCE(MIN(diff), 0),
        COALESCE(MAX(diff), 0)
 FROM (SELECT c.id, c.like_count - COALESCE(cl.cnt, 0) AS diff
-      FROM video_db.video_comment c
+      FROM video_db.content_comment c
                LEFT JOIN (SELECT comment_id, COUNT(*) AS cnt
-                          FROM video_db.video_comment_like
+                          FROM video_db.content_comment_like
                           WHERE is_liked = 1
                           GROUP BY comment_id) cl ON cl.comment_id = c.id) t
 
@@ -72,8 +72,8 @@ FROM (SELECT u.id, u.attention_count - COALESCE(f.cnt, 0) AS diff
 
 -- 只看偏差明细(排查用, 与上面的汇总二选一)
 -- SELECT * FROM (
---     SELECT 'video.like_count' AS counter, v.id AS ref_id, v.like_count AS db_value, COALESCE(l.cnt, 0) AS truth
---     FROM video_db.video v
---              LEFT JOIN (SELECT video_id, COUNT(*) cnt FROM video_db.video_like WHERE is_liked = 1 GROUP BY video_id) l
---                        ON l.video_id = v.id
+--     SELECT 'content.like_count' AS counter, c.id AS ref_id, c.like_count AS db_value, COALESCE(l.cnt, 0) AS truth
+--     FROM video_db.content c
+--              LEFT JOIN (SELECT content_id, COUNT(*) cnt FROM video_db.content_like WHERE is_liked = 1 GROUP BY content_id) l
+--                        ON l.content_id = c.id
 -- ) t WHERE db_value <> truth;

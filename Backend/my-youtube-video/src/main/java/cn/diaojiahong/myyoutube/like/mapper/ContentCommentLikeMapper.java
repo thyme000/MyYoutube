@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.like.mapper;
 
-import cn.diaojiahong.myyoutube.like.domain.po.VideoCommentLike;
+import cn.diaojiahong.myyoutube.like.domain.po.ContentCommentLike;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**
@@ -11,6 +11,6 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
  * @author thyme
  * @since 2026-09-29
  */
-public interface VideoCommentLikeMapper extends BaseMapper<VideoCommentLike> {
+public interface ContentCommentLikeMapper extends BaseMapper<ContentCommentLike> {
 
 }

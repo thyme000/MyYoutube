@@ -3,13 +3,10 @@ package cn.diaojiahong.myyoutube.admin.domain.dto;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoCategoryEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
-import cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum;
 import lombok.Data;
 
 @Data
 public class AdminVideoPageQueryDTO extends PageQuery {
-    // 视频类型
-    private VideoTypeEnum videoType;
     // 视频种类
     private VideoCategoryEnum videoCategory;
     // 视频状态

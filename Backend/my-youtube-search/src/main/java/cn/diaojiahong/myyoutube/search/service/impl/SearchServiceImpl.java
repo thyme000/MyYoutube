@@ -75,9 +75,6 @@ public class SearchServiceImpl implements ISearchService {
                             .query(inner -> inner.bool(b -> {
                                         b.must(m -> m.term(t -> t.field("status").value("published")));
                                         b.must(m -> m.term(t -> t.field("visibility").value("public")));
-                                        if (pageQuery.getVideoType() != null) {
-                                            b.must(m -> m.term(t -> t.field("videoType").value(pageQuery.getVideoType())));
-                                        }
                                         if (pageQuery.getCategory() != null) {
                                             b.must(m -> m.term(t -> t.field("category").value(pageQuery.getCategory())));
                                         }
@@ -106,9 +103,6 @@ public class SearchServiceImpl implements ISearchService {
                         b.must(m -> m.term(t -> t.field("status").value("published")));
                         b.mustNot(m -> m.term(t -> t.field("authorId").value(userId)));
                         b.must(m -> m.term(t -> t.field("visibility").value("public")));
-                        if (pageQuery.getVideoType() != null) {
-                            b.must(m -> m.term(t -> t.field("videoType").value(pageQuery.getVideoType())));
-                        }
                         if (pageQuery.getCategory() != null) {
                             b.must(m -> m.term(t -> t.field("category").value(pageQuery.getCategory())));
                         }

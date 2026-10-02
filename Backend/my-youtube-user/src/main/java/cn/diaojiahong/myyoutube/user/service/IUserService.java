@@ -8,7 +8,6 @@ import cn.diaojiahong.myyoutube.user.domain.dto.UserHistoryPageQuery;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserLongHistoryVideoVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
-import cn.diaojiahong.myyoutube.user.domain.vo.UserShortsVideoVO;
 import com.baomidou.mybatisplus.extension.service.IService;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -39,7 +38,6 @@ public interface IUserService extends IService<User> {
 
     Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(PageQuery pageQuery);
 
-    Result<PageResult<UserShortsVideoVO>> getShortsHistory(PageQuery pageQuery);
 
     Result<UserVO> getCurrentUserInfo();
 

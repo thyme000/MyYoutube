@@ -22,7 +22,6 @@ public class VideoDocMessage {
     private String coverUrl;
     private String tags;
     private String categoryCode;
-    private String videoType;
     private String statusCode;
     private String visibilityCode;
     private Long authorId;

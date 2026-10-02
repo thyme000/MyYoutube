@@ -39,23 +39,36 @@ VALUES (2, 'test', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u
 CREATE DATABASE IF NOT EXISTS video_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE video_db;
 
+-- 统一内容池(消费者视角的跨内容表: 互动计数/分发/推荐/搜索都挂这里)
+-- 发布时先插本表拿雪花id, 领域表(video/dynamic)主键与之相同; 以后新增内容类型只需注册一个 type
+CREATE TABLE IF NOT EXISTS `content` (
+    `id`            BIGINT      NOT NULL COMMENT '雪花ID, 与领域表主键相同',
+    `type`          VARCHAR(16) NOT NULL COMMENT 'video/dynamic',
+    `author_id`     BIGINT      NOT NULL COMMENT '作者ID',
+    `status`        VARCHAR(16) NOT NULL DEFAULT 'published' COMMENT 'published/review/banned, 随领域状态机',
+    `play_count`    BIGINT      NOT NULL DEFAULT 0,
+    `like_count`    BIGINT      NOT NULL DEFAULT 0,
+    `collect_count` BIGINT      NOT NULL DEFAULT 0,
+    `comment_count` BIGINT      NOT NULL DEFAULT 0,
+    `share_count`   BIGINT      NOT NULL DEFAULT 0,
+    `create_time`   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_author_create` (`author_id`, `create_time`),
+    KEY `idx_type_create` (`type`, `create_time`)
+) ENGINE=InnoDB COMMENT='统一内容池';
+
 -- 视频信息表
 CREATE TABLE IF NOT EXISTS `video` (
-    `id`            BIGINT       NOT NULL COMMENT '雪花ID',
+    `id`            BIGINT       NOT NULL COMMENT '雪花ID, 与 content 表相同',
     `title`         VARCHAR(200) NOT NULL,
     `description`   TEXT COMMENT '简介',
     `cover_url`     VARCHAR(512)          DEFAULT '' COMMENT '封面',
     `video_url`     VARCHAR(512)          DEFAULT '' COMMENT '视频文件objectKey/URL',
     `duration`      INT                   DEFAULT 0 COMMENT '时长(秒)',
-    `video_type`    VARCHAR(16)           DEFAULT NULL COMMENT 'short/long',
     `category`      VARCHAR(32)           DEFAULT NULL COMMENT '分类code',
     `tags`          VARCHAR(512)          DEFAULT NULL COMMENT '标签, 逗号分隔',
     `author_id`     BIGINT       NOT NULL COMMENT '作者ID',
-    `play_count`    BIGINT       NOT NULL DEFAULT 0,
-    `like_count`    BIGINT       NOT NULL DEFAULT 0,
-    `collect_count` BIGINT       NOT NULL DEFAULT 0,
-    `comment_count` BIGINT       NOT NULL DEFAULT 0,
-    `share_count`   BIGINT       NOT NULL DEFAULT 0,
     `status`        VARCHAR(16)           DEFAULT NULL COMMENT 'draft/review/published/banned',
     `visibility`    VARCHAR(16)           DEFAULT NULL COMMENT 'public/private/unlisted',
     `allow_comment` TINYINT               DEFAULT 1 COMMENT '0不允许 1允许评论',
@@ -68,25 +81,25 @@ CREATE TABLE IF NOT EXISTS `video` (
     KEY `idx_status_create` (`status`, `create_time`)
 ) ENGINE=InnoDB COMMENT='视频';
 
--- 视频点赞表
-CREATE TABLE IF NOT EXISTS `video_like` (
+-- 内容点赞表
+CREATE TABLE IF NOT EXISTS `content_like` (
     `id`         BIGINT   NOT NULL AUTO_INCREMENT,
     `user_id`    BIGINT   NOT NULL,
-    `video_id`   BIGINT   NOT NULL,
+    `content_id` BIGINT   NOT NULL,
     `is_liked`   TINYINT  NOT NULL DEFAULT 1 COMMENT '1已点赞 0已取消',
     `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_user_video` (`user_id`, `video_id`),
-    KEY `idx_video_id` (`video_id`),
+    UNIQUE KEY `uk_user_content` (`user_id`, `content_id`),
+    KEY `idx_content_id` (`content_id`),
     -- 对账 COUNT(*) 需覆盖 is_liked, 否则每行回表
-    KEY `idx_video_liked` (`video_id`, `is_liked`)
-) ENGINE=InnoDB COMMENT='视频点赞';
+    KEY `idx_content_liked` (`content_id`, `is_liked`)
+) ENGINE=InnoDB COMMENT='内容点赞';
 
--- 视频评论表
-CREATE TABLE IF NOT EXISTS `video_comment` (
+-- 内容评论表
+CREATE TABLE IF NOT EXISTS `content_comment` (
     `id`            BIGINT        NOT NULL AUTO_INCREMENT,
-    `video_id`      BIGINT        NOT NULL,
+    `content_id`    BIGINT        NOT NULL,
     `user_id`       BIGINT        NOT NULL COMMENT '评论人',
     `parent_id`     BIGINT        NOT NULL DEFAULT 0 COMMENT '0=一级评论',
     `root_id`       BIGINT                 DEFAULT NULL COMMENT '根评论ID, 一级评论为NULL',
@@ -98,12 +111,12 @@ CREATE TABLE IF NOT EXISTS `video_comment` (
     `create_time`   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `update_time`   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    KEY `idx_video_status` (`video_id`, `status`),
+    KEY `idx_content_status` (`content_id`, `status`),
     KEY `idx_root_id` (`root_id`)
-) ENGINE=InnoDB COMMENT='视频评论';
+) ENGINE=InnoDB COMMENT='内容评论';
 
 -- 评论点赞表(评论点赞关系的权威来源, 对账与幂等判重都靠它)
-CREATE TABLE IF NOT EXISTS `video_comment_like` (
+CREATE TABLE IF NOT EXISTS `content_comment_like` (
     `id`          BIGINT   NOT NULL AUTO_INCREMENT,
     `user_id`     BIGINT   NOT NULL,
     `comment_id`  BIGINT   NOT NULL,
@@ -140,7 +153,7 @@ CREATE TABLE IF NOT EXISTS `user_notification` (
     `type`        VARCHAR(32)  NOT NULL COMMENT 'COMMENT_LIKE/COMMENT_REPLY/VIDEO_COMMENT等',
     `title`       VARCHAR(128)          DEFAULT '',
     `content`     VARCHAR(500)          DEFAULT '' COMMENT '摘要文案',
-    `ref_type`    VARCHAR(16)           DEFAULT NULL COMMENT 'VIDEO/COMMENT',
+    `ref_type`    VARCHAR(16)           DEFAULT NULL COMMENT 'VIDEO/DYNAMIC/COMMENT',
     `ref_id`      BIGINT                DEFAULT NULL COMMENT '关联ID',
     `extra_json`  TEXT COMMENT '扩展字段JSON',
     `is_read`     TINYINT      NOT NULL DEFAULT 0,
@@ -200,17 +213,17 @@ CREATE TABLE IF NOT EXISTS `user_tag_preference` (
     UNIQUE KEY `uk_user_tag` (`user_id`, `tag_id`)
 ) ENGINE=InnoDB COMMENT='用户标签偏好';
 
--- 用户-视频行为流水表(推荐用)
+-- 用户-内容行为流水表(推荐用)
 CREATE TABLE IF NOT EXISTS `user_video_behavior` (
     `id`          BIGINT      NOT NULL COMMENT '雪花ID',
     `user_id`     BIGINT      NOT NULL,
-    `video_id`    BIGINT      NOT NULL,
+    `content_id`  BIGINT      NOT NULL,
     `event_type`  VARCHAR(16) NOT NULL COMMENT 'expose/play/finish/like/skip/dislike',
     `duration_ms` BIGINT               DEFAULT 0 COMMENT '停留/播放时长(毫秒)',
     `created_at`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_user_time` (`user_id`, `created_at`),
-    KEY `idx_video_id` (`video_id`)
+    KEY `idx_content_id` (`content_id`)
 ) ENGINE=InnoDB COMMENT='用户视频行为流水';
 
 -- 音频库(动态/幻灯片合成共用; 用户上传自动入库, 默认公开, 可转私密)

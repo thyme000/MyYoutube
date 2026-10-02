@@ -40,7 +40,6 @@ public class VideoDocListener implements RocketMQListener<VideoDocMessage> {
         doc.setId(message.getVideoId());
         doc.setTitle(message.getTitle());
         doc.setCategory(message.getCategoryCode());
-        doc.setVideoType(message.getVideoType());
         doc.setStatus(message.getStatusCode());
         doc.setDescription(message.getDescription());
         doc.setTagIds(tagIds);

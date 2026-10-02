@@ -6,7 +6,7 @@ import lombok.Getter;
  * 聊天消息内容类型枚举
  */
 @Getter
-public enum ContentTypeEnum {
+public enum ChatContentTypeEnum {
 
     /**
      * 文本消息
@@ -43,7 +43,7 @@ public enum ContentTypeEnum {
      */
     private final String description;
 
-    ContentTypeEnum(String code, String description) {
+    ChatContentTypeEnum(String code, String description) {
         this.code = code;
         this.description = description;
     }

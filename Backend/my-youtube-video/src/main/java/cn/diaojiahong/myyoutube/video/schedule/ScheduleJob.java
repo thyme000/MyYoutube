@@ -3,6 +3,8 @@ package cn.diaojiahong.myyoutube.video.schedule;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.counter.CounterFlushService;
 import cn.diaojiahong.myyoutube.common.schedule.ScheduleRoundLock;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.search.api.VideoDocPort;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
@@ -19,6 +21,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * video 域定时任务: 计数落库与对账 / 播放量落库 / 观看历史清理 / MySQL→ES 计数同步 / 热搜清理
@@ -38,6 +41,7 @@ public class ScheduleJob {
 
     private final StringRedisTemplate redisTemplate;
     private final IVideoService videoService;
+    private final IContentService contentService;
     private final VideoDocPort videoDocPort;
     private final CounterFlushService counterFlushService;
     private final ScheduleRoundLock roundLock;
@@ -75,19 +79,19 @@ public class ScheduleJob {
         if (entries.isEmpty()) {
             return;
         }
-        for (Object videoId : entries.keySet()) {
+        for (Object contentId : entries.keySet()) {
             String claimed = redisTemplate.execute(CLAIM_PLAY_COUNT_SCRIPT,
-                    List.of(redisHashKey), videoId.toString());
+                    List.of(redisHashKey), contentId.toString());
             if (claimed == null) {
                 continue;
             }
             long playCount = Long.parseLong(claimed);
-            boolean success = videoService.lambdaUpdate()
-                    .setIncrBy(Video::getPlayCount, playCount)
-                    .eq(Video::getId, videoId.toString())
+            boolean success = contentService.lambdaUpdate()
+                    .setIncrBy(Content::getPlayCount, playCount)
+                    .eq(Content::getId, Long.valueOf(contentId.toString()))
                     .update();
             if (!success) {
-                log.warn("更新视频播放量失败, redisKey={}, 视频id:{}", redisHashKey, videoId);
+                log.warn("更新内容播放量失败, redisKey={}, 内容id:{}", redisHashKey, contentId);
             }
         }
     }
@@ -115,22 +119,7 @@ public class ScheduleJob {
     }
 
     /**
-     * 每周日执行一次, 清理用户已过期的短视频观看记录
-     */
-    @Scheduled(cron = "0 0 4 * * 0")
-    public void cleanUserExpiredShortsRecord() {
-        long end = System.currentTimeMillis() - 30L * 24 * 3600 * 1000;
-        ScanOptions options = ScanOptions.scanOptions().match(RedisConstants.USER_SHORTS_PLAY + "*").build();
-        try (Cursor<String> cursor = redisTemplate.scan(options)) {
-            while (cursor.hasNext()) {
-                String zsetKey = cursor.next();
-                redisTemplate.opsForZSet().removeRangeByScore(zsetKey, 0, end);
-            }
-        }
-    }
-
-    /**
-     * 每 30 分钟把 MySQL video.play_count / like_count 同步到 ES(推荐打分用)。
+     * 每 30 分钟把 MySQL content.play_count / like_count 同步到 ES(推荐打分用)。
      * 以 MySQL 为准; Redis 记录上次扫到的最大 id, 游标滚动, 避免单次全表扫描。
      */
     @Scheduled(cron = "0 */30 * * * *")
@@ -152,10 +141,15 @@ public class ScheduleJob {
             redisTemplate.opsForValue().set(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR, "0");
             return;
         }
+        Map<Long, Content> contents = contentService.listByIds(
+                        list.stream().map(Video::getId).toList()).stream()
+                .collect(Collectors.toMap(Content::getId, c -> c));
         for (Video v : list) {
+            Content c = contents.get(v.getId());
             try {
-                videoDocPort.syncPlayLike(v.getId(), v.getPlayCount() != null ? v.getPlayCount() : 0L,
-                        v.getLikeCount() != null ? v.getLikeCount() : 0L);
+                videoDocPort.syncPlayLike(v.getId(),
+                        c != null && c.getPlayCount() != null ? c.getPlayCount() : 0L,
+                        c != null && c.getLikeCount() != null ? c.getLikeCount() : 0L);
             } catch (Exception e) {
                 log.warn("同步 ES 播放量/点赞量失败, videoId={}", v.getId(), e);
             }

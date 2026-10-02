@@ -96,7 +96,6 @@ public class AdminServiceImpl implements IAdminService {
         Result<PageResult<VideoSummary>> pageResult = videoAdminPort.pageVideos(new VideoAdminPort.AdminVideoQuery(
                 q.getVideoStatus() != null ? q.getVideoStatus().getCode() : null,
                 q.getVideoCategory() != null ? q.getVideoCategory().getCode() : null,
-                q.getVideoType() != null ? q.getVideoType().getCode() : null,
                 q.getUserId(),
                 q.getPageNo(),
                 q.getPageSize()));
@@ -114,7 +113,6 @@ public class AdminServiceImpl implements IAdminService {
             vo.setDescription(v.getDescription());
             vo.setCoverUrl(storageUtil.signGetUrl(v.getCoverUrl(), 60 * 10));
             vo.setVideoUrl(storageUtil.signGetUrl(v.getVideoUrl(), 60 * 10));
-            vo.setVideoType(v.getVideoType());
             vo.setAuthorId(v.getAuthorId());
             vo.setAuthorNickname(nicknames.get(v.getAuthorId()));
             vo.setAuthorAvatarUrl(storageUtil.signGetUrl(avatars.get(v.getAuthorId()), 60 * 10));

@@ -40,8 +40,6 @@ public interface IVideoService extends IService<Video> {
 
     Result<Void> updatePlaybackResume(RecordUserWatchTimeDTO userWatchTimeDTO);
 
-    Result<Void> recordShortsPlay(UserShortsWatchRecords userShortsWatchRecords);
-
     Result<PageResult<VideoListVO>> getOtherUserVideoList(Long userId, PageQuery pageQuery);
 
     Result<PageResult<FollowVideoVO>> getFollowVideoList(PageQuery pageQuery);

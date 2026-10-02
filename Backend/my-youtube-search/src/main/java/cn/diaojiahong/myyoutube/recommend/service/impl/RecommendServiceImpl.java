@@ -37,14 +37,12 @@ public class RecommendServiceImpl implements IRecommendService {
      * 推荐视频
      * @param userId 用户ID
      * @param category 分类
-     * @param videoType 视频类型
      * @param page 页码
      * @param size 每页数量
      * @return 推荐视频ID列表
      */
     @Override
-    public List<Long> recommend(Long userId, String category,
-                                String videoType, int page, int size) {
+    public List<Long> recommend(Long userId, String category, int page, int size) {
 
         // 获取用户偏好信息 (对分数取降序(top20))
         List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
@@ -102,9 +100,6 @@ public class RecommendServiceImpl implements IRecommendService {
                                     if (category != null) {
                                     b.must(m -> m.term(t -> t.field("category").value(category)));
                                     }
-                                    if (videoType != null) {
-                                    b.must(m -> m.term(t -> t.field("videoType").value(videoType)));
-                                    }
                                     if (!excludeVideoIds.isEmpty()) {
                                     b.mustNot(m -> m.ids(ids -> ids.values(excludeVideoIds.stream().toList())));
                                     }
@@ -136,9 +131,6 @@ public class RecommendServiceImpl implements IRecommendService {
                                         b.must(m -> m.term(t -> t.field("status").value("published")));
                                         if (category != null) {
                                             b.must(m -> m.term(t -> t.field("category").value(category)));
-                                        }
-                                        if (videoType != null) {
-                                            b.must(m -> m.term(t -> t.field("videoType").value(videoType)));
                                         }
                                         if (!excludeVideoIds.isEmpty()) {
                                             b.mustNot(m -> m.ids(ids -> ids.values(excludeVideoIds.stream().toList())));

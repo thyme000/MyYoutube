@@ -3,7 +3,7 @@ package cn.diaojiahong.myyoutube.like.service;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.like.domain.po.VideoLike;
+import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
 import cn.diaojiahong.myyoutube.like.domain.vo.LikeVideoVO;
 import cn.diaojiahong.myyoutube.video.domain.vo.ShortsVO;
 import com.baomidou.mybatisplus.extension.service.IService;
@@ -16,7 +16,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
  * @author thyme
  * @since 2026-04-01
  */
-public interface IVideoLikeService extends IService<VideoLike> {
+public interface IContentLikeService extends IService<ContentLike> {
 
     Result<Void> likeVideo(Long videoId);
 

@@ -22,8 +22,8 @@ import java.time.LocalDateTime;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)
-@TableName("video_comment_like")
-public class VideoCommentLike implements Serializable {
+@TableName("content_comment_like")
+public class ContentCommentLike implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;

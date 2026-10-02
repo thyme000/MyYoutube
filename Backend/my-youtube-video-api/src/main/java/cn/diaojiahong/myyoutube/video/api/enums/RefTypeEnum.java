@@ -15,6 +15,11 @@ public enum RefTypeEnum {
     VIDEO("VIDEO", "视频"),
 
     /**
+     * 动态
+     */
+    DYNAMIC("DYNAMIC", "动态"),
+
+    /**
      * 评论
      */
     COMMENT("COMMENT", "评论"),

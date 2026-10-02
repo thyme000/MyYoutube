@@ -26,10 +26,6 @@ public class VideoDoc {
     @Field(type = FieldType.Keyword)
     private String category;
 
-    // "short" / "long"
-    @Field(type = FieldType.Keyword)
-    private String videoType;
-
     @Field(type = FieldType.Keyword)
     private String status;
 

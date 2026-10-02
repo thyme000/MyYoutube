@@ -23,7 +23,6 @@ public class SearchVideoVO {
     private LocalDateTime createTime;
     private String tags;
     // 视频类型
-    private String videoType;
     private Boolean isLike;
     private Boolean isFollow;
 }

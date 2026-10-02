@@ -42,7 +42,7 @@ public class UserVideoBehavior implements Serializable {
     /**
      * 视频 ID
      */
-    private Long videoId;
+    private Long contentId;
 
     /**
      * 行为：expose曝光 play播放 finish完播 like点赞 skip跳过 dislike点踩

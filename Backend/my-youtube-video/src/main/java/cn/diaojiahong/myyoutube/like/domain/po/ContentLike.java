@@ -21,8 +21,8 @@ import lombok.experimental.Accessors;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)
-@TableName("video_like")
-public class VideoLike implements Serializable {
+@TableName("content_like")
+public class ContentLike implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
@@ -39,9 +39,9 @@ public class VideoLike implements Serializable {
     private Long userId;
 
     /**
-     * 视频ID
+     * 内容ID
      */
-    private Long videoId;
+    private Long contentId;
 
     /**
      * 是否点赞: 1=已点赞, 0=已取消

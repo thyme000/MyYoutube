@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.chat.mongo.po;
 
-import cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum;
 import lombok.Data;
 
 /**
@@ -32,5 +31,4 @@ public class ChatContent {
     private Long forwardVideoId;
     private String forwardVideoTitle;
     private String forwardVideoCoverObjectKey;
-    private VideoTypeEnum forwardVideoType;
 }

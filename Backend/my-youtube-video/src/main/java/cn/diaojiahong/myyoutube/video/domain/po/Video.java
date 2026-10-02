@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.video.domain.po;
 
 import cn.diaojiahong.myyoutube.video.api.enums.VideoCategoryEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
-import cn.diaojiahong.myyoutube.video.api.enums.VideoTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -63,11 +62,6 @@ public class Video implements Serializable {
     private Integer duration;
 
     /**
-     * 视频类型（short/long）
-     */
-    private String videoType;
-
-    /**
      * 视频分类（如：游戏、生活）
      */
     private VideoCategoryEnum category;
@@ -81,31 +75,6 @@ public class Video implements Serializable {
      * 作者ID（关联用户表）
      */
     private Long authorId;
-
-    /**
-     * 播放次数
-     */
-    private Long playCount;
-
-    /**
-     * 点赞数
-     */
-    private Long likeCount;
-
-    /**
-     * 收藏数
-     */
-    private Long collectCount;
-
-    /**
-     * 评论数
-     */
-    private Long commentCount;
-
-    /**
-     * 分享数
-     */
-    private Long shareCount;
 
     /**
      * 视频状态（draft/review/published/banned）

@@ -21,8 +21,8 @@ import lombok.experimental.Accessors;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)
-@TableName("video_comment")
-public class VideoComment implements Serializable {
+@TableName("content_comment")
+public class ContentComment implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
@@ -34,9 +34,9 @@ public class VideoComment implements Serializable {
     private Long id;
 
     /**
-     * 视频ID，关联视频
+     * 内容ID，关联视频
      */
-    private Long videoId;
+    private Long contentId;
 
     /**
      * 发表评论的用户ID

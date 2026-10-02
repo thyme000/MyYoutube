@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper">
+
+    <select id="selectListByUserId" resultType="java.lang.Long">
+        SELECT cl.content_id
+        FROM content_like cl
+                 INNER JOIN video v ON cl.content_id = v.id AND v.is_delete = 0
+        WHERE cl.user_id = #{userId}
+          AND cl.is_liked = 1
+        ORDER BY cl.update_time DESC
+            LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="selectUserLikedCount" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM content_like cl
+                 INNER JOIN video v ON cl.content_id = v.id AND v.is_delete = 0
+                 AND v.status = 'published' AND v.visibility = 'public'
+        WHERE cl.user_id = #{userId}
+          AND cl.is_liked = 1
+    </select>
+</mapper>

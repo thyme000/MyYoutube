@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.mongo.vo;
 
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.MessageStatusEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
@@ -17,7 +17,7 @@ public class MessagePage {
     // 发送人头像url
     private String senderAvatarUrl;
     // 消息类型
-    private ContentTypeEnum contentType;
+    private ChatContentTypeEnum contentType;
     // 消息内容
     private ChatContent content;
     // 消息id
