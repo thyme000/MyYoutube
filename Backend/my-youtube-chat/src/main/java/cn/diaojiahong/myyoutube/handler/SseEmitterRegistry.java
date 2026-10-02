@@ -52,41 +52,58 @@ public class SseEmitterRegistry {
     public void register(Long userId, SseEmitter emitter) {
         Set<SseEmitter> set = USER_EMITTERS.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet());
         set.add(emitter);
-        Runnable remove = () -> {
-            set.remove(emitter);
-            if (set.isEmpty()) {
-                USER_EMITTERS.remove(userId, set);
-            }
-        };
-        emitter.onCompletion(remove);
-        emitter.onTimeout(remove);
-        emitter.onError(t -> remove.run());
+        emitter.onCompletion(() -> remove(userId, emitter));
+        emitter.onTimeout(() -> remove(userId, emitter));
+        emitter.onError(t -> remove(userId, emitter));
     }
 
     /** 给本实例上该用户的所有连接发一条 data 事件(跨实例由 Redis 扇出补齐) */
     public void sendToUser(Long userId, String data) {
-        Set<SseEmitter> set = USER_EMITTERS.get(userId);
-        if (set == null) {
-            return;
-        }
-        for (SseEmitter emitter : set) {
+        for (SseEmitter emitter : emittersOf(userId)) {
             try {
                 emitter.send(SseEmitter.event().data(data));
             } catch (Exception e) {
+                // 发送失败即视为连接已死: 先移除再 complete, complete 在 response 不可用时会再抛(见 heartbeat)
+                remove(userId, emitter);
                 try { emitter.complete(); } catch (Exception ignored) {}
             }
         }
     }
 
     private void heartbeat() {
-        for (Set<SseEmitter> set : USER_EMITTERS.values()) {
-            for (SseEmitter emitter : set) {
-                try {
-                    emitter.send(SseEmitter.event().comment("ping"));
-                } catch (Exception e) {
-                    try { emitter.complete(); } catch (Exception ignored) {}
+        // 外层兜底 catch: 单连接异常绝不能终止调度(scheduleAtFixedRate 任务抛异常会永久取消后续执行)
+        try {
+            for (Map.Entry<Long, Set<SseEmitter>> entry : USER_EMITTERS.entrySet()) {
+                Long userId = entry.getKey();
+                for (SseEmitter emitter : entry.getValue()) {
+                    try {
+                        emitter.send(SseEmitter.event().comment("ping"));
+                    } catch (Exception e) {
+                        // 客户端已断开: 立即摘除, 避免死 emitter 每轮心跳重复报错
+                        remove(userId, emitter);
+                        try { emitter.complete(); } catch (Exception ignored) {}
+                    }
                 }
             }
+        } catch (Exception e) {
+            log.warn("SSE 心跳轮次异常: {}", e.getMessage());
+        }
+    }
+
+    private Set<SseEmitter> emittersOf(Long userId) {
+        Set<SseEmitter> set = USER_EMITTERS.get(userId);
+        return set == null ? Set.of() : set;
+    }
+
+    /** 从注册表摘除连接; 空集合顺手清掉, 重复调用安全 */
+    private void remove(Long userId, SseEmitter emitter) {
+        Set<SseEmitter> set = USER_EMITTERS.get(userId);
+        if (set == null) {
+            return;
+        }
+        set.remove(emitter);
+        if (set.isEmpty()) {
+            USER_EMITTERS.remove(userId, set);
         }
     }
 }
