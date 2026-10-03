@@ -32,6 +32,19 @@ export async function fetchContentFeed(query = {}) {
   return normalizeContentPage(data);
 }
 
+/**
+ * GET /contents/author/{authorId} 按作者查内容(详情层侧栏): 视频与动态同列
+ * @param {string|number} authorId
+ * @param {{ pageNo?: number, pageSize?: number }} [query]
+ * @returns {Promise<{ total: number, pages: number, list: Array<object> }>}
+ */
+export async function fetchAuthorContents(authorId, query = {}) {
+  const id = String(authorId ?? "").trim();
+  if (!id) throw new Error("authorId 不能为空");
+  const data = await httpRequest(`/contents/author/${encodeURIComponent(id)}`, { method: "GET", query });
+  return normalizeContentPage(data);
+}
+
 /** @param {any} data @returns {{ total: number, pages: number, list: Array<object> }} */
 function normalizeContentPage(data) {
   const raw = data && typeof data === "object" ? data : {};

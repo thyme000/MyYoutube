@@ -14,8 +14,6 @@ import { useImmersiveStore } from "./immersiveStore";
 const hooks = {
   /** 收起 App 级遮罩（上传弹窗 / 创作中心 / 竖屏短播放器），它们的开关仍在 App */
   closeAppOverlays: () => {},
-  /** 离开详情层：视频详情收敛 store、动态详情走路由历史，两套语义都在 App */
-  leaveDetailLayer: () => {},
 };
 
 export function registerNavigationHooks(next = {}) {
@@ -59,10 +57,5 @@ export const useNavigationStore = defineStore("navigation", () => {
     void search.loadTabResults({ reset: true });
   }
 
-  /** 离开详情层（详情内「返回」按钮 / ESC 共用）：具体离场语义由 App 注入，视图只发意图 */
-  function leaveDetailLayer() {
-    hooks.leaveDetailLayer();
-  }
-
-  return { activeMenuKey, activeMenuLabel, pageHint, navigateToTag, leaveDetailLayer };
+  return { activeMenuKey, activeMenuLabel, pageHint, navigateToTag };
 });

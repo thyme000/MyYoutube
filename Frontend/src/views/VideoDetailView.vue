@@ -2,8 +2,9 @@
 /**
  * 视频详情页（播放器/点赞关注/评论区/侧栏推荐）。
  * 业务状态与动作在 detailStore；本组件只保留 DOM 交互（输入框、滚动、表情插入）。
+ * 动态行复用同一页面：媒体区换 DynamicPlayer，分享/下载在 store 按类型分流。
  */
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useAuthStore } from "../stores/authStore";
 import { useDetailStore } from "../stores/detailStore";
@@ -11,6 +12,7 @@ import { formatCommentTime, insertGlyphIntoCommentDraft, isBlockedComment } from
 import { cardAuthorLabel, parseSearchTagsArray } from "../utils/videoCard.js";
 import { applyAvatarFallback, DEFAULT_PROFILE_AVATAR_URL as profileAvatar, DEFAULT_PROFILE_BG_URL as profileBanner } from "../utils/userProfile";
 import ChatEmojiPicker from "../components/chat/ChatEmojiPicker.vue";
+import DetailMedia from "../components/DetailMedia.vue";
 
 const authStore = useAuthStore();
 const { isAuthed, userId: currentUserId, selfAvatarUrl: topbarAvatarSrc } = storeToRefs(authStore);
@@ -20,9 +22,7 @@ const {
   open: showVideoDetail,
   video: videoDetail,
   loading: detailLoading,
-  buffering: detailVideoBuffering,
   errorMsg: detailErrorMsg,
-  playerRef: detailPlayerRef,
   sidebarList: detailSidebarList,
   sidebarLoading: detailSidebarLoading,
   sidebarLoadingMore: detailSidebarLoadingMore,
@@ -73,6 +73,15 @@ function onAuthorAvatarClick(ev, authorId) {
 function onTopbarAvatarError(e) {
   applyAvatarFallback(e, profileAvatar);
 }
+
+/** 下载按钮文案: 动态走懒转码"保存成片", 视频保持"下载" */
+const downloadLabel = computed(() => {
+  if (!store.isDynamicRow) return "下载";
+  const st = store.dynamicDownload;
+  if (st.status === "DONE") return "已生成, 点击保存";
+  if (st.taskId) return "成片生成中…";
+  return "保存成片";
+});
 </script>
 
 <template>
@@ -84,42 +93,7 @@ function onTopbarAvatarError(e) {
         <template v-else-if="videoDetail">
           <div class="video-detail-layout">
             <div class="video-detail-main">
-              <div class="video-detail-player-wrap">
-                <video
-                  v-if="videoDetail.videoUrl"
-                  :key="String(videoDetail.id)"
-                  ref="detailPlayerRef"
-                  class="video-detail-player"
-                  controls
-                  playsinline
-                  preload="auto"
-                  autoplay
-                  :src="videoDetail.videoUrl"
-                  @loadstart="store.onVideoLoadStart"
-                  @canplay="store.onVideoCanPlay"
-                  @error="store.onVideoMediaError"
-                  @loadeddata="() => void store.tryAutoplay()"
-                  @loadedmetadata="() => { store.applyPlaybackResumeIfNeeded(); void store.tryAutoplay(); }"
-                  @canplaythrough="() => void store.tryAutoplay()"
-                  @pause="store.onVideoPause"
-                  @play="store.onVideoPlay"
-                  @timeupdate="store.onVideoTimeUpdate"
-                  @seeked="store.onVideoSeeked"
-                  @ended="store.onVideoEnded"
-                />
-                <div
-                  v-if="videoDetail.videoUrl && detailVideoBuffering"
-                  class="video-player-loading video-player-loading--detail"
-                  aria-live="polite"
-                  aria-busy="true"
-                >
-                  <div class="video-player-loading__shimmer" aria-hidden="true" />
-                  <div class="video-player-loading__inner">
-                    <span class="video-player-loading__ring video-player-loading__ring--detail" />
-                    <span class="video-player-loading__text video-player-loading__text--detail">正在加载视频</span>
-  </div>
-                </div>
-              </div>
+              <DetailMedia />
               <h1 class="video-detail-title">{{ videoDetail.title }}</h1>
               <div class="video-detail-meta-row">
                 <div class="video-detail-channel">
@@ -172,11 +146,11 @@ function onTopbarAvatarError(e) {
                   <button type="button" class="video-detail-action-pill" @click="store.onDislikeClick">
                     <i class="ri-thumb-down-line"></i> 不感兴趣
                   </button>
-                  <button type="button" class="video-detail-action-pill" @click="store.openForwardVideo(videoDetail)">
+                  <button type="button" class="video-detail-action-pill" @click="store.onShareClick">
                     <i class="ri-share-forward-line"></i> 分享
                   </button>
                   <button type="button" class="video-detail-action-pill" @click="store.onDownloadClick">
-                    <i class="ri-download-2-line"></i> 下载
+                    <i class="ri-download-2-line"></i> {{ downloadLabel }}
                   </button>
                 </div>
               </div>
@@ -542,59 +516,6 @@ function onTopbarAvatarError(e) {
   padding-right: var(--space-8);
   padding-bottom: var(--space-8);
   -webkit-overflow-scrolling: touch;
-}
-
-.video-detail-player-wrap {
-  position: relative;
-  /* 视频未铺满区域用浅灰填充，避免大块纯黑 */
-  background: var(--gray-200);
-  border-radius: var(--radius-2xl);
-  overflow: hidden;
-  margin-bottom: var(--space-12);
-  border: 1px solid var(--line);
-}
-
-/* 元数据未到时 <video> 无固有高度，先固定 16:9 占位，避免加载层期间被压扁再撑开 */
-.video-detail-player-wrap:has(> .video-detail-player) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  max-width: 100%;
-  max-height: min(70vh, 720px);
-  aspect-ratio: 16 / 9;
-  min-height: min(200px, 42vw);
-}
-
-.video-detail-player-wrap:has(> .video-detail-player) .video-detail-player {
-  width: 100%;
-  height: 100%;
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  vertical-align: top;
-}
-
-.video-player-loading--detail {
-  border-radius: var(--radius-2xl);
-  background: linear-gradient(155deg, var(--slate-200) 0%, var(--gray-200) 42%, var(--slate-300) 100%);
-}
-
-.video-player-loading__ring--detail {
-  border: 3px solid rgb(var(--blue-600-rgb) / 0.18);
-  border-top-color: var(--blue-600);
-}
-
-.video-player-loading__text--detail {
-  color: var(--color-text-muted);
-}
-
-.video-detail-player {
-  width: 100%;
-  max-height: min(70vh, 720px);
-  display: block;
-  background: transparent;
-  vertical-align: top;
 }
 
 

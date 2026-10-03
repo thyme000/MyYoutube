@@ -3,14 +3,22 @@
  * 视频详情域：播放器状态机、长视频续播上报、评论区、作者作品侧栏、URL/sessionStorage 现场恢复。
  * 详情页会收起搜索/创作中心/短视频流等 App 级遮罩，并需要跨列表同步关注态，这类宿主能力经 registerDetailHooks 注入。
  */
+import { isDynamicRow as isDynamicContentRow } from "../utils/contentKind.js";
 import { defineStore } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 import { fetchCommentPage, deleteComment as deleteCommentApi, publishComment as publishCommentApi } from "../api/commentApi";
 import { cancelLikeVideo, fetchVideoLikedStatus, likeVideo, dislikeVideo } from "../api/likeApi";
 import { cancelCollectContent, collectContent, fetchCollectStatus } from "../api/collectApi";
-import { fetchAuthorVideos, fetchVideoDetail, normalizeVideoDetail } from "../api/videoApi";
+import { fetchVideoDetail, normalizeVideoDetail } from "../api/videoApi";
+import { fetchAuthorContents } from "../api/contentApi";
+import {
+  fetchDynamicDetail,
+  requestDynamicDownload,
+  fetchDynamicDownloadStatus,
+} from "../api/dynamicApi";
 import { followAuthor, unfollowAuthor } from "../api/followApi";
 import { parseDigitSnowflakeId } from "../utils/snowflakeId.js";
+import { hasUserGesture } from "../utils/userGesture";
 import { toast } from "../utils/toast";
 import { downloadRemoteFile, videoDownloadName } from "../utils/downloadFile.js";
 import { cardAuthorLabel, resolveVideoUrl } from "../utils/videoCard.js";
@@ -92,6 +100,36 @@ function buildDetailFromCard(card) {
   });
 }
 
+/** DynamicVO → 详情行：字段名与视频详情行对齐，媒体字段留给 DynamicPlayer */
+function normalizeDynamicDetail(d) {
+  const play = Number(d.playCount) || 0;
+  return {
+    type: "dynamic",
+    id: d.id != null ? String(d.id) : "",
+    title: d.title ?? "未命名动态",
+    description: d.description ?? "",
+    tags: d.tags ?? "",
+    playCount: play,
+    viewsText: `${play} 次播放`,
+    likeCount: Number(d.likeCount) || 0,
+    commentCount: d.commentCount ?? 0,
+    authorId: d.authorId ?? null,
+    authorNickname: d.authorNickname || "匿名用户",
+    authorAvatarUrl: d.authorAvatarUrl ?? "",
+    authorFanCount: d.authorFanCount,
+    isFollow: d.isFollow,
+    isLike: d.isLike,
+    createTime: d.createTime,
+    allowComment: d.allowComment,
+    items: d.items || [],
+    transition: d.transition,
+    fadeMs: d.fadeMs,
+    audioUrl: d.audioUrl,
+    totalDurationMs: d.totalDurationMs,
+    canvasType: d.canvasType,
+  };
+}
+
 export const useDetailStore = defineStore("detail", () => {
   const auth = useAuthStore();
   const behavior = useBehaviorStore();
@@ -132,6 +170,15 @@ export const useDetailStore = defineStore("detail", () => {
   const sessionCollected = ref(false);
   const collectBusy = ref(false);
   const followBusy = ref(false);
+  /** 动态"保存成片"懒转码状态: { status, taskId, downloadUrl } */
+  const dynamicDownload = ref({ status: "", taskId: "", downloadUrl: "" });
+  /** 动态受控播放器(详情层): ref 由视图绑定回写, 播放态由 store 统一驱动 */
+  const dynPlayerRef = ref(null);
+  const dynPaused = ref(true);
+  const dynMuted = ref(true);
+  const dynVolume = ref(0.85);
+  const dynDuration = ref(0);
+  const dynCurrentTime = ref(0);
 
   let bufferingTimer = null;
   let playAccSec = 0;
@@ -167,6 +214,8 @@ export const useDetailStore = defineStore("detail", () => {
   });
 
   const allowComment = computed(() => Number(video.value?.allowComment ?? 1) === 1);
+  /** 当前详情行是否动态(视频详情层复用: 媒体区/分享/下载按此分流) */
+  const isDynamicRow = computed(() => isDynamicContentRow(video.value));
   const commentHasMore = computed(() => commentsPageNo.value < commentsPages.value);
   const displayCommentNickname = (userId, nickname) =>
     commentDisplayNickname(userId, nickname, auth.userId);
@@ -411,11 +460,40 @@ export const useDetailStore = defineStore("detail", () => {
   }
 
   function handleKeydown(ev) {
-    if (!open.value || !playerRef.value) return;
+    if (!open.value) return;
     const tag = ev.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || ev.target?.isContentEditable) return;
-    const player = playerRef.value;
     const key = ev.key;
+    // 动态行: 受控 DynamicPlayer + store 状态, 快捷键与 <video> 行为对齐
+    if (isDynamicRow.value) {
+      const player = dynPlayerRef.value;
+      if (!player) return;
+      if (key === " ") {
+        ev.preventDefault();
+        toggleDetailPlay();
+      } else if (key === "f" || key === "F") {
+        ev.preventDefault();
+        toggleDetailFullscreen();
+      } else if (key === "m" || key === "M") {
+        ev.preventDefault();
+        toggleDetailMute();
+      } else if (key === "ArrowLeft") {
+        ev.preventDefault();
+        const t = Math.max(0, Number(dynCurrentTime.value || 0) - 5);
+        player.seek(t);
+        dynCurrentTime.value = t;
+      } else if (key === "ArrowRight") {
+        ev.preventDefault();
+        const duration = Number(dynDuration.value || 0);
+        const next = Number(dynCurrentTime.value || 0) + 5;
+        const t = duration > 0 ? Math.min(duration, next) : next;
+        player.seek(t);
+        dynCurrentTime.value = t;
+      }
+      return;
+    }
+    if (!playerRef.value) return;
+    const player = playerRef.value;
     if (key === " ") {
       ev.preventDefault();
       if (player.paused) {
@@ -477,17 +555,26 @@ export const useDetailStore = defineStore("detail", () => {
         await likeVideo(vid);
         sessionLiked.value = true;
       }
-      const merged = normalizeVideoDetail(await fetchVideoDetail(vid));
-      if (merged) {
+      if (isDynamicRow.value) {
+        // 动态行没有视频详情可回读, 计数走乐观补丁
         video.value = {
           ...d,
-          ...merged,
-          videoUrl: d.videoUrl || merged.videoUrl,
-          coverUrl: d.coverUrl ?? merged.coverUrl,
           isLike: sessionLiked.value,
+          likeCount: Math.max(0, Number(d.likeCount ?? 0) + (sessionLiked.value ? 1 : -1)),
         };
       } else {
-        video.value = { ...d, isLike: sessionLiked.value };
+        const merged = normalizeVideoDetail(await fetchVideoDetail(vid));
+        if (merged) {
+          video.value = {
+            ...d,
+            ...merged,
+            videoUrl: d.videoUrl || merged.videoUrl,
+            coverUrl: d.coverUrl ?? merged.coverUrl,
+            isLike: sessionLiked.value,
+          };
+        } else {
+          video.value = { ...d, isLike: sessionLiked.value };
+        }
       }
       void behavior.report(d.id, "LIKE", current * 1000);
     } catch (error) {
@@ -544,9 +631,14 @@ export const useDetailStore = defineStore("detail", () => {
     }
   }
 
-  /** 详情层下载: 与沉浸流同一套前端直链 */
+  /** 详情层下载: 视频走前端直链, 动态走"保存成片"懒转码 */
   async function onDownloadClick() {
     const d = video.value;
+    if (!d?.id) return;
+    if (isDynamicRow.value) {
+      await saveDynamicClip();
+      return;
+    }
     const url = d?.videoUrl;
     if (!url) {
       toast("当前视频没有可下载的地址", "info");
@@ -558,6 +650,142 @@ export const useDetailStore = defineStore("detail", () => {
     } catch (error) {
       toast(error?.message || "下载失败", "error");
     }
+  }
+
+  /** SSE 转码完成通知下载地址兜底: 轮询一次状态即可 */
+  function pollDynamicDownload() {
+    const st = dynamicDownload.value;
+    if (!st.taskId) return;
+    fetchDynamicDownloadStatus(st.taskId)
+      .then((next) => {
+        if (next?.status === "DONE" && next.downloadUrl) {
+          dynamicDownload.value = { status: "DONE", taskId: next.taskId, downloadUrl: next.downloadUrl };
+        } else if (next?.status) {
+          dynamicDownload.value = { ...st, status: next.status };
+          setTimeout(() => pollDynamicDownload(), 3000);
+        }
+      })
+      .catch(() => {});
+  }
+
+  function triggerDynamicDownload() {
+    const url = dynamicDownload.value.downloadUrl;
+    if (!url) return;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${video.value?.title || "dynamic"}.mp4`;
+    a.click();
+  }
+
+  async function saveDynamicClip() {
+    const d = video.value;
+    if (!d?.id) return;
+    if (dynamicDownload.value.downloadUrl) {
+      triggerDynamicDownload();
+      return;
+    }
+    if (dynamicDownload.value.taskId) return;
+    try {
+      const res = await requestDynamicDownload(d.id);
+      if (res?.status === "DONE" && res.downloadUrl) {
+        dynamicDownload.value = { status: "DONE", taskId: res.taskId, downloadUrl: res.downloadUrl };
+        triggerDynamicDownload();
+      } else if (res?.taskId) {
+        dynamicDownload.value = { status: res.status || "PENDING", taskId: res.taskId, downloadUrl: "" };
+        setTimeout(() => pollDynamicDownload(), 3000);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 分享: 动态与视频分别带 forwardType, 复用同一转发弹窗 */
+  function onShareClick() {
+    const d = video.value;
+    if (!d) return;
+    if (isDynamicRow.value) {
+      share.openForwardDynamic(d);
+    } else {
+      share.openForwardVideo(d);
+    }
+  }
+
+  /** 动态三信号: 累计播过 70% 记 PLAY, 翻完一轮记 FINISH; 写历史门槛为第 2 张切换点 */
+  function onDynamicTimeUpdate(sec) {
+    const d = video.value;
+    if (!d?.id) return;
+    dynCurrentTime.value = Number(sec) || 0;
+    const prev = lastTimeSec;
+    lastTimeSec = sec;
+    if (prev != null) {
+      const delta = sec - prev;
+      if (delta > 0 && delta <= MAX_PLAY_DELTA_SEC) playAccSec += delta;
+    }
+    const totalSec = Number(d.totalDurationMs) / 1000;
+    if (totalSec > 0 && playAccSec >= totalSec * PLAY_THRESHOLD && !behavior.hasPlayReported(d.id)) {
+      behavior.markPlayReported(d.id);
+      void behavior.report(d.id, "PLAY", sec * 1000);
+    }
+    const secondStartMs = Number(d.items?.[1]?.startMs) || 0;
+    const historyThresholdSec = secondStartMs > 0 ? secondStartMs / 1000 : HISTORY_MIN_PLAY_SEC;
+    if (sec >= historyThresholdSec) {
+      void useHistoryStore().recordViewed(d.id);
+    }
+  }
+
+  function onDynamicEnded() {
+    const d = video.value;
+    if (!d?.id) return;
+    void behavior.report(d.id, "FINISH", Number(lastTimeSec || 0) * 1000);
+  }
+
+  // ===== 详情层动态受控播放(与 <video> 原生控件对齐的操作面) =====
+
+  /** 受控播放器挂载即上报时长, 顺带自动播放(静音策略在 openDetail 复位时已定) */
+  function onDynDurationChange(payload) {
+    dynDuration.value = Number(payload?.durationSec) || 0;
+    dynCurrentTime.value = 0;
+    dynPaused.value = false;
+  }
+
+  function onDynPlay() {
+    dynPaused.value = false;
+  }
+
+  function onDynPause() {
+    dynPaused.value = true;
+  }
+
+  function toggleDetailPlay() {
+    dynPlayerRef.value?.togglePlay();
+  }
+
+  function toggleDetailMute() {
+    dynMuted.value = !dynMuted.value;
+  }
+
+  function toggleDetailFullscreen() {
+    const el = dynPlayerRef.value?.$el;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.();
+    } else {
+      el.requestFullscreen?.().catch(() => {});
+    }
+  }
+
+  function onDetailDynVolume(e) {
+    const v = Math.min(1, Math.max(0, Number(e?.target?.value)));
+    if (!Number.isFinite(v)) return;
+    dynVolume.value = v;
+    if (v > 0 && dynMuted.value) dynMuted.value = false;
+  }
+
+  function onDetailDynScrub(e) {
+    const t = Number(e.target.value);
+    if (!Number.isFinite(t)) return;
+    dynPlayerRef.value?.seek(t);
+    dynCurrentTime.value = Math.max(0, t);
   }
 
   async function onFollowClick() {
@@ -619,8 +847,12 @@ export const useDetailStore = defineStore("detail", () => {
     }
     try {
       const query = { pageNo: sidebarPageNo.value, pageSize: SIDEBAR_PAGE_SIZE };
-      const res = await fetchAuthorVideos(authorId, query);
-      const batch = res.list || [];
+      // 统一内容池按作者查: 视频与动态同列(动态行进详情由 openDetail 按类型分流)
+      const res = await fetchAuthorContents(authorId, query);
+      const batch = (res.list || []).map((item) => ({
+        ...item,
+        viewsText: `${Number(item.playCount) || 0} 次播放`,
+      }));
       sidebarList.value = reset ? batch : [...sidebarList.value, ...batch];
       sidebarPages.value = res.pages ?? 0;
       sidebarHasMore.value = sidebarPageNo.value < (res.pages || 0);
@@ -650,8 +882,9 @@ export const useDetailStore = defineStore("detail", () => {
     if (!item || item.id === video.value?.id) return;
     void openDetail({
       id: item.id,
+      type: item.type,
       title: item.title,
-      author: item.author,
+      author: item.authorNickname ?? item.author,
       authorNickname: item.authorNickname ?? item.author,
       viewsText: item.viewsText,
       videoUrl: item.videoUrl,
@@ -855,6 +1088,7 @@ export const useDetailStore = defineStore("detail", () => {
     if (!d || d.id == null) return;
     const snap = {
       id: d.id,
+      type: d.type ?? "video",
       title: d.title ?? "",
       author: d.authorNickname ?? "",
       authorNickname: d.authorNickname ?? "",
@@ -880,7 +1114,7 @@ export const useDetailStore = defineStore("detail", () => {
     hooks.navigateToVideo(String(d.id), { replace: wasAlreadyInDetail });
   }
 
-  async function restoreFromUrl(vidRaw) {
+  async function restoreFromUrl(vidRaw, { asDynamic = false } = {}) {
     if (!vidRaw) return false;
     const stored = sessionStorage.getItem(`${DETAIL_STORAGE_PREFIX}${encodeURIComponent(vidRaw)}`);
     if (stored) {
@@ -893,7 +1127,7 @@ export const useDetailStore = defineStore("detail", () => {
     }
     const numericId = parseDigitSnowflakeId(vidRaw);
     if (numericId != null) {
-      await openDetail({ id: numericId });
+      await openDetail({ id: asDynamic ? String(vidRaw) : numericId, ...(asDynamic ? { type: "dynamic" } : {}) });
       return true;
     }
     return false;
@@ -905,13 +1139,20 @@ export const useDetailStore = defineStore("detail", () => {
     hideBufferingOverlay();
     errorMsg.value = "";
     sidebarList.value = [];
+    dynamicDownload.value = { status: "", taskId: "", downloadUrl: "" };
+    dynPlayerRef.value = null;
+    dynPaused.value = true;
+    dynDuration.value = 0;
+    dynCurrentTime.value = 0;
   }
 
-  async function openDetail(card, { skipRemoteDetail = false } = {}) {
+  async function openDetail(card, { skipRemoteDetail = false, asDynamic = false } = {}) {
     if (!card) return;
     // main 被 v-show 隐藏时部分浏览器仍会继续播放短视频音频，必须先停掉
     hooks.pauseImmersiveFeed();
     const skipRemote = skipRemoteDetail || card?.skipDetailFetch === true;
+    // 列表行自带 type；深链恢复经 restoreFromUrl 显式标注
+    const asDyn = asDynamic || isDynamicContentRow(card);
 
     // 切换详情视频前：上一条长视频正在播放则先 flush 续播
     if (open.value && isLongDetailVideo() && playerRef.value && !playerRef.value.paused) {
@@ -931,6 +1172,49 @@ export const useDetailStore = defineStore("detail", () => {
     errorMsg.value = "";
     resetPlaybackResumeState();
     loading.value = true;
+
+    if (asDyn) {
+      // 动态没有秒播素材，等 fetchDynamicDetail 返回再渲染（媒体区由 DynamicPlayer 接管）
+      dynamicDownload.value = { status: "", taskId: "", downloadUrl: "" };
+      dynPaused.value = true;
+      dynDuration.value = 0;
+      dynCurrentTime.value = 0;
+      // 有手势(点卡进入)直接有声自播; 深链刷新无手势先静音, 用户再手动开声
+      dynMuted.value = !hasUserGesture();
+      try {
+        const d = normalizeDynamicDetail(await fetchDynamicDetail(String(card.id ?? "")));
+        if (!d.id) throw new Error("动态不存在");
+        video.value = d;
+        sessionLiked.value = Boolean(d.isLike);
+        sessionCollected.value = false;
+        if (auth.token && auth.userId) {
+          try {
+            const liked = await fetchVideoLikedStatus(d.id, auth.userId);
+            video.value = { ...video.value, isLike: liked };
+            sessionLiked.value = liked;
+          } catch {
+            sessionLiked.value = Boolean(d.isLike);
+          }
+          try {
+            sessionCollected.value = await fetchCollectStatus(d.id);
+          } catch {
+            /* 收藏状态拉取失败按未收藏展示 */
+          }
+        }
+      } catch (e) {
+        video.value = null;
+        errorMsg.value = e?.message || "动态加载失败";
+      }
+      loading.value = false;
+      await loadSidebar(true);
+      nextTick(() => {
+        if (video.value) {
+          snapshotForRestore(video.value);
+          syncToAddressBar(wasAlreadyInDetail);
+        }
+      });
+      return;
+    }
 
     const vid = parseDigitSnowflakeId(card.id);
     const instantDetail = buildDetailFromCard(card);
@@ -1070,6 +1354,22 @@ export const useDetailStore = defineStore("detail", () => {
     subscribeFollowed,
     allowComment,
     commentHasMore,
+    isDynamicRow,
+    dynamicDownload,
+    dynPlayerRef,
+    dynPaused,
+    dynMuted,
+    dynVolume,
+    dynDuration,
+    dynCurrentTime,
+    onDynDurationChange,
+    onDynPlay,
+    onDynPause,
+    toggleDetailPlay,
+    toggleDetailMute,
+    toggleDetailFullscreen,
+    onDetailDynVolume,
+    onDetailDynScrub,
     isBlockedComment,
     displayCommentNickname,
     isCommentLikeBusy: comments.isLikeBusy,
@@ -1093,6 +1393,9 @@ export const useDetailStore = defineStore("detail", () => {
     onVideoPause,
     onVideoPlay,
     onVideoSeeked,
+    onDynamicTimeUpdate,
+    onDynamicEnded,
+    onShareClick,
     sessionCollected,
     collectBusy,
     onCollectClick,
