@@ -9,6 +9,7 @@ export const NOTIFICATION_TYPE_LABELS = {
   COMMENT_REPLY: "回复了你的评论",
   VIDEO_COMMENT: "评论了你的内容",
   VIDEO_LIKE: "赞了你的视频",
+  CONTENT_COLLECT: "收藏了你的内容",
   NEW_FOLLOW: "关注了你",
   SYSTEM_NOTICE: "系统通知",
   /** 与后端 NotificationTypeEnum.CHAT_NOTICE 一致（如群主解散群） */

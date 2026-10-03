@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.collect.domain.po.ContentCollect;
 import cn.diaojiahong.myyoutube.collect.domain.vo.CollectVO;
 import cn.diaojiahong.myyoutube.collect.mapper.ContentCollectMapper;
 import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
+import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
@@ -11,7 +12,13 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
+import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.RefTypeEnum;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
@@ -48,6 +55,8 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
     private final IUserFollowService userFollowService;
     private final S3StorageUtil storageUtil;
     private final CounterBuffer counterBuffer;
+    private final IUserNotificationService userNotificationService;
+    private final PushFanoutPublisher pushFanoutPublisher;
 
     @Override
     public Result<Void> collect(Long contentId) {
@@ -55,12 +64,38 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
         if (contentService.getById(contentId) == null) {
             return Result.fail("内容不存在");
         }
+        Content content = contentService.getById(contentId);
+        if (content == null) {
+            return Result.fail("内容不存在");
+        }
         if (lambdaQuery().eq(ContentCollect::getUserId, userId).eq(ContentCollect::getContentId, contentId).exists()) {
             return Result.success();
         }
         save(new ContentCollect().setUserId(userId).setContentId(contentId).setCreateTime(LocalDateTime.now()));
         counterBuffer.add(CounterType.CONTENT_COLLECT, contentId, 1);
+        notifyAuthor(userId, content);
         return Result.success();
+    }
+
+    /** 收藏通知: 给作者落一条站内通知并发门铃信号, 自己收藏自己不发 */
+    private void notifyAuthor(Long userId, Content content) {
+        Long authorId = content.getAuthorId();
+        if (authorId == null || authorId.equals(userId)) {
+            return;
+        }
+        try {
+            UserNotification notification = new UserNotification();
+            notification.setReceiverId(authorId);
+            notification.setSenderId(userId);
+            notification.setType(NotificationTypeEnum.CONTENT_COLLECT.getCode());
+            notification.setRefType(content.getType() == ContentTypeEnum.DYNAMIC
+                    ? RefTypeEnum.DYNAMIC.getCode() : RefTypeEnum.VIDEO.getCode());
+            notification.setRefId(content.getId());
+            userNotificationService.save(notification);
+            pushFanoutPublisher.pushSseSignal(authorId, "NOTIFY_DIRTY");
+        } catch (Exception e) {
+            // 通知失败不影响收藏主流程
+        }
     }
 
     @Override

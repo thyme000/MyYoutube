@@ -29,9 +29,9 @@ public enum NotificationTypeEnum {
     VIDEO_LIKE("VIDEO_LIKE", "视频点赞"),
 
     /**
-     * 视频收藏
+     * 内容收藏(视频/动态同池)
      */
-    VIDEO_COLLECT("VIDEO_COLLECT", "视频收藏"),
+    CONTENT_COLLECT("CONTENT_COLLECT", "内容收藏"),
 
     /**
      * 新增关注
