@@ -35,6 +35,9 @@ public class RecommendServiceImpl implements IRecommendService {
     private static final String HOT_DECAY_SCALE = "7d";
     private static final String HOT_DECAY_OFFSET = "1d";
 
+    /** 推荐召回封顶: 深翻页时 from+size 不得越过 ES max_result_window(默认 10000) */
+    private static final int RECALL_CAP = 1000;
+
     private final PreferencePort preferencePort;
     private final ElasticsearchOperations elasticsearchOperations;
     private final StringRedisTemplate redisTemplate;
@@ -50,29 +53,33 @@ public class RecommendServiceImpl implements IRecommendService {
      */
     @Override
     public List<Long> recommend(Long userId, String category, int page, int size) {
+        // 客户端分页参数不可信: page<1 会让 PageRequest.of 抛参数异常
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, size);
         Set<String> excludeIds = excludedContentIds(userId);
 
         // tag 偏好路: 无偏好(新用户)时整路跳过, 由热度路兜底
         List<Long> tagRoute = List.of();
         List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
         if (!preferences.isEmpty()) {
+            // 召回统一从第 0 页取前 min(需求量, 封顶) 条, 由切片负责分页, ES 窗口不随页码增长
             tagRoute = searchIds(tagRouteQuery(userId, category, preferences, excludeIds,
-                    PageRequest.of(page - 1, size)));
+                    PageRequest.of(0, Math.min(safeSize * safePage, RECALL_CAP))));
         }
 
         // 热度路: content 互动计数 + 时间衰减, 零标签的动态也天然进池
         List<Long> hotRoute = searchIds(hotRouteQuery(userId, category, excludeIds,
-                PageRequest.of(page - 1, Math.max(size * page, size))));
+                PageRequest.of(0, Math.min(safeSize * safePage, RECALL_CAP))));
 
         // 合流去重: tag 路优先, 热度路补足, 按窗口切片
         LinkedHashSet<Long> merged = new LinkedHashSet<>(tagRoute);
         merged.addAll(hotRoute);
         List<Long> ordered = new ArrayList<>(merged);
-        int from = (page - 1) * size;
+        int from = (safePage - 1) * safeSize;
         if (from >= ordered.size()) {
             return List.of();
         }
-        return ordered.subList(from, Math.min(from + size, ordered.size()));
+        return ordered.subList(from, Math.min(from + safeSize, ordered.size()));
     }
 
     /**
@@ -200,7 +207,7 @@ public class RecommendServiceImpl implements IRecommendService {
 
         List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
 
-        Pageable pageable = PageRequest.of(page - 1, size);
+        Pageable pageable = PageRequest.of(Math.max(1, page) - 1, Math.max(1, size));
 
         Set<String> excludeIds = excludedContentIds(userId);
 

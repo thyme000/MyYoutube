@@ -32,6 +32,9 @@ public class UserVideoPortImpl implements UserVideoPort {
     @Override
     public List<VideoSummary> listByIdsOrdered(Set<String> ids) {
         List<Video> videos = videoMapper.selectOrderedList(ids);
+        if (videos.isEmpty()) {
+            return List.of();
+        }
         Map<Long, Content> contents = contentService.listByIds(
                         videos.stream().map(Video::getId).toList()).stream()
                 .collect(Collectors.toMap(Content::getId, c -> c));
