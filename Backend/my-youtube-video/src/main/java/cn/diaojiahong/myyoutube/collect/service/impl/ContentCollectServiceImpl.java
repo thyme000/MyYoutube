@@ -1,0 +1,144 @@
+package cn.diaojiahong.myyoutube.collect.service;
+
+import cn.diaojiahong.myyoutube.collect.domain.po.ContentCollect;
+import cn.diaojiahong.myyoutube.collect.domain.vo.CollectVO;
+import cn.diaojiahong.myyoutube.collect.mapper.ContentCollectMapper;
+import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
+import cn.diaojiahong.myyoutube.common.counter.CounterType;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
+import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
+import cn.hutool.core.bean.BeanUtil;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+/**
+ * <p>
+ * 内容收藏 服务实现: 装配链与赞过列表同构(摘要端口跨类型 + 作者/封面签名补全)
+ * </p>
+ *
+ * @author thyme
+ * @since 2026-10-03
+ */
+@Service
+@RequiredArgsConstructor
+public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper, ContentCollect> implements IContentCollectService {
+
+    private static final int STORAGE_EXPIRE = 24 * 60 * 60;
+
+    private final ContentCollectMapper collectMapper;
+    private final ContentSummaryPort contentSummaryPort;
+    private final IContentService contentService;
+    private final UserPort userPort;
+    private final IUserFollowService userFollowService;
+    private final S3StorageUtil storageUtil;
+    private final CounterBuffer counterBuffer;
+
+    @Override
+    public Result<Void> collect(Long contentId) {
+        Long userId = getUserId();
+        if (contentService.getById(contentId) == null) {
+            return Result.fail("内容不存在");
+        }
+        if (lambdaQuery().eq(ContentCollect::getUserId, userId).eq(ContentCollect::getContentId, contentId).exists()) {
+            return Result.success();
+        }
+        save(new ContentCollect().setUserId(userId).setContentId(contentId).setCreateTime(LocalDateTime.now()));
+        counterBuffer.add(CounterType.CONTENT_COLLECT, contentId, 1);
+        return Result.success();
+    }
+
+    @Override
+    public Result<Void> cancelCollect(Long contentId) {
+        Long userId = getUserId();
+        // 只有行存在才减计数, 防重复取消把计数减穿
+        boolean removed = lambdaUpdate()
+                .eq(ContentCollect::getUserId, userId)
+                .eq(ContentCollect::getContentId, contentId)
+                .remove();
+        if (removed) {
+            counterBuffer.add(CounterType.CONTENT_COLLECT, contentId, -1);
+        }
+        return Result.success();
+    }
+
+    @Override
+    public Result<PageResult<CollectVO>> page(PageQuery pageQuery) {
+        Long userId = getUserId();
+        int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
+        List<Long> contentIds = collectMapper.selectCollectIds(userId, offset, pageQuery.getPageSize());
+        if (contentIds.isEmpty()) {
+            return Result.success(PageResult.of(0, 0, List.of()));
+        }
+
+        // LinkedHashSet 保序: 摘要装配按入参迭代序返回, 即收藏时间倒序
+        List<ContentSummary> summaries = contentSummaryPort.listByIdsOrdered(
+                contentIds.stream().map(String::valueOf).collect(Collectors.toCollection(LinkedHashSet::new)));
+        if (summaries.isEmpty()) {
+            return Result.success(PageResult.of(0, 0, List.of()));
+        }
+
+        Map<Long, LocalDateTime> collectTimeById = lambdaQuery()
+                .eq(ContentCollect::getUserId, userId)
+                .in(ContentCollect::getContentId, contentIds)
+                .list().stream()
+                .collect(Collectors.toMap(ContentCollect::getContentId, ContentCollect::getCreateTime));
+
+        List<CollectVO> voList = summaries.stream().map(s -> {
+            CollectVO vo = BeanUtil.toBean(s, CollectVO.class);
+            vo.setId(String.valueOf(s.getId()));
+            vo.setCollectTime(collectTimeById.get(s.getId()));
+            return vo;
+        }).toList();
+
+        List<Long> authorIds = voList.stream().map(CollectVO::getAuthorId).toList();
+        Map<Long, String> authorNicknames = userPort.getNicknames(authorIds);
+        Map<Long, String> authorAvatarUrls = userPort.getAvatars(authorIds);
+        List<Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);
+        for (int i = 0; i < voList.size(); i++) {
+            CollectVO vo = voList.get(i);
+            vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), STORAGE_EXPIRE));
+            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), STORAGE_EXPIRE));
+            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), STORAGE_EXPIRE));
+            vo.setIsFollow(isFollows.get(i));
+        }
+
+        int total = collectMapper.selectCollectCount(userId);
+        int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
+        return Result.success(PageResult.of(total, totalPages, voList));
+    }
+
+    @Override
+    public Result<Boolean> status(Long contentId) {
+        Long userId = getUserId();
+        boolean collected = lambdaQuery()
+                .eq(ContentCollect::getUserId, userId)
+                .eq(ContentCollect::getContentId, contentId)
+                .exists();
+        return Result.success(collected);
+    }
+
+    private Long getUserId() {
+        String userId = UserContext.getUserId();
+        if (userId == null) {
+            throw new BizException(BizException.USER_ERROR, "用户未登录");
+        }
+        return Long.valueOf(userId);
+    }
+}

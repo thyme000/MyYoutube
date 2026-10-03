@@ -8,6 +8,7 @@ export const MENU_ROUTES = [
   { key: "subscribed", path: "/subscribed", label: "关注" },
   { key: "history", path: "/history", label: "观看历史" },
   { key: "liked", path: "/liked", label: "赞过的视频" },
+  { key: "collect", path: "/collect", label: "我的收藏" },
   { key: "music", path: "/music", label: "音乐" },
   { key: "chat", path: "/chat", label: "聊天" },
 ];

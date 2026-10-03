@@ -35,6 +35,8 @@ const {
   expandedRoots: detailExpandedRoots,
   sessionLiked: detailSessionLiked,
   likeBusy: detailLikeBusy,
+  sessionCollected: detailSessionCollected,
+  collectBusy: detailCollectBusy,
   followBusy: detailFollowBusy,
   authorAvatar: detailAuthorAvatar,
   fanText: detailFanText,
@@ -156,6 +158,16 @@ function onTopbarAvatarError(e) {
                   >
                     <i :class="detailSessionLiked ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'"></i>
                     {{ videoDetail.likeCount ?? 0 }}
+                  </button>
+                  <button
+                    type="button"
+                    class="video-detail-action-pill"
+                    :class="{ 'video-detail-action-pill--active': detailSessionCollected }"
+                    :disabled="detailCollectBusy"
+                    @click="store.onCollectClick"
+                  >
+                    <i :class="detailSessionCollected ? 'ri-bookmark-fill' : 'ri-bookmark-line'"></i>
+                    {{ detailSessionCollected ? "已收藏" : "收藏" }}
                   </button>
                   <button type="button" class="video-detail-action-pill" @click="store.onDislikeClick">
                     <i class="ri-thumb-down-line"></i> 不感兴趣

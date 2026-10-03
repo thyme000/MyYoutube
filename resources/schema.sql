@@ -97,6 +97,17 @@ CREATE TABLE IF NOT EXISTS `content_like` (
     KEY `idx_content_liked` (`content_id`, `is_liked`)
 ) ENGINE=InnoDB COMMENT='内容点赞';
 
+-- 内容收藏表(视频/动态同池, 取消收藏即删行)
+CREATE TABLE IF NOT EXISTS `content_collect` (
+    `id`         BIGINT   NOT NULL AUTO_INCREMENT,
+    `user_id`    BIGINT   NOT NULL,
+    `content_id` BIGINT   NOT NULL,
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_user_content` (`user_id`, `content_id`),
+    KEY `idx_content_id` (`content_id`)
+) ENGINE=InnoDB COMMENT='内容收藏';
+
 -- 用户浏览历史表(视频/动态同池, 重复观看 upsert 置顶)
 CREATE TABLE IF NOT EXISTS `user_view_history` (
     `id`         BIGINT   NOT NULL AUTO_INCREMENT,

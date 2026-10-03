@@ -10,6 +10,7 @@ import DynamicPlayer from "../components/DynamicPlayer.vue";
 import { fetchDynamicDetail, requestDynamicDownload } from "../api/dynamicApi";
 import { fetchCommentPage, publishComment } from "../api/commentApi";
 import { likeVideo, cancelLikeVideo, fetchVideoLikedStatus } from "../api/likeApi";
+import { cancelCollectContent, collectContent, fetchCollectStatus } from "../api/collectApi";
 import { normalizeCommentVo } from "../api/commentApi";
 import { useAuthStore } from "../stores/authStore";
 import { useBehaviorStore } from "../stores/behaviorStore";
@@ -40,6 +41,8 @@ let dynFinishReported = false;
 const liked = ref(false);
 const likeCount = ref(0);
 const likeInFlight = ref(false);
+const collected = ref(false);
+const collectInFlight = ref(false);
 
 const comments = ref([]);
 const commentsLoading = ref(false);
@@ -111,8 +114,14 @@ async function loadDetail() {
     dynamic.value = data;
     resetBehaviorAcc();
     likeCount.value = Number(data.likeCount) || 0;
+    collected.value = false;
     if (isAuthed.value) {
       liked.value = await fetchVideoLikedStatus(data.id);
+      try {
+        collected.value = await fetchCollectStatus(data.id);
+      } catch {
+        /* 收藏状态拉取失败按未收藏展示 */
+      }
     }
     void loadComments(true);
   } catch (e) {
@@ -138,6 +147,24 @@ async function toggleLike() {
     /* 互动失败不打断浏览 */
   } finally {
     likeInFlight.value = false;
+  }
+}
+
+async function toggleCollect() {
+  if (!isAuthed.value || collectInFlight.value || !dynamic.value) return;
+  collectInFlight.value = true;
+  try {
+    if (collected.value) {
+      await cancelCollectContent(dynamic.value.id);
+      collected.value = false;
+    } else {
+      await collectContent(dynamic.value.id);
+      collected.value = true;
+    }
+  } catch {
+    /* 收藏失败不打断浏览 */
+  } finally {
+    collectInFlight.value = false;
   }
 }
 
@@ -288,6 +315,16 @@ function onAvatarError(e) {
           >
             <i :class="liked ? 'ri-heart-3-fill' : 'ri-heart-3-line'"></i>
             {{ likeCount }}
+          </button>
+          <button
+            type="button"
+            class="dyn-detail-like"
+            :class="{ 'dyn-detail-like--active': collected }"
+            :disabled="!isAuthed || collectInFlight"
+            @click="toggleCollect"
+          >
+            <i :class="collected ? 'ri-bookmark-fill' : 'ri-bookmark-line'"></i>
+            {{ collected ? "已收藏" : "收藏" }}
           </button>
           <span class="dyn-detail-stat"><i class="ri-chat-3-line"></i> {{ commentTotal }}</span>
           <button type="button" class="dyn-detail-download" @click="saveClip">

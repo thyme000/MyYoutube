@@ -8,6 +8,7 @@ export const loadMenuView = {
   home: () => import("../views/HomeView.vue"),
   history: () => import("../views/HistoryView.vue"),
   liked: () => import("../views/LikedView.vue"),
+  collect: () => import("../views/CollectView.vue"),
   music: () => import("../views/MusicView.vue"),
   chat: () => import("../views/ChatView.vue"),
 };

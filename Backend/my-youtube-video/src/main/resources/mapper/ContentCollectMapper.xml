@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.collect.mapper.ContentCollectMapper">
+
+    <select id="selectCollectIds" resultType="java.lang.Long">
+        SELECT cc.content_id
+        FROM content_collect cc
+                 INNER JOIN content c ON cc.content_id = c.id
+        WHERE cc.user_id = #{userId}
+        ORDER BY cc.create_time DESC
+            LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="selectCollectCount" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM content_collect cc
+                 INNER JOIN content c ON cc.content_id = c.id
+        WHERE cc.user_id = #{userId}
+    </select>
+</mapper>

@@ -7,6 +7,7 @@ import { defineStore } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 import { fetchCommentPage, deleteComment as deleteCommentApi, publishComment as publishCommentApi } from "../api/commentApi";
 import { cancelLikeVideo, fetchVideoLikedStatus, likeVideo, dislikeVideo } from "../api/likeApi";
+import { cancelCollectContent, collectContent, fetchCollectStatus } from "../api/collectApi";
 import { fetchAuthorVideos, fetchVideoDetail, normalizeVideoDetail } from "../api/videoApi";
 import { followAuthor, unfollowAuthor } from "../api/followApi";
 import { parseDigitSnowflakeId } from "../utils/snowflakeId.js";
@@ -128,6 +129,8 @@ export const useDetailStore = defineStore("detail", () => {
 
   const sessionLiked = ref(false);
   const likeBusy = ref(false);
+  const sessionCollected = ref(false);
+  const collectBusy = ref(false);
   const followBusy = ref(false);
 
   let bufferingTimer = null;
@@ -491,6 +494,34 @@ export const useDetailStore = defineStore("detail", () => {
       toast(error.message || "点赞失败", "error");
     } finally {
       likeBusy.value = false;
+    }
+  }
+
+  async function onCollectClick() {
+    const d = video.value;
+    if (!d?.id) return;
+    if (!auth.token) {
+      toast("请先登录后再收藏", "info");
+      return;
+    }
+    const vid = parseDigitSnowflakeId(d.id);
+    if (vid == null) return;
+    if (collectBusy.value) return;
+    collectBusy.value = true;
+    try {
+      if (sessionCollected.value) {
+        await cancelCollectContent(vid);
+        sessionCollected.value = false;
+        toast("已取消收藏", "success");
+      } else {
+        await collectContent(vid);
+        sessionCollected.value = true;
+        toast("已收藏", "success");
+      }
+    } catch (error) {
+      toast(error.message || "收藏失败", "error");
+    } finally {
+      collectBusy.value = false;
     }
   }
 
@@ -933,6 +964,7 @@ export const useDetailStore = defineStore("detail", () => {
           }
         }
         video.value = d;
+        sessionCollected.value = false;
         if (auth.token && auth.userId && vid != null) {
           try {
             const liked = await fetchVideoLikedStatus(vid, auth.userId);
@@ -940,6 +972,11 @@ export const useDetailStore = defineStore("detail", () => {
             sessionLiked.value = liked;
           } catch {
             sessionLiked.value = Boolean(d?.isLike);
+          }
+          try {
+            sessionCollected.value = await fetchCollectStatus(vid);
+          } catch {
+            /* 收藏状态拉取失败按未收藏展示 */
           }
         } else {
           sessionLiked.value = Boolean(d?.isLike);
@@ -1056,6 +1093,9 @@ export const useDetailStore = defineStore("detail", () => {
     onVideoPause,
     onVideoPlay,
     onVideoSeeked,
+    sessionCollected,
+    collectBusy,
+    onCollectClick,
     onLikeClick,
     onDislikeClick,
     onDownloadClick,

@@ -14,6 +14,7 @@ import { menuPathFor, router } from "../router";
 import { useAuthStore } from "./authStore";
 import { useDetailStore } from "./detailStore";
 import { useHistoryStore } from "./historyStore";
+import { useCollectStore } from "./collectStore";
 import { homeSortOptions, useHomeStore } from "./homeStore";
 import { useLikedStore } from "./likedStore";
 import { useNavigationStore } from "./navigationStore";
@@ -44,6 +45,7 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
     const auth = useAuthStore();
     const history = useHistoryStore();
     const liked = useLikedStore();
+    const collect = useCollectStore();
     const immersive = useImmersiveStore();
     const profile = useProfileStore();
     home.loading = true;
@@ -99,6 +101,25 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
         }
         await liked.load({ reset: true });
         navigation.pageHint = `赞过的视频 · 共 ${liked.likedTotal} 条（GET /like/{userId}/list）`;
+        return;
+      }
+      if (menu.key === "collect") {
+        home.immersiveRows = [];
+        home.immersivePageNo = 1;
+        home.immersivePages = 0;
+        home.homeLongPageNo = 1;
+        home.homeLongPages = 0;
+        home.cards = [];
+        if (!auth.userId) {
+          collect.collectRows = [];
+          collect.collectPageNo = 1;
+          collect.collectPages = 0;
+          collect.collectTotal = 0;
+          navigation.pageHint = "请先登录后查看「我的收藏」。";
+          return;
+        }
+        await collect.load({ reset: true });
+        navigation.pageHint = `我的收藏 · 共 ${collect.collectTotal} 条（GET /collect/page）`;
         return;
       }
       if (menu.key === "subscribed") {
@@ -177,6 +198,12 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
           history.historyRows = [];
           history.historyPageNo = 1;
           history.historyPages = 0;
+          home.cards = [];
+        } else if (menu.key === "collect") {
+          collect.collectRows = [];
+          collect.collectPageNo = 1;
+          collect.collectPages = 0;
+          collect.collectTotal = 0;
           home.cards = [];
         } else if (menu.key === "liked") {
           liked.likedRows = [];
