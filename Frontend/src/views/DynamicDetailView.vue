@@ -9,15 +9,17 @@ import { useRoute } from "vue-router";
 import DynamicPlayer from "../components/DynamicPlayer.vue";
 import { fetchDynamicDetail, requestDynamicDownload } from "../api/dynamicApi";
 import { fetchCommentPage, publishComment } from "../api/commentApi";
-import { likeVideo, cancelLikeVideo, fetchVideoLikedStatus, likeComment } from "../api/likeApi";
+import { likeVideo, cancelLikeVideo, fetchVideoLikedStatus } from "../api/likeApi";
 import { normalizeCommentVo } from "../api/commentApi";
 import { useAuthStore } from "../stores/authStore";
+import { useCommentStore } from "../stores/commentStore";
 import { useNavigationStore } from "../stores/navigationStore";
 import { applyAvatarFallback, DEFAULT_PROFILE_AVATAR_URL } from "../utils/userProfile";
 
 const route = useRoute();
 const auth = useAuthStore();
 const navigationStore = useNavigationStore();
+const commentStore = useCommentStore();
 
 const dynamic = ref(null);
 const loading = ref(true);
@@ -36,6 +38,7 @@ const commentSubmitting = ref(false);
 const downloadState = ref({ status: "", taskId: "", downloadUrl: "" });
 
 const isAuthed = computed(() => auth.isAuthed);
+const commentsAllowed = computed(() => Number(dynamic.value?.allowComment ?? 1) === 1);
 
 function fmtDate(ms) {
   const t = Number(ms);
@@ -111,7 +114,7 @@ async function loadComments(reset = false) {
 }
 
 async function submitComment() {
-  if (!isAuthed.value || commentSubmitting.value || !dynamic.value) return;
+  if (!isAuthed.value || !commentsAllowed.value || commentSubmitting.value || !dynamic.value) return;
   const content = commentDraft.value.trim();
   if (!content) return;
   commentSubmitting.value = true;
@@ -128,13 +131,10 @@ async function submitComment() {
 }
 
 async function likeOneComment(comment) {
-  if (!isAuthed.value || comment.isLike) return;
-  try {
-    await likeComment(comment.id);
-    comment.isLike = true;
-    comment.likeCount += 1;
-  } catch {
-    /* ignore */
+  const patch = await commentStore.toggleLike(comment);
+  if (patch) {
+    comment.isLike = patch.isLike;
+    comment.likeCount = patch.likeCount;
   }
 }
 
@@ -250,20 +250,24 @@ function onAvatarError(e) {
         >下载已生成的成片</a>
 
         <section class="dyn-detail-comments">
-          <h4>评论 {{ commentTotal }}</h4>
+          <div class="dyn-detail-comments-head">
+            <h4>评论 {{ commentTotal }}</h4>
+            <span v-if="!commentsAllowed" class="dyn-detail-comment-note">作者已关闭评论</span>
+          </div>
           <div v-if="isAuthed" class="dyn-detail-comment-editor">
             <input
               v-model="commentDraft"
               class="dyn-detail-comment-input"
               type="text"
-              placeholder="说点什么…"
               maxlength="500"
+              :disabled="!commentsAllowed"
+              :placeholder="commentsAllowed ? '说点什么…' : '评论已关闭'"
               @keydown.enter="submitComment"
             />
             <button
               type="button"
               class="dyn-detail-comment-send"
-              :disabled="commentSubmitting || !commentDraft.trim()"
+              :disabled="!commentsAllowed || commentSubmitting || !commentDraft.trim()"
               @click="submitComment"
             >发送</button>
           </div>
@@ -441,9 +445,19 @@ function onAvatarError(e) {
   border-top: 1px solid var(--line);
   padding-top: 12px;
 }
+.dyn-detail-comments-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .dyn-detail-comments h4 {
   margin: 0;
   font-size: 14px;
+}
+.dyn-detail-comment-note {
+  font-size: 12px;
+  color: var(--muted, #999);
 }
 .dyn-detail-comment-editor {
   display: flex;
@@ -458,6 +472,10 @@ function onAvatarError(e) {
   background: transparent;
   color: inherit;
   font-size: 13px;
+}
+.dyn-detail-comment-input:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .dyn-detail-comment-send {
   height: 34px;

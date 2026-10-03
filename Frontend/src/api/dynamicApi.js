@@ -41,3 +41,43 @@ export async function requestDynamicDownload(dynamicId) {
 export async function fetchDynamicDownloadStatus(taskId) {
   return httpRequest(`/dynamics/download/${encodeURIComponent(taskId)}/status`, { method: "GET" });
 }
+
+/** DELETE /dynamics/{id} 删除自己的动态 */
+/** @param {string|number} dynamicId @returns {Promise<any>} */
+export async function deleteMyDynamic(dynamicId) {
+  const id = String(dynamicId ?? "").trim();
+  if (!id) throw new Error("dynamicId 不能为空");
+  return httpRequest(`/dynamics/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** POST /dynamics/private/{id} 动态设为私密 */
+/** @param {string|number} dynamicId @returns {Promise<any>} */
+export async function setMyDynamicPrivate(dynamicId) {
+  const id = String(dynamicId ?? "").trim();
+  if (!id) throw new Error("dynamicId 不能为空");
+  return httpRequest(`/dynamics/private/${encodeURIComponent(id)}`, { method: "POST" });
+}
+
+/** POST /dynamics/public/{id} 动态设为公开 */
+/** @param {string|number} dynamicId @returns {Promise<any>} */
+export async function setMyDynamicPublic(dynamicId) {
+  const id = String(dynamicId ?? "").trim();
+  if (!id) throw new Error("dynamicId 不能为空");
+  return httpRequest(`/dynamics/public/${encodeURIComponent(id)}`, { method: "POST" });
+}
+
+/** POST /dynamics/open/comment/{id} 开启动态评论 */
+/** @param {string|number} dynamicId @returns {Promise<any>} */
+export async function openMyDynamicComment(dynamicId) {
+  const id = String(dynamicId ?? "").trim();
+  if (!id) throw new Error("dynamicId 不能为空");
+  return httpRequest(`/dynamics/open/comment/${encodeURIComponent(id)}`, { method: "POST" });
+}
+
+/** POST /dynamics/close/comment/{id} 关闭动态评论 */
+/** @param {string|number} dynamicId @returns {Promise<any>} */
+export async function closeMyDynamicComment(dynamicId) {
+  const id = String(dynamicId ?? "").trim();
+  if (!id) throw new Error("dynamicId 不能为空");
+  return httpRequest(`/dynamics/close/comment/${encodeURIComponent(id)}`, { method: "POST" });
+}

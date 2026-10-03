@@ -132,9 +132,7 @@ const {
                       <td>{{ formatStudioDate(row) }}</td>
                       <td>{{ row.viewsText }}</td>
                       <td class="studio-td-actions">
-                        <!-- 动态行暂无可见性/评论/删除操作 -->
                         <button
-                          v-if="row.type !== 'dynamic'"
                           type="button"
                           class="studio-row-more-btn"
                           aria-label="更多操作"

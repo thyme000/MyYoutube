@@ -30,6 +30,7 @@ const images = ref([]);
 const selectedIdx = ref(0);
 const canvasType = ref("vertical");
 const transition = ref("fade");
+const allowComment = ref(1);
 /** 选中的音频库条目 { id, title, durationMs } */
 const audio = ref(null);
 const submitting = ref(false);
@@ -146,6 +147,7 @@ async function submit() {
       canvasType: canvasType.value,
       transition: transition.value,
       audioId: audio.value.id,
+      allowComment: allowComment.value,
       items,
     });
     toastStore.pushToast("动态已发布", "success");
@@ -173,6 +175,7 @@ function reset() {
   selectedIdx.value = 0;
   canvasType.value = "vertical";
   transition.value = "fade";
+  allowComment.value = 1;
   audio.value = null;
   progressMsg.value = "";
 }
@@ -213,6 +216,11 @@ function reset() {
             <label class="dynpub-label">切换</label>
             <label class="dynpub-radio"><input v-model="transition" type="radio" value="fade" :disabled="submitting" /> 叠化</label>
             <label class="dynpub-radio"><input v-model="transition" type="radio" value="cut" :disabled="submitting" /> 硬切</label>
+          </div>
+          <div class="dynpub-field-row">
+            <label class="dynpub-label">评论</label>
+            <label class="dynpub-radio"><input v-model.number="allowComment" type="radio" :value="1" :disabled="submitting" /> 允许评论</label>
+            <label class="dynpub-radio"><input v-model.number="allowComment" type="radio" :value="0" :disabled="submitting" /> 关闭评论</label>
           </div>
 
           <div class="dynpub-audio">

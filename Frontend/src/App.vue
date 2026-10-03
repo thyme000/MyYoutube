@@ -940,6 +940,7 @@ const confirmDeleteCurrentSelfVideo = () => immersiveStore.confirmDeleteCurrentS
 function onStudioRowRequestDelete(row) {
   if (!row?.id) return;
   immersiveStore.pendingDeleteVideoId = String(row.id);
+  immersiveStore.pendingDeleteRowType = String(row?.type) === "dynamic" ? "dynamic" : "video";
   immersiveStore.selfVideoDeleteConfirmOpen = true;
   closeStudioRowMenu();
 }

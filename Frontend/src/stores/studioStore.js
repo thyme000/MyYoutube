@@ -6,6 +6,12 @@
  */
 import { defineStore } from "pinia";
 import { setMyVideoPublic, setMyVideoPrivate, openMyVideoComment, closeMyVideoComment } from "../api/videoApi";
+import {
+  setMyDynamicPublic,
+  setMyDynamicPrivate,
+  openMyDynamicComment,
+  closeMyDynamicComment,
+} from "../api/dynamicApi";
 import { fetchMyContents } from "../api/contentApi";
 import { getToken } from "../api/http";
 import { toast as pushToast } from "../utils/toast.js";
@@ -120,15 +126,16 @@ export const useStudioStore = defineStore("studio", {
     async toggleRowVisibility(row) {
       if (!row?.id) return;
       this.closeRowMenu();
+      const isDynamic = String(row?.type) === "dynamic";
       const isPrivate = rowVisibilityIsPrivate(row);
       try {
         if (isPrivate) {
-          await setMyVideoPublic(row.id);
-          hooks.patchFeedById?.(row.id, { visibility: "PUBLIC" });
+          await (isDynamic ? setMyDynamicPublic(row.id) : setMyVideoPublic(row.id));
+          hooks.patchFeedById?.(row.id, { visibility: "public" });
           pushToast("已设为公开", "success");
         } else {
-          await setMyVideoPrivate(row.id);
-          hooks.patchFeedById?.(row.id, { visibility: "PRIVATE" });
+          await (isDynamic ? setMyDynamicPrivate(row.id) : setMyVideoPrivate(row.id));
+          hooks.patchFeedById?.(row.id, { visibility: "private" });
           pushToast("已设为私密", "success");
         }
       } catch (e) {
@@ -138,15 +145,16 @@ export const useStudioStore = defineStore("studio", {
     async toggleRowComment(row) {
       if (!row?.id) return;
       this.closeRowMenu();
+      const isDynamic = String(row?.type) === "dynamic";
       const current = Number(row.allowComment ?? 1);
       const enable = current !== 1;
       try {
         if (enable) {
-          await openMyVideoComment(row.id);
+          await (isDynamic ? openMyDynamicComment(row.id) : openMyVideoComment(row.id));
           hooks.patchFeedById?.(row.id, { allowComment: 1 });
           pushToast("已开启评论", "success");
         } else {
-          await closeMyVideoComment(row.id);
+          await (isDynamic ? closeMyDynamicComment(row.id) : closeMyVideoComment(row.id));
           hooks.patchFeedById?.(row.id, { allowComment: 0 });
           pushToast("已关闭评论", "success");
         }
