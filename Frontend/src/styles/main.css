@@ -2310,10 +2310,6 @@ body {
   padding: var(--space-2);
 }
 
-.history-immersive-strip.history-immersive-strip--expanded.history-immersive-strip--short-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
 .history-immersive-strip.history-immersive-strip--expanded.history-immersive-strip--long-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

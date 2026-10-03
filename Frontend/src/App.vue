@@ -29,13 +29,9 @@ import { connectChatWebSocket, disconnectChatWebSocket } from "./utils/chatWebSo
 import { useNotificationStore } from "./stores/notificationStore";
 import { useToastStore } from "./stores/toastStore";
 import { loginApi } from "./api/authApi";
-import { fetchVideoDetail, normalizeVideoDetail } from "./api/videoApi";
 import { primaryMenus, exploreMenus } from "./constants/menus";
-import {
-  likeVideo as likeVideoApi,
-  cancelLikeVideo as cancelLikeVideoApi,
-} from "./api/likeApi";
 import { followAuthor, unfollowAuthor } from "./api/followApi";
+import { toggleVideoLikeAndSync } from "./utils/videoLike.js";
 import {
   applyAvatarFallback,
   sanitizeImageUrl,
@@ -183,22 +179,11 @@ async function onSearchFeedLikeClick(card, ev) {
   if (searchFeedLikeBusyId.value === busyKey) return;
   searchFeedLikeBusyId.value = busyKey;
   try {
-    const wasLiked = Boolean(card.isLike);
-    if (wasLiked) {
-      await cancelLikeVideoApi(vid);
-      patchFeedVideoById(card.id, { isLike: false, likeCount: Math.max(0, Number(card.likeCount ?? 0) - 1) });
-    } else {
-      await likeVideoApi(vid);
-      patchFeedVideoById(card.id, {
-        isLike: true,
-        likeCount: Number(card.likeCount ?? 0) + 1,
-      });
-    }
-    const raw = await fetchVideoDetail(vid);
-    const merged = normalizeVideoDetail(raw);
-    if (merged && merged.likeCount != null) {
-      patchFeedVideoById(card.id, { likeCount: merged.likeCount });
-    }
+    await toggleVideoLikeAndSync(vid, {
+      wasLiked: Boolean(card.isLike),
+      likeCount: card.likeCount,
+      patch: (p) => patchFeedVideoById(card.id, p),
+    });
     void reportBehaviorSilently(card.id, "LIKE", 0);
   } catch (error) {
     pushToast(error.message || "点赞失败", "error");
@@ -1061,6 +1046,11 @@ function closeTopMostOverlayByEsc() {
   }
   if (showVideoDetail.value) {
     closeVideoDetail();
+    return true;
+  }
+  // 动态详情与视频详情同层, 但离场语义在 onDetailLayerBack(走路由历史)
+  if (isDynamicDetailRoute.value) {
+    onDetailLayerBack();
     return true;
   }
   if (showStudio.value) {

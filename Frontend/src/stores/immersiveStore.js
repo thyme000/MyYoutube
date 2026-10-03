@@ -22,19 +22,14 @@ import {
 } from "../utils/userProfile.js";
 import { sendPlaybackResumePut } from "../utils/playbackResume.js";
 import { patchRowById, patchRowsByAuthorId, removeRowById } from "../utils/feedRowPatch.js";
+import { toggleVideoLikeAndSync } from "../utils/videoLike.js";
 import {
   fetchCommentPage,
   deleteComment as deleteCommentApi,
   publishComment as publishCommentApi,
 } from "../api/commentApi.js";
+import { dislikeVideo as dislikeVideoApi } from "../api/likeApi.js";
 import {
-  likeVideo as likeVideoApi,
-  cancelLikeVideo as cancelLikeVideoApi,
-  dislikeVideo as dislikeVideoApi,
-} from "../api/likeApi.js";
-import {
-  fetchVideoDetail,
-  normalizeVideoDetail,
   fetchFollowVideoFeedPage,
   fetchOtherUserVideos,
   deleteMyVideo,
@@ -1087,25 +1082,11 @@ export const useImmersiveStore = defineStore("immersive", {
       if (vid == null) return;
       this.immersiveLikeBusy = true;
       try {
-        const wasLiked = this.immersiveFeedLikedDisplay;
-        if (wasLiked) {
-          await cancelLikeVideoApi(vid);
-          hooks.patchFeedVideoById(cur.id, {
-            isLike: false,
-            likeCount: Math.max(0, Number(cur.likeCount ?? 0) - 1),
-          });
-        } else {
-          await likeVideoApi(vid);
-          hooks.patchFeedVideoById(cur.id, {
-            isLike: true,
-            likeCount: Number(cur.likeCount ?? 0) + 1,
-          });
-        }
-        const raw = await fetchVideoDetail(vid);
-        const merged = normalizeVideoDetail(raw);
-        if (merged && merged.likeCount != null) {
-          hooks.patchFeedVideoById(cur.id, { likeCount: merged.likeCount });
-        }
+        await toggleVideoLikeAndSync(vid, {
+          wasLiked: this.immersiveFeedLikedDisplay,
+          likeCount: cur.likeCount,
+          patch: (p) => hooks.patchFeedVideoById(cur.id, p),
+        });
         void useBehaviorStore().report(cur.id, "LIKE", Number(this.immersiveFeedCurrentTime || 0) * 1000);
       } catch (error) {
         pushToast(error.message || "点赞失败", "error");

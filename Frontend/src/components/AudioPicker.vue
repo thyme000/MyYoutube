@@ -4,7 +4,7 @@
  * 音频选择器: 公开库搜索 + 我的音频 两个页签, 行内试听, 选中回传库条目。
  * 供动态发布与幻灯片合成选 BGM。
  */
-import { computed, ref, watch } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 import BaseModal from "./ui/BaseModal.vue";
 import { fetchAudioLibrary, fetchMyAudios } from "../api/audioApi.js";
 
@@ -24,17 +24,35 @@ const pages = ref(0);
 const playingId = ref("");
 let playingEl = null;
 
-const keywordDebounced = computed(() => keyword.value);
+/** 关键词逐字发请求会让后到的响应盖掉新结果, 故防抖 */
+const KEYWORD_DEBOUNCE_MS = 420;
+let keywordTimer = null;
 
 watch(
-  () => [props.open, tab.value, keywordDebounced.value],
+  () => [props.open, tab.value],
   ([open]) => {
-    if (!open) return;
+    if (!open) {
+      window.clearTimeout(keywordTimer);
+      keywordTimer = null;
+      return;
+    }
     stopPreview();
     load(true);
   },
   { immediate: true }
 );
+
+watch(keyword, () => {
+  window.clearTimeout(keywordTimer);
+  keywordTimer = window.setTimeout(() => {
+    keywordTimer = null;
+    if (!props.open) return;
+    stopPreview();
+    load(true);
+  }, KEYWORD_DEBOUNCE_MS);
+});
+
+onUnmounted(() => window.clearTimeout(keywordTimer));
 
 async function load(reset) {
   const page = reset ? 1 : pageNo.value + 1;
@@ -47,7 +65,7 @@ async function load(reset) {
     const { total, pages: ps, list } =
       tab.value === "my"
         ? await fetchMyAudios(pageQuery)
-        : await fetchAudioLibrary({ ...pageQuery, keyword: keywordDebounced.value });
+        : await fetchAudioLibrary({ ...pageQuery, keyword: keyword.value });
     rows.value = reset ? list : [...rows.value, ...list];
     pages.value = ps;
     pageNo.value = page;
