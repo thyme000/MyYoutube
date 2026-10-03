@@ -22,7 +22,6 @@ const uploadForm = ref({
   title: "",
   description: "",
   category: "LIFE",
-  visibility: "PUBLIC",
   tags: "",
   allowComment: 1,
 });
@@ -43,12 +42,6 @@ const uploadCategoryOptions = [
   { value: "ENTERTAINMENT", label: "娱乐" },
   { value: "OTHER", label: "其他" },
 ];
-const uploadVisibilityOptions = [
-  { value: "PUBLIC", label: "公开" },
-  { value: "PRIVATE", label: "私有" },
-  { value: "UNLISTED", label: "不公开" },
-];
-
 const uploadTagList = computed(() =>
   String(uploadForm.value.tags || "")
     .split(",")
@@ -186,7 +179,6 @@ async function submitUploadVideo() {
       description: String(uploadForm.value.description || "").trim(),
       category: uploadForm.value.category,
       tags: uploadTagList.value.join(","),
-      visibility: uploadForm.value.visibility,
       allowComment: Number(uploadForm.value.allowComment ? 1 : 0),
       videoUrl: objectKey,
       duration: Number(duration || 1),
@@ -271,12 +263,6 @@ async function submitUploadVideo() {
             <label class="upload-field upload-field--full">
               <span>简介</span>
               <textarea v-model="uploadForm.description" rows="3" maxlength="500" placeholder="请输入视频简介（可选）"></textarea>
-            </label>
-            <label class="upload-field">
-              <span>可见性</span>
-              <select v-model="uploadForm.visibility">
-                <option v-for="v in uploadVisibilityOptions" :key="v.value" :value="v.value">{{ v.label }}</option>
-              </select>
             </label>
             <label class="upload-field">
               <span>标签</span>

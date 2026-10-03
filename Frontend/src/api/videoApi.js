@@ -362,7 +362,7 @@ export async function fetchOtherUserVideos(userId, query = {}) {
 /**
  * PUT /videos/publish
  */
-/** @param {{ title: string, description?: string, category: string, tags?: string, visibility: string, allowComment: number, videoUrl: string, duration: number }} body @returns {Promise<any>} */
+/** @param {{ title: string, description?: string, category: string, tags?: string, allowComment: number, videoUrl: string, duration: number }} body @returns {Promise<any>} */
 export async function publishVideo(body) {
   return httpRequest("/videos/publish", { method: "PUT", body });
 }
