@@ -11,6 +11,11 @@ import { fetchDynamicDetail, requestDynamicDownload } from "../api/dynamicApi";
 import { fetchCommentPage, publishComment } from "../api/commentApi";
 import { likeVideo, cancelLikeVideo, fetchVideoLikedStatus } from "../api/likeApi";
 import { cancelCollectContent, collectContent, fetchCollectStatus } from "../api/collectApi";
+import { dislikeVideo } from "../api/likeApi";
+import { followAuthor, isFollowed, unfollowAuthor } from "../api/followApi";
+import { toast as pushToast } from "../utils/toast.js";
+import { useFollowStore } from "../stores/followStore";
+import { useShareStore } from "../stores/shareStore";
 import { normalizeCommentVo } from "../api/commentApi";
 import { useAuthStore } from "../stores/authStore";
 import { useBehaviorStore } from "../stores/behaviorStore";
@@ -25,6 +30,8 @@ const navigationStore = useNavigationStore();
 const commentStore = useCommentStore();
 const behavior = useBehaviorStore();
 const historyStore = useHistoryStore();
+const followStore = useFollowStore();
+const shareStore = useShareStore();
 
 /** 与 detailStore 同口径: 播放时长过总时长 70% 记 PLAY, 单次进度增量超 3s 视为 seek 丢弃 */
 const PLAY_THRESHOLD = 0.7;
@@ -43,6 +50,15 @@ const likeCount = ref(0);
 const likeInFlight = ref(false);
 const collected = ref(false);
 const collectInFlight = ref(false);
+const isFollow = ref(false);
+const followBusy = ref(false);
+
+const isSelfDynamic = computed(() => {
+  const uid = auth.userId;
+  const authorId = dynamic.value?.authorId;
+  return uid != null && authorId != null && String(uid) === String(authorId);
+});
+const followState = computed(() => followStore.getOverride(dynamic.value?.authorId) ?? isFollow.value);
 
 const comments = ref([]);
 const commentsLoading = ref(false);
@@ -123,6 +139,14 @@ async function loadDetail() {
         /* 收藏状态拉取失败按未收藏展示 */
       }
     }
+    isFollow.value = false;
+    if (isAuthed.value && !isSelfDynamic.value && data.authorId != null) {
+      try {
+        isFollow.value = Boolean(await isFollowed(data.authorId));
+      } catch {
+        /* 关注态拉取失败按未关注展示 */
+      }
+    }
     void loadComments(true);
   } catch (e) {
     errorMsg.value = e?.message || "动态加载失败";
@@ -148,6 +172,45 @@ async function toggleLike() {
   } finally {
     likeInFlight.value = false;
   }
+}
+
+async function toggleFollow() {
+  const authorId = dynamic.value?.authorId;
+  if (!isAuthed.value || followBusy.value || authorId == null) return;
+  if (isSelfDynamic.value) return;
+  followBusy.value = true;
+  try {
+    if (followState.value) {
+      await unfollowAuthor(authorId);
+      isFollow.value = false;
+      pushToast("已取消关注", "success");
+    } else {
+      await followAuthor(authorId);
+      isFollow.value = true;
+      pushToast("关注成功", "success");
+    }
+    followStore.setOverride(authorId, isFollow.value);
+  } catch (e) {
+    pushToast(e?.message || "关注操作失败", "error");
+  } finally {
+    followBusy.value = false;
+  }
+}
+
+async function onDislike() {
+  const d = dynamic.value;
+  if (!isAuthed.value || !d?.id) return;
+  try {
+    await dislikeVideo(d.id);
+    void behavior.report(d.id, "DISLIKE");
+    pushToast("已标记为不感兴趣", "success");
+  } catch (e) {
+    pushToast(e?.message || "操作失败", "error");
+  }
+}
+
+function reportComment(comment) {
+  shareStore.openCommentReport(comment);
 }
 
 async function toggleCollect() {
@@ -301,6 +364,16 @@ function onAvatarError(e) {
             <strong>{{ dynamic.authorNickname || "匿名用户" }}</strong>
             <span>{{ fmtDate(dynamic.createTime) }}</span>
           </div>
+          <button
+            v-if="!isSelfDynamic"
+            type="button"
+            class="dyn-detail-follow"
+            :class="{ 'dyn-detail-follow--active': followState }"
+            :disabled="!isAuthed || followBusy"
+            @click="toggleFollow"
+          >
+            {{ followState ? "已关注" : "+ 关注" }}
+          </button>
         </header>
 
         <p v-if="dynamic.title" class="dyn-detail-title">{{ dynamic.title }}</p>
@@ -327,6 +400,9 @@ function onAvatarError(e) {
             {{ collected ? "已收藏" : "收藏" }}
           </button>
           <span class="dyn-detail-stat"><i class="ri-chat-3-line"></i> {{ commentTotal }}</span>
+          <button type="button" class="dyn-detail-like" :disabled="!isAuthed" @click="onDislike">
+            <i class="ri-thumb-down-line"></i> 不感兴趣
+          </button>
           <button type="button" class="dyn-detail-download" @click="saveClip">
             <i class="ri-download-2-line"></i>
             {{ downloadState.status === "DONE" ? "已生成, 点击保存" : "保存成片" }}
@@ -372,14 +448,24 @@ function onAvatarError(e) {
               <div class="dyn-detail-comment-main">
                 <div class="dyn-detail-comment-head">
                   <span class="dyn-detail-comment-nick">{{ c.nickname }}</span>
-                  <button
-                    type="button"
-                    class="dyn-detail-comment-like"
-                    :class="{ 'dyn-detail-comment-like--active': c.isLike }"
-                    @click="likeOneComment(c)"
-                  >
-                    <i :class="c.isLike ? 'ri-heart-3-fill' : 'ri-heart-3-line'"></i>{{ c.likeCount }}
-                  </button>
+                  <span class="dyn-detail-comment-ops">
+                    <button
+                      type="button"
+                      class="dyn-detail-comment-like"
+                      :class="{ 'dyn-detail-comment-like--active': c.isLike }"
+                      @click="likeOneComment(c)"
+                    >
+                      <i :class="c.isLike ? 'ri-heart-3-fill' : 'ri-heart-3-line'"></i>{{ c.likeCount }}
+                    </button>
+                    <button
+                      type="button"
+                      class="dyn-detail-comment-report"
+                      aria-label="举报该评论"
+                      @click="reportComment(c)"
+                    >
+                      <i class="ri-flag-line"></i>
+                    </button>
+                  </span>
                 </div>
                 <p class="dyn-detail-comment-text">{{ c.content }}</p>
               </div>
@@ -517,6 +603,42 @@ function onAvatarError(e) {
 .dyn-detail-like--active {
   color: #ff4d6d;
   border-color: #ff4d6d;
+}
+.dyn-detail-follow {
+  margin-left: auto;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent, #2f6fed);
+  background: transparent;
+  color: var(--accent, #2f6fed);
+  font-size: 13px;
+  cursor: pointer;
+}
+.dyn-detail-follow:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.dyn-detail-follow--active {
+  border-color: var(--line);
+  color: var(--muted, #999);
+}
+.dyn-detail-comment-ops {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.dyn-detail-comment-report {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.5;
+}
+.dyn-detail-comment-report:hover {
+  opacity: 1;
+  color: #ff4d6d;
 }
 .dyn-detail-stat {
   display: inline-flex;
