@@ -5,18 +5,19 @@
  * 复用 DynamicPlayer 本地合成预览 + 互动栏(点赞/评论, 统一内容池) + 保存成片(懒转码)。
  */
 import { computed, onMounted, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import DynamicPlayer from "../components/DynamicPlayer.vue";
 import { fetchDynamicDetail, requestDynamicDownload } from "../api/dynamicApi";
 import { fetchCommentPage, publishComment } from "../api/commentApi";
 import { likeVideo, cancelLikeVideo, fetchVideoLikedStatus, likeComment } from "../api/likeApi";
 import { normalizeCommentVo } from "../api/commentApi";
 import { useAuthStore } from "../stores/authStore";
+import { useNavigationStore } from "../stores/navigationStore";
 import { applyAvatarFallback, DEFAULT_PROFILE_AVATAR_URL } from "../utils/userProfile";
 
 const route = useRoute();
-const router = useRouter();
 const auth = useAuthStore();
+const navigationStore = useNavigationStore();
 
 const dynamic = ref(null);
 const loading = ref(true);
@@ -41,14 +42,6 @@ function fmtDate(ms) {
   if (!t) return "";
   const d = new Date(t);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function closeDetail() {
-  if (window.history.state?.back) {
-    router.back();
-    return;
-  }
-  void router.replace("/");
 }
 
 async function loadDetail() {
@@ -201,7 +194,7 @@ function onAvatarError(e) {
 <template>
   <div class="dyn-detail-page dyn-detail-page--layer">
     <header class="dyn-detail-toolbar">
-      <button type="button" class="dyn-detail-back" aria-label="返回" @click="closeDetail">
+      <button type="button" class="dyn-detail-back" aria-label="返回" @click="navigationStore.leaveDetailLayer">
         <i class="ri-arrow-left-line"></i> 返回
       </button>
       <span class="dyn-detail-toolbar-title">动态详情</span>

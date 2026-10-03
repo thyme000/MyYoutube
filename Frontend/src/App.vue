@@ -1636,6 +1636,9 @@ registerNavigationHooks({
     uploadModalOpen.value = false;
     showStudio.value = false;
   },
+  // 详情层离场语义（视频详情收敛 store / 动态详情走路由历史）集中在这里，
+  // 详情内「返回」按钮与 ESC 仲裁共用，视图不再各自复制一份
+  leaveDetailLayer: () => onDetailLayerBack(),
 });
 /** searchStore 的宿主依赖：搜索结果列表的内联预览观察器与跨列表补丁仍在 App */
 registerSearchExpandHooks({
