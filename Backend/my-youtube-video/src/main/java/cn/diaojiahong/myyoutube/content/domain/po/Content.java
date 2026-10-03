@@ -47,6 +47,11 @@ public class Content implements Serializable {
     private String status;
 
     /**
+     * 可见性(public/private), 随领域状态机
+     */
+    private String visibility;
+
+    /**
      * 播放次数
      */
     private Long playCount;

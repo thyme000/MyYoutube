@@ -70,7 +70,11 @@ public class ContentFeedServiceImpl implements IContentFeedService {
             ids = recommendPort.recommend(new RecommendPort.RecommendQuery(
                     userId, category, pageQuery.getPageNo(), pageQuery.getPageSize()))
                     .stream().map(String::valueOf).collect(Collectors.toSet());
-            total = pageQuery.getPageNo() * (long) pageQuery.getPageSize() + 1;
+            // 推荐流没有真实总数: 满页时提示"还有下一页", 不足一页即到底;
+            // 无条件 +1 会让前端在召回为空后仍无限翻页
+            total = ids.size() < pageQuery.getPageSize()
+                    ? (long) (pageQuery.getPageNo() - 1) * pageQuery.getPageSize() + ids.size()
+                    : pageQuery.getPageNo() * (long) pageQuery.getPageSize() + 1;
         } else if (category != null && !category.isBlank()) {
             // 分类是视频域字段: 分类过滤时仅视频
             Page<Video> page = videoMapper.selectPage(pageQuery.toPage(),
@@ -87,6 +91,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         } else {
             LambdaQueryWrapper<Content> q = new LambdaQueryWrapper<Content>()
                     .eq(Content::getStatus, VideoStatusEnum.PUBLISHED.getCode())
+                    .eq(Content::getVisibility, "public")
                     .ne(Content::getAuthorId, userId);
             applyContentSort(q, sort);
             Page<Content> page = contentService.page(pageQuery.toPage(), q);
@@ -113,8 +118,9 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         Map<Long, Content> contents = page.getRecords().stream()
                 .collect(Collectors.toMap(Content::getId, Function.identity()));
 
-        Map<Long, Video> videos = videoMapper.selectBatchIds(ids).stream()
-                .collect(Collectors.toMap(Video::getId, Function.identity()));
+        Map<Long, Video> videos = videoMapper.selectList(
+                        new LambdaQueryWrapper<Video>().in(Video::getId, ids).eq(Video::getIsDelete, 0))
+                .stream().collect(Collectors.toMap(Video::getId, Function.identity()));
         Map<Long, Dynamic> dynamics = dynamicMapper.selectList(
                         new LambdaQueryWrapper<Dynamic>().in(Dynamic::getId, ids).eq(Dynamic::getIsDelete, 0))
                 .stream().collect(Collectors.toMap(Dynamic::getId, Function.identity()));
@@ -156,9 +162,9 @@ public class ContentFeedServiceImpl implements IContentFeedService {
                 vo.setTitle(d.getTitle());
                 vo.setCoverUrl(storageUtil.signGetUrl(firstFrameKey(d.getTimelineJson()), URL_SIGN_EXPIRE_SECONDS));
                 vo.setTotalDurationMs(d.getTotalDurationMs());
-                vo.setAllowComment(1);
+                vo.setAllowComment(d.getAllowComment() != null ? d.getAllowComment() : 1);
                 vo.setStatus(c.getStatus());
-                vo.setVisibility("public");
+                vo.setVisibility(d.getVisibility() != null ? d.getVisibility() : "public");
             }
             list.add(vo);
         }

@@ -49,6 +49,12 @@ public class DynamicVO {
     /** 评论数(来自 content 池, 详情展示用) */
     private Long commentCount;
 
+    /** public/private */
+    private String visibility;
+
+    /** 0不允许 1允许评论 */
+    private Integer allowComment;
+
     @Data
     public static class Item {
 

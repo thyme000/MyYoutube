@@ -3,7 +3,6 @@ package cn.diaojiahong.myyoutube.video.domain.dto;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoCategoryEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
-import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -28,8 +27,5 @@ public class VideoPageQuery extends PageQuery {
 
     // 需要排序的字段
     private VideoSortEnum sort;
-
-    // 视频可见性
-    private VideoVisibilityEnum visibility;
 
 }

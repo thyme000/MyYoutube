@@ -65,7 +65,8 @@ public class ContentSummaryPortImpl implements ContentSummaryPort {
         if (!dynamicIds.isEmpty()) {
             dynamicMapper.selectList(Wrappers.<Dynamic>lambdaQuery()
                             .in(Dynamic::getId, dynamicIds.stream().map(Long::valueOf).toList())
-                            .eq(Dynamic::getIsDelete, 0))
+                            .eq(Dynamic::getIsDelete, 0)
+                            .eq(Dynamic::getVisibility, "public"))
                     .forEach(d -> summaryMap.put(d.getId(), toDynamicSummary(d, contents.get(d.getId()))));
         }
 

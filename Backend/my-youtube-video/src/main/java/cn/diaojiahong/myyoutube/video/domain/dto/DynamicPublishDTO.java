@@ -21,6 +21,9 @@ public class DynamicPublishDTO {
     /** 可选标签, 逗号分隔 */
     private String tags;
 
+    /** 0不允许 1允许评论, 默认允许 */
+    private Integer allowComment;
+
     private List<DynamicItemDTO> items;
 
     @Data

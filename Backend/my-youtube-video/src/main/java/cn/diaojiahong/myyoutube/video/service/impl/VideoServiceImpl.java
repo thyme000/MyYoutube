@@ -96,6 +96,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         video.setVideoUrl(storageUtil.normalizeToObjectKey(video.getVideoUrl()));
 
         video.setAuthorId(userId);
+        // 上传即公开, 不接受客户端指定可见性; 私密走发布后的设为私密入口
+        video.setVisibility(VideoVisibilityEnum.PUBLIC);
 
         if (video.getDuration() == null) {
             return Result.fail("视频时长不能为空～");
@@ -282,6 +284,10 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (!PUBLISHED.getCode().equals(video.getStatus().getCode())) {
             return Result.fail("视频已私密或已被封禁～");
         }
+        // 私密视频仅作者本人可看(直链直达也拦)
+        if (video.getVisibility() == VideoVisibilityEnum.PRIVATE && !video.getAuthorId().equals(userId)) {
+            return Result.fail("无权查看该视频～");
+        }
 
         VideoDetailVO detailVo = VideoVoConverter.toDetailVo(video, contentService.getById(videoId));
         detailVo.setVideoUrl(storageUtil.signGetUrl(detailVo.getVideoUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
@@ -331,10 +337,6 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         q.eq(Video::getAuthorId, userId);
         q.eq(Video::getIsDelete, 0);
         q.orderByDesc(Video::getCreateTime);
-        if (pageQuery.getVisibility() != null) {
-            // 查询指定可见性
-            q.eq(Video::getVisibility, pageQuery.getVisibility().getCode());
-        }
         Page<Video> list = page(pageQuery.toPage(), q);
 
         List<VideoListVO> result = toListVosWithCounts(list.getRecords());
@@ -584,6 +586,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         return Result.success(PageResult.of(total, pages, voList));
     }
 
+    @Transactional
     @Override
     public Result<Void> deleteVideo(Long videoId) {
         Long userId = getUserId();
@@ -593,6 +596,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         if (!success) {
             return Result.fail("删除失败,请稍后再试");
         }
+        // content 池无删除标记, 不同步摘除的话池分发与创作中心会把已删视频查回来
+        contentService.removeById(videoId);
         // ES 尽力删除, 失败不影响 DB 删除, 列表查询以 DB is_delete 为准
         try {
             contentDocPort.deleteDoc(videoId);

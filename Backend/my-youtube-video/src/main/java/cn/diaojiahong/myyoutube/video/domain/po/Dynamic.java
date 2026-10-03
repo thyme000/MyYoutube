@@ -59,6 +59,12 @@ public class Dynamic implements Serializable {
      */
     private String tags;
 
+    /** public/private */
+    private String visibility;
+
+    /** 0不允许 1允许评论 */
+    private Integer allowComment;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

@@ -10,6 +10,7 @@ import cn.diaojiahong.myyoutube.video.service.IDynamicService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -48,6 +49,36 @@ public class DynamicController {
     @Operation(summary = "请求下载成片(懒触发 ffmpeg 转码, 幂等)")
     public Result<DynamicDownloadVO> requestDownload(@PathVariable Long id) {
         return dynamicService.requestDownload(id);
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除动态")
+    public Result<Void> deleteDynamic(@PathVariable Long id) {
+        return dynamicService.deleteDynamic(id);
+    }
+
+    @PostMapping("/private/{id}")
+    @Operation(summary = "动态设为私密")
+    public Result<Void> privateDynamic(@PathVariable Long id) {
+        return dynamicService.privateDynamic(id);
+    }
+
+    @PostMapping("/public/{id}")
+    @Operation(summary = "动态设为公开")
+    public Result<Void> publicDynamic(@PathVariable Long id) {
+        return dynamicService.publicDynamic(id);
+    }
+
+    @PostMapping("/open/comment/{id}")
+    @Operation(summary = "开启动态评论")
+    public Result<Void> openComment(@PathVariable Long id) {
+        return dynamicService.openComment(id);
+    }
+
+    @PostMapping("/close/comment/{id}")
+    @Operation(summary = "关闭动态评论")
+    public Result<Void> closeComment(@PathVariable Long id) {
+        return dynamicService.closeComment(id);
     }
 
     @GetMapping("/download/{taskId}/status")

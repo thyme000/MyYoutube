@@ -18,7 +18,9 @@ import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -53,6 +55,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
     private final S3StorageUtil storageUtil;
     private final IVideoService videoService;
     private final IContentService contentService;
+    private final DynamicMapper dynamicMapper;
     private final StringRedisTemplate redisTemplate;
     private final RocketMQTemplate rocketMQTemplate;
     private final static int STORAGE_EXPIRE = 60 * 20;
@@ -72,6 +75,11 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
             Video video = videoService.getById(content.getId());
             if (video != null && video.getAllowComment() == 0) {
                 throw new IllegalArgumentException("视频不允许评论");
+            }
+        } else if (content.getType() == ContentTypeEnum.DYNAMIC) {
+            Dynamic dynamic = dynamicMapper.selectById(content.getId());
+            if (dynamic != null && dynamic.getAllowComment() != null && dynamic.getAllowComment() == 0) {
+                throw new IllegalArgumentException("动态不允许评论");
             }
         }
         Long userId = getUserId();

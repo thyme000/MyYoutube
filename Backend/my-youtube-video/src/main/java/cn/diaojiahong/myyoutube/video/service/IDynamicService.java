@@ -18,4 +18,14 @@ public interface IDynamicService {
     Result<DynamicDownloadVO> requestDownload(Long dynamicId);
 
     Result<DynamicDownloadVO> getDownloadStatus(Long taskId);
+
+    Result<Void> deleteDynamic(Long id);
+
+    Result<Void> privateDynamic(Long id);
+
+    Result<Void> publicDynamic(Long id);
+
+    Result<Void> openComment(Long id);
+
+    Result<Void> closeComment(Long id);
 }

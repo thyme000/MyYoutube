@@ -16,6 +16,8 @@ import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
+import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
+import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.message.ContentDocMessage;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -70,6 +72,7 @@ public class DynamicServiceImpl implements IDynamicService {
     private final UserPort userPort;
     private final TranscodePort transcodePort;
     private final IAudioService audioService;
+    private final ContentDocPort contentDocPort;
 
     @Override
     @Transactional
@@ -175,12 +178,15 @@ public class DynamicServiceImpl implements IDynamicService {
         dynamic.setIsDelete(0);
         dynamic.setCreateTime(java.time.LocalDateTime.now());
         dynamic.setTags(StringUtils.hasText(dto.getTags()) ? dto.getTags().trim() : null);
+        dynamic.setVisibility("public");
+        dynamic.setAllowComment(dto.getAllowComment() != null && dto.getAllowComment() == 0 ? 0 : 1);
         // content 池先行: 预分配雪花id, 动态表主键与之相同
         Content content = new Content()
                 .setId(IdWorker.getId())
                 .setType(ContentTypeEnum.DYNAMIC)
                 .setAuthorId(userId)
                 .setStatus(VideoStatusEnum.PUBLISHED.getCode())
+                .setVisibility("public")
                 .setCreateTime(dynamic.getCreateTime());
         dynamic.setId(content.getId());
         contentMapper.insert(content);
@@ -207,6 +213,7 @@ public class DynamicServiceImpl implements IDynamicService {
         Page<Dynamic> page = dynamicMapper.selectPage(pageQuery.toPage(),
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Dynamic>()
                         .eq(Dynamic::getIsDelete, 0)
+                        .eq(Dynamic::getVisibility, "public")
                         .orderByDesc(Dynamic::getCreateTime));
         List<DynamicVO> vos = toVOs(page.getRecords());
         return Result.success(PageResult.of(page.getTotal(), page.getPages(), vos));
@@ -217,6 +224,13 @@ public class DynamicServiceImpl implements IDynamicService {
         Dynamic dynamic = dynamicMapper.selectById(id);
         if (dynamic == null || dynamic.getIsDelete() != null && dynamic.getIsDelete() == 1) {
             return Result.fail("动态不存在");
+        }
+        // 私密动态仅作者本人可见
+        if ("private".equals(dynamic.getVisibility())) {
+            String uid = UserContext.getUserId();
+            if (uid == null || !uid.equals(String.valueOf(dynamic.getUserId()))) {
+                return Result.fail("无权查看该动态");
+            }
         }
         List<DynamicVO> vos = toVOs(List.of(dynamic));
         DynamicVO vo = vos.get(0);
@@ -268,6 +282,97 @@ public class DynamicServiceImpl implements IDynamicService {
             return Result.fail("无权查看该任务");
         }
         return Result.success(toDownloadVO(task));
+    }
+
+    @Override
+    @Transactional
+    public Result<Void> deleteDynamic(Long id) {
+        Long userId = getUserId();
+        boolean success = dynamicMapper.update(null,
+                new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Dynamic>()
+                        .eq(Dynamic::getId, id)
+                        .eq(Dynamic::getUserId, userId)
+                        .set(Dynamic::getIsDelete, 1)) > 0;
+        if (!success) {
+            return Result.fail("删除失败,请稍后再试");
+        }
+        // content 池无删除标记, 不同步摘除的话池分发与创作中心会把已删动态查回来
+        contentService.removeById(id);
+        // ES 尽力删除, 失败不影响 DB 删除
+        try {
+            contentDocPort.deleteDoc(id);
+        } catch (Exception e) {
+            log.warn("ES 动态文档删除失败, dynamicId={}", id, e);
+        }
+        return Result.success();
+    }
+
+    @Override
+    public Result<Void> privateDynamic(Long id) {
+        return switchVisibility(id, "private");
+    }
+
+    @Override
+    public Result<Void> publicDynamic(Long id) {
+        return switchVisibility(id, "public");
+    }
+
+    private Result<Void> switchVisibility(Long id, String visibility) {
+        Long userId = getUserId();
+        Dynamic dynamic = dynamicMapper.selectById(id);
+        if (dynamic == null || !userId.equals(dynamic.getUserId())) {
+            return Result.fail("动态不存在");
+        }
+        boolean success = dynamicMapper.update(null,
+                new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Dynamic>()
+                        .eq(Dynamic::getId, id)
+                        .eq(Dynamic::getUserId, userId)
+                        .set(Dynamic::getVisibility, visibility)) > 0;
+        if (!success) {
+            return Result.fail("修改失败");
+        }
+        // content 池随领域状态机同步
+        contentService.lambdaUpdate()
+                .eq(Content::getId, id)
+                .set(Content::getVisibility, visibility)
+                .update();
+        // ES 同步: 私密清空 suggest 防搜索联想泄露, 公开按动态字段重建
+        try {
+            if ("private".equals(visibility)) {
+                contentDocPort.syncVisibility(id, new VisibilitySync(null, null, null, "private", false));
+            } else {
+                // 动态无简介字段, suggest 重建时以空串占位(List.of 不允许 null 元素)
+                contentDocPort.syncVisibility(id, new VisibilitySync(
+                        StringUtils.hasText(dynamic.getTitle()) ? dynamic.getTitle() : "",
+                        "", dynamic.getTags(), "public", true));
+            }
+        } catch (Exception e) {
+            log.warn("ES 动态可见性同步失败, dynamicId={}, visibility={}", id, visibility, e);
+        }
+        return Result.success();
+    }
+
+    @Override
+    public Result<Void> openComment(Long id) {
+        return switchComment(id, 1);
+    }
+
+    @Override
+    public Result<Void> closeComment(Long id) {
+        return switchComment(id, 0);
+    }
+
+    private Result<Void> switchComment(Long id, int allow) {
+        Long userId = getUserId();
+        boolean success = dynamicMapper.update(null,
+                new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Dynamic>()
+                        .eq(Dynamic::getId, id)
+                        .eq(Dynamic::getUserId, userId)
+                        .set(Dynamic::getAllowComment, allow)) > 0;
+        if (!success) {
+            return Result.fail("修改失败");
+        }
+        return Result.success();
     }
 
     private DynamicDownloadVO toDownloadVO(TranscodeTaskVO task) {
@@ -365,6 +470,8 @@ public class DynamicServiceImpl implements IDynamicService {
             vo.setAudioDurationMs(d.getAudioDurationMs());
             vo.setAudioTitle(d.getAudioTitle());
             vo.setTotalDurationMs(d.getTotalDurationMs());
+            vo.setVisibility(d.getVisibility());
+            vo.setAllowComment(d.getAllowComment());
             vo.setAudioUrl(StringUtils.hasText(d.getAudioObjectKey())
                     ? storageUtil.signGetUrl(d.getAudioObjectKey(), MEDIA_SIGN_SECONDS) : null);
             vo.setAuthorNickname(nicknames.getOrDefault(d.getUserId(), ""));
