@@ -15,6 +15,7 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
@@ -239,6 +240,11 @@ public class DynamicServiceImpl implements IDynamicService {
         if (c != null) {
             vo.setLikeCount(c.getLikeCount());
             vo.setCommentCount(c.getCommentCount());
+        }
+        // 作者粉丝数(详情层展示, 与视频详情同口径)
+        UserSummary author = userPort.getUser(dynamic.getUserId());
+        if (author != null) {
+            vo.setAuthorFanCount(author.getFans());
         }
         return Result.success(vo);
     }

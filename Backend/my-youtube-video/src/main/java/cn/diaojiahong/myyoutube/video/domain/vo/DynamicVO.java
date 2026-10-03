@@ -41,6 +41,8 @@ public class DynamicVO {
     private String authorId;
     private String authorNickname;
     private String authorAvatarUrl;
+    /** 作者粉丝数(详情层展示) */
+    private Long authorFanCount;
     /** 标签, 逗号分隔(复用 tag 体系) */
     private String tags;
 
