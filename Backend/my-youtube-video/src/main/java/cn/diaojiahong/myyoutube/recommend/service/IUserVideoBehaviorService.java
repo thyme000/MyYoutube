@@ -15,5 +15,5 @@ import com.baomidou.mybatisplus.extension.service.IService;
  */
 public interface IUserVideoBehaviorService extends IService<UserVideoBehavior> {
 
-    Result<Void> watchVideo(BehaviorDTO behaviorDTO);
+    Result<Void> report(BehaviorDTO behaviorDTO);
 }

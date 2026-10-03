@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * <p>
- * 用户-视频行为流水表 前端控制器
+ * 用户-内容行为流水 前端控制器
  * </p>
  *
  * @author thyme
@@ -30,13 +30,13 @@ public class UserVideoBehaviorController {
     private final IUserVideoBehaviorService userVideoBehaviorService;
 
     /**
-     * 用户观看视频的行为记录
+     * 用户观看内容的行为记录(视频/动态共用)
      * @param behaviorDTO
      * @return
      */
-    @PostMapping("/video")
-    @Operation(summary = "用户观看视频行为")
-    public Result<Void> watchVideo(@RequestBody BehaviorDTO behaviorDTO) {
-        return userVideoBehaviorService.watchVideo(behaviorDTO);
+    @PostMapping("/content")
+    @Operation(summary = "用户观看内容行为")
+    public Result<Void> report(@RequestBody BehaviorDTO behaviorDTO) {
+        return userVideoBehaviorService.report(behaviorDTO);
     }
 }

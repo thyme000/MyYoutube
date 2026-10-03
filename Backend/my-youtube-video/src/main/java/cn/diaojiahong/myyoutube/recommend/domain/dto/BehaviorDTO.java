@@ -6,12 +6,12 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 用户观看某视频的行为
+ * 用户观看某内容的行为
  */
 @Data
 public class BehaviorDTO {
-    // 视频id
-    private Long videoId;
+    // 内容id(video/dynamic 共用 content 池)
+    private Long contentId;
     // 事件
     private EventEnum event;
     // 观看时间

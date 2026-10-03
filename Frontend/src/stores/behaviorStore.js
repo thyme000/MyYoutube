@@ -1,12 +1,12 @@
 // @ts-check
 /**
  * 播放行为上报（PLAY / FINISH / LIKE / DISLIKE…）。
- * PLAY 按视频去重，只上报一次；去重集合跨详情页、短视频、搜索全屏共用。
+ * PLAY 按内容去重，只上报一次；去重集合跨详情页、短视频、搜索全屏、动态详情层共用。
  * 本 store 只依赖 authStore，供各域 store 直接 import。
  */
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { reportVideoBehavior } from "../api/behaviorApi";
+import { reportContentBehavior } from "../api/behaviorApi";
 import { parseDigitSnowflakeId } from "../utils/snowflakeId.js";
 import { useAuthStore } from "./authStore";
 
@@ -18,25 +18,25 @@ function formatWatchTime(date) {
 export const useBehaviorStore = defineStore("behavior", () => {
   const reportedPlayIds = ref(new Set());
 
-  function hasPlayReported(videoId) {
-    return reportedPlayIds.value.has(String(videoId ?? ""));
+  function hasPlayReported(contentId) {
+    return reportedPlayIds.value.has(String(contentId ?? ""));
   }
 
-  function markPlayReported(videoId) {
-    const key = String(videoId ?? "");
+  function markPlayReported(contentId) {
+    const key = String(contentId ?? "");
     if (!key) return;
     const next = new Set(reportedPlayIds.value);
     next.add(key);
     reportedPlayIds.value = next;
   }
 
-  async function report(videoIdLike, event, watchDurationMs = 0) {
+  async function report(contentIdLike, event, watchDurationMs = 0) {
     if (!useAuthStore().token) return;
-    const videoId = parseDigitSnowflakeId(videoIdLike);
-    if (!videoId) return;
+    const contentId = parseDigitSnowflakeId(contentIdLike);
+    if (!contentId) return;
     try {
-      await reportVideoBehavior({
-        videoId,
+      await reportContentBehavior({
+        contentId,
         event,
         watchTime: formatWatchTime(new Date()),
         watchDuration: Math.max(0, Math.floor(Number(watchDurationMs) || 0)),
