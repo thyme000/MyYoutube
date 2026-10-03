@@ -6,7 +6,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -25,7 +24,4 @@ public interface UserVideoPort {
 
     @PostMapping("/liked-map")
     Map<Long, Boolean> likedMap(@RequestParam("userId") Long userId, @RequestBody Set<String> videoIds);
-
-    @PostMapping("/followed-map")
-    Map<Long, Boolean> followedMap(@RequestParam("userId") Long userId, @RequestBody Collection<Long> authorIds);
 }

@@ -39,6 +39,7 @@ import {
   closeMyVideoComment,
 } from "../api/videoApi.js";
 import { deleteMyDynamic } from "../api/dynamicApi.js";
+import { useHistoryStore, HISTORY_MIN_PLAY_SEC } from "./historyStore.js";
 import { followAuthor, unfollowAuthor } from "../api/followApi.js";
 import { toast as pushToast } from "../utils/toast.js";
 import { downloadRemoteFile, videoDownloadName } from "../utils/downloadFile.js";
@@ -635,6 +636,10 @@ export const useImmersiveStore = defineStore("immersive", {
       if (this.immersivePlaybackAccSec >= duration * BEHAVIOR_PLAY_THRESHOLD && !behavior.hasPlayReported(cur.id)) {
         behavior.markPlayReported(cur.id);
         void behavior.report(cur.id, "PLAY", current * 1000);
+      }
+      // 满阈值写观看历史(视频按播放秒数, 流内动态无逐图时间轴, 同按秒数近似)
+      if (this.immersivePlaybackAccSec >= HISTORY_MIN_PLAY_SEC) {
+        void useHistoryStore().recordViewed(cur.id);
       }
       if (isPlaying && this.isLongImmersiveFeedVideo(cur)) {
         longResumeTickCount += 1;

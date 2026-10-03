@@ -19,6 +19,7 @@ import { useAuthStore } from "./authStore";
 import { useBehaviorStore } from "./behaviorStore";
 import { useCommentStore } from "./commentStore";
 import { useFollowStore } from "./followStore";
+import { useHistoryStore, HISTORY_MIN_PLAY_SEC } from "./historyStore";
 import { useProfileStore } from "./profileStore";
 import { useShareStore } from "./shareStore";
 import { useStudioStore } from "./studioStore";
@@ -356,6 +357,10 @@ export const useDetailStore = defineStore("detail", () => {
     if (playAccSec >= duration * PLAY_THRESHOLD && !behavior.hasPlayReported(d.id)) {
       behavior.markPlayReported(d.id);
       void behavior.report(d.id, "PLAY", current * 1000);
+    }
+    // 满阈值写观看历史(store 内会话去重)
+    if (playAccSec >= HISTORY_MIN_PLAY_SEC) {
+      void useHistoryStore().recordViewed(d.id);
     }
 
     // 长视频按 timeupdate 次数兜底上报续播，每 30 次触发一次

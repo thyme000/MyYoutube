@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,10 +31,5 @@ public class InternalUserVideoController {
     @PostMapping("/liked-map")
     public Map<Long, Boolean> likedMap(@RequestParam("userId") Long userId, @RequestBody Set<String> videoIds) {
         return userVideoPort.likedMap(userId, videoIds);
-    }
-
-    @PostMapping("/followed-map")
-    public Map<Long, Boolean> followedMap(@RequestParam("userId") Long userId, @RequestBody Collection<Long> authorIds) {
-        return userVideoPort.followedMap(userId, authorIds);
     }
 }

@@ -10,7 +10,6 @@ import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
-import cn.diaojiahong.myyoutube.user.domain.vo.UserLongHistoryVideoVO;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.search.api.message.UserDocSyncMessage;
 import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
@@ -150,107 +149,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         return Long.valueOf(userId);
     }
 
-
-    @Override
-    public Result<PageResult<UserLongHistoryVideoVO>> getLongHistory(PageQuery pageQuery) {
-        int pageSize = pageQuery.getPageSize();
-        int pageNo = pageQuery.getPageNo();
-        // 起始索引
-        int start = (pageNo - 1) * pageSize;
-        // 结束索引
-        int end = start + pageSize - 1;
-        Long userId = getUserId();
-
-        // 长视频id
-        Set<String> longVideoIds = redisTemplate.opsForZSet().reverseRange(
-                RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId,
-                start, end);
-        if (longVideoIds == null || longVideoIds.isEmpty()) {
-            // 没有长视频
-            return Result.success(PageResult.of(0, 0, List.of()));
-        }
-
-        List<UserLongHistoryVideoVO> longHistoryVideoVOs = userVideoPort.listByIdsOrdered(longVideoIds).stream()
-                .map(summary -> BeanUtil.toBean(summary, UserLongHistoryVideoVO.class))
-                .toList();
-
-        // 过滤掉已经删除的长视频id
-        Set<String> dbIds = longHistoryVideoVOs.stream().map(UserLongHistoryVideoVO::getId).collect(Collectors.toSet());
-        Set<String> missingIds = new HashSet<>(longVideoIds);
-        missingIds.removeAll(dbIds);
-        if (!missingIds.isEmpty()) {
-            String tsKey = RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId;
-            String ptKey = RedisConstants.USER_PLAYBACK_RESUME + userId;
-            redisTemplate.opsForZSet().remove(tsKey, missingIds.toArray());
-            redisTemplate.opsForHash().delete(ptKey, missingIds.toArray());
-        }
-        if (longHistoryVideoVOs.isEmpty()) {
-            return Result.success(PageResult.of(0, 0, List.of()));
-        }
-
-        // 转换视频封面url和视频url
-        longHistoryVideoVOs.forEach(vo -> {
-            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), STORAGE_EXPIRE));
-            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), STORAGE_EXPIRE));
-        });
-
-        List<Long> authorIds = longHistoryVideoVOs
-                .stream()
-                .map(UserLongHistoryVideoVO::getAuthorId)
-                .collect(Collectors.toList());
-        // 获取作者昵称
-        Map<Long, String> authorNicknames = getAuthorNicknames(authorIds);
-        // 获取作者头像url
-        Map<Long, String> authorAvatarUrls = getAuthorAvatarUrls(authorIds);
-
-        // 填充作者昵称和头像url
-        longHistoryVideoVOs.forEach(vo -> {
-            vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
-            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), STORAGE_EXPIRE));
-        });
-
-        // 获取用户长视频观看时长记录
-        Map<Object, Object> playbackResumes = redisTemplate
-                .opsForHash()
-                .entries(RedisConstants.USER_PLAYBACK_RESUME + userId);
-
-        // 填充观看时长记录
-        longHistoryVideoVOs.forEach(vo -> {
-            vo.setPlaybackTime(Long.parseLong(playbackResumes.get(vo.getId() == null ? 0L : vo.getId()).toString()));
-        });
-
-        // 获取用户关注状态
-        Map<Long, Boolean> followMap = getFollowMap(userId, authorIds);
-        // 填充关注状态
-        longHistoryVideoVOs.forEach(vo -> {
-            Boolean isFollow = followMap.get(vo.getAuthorId());
-            vo.setIsFollow(isFollow != null && isFollow);
-        });
-
-        // 获取点赞状态
-        Map<Long, Boolean> collect = userVideoPort.likedMap(userId, dbIds);
-        // 填充点赞状态
-        longHistoryVideoVOs.forEach(vo -> {
-            vo.setIsLike(collect.getOrDefault(Long.valueOf(vo.getId()), false));
-        });
-
-        long total = redisTemplate.opsForZSet().zCard(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId);
-
-        long pages = total / pageSize;
-        if (total % pageSize != 0) {
-            pages++;
-        }
-
-        // 返回结果
-        return Result.success(PageResult.of(total, pages, longHistoryVideoVOs));
-    }
-
-    private Map<Long, Boolean> getFollowMap(Long userId, List<Long> authorIds) {
-        if (authorIds == null || authorIds.isEmpty()) {
-            return Map.of();
-        }
-        return userVideoPort.followedMap(userId, authorIds);
-    }
 
     // getShortsHistory 已随 user_shorts_play 行为记录一并退役(统一内容池一期)
 

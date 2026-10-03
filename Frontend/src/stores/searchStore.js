@@ -19,6 +19,7 @@ import { useBehaviorStore } from "./behaviorStore.js";
 import { useCommentPanelStore } from "./commentPanelStore.js";
 import { useFollowStore } from "./followStore.js";
 import { useShareStore } from "./shareStore.js";
+import { useHistoryStore, HISTORY_MIN_PLAY_SEC } from "./historyStore.js";
 import { patchRowById, patchRowsByAuthorId, patchRowsById } from "../utils/feedRowPatch.js";
 
 export const SEARCH_PAGE_SIZE = 10;
@@ -53,6 +54,10 @@ let lastExpandLikeAt = 0;
 let expandResumeTickCount = 0;
 let expandResumeInFlight = false;
 let expandResumeLastSentAtMs = 0;
+/** 搜索全屏的历史写入累计(与 detailStore 同口径的增量累加) */
+let expandHistId = "";
+let expandHistAccSec = 0;
+let expandHistLastSec = null;
 
 /**
  * @type {{
@@ -567,6 +572,23 @@ export const useSearchStore = defineStore("search", {
       this.searchExpandCurrentTime = Number(v.currentTime) || 0;
       if (!this.searchExpandAutoplayPending) {
         this.searchExpandPaused = v.paused;
+      }
+      const histCur = this.searchExpandCard;
+      if (histCur?.id) {
+        if (expandHistId !== String(histCur.id)) {
+          expandHistId = String(histCur.id);
+          expandHistAccSec = 0;
+          expandHistLastSec = null;
+        }
+        const histPrev = expandHistLastSec;
+        expandHistLastSec = this.searchExpandCurrentTime;
+        if (histPrev != null) {
+          const histDelta = this.searchExpandCurrentTime - histPrev;
+          if (histDelta > 0 && histDelta <= 3) expandHistAccSec += histDelta;
+        }
+        if (expandHistAccSec >= HISTORY_MIN_PLAY_SEC) {
+          void useHistoryStore().recordViewed(histCur.id);
+        }
       }
       const blur = expandRefs.blur?.value;
       if (blur && v && Math.abs(blur.currentTime - v.currentTime) > 0.2) {

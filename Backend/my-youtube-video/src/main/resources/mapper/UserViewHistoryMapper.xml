@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.history.mapper.UserViewHistoryMapper">
+
+    <insert id="upsert">
+        INSERT INTO user_view_history (user_id, content_id)
+        VALUES (#{userId}, #{contentId})
+        ON DUPLICATE KEY UPDATE view_time = NOW()
+    </insert>
+
+    <select id="selectHistoryIds" resultType="java.lang.Long">
+        SELECT h.content_id
+        FROM user_view_history h
+                 INNER JOIN content c ON h.content_id = c.id
+        WHERE h.user_id = #{userId}
+        ORDER BY h.view_time DESC
+            LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="selectHistoryCount" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM user_view_history h
+                 INNER JOIN content c ON h.content_id = c.id
+        WHERE h.user_id = #{userId}
+    </select>
+</mapper>

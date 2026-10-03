@@ -425,14 +425,6 @@ export async function searchVideos(keyword) {
   return normalizeVideoList(data);
 }
 
-/**
- * GET /user/history/long 长视频历史分页（仅当前登录用户）
- */
-/** @param {Record<string, any>} [query] @returns {Promise<PageResult>} */
-export async function fetchLongHistoryPage(query = {}) {
-  const data = await httpRequest("/user/history/long", { method: "GET", query });
-  return normalizePageResult(data);
-}
 
 /**
  * GET /videos/follow/list 关注视频流（分页，滚动加载）

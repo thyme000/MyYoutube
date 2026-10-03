@@ -76,10 +76,10 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
         return;
       }
       if (menu.key === "history") {
-        history.historyLongPageNo = 1;
-        await history.loadLongPage({ reset: true });
+        history.historyPageNo = 1;
+        await history.loadPage({ reset: true });
         home.cards = [];
-        navigation.pageHint = "历史播放记录 · 长视频与短视频（分页）";
+        navigation.pageHint = "观看历史 · 视频/动态混排（分页）";
         return;
       }
       if (menu.key === "liked") {
@@ -174,9 +174,9 @@ export const useMenuOrchestrationStore = defineStore("menuOrchestration", () => 
         home.saveSnapshot();
       } else {
         if (menu.key === "history") {
-          history.historyLongRows = [];
-          history.historyLongPageNo = 1;
-          history.historyLongPages = 0;
+          history.historyRows = [];
+          history.historyPageNo = 1;
+          history.historyPages = 0;
           home.cards = [];
         } else if (menu.key === "liked") {
           liked.likedRows = [];

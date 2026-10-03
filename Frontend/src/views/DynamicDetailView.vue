@@ -13,6 +13,7 @@ import { likeVideo, cancelLikeVideo, fetchVideoLikedStatus } from "../api/likeAp
 import { normalizeCommentVo } from "../api/commentApi";
 import { useAuthStore } from "../stores/authStore";
 import { useBehaviorStore } from "../stores/behaviorStore";
+import { useHistoryStore, HISTORY_MIN_PLAY_SEC } from "../stores/historyStore";
 import { useCommentStore } from "../stores/commentStore";
 import { useNavigationStore } from "../stores/navigationStore";
 import { applyAvatarFallback, DEFAULT_PROFILE_AVATAR_URL } from "../utils/userProfile";
@@ -22,6 +23,7 @@ const auth = useAuthStore();
 const navigationStore = useNavigationStore();
 const commentStore = useCommentStore();
 const behavior = useBehaviorStore();
+const historyStore = useHistoryStore();
 
 /** 与 detailStore 同口径: 播放时长过总时长 70% 记 PLAY, 单次进度增量超 3s 视为 seek 丢弃 */
 const PLAY_THRESHOLD = 0.7;
@@ -77,6 +79,12 @@ function onDynTimeUpdate(sec) {
   if (totalSec > 0 && dynPlayAccSec >= totalSec * PLAY_THRESHOLD && !behavior.hasPlayReported(d.id)) {
     behavior.markPlayReported(d.id);
     void behavior.report(d.id, "PLAY", sec * 1000);
+  }
+  // 翻到第 2 张(无第 2 张时退化为 3 秒)写观看历史
+  const secondStartMs = Number(d.items?.[1]?.startMs) || 0;
+  const historyThresholdSec = secondStartMs > 0 ? secondStartMs / 1000 : HISTORY_MIN_PLAY_SEC;
+  if (sec >= historyThresholdSec) {
+    void historyStore.recordViewed(d.id);
   }
 }
 

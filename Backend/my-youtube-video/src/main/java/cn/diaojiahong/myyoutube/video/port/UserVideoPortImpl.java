@@ -70,18 +70,4 @@ public class UserVideoPortImpl implements UserVideoPort {
                 .in(ContentLike::getContentId, videoIds)
                 .list().stream().collect(Collectors.toMap(ContentLike::getContentId, v -> true));
     }
-
-    @Override
-    public Map<Long, Boolean> followedMap(Long userId, Collection<Long> authorIds) {
-        if (authorIds == null || authorIds.isEmpty()) {
-            return Map.of();
-        }
-        List<UserFollow> list = new LambdaQueryChainWrapper<>(userFollowMapper)
-                .eq(UserFollow::getFollowerId, userId)
-                .eq(UserFollow::getIsDeleted, false)
-                .in(UserFollow::getFolloweeId, authorIds)
-                .list();
-        return authorIds.stream().collect(Collectors.toMap(id -> id,
-                id -> list.stream().anyMatch(f -> f.getFolloweeId().equals(id))));
-    }
 }
