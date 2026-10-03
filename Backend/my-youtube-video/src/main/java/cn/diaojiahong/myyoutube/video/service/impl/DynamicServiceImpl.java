@@ -461,7 +461,9 @@ public class DynamicServiceImpl implements IDynamicService {
             DynamicVO vo = new DynamicVO();
             vo.setId(String.valueOf(d.getId()));
             vo.setUserId(String.valueOf(d.getUserId()));
+            vo.setAuthorId(String.valueOf(d.getUserId()));
             vo.setTitle(d.getTitle());
+            vo.setTags(d.getTags());
             vo.setCanvasType(d.getCanvasType());
             vo.setCanvasW(d.getCanvasW());
             vo.setCanvasH(d.getCanvasH());

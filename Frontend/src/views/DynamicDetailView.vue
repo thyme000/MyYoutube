@@ -60,6 +60,18 @@ const isSelfDynamic = computed(() => {
 });
 const followState = computed(() => followStore.getOverride(dynamic.value?.authorId) ?? isFollow.value);
 
+/** 标签展示: 逗号分隔字符串收敛成数组 */
+const dynamicTags = computed(() =>
+  String(dynamic.value?.tags || "")
+    .split(/[,，]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+);
+
+function onTagClick(tag) {
+  navigationStore.navigateToTag(tag);
+}
+
 const comments = ref([]);
 const commentsLoading = ref(false);
 const commentTotal = ref(0);
@@ -378,6 +390,18 @@ function onAvatarError(e) {
 
         <p v-if="dynamic.title" class="dyn-detail-title">{{ dynamic.title }}</p>
 
+        <div v-if="dynamicTags.length" class="dyn-detail-tags">
+          <button
+            v-for="tg in dynamicTags"
+            :key="'dytg-' + tg"
+            type="button"
+            class="dyn-detail-tag"
+            @click="onTagClick(tg)"
+          >
+            #{{ tg }}
+          </button>
+        </div>
+
         <div class="dyn-detail-actions">
           <button
             type="button"
@@ -578,6 +602,24 @@ function onAvatarError(e) {
   margin: 0;
   font-size: 15px;
   line-height: 1.5;
+}
+.dyn-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dyn-detail-tag {
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: rgb(var(--slate-900-rgb, 15 23 42) / 0.06);
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.dyn-detail-tag:hover {
+  background: rgb(var(--slate-900-rgb, 15 23 42) / 0.12);
 }
 .dyn-detail-actions {
   display: flex;

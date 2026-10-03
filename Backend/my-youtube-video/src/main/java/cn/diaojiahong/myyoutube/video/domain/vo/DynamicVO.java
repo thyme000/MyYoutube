@@ -38,8 +38,11 @@ public class DynamicVO {
     private List<Item> items;
 
     // 作者信息
+    private String authorId;
     private String authorNickname;
     private String authorAvatarUrl;
+    /** 标签, 逗号分隔(复用 tag 体系) */
+    private String tags;
 
     private Long createTime;
 
