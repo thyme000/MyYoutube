@@ -6,7 +6,7 @@
  * 播放器 DOM ref 由宿主组件 ImmersiveView 经 registerImmersiveFeedPlayerRefs 注册。
  */
 import { defineStore } from "pinia";
-import { nextTick } from "vue";
+import { nextTick, toRaw } from "vue";
 import {
   resolveVideoUrl,
   resolveVideoUrlFromLists,
@@ -38,6 +38,7 @@ import {
   openMyVideoComment,
   closeMyVideoComment,
 } from "../api/videoApi.js";
+import { deleteMyDynamic } from "../api/dynamicApi.js";
 import { followAuthor, unfollowAuthor } from "../api/followApi.js";
 import { toast as pushToast } from "../utils/toast.js";
 import { downloadRemoteFile, videoDownloadName } from "../utils/downloadFile.js";
@@ -78,6 +79,19 @@ export function registerImmersiveFeedPlayerRefs({ fg, bg, center, dynamic }) {
   if (bg) playerRefs.bg = bg;
   if (center) playerRefs.center = center;
   if (dynamic) playerRefs.dynamic = dynamic;
+}
+
+/**
+ * 事件是否来自「已被换下」的前景 <video>。
+ * 切条时前景元素按 id 重建，浏览器会给旧元素补发 pause / loadedmetadata 等迟到事件；
+ * 这些事件写回的是全局播放态，会把正在播的新视频误判成暂停（中央播放键常驻不消）。
+ * 判据只用元素身份 —— 一个函数覆盖全部 fg 事件。
+ */
+function isStaleFgEvent(e) {
+  const el = e?.target;
+  if (!el) return false;
+  // ref 持有对象时会被包成 proxy，比身份前统一取原始值
+  return toRaw(el) !== toRaw(playerRefs.fg?.value);
 }
 
 let bufferingUITimer = null;
@@ -182,6 +196,8 @@ export const useImmersiveStore = defineStore("immersive", {
     selfVideoDeleteConfirmOpen: false,
     /** 删除确认弹窗对应的视频 id（创作中心 / 短视频流共用） */
     pendingDeleteVideoId: null,
+    /** 待删除内容类型: video/dynamic(创作中心混排两域) */
+    pendingDeleteRowType: null,
     /** 顺播累计秒数 + 当前条 id */
     immersivePlaybackAccSec: 0,
     immersiveLastTimeSec: null,
@@ -553,6 +569,7 @@ export const useImmersiveStore = defineStore("immersive", {
     },
 
     async onImmersiveFeedFgLoadedMetadata(e) {
+      if (isStaleFgEvent(e)) return;
       const v = e.target;
       const tokenOfEl = Number(v?.dataset?.playToken || 0);
       this.applyImmersiveLongPlaybackResumeIfNeeded(v);
@@ -629,6 +646,7 @@ export const useImmersiveStore = defineStore("immersive", {
     },
 
     onImmersiveFeedFgTimeUpdate(e) {
+      if (isStaleFgEvent(e)) return;
       if (!hooks.isImmersiveMenuActive() && !this.profileFeedOpen) {
         return;
       }
@@ -694,7 +712,8 @@ export const useImmersiveStore = defineStore("immersive", {
       this.accImmersiveFeedPlayback(this.immersiveFeedCurrent, t, total, !this.immersiveFeedPaused);
     },
 
-    onImmersiveFeedFgPlay() {
+    onImmersiveFeedFgPlay(e) {
+      if (isStaleFgEvent(e)) return;
       this.immersiveFeedPaused = false;
       if (this.isLongImmersiveFeedVideo()) {
         longResumeTickCount = 0;
@@ -702,7 +721,8 @@ export const useImmersiveStore = defineStore("immersive", {
       playerRefs.bg?.value?.play().catch(() => {});
     },
 
-    onImmersiveFeedFgPause() {
+    onImmersiveFeedFgPause(e) {
+      if (isStaleFgEvent(e)) return;
       if (this.immersiveFeedAutoplayPending) {
         return;
       }
@@ -726,6 +746,7 @@ export const useImmersiveStore = defineStore("immersive", {
     },
 
     onImmersiveFeedFgDurationChange(e) {
+      if (isStaleFgEvent(e)) return;
       const v = e.target;
       const dur = readVideoDurationFromVideoEl(v);
       if (dur > 0) {
@@ -739,6 +760,7 @@ export const useImmersiveStore = defineStore("immersive", {
     },
 
     onImmersiveFeedFgSeeked(e) {
+      if (isStaleFgEvent(e)) return;
       this.immersiveLastTimeSec = null;
       const fg = e.target;
       const bg = playerRefs.bg?.value;
@@ -763,7 +785,9 @@ export const useImmersiveStore = defineStore("immersive", {
       }
     },
 
-    onImmersiveFeedFgEnded() {
+    onImmersiveFeedFgEnded(e) {
+      // DynamicPlayer 的 @ended 无 payload，不受元素身份判据影响
+      if (isStaleFgEvent(e)) return;
       const cur = this.immersiveFeedCurrent;
       const now = Number(this.immersiveFeedCurrentTime || 0);
       if (cur?.id) {
@@ -1231,31 +1255,35 @@ export const useImmersiveStore = defineStore("immersive", {
     cancelDeleteCurrentSelfVideo() {
       this.selfVideoDeleteConfirmOpen = false;
       this.pendingDeleteVideoId = null;
+      this.pendingDeleteRowType = null;
     },
 
     async confirmDeleteCurrentSelfVideo() {
       const rawId = this.pendingDeleteVideoId;
+      const isDynamic = this.pendingDeleteRowType === "dynamic";
       if (!rawId) {
         this.selfVideoDeleteConfirmOpen = false;
         return;
       }
       try {
-        await deleteMyVideo(rawId);
+        await (isDynamic ? deleteMyDynamic(rawId) : deleteMyVideo(rawId));
       } catch (e) {
         pushToast(e?.message || "删除失败", "error");
         return;
       }
       this.selfVideoDeleteConfirmOpen = false;
       this.pendingDeleteVideoId = null;
+      this.pendingDeleteRowType = null;
       hooks.removeVideoById(String(rawId));
 
+      const deletedTip = isDynamic ? "已删除该动态" : "已删除该视频";
       // 当前队列被删空时没有可播的了，直接退出全屏流
       const scopeEmpty =
         (this.feedScope === "profile" && !this.profileFeedQueue.length) ||
         (this.feedScope === "liked" && !this.likedFeedQueue.length);
       if (scopeEmpty) {
         this.closeProfileFeed();
-        pushToast("已删除该视频", "success");
+        pushToast(deletedTip, "success");
         return;
       }
       const list = this.unifiedFeedList;
@@ -1265,7 +1293,7 @@ export const useImmersiveStore = defineStore("immersive", {
       nextTick(() => {
         this.reloadFeedPlayers();
       });
-      pushToast("已删除该视频", "success");
+      pushToast(deletedTip, "success");
     },
 
     /** 退出全屏流：停播并清空队列，复位面板与续播节流状态 */
@@ -1289,6 +1317,7 @@ export const useImmersiveStore = defineStore("immersive", {
       this.selfVideoActionOpen = false;
       this.selfVideoDeleteConfirmOpen = false;
       this.pendingDeleteVideoId = null;
+      this.pendingDeleteRowType = null;
       useCommentPanelStore().immersiveCommentPanelOpen = false;
       this.profileFeedOpen = false;
       this.feedScope = "immersive";
