@@ -182,35 +182,61 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         }
         q.orderByDesc(Content::getCreateTime);
         Page<Content> page = contentService.page(pageQuery.toPage(), q);
-        List<Long> ids = page.getRecords().stream().map(Content::getId).toList();
-        if (ids.isEmpty()) {
+        if (page.getRecords().isEmpty()) {
             return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
-        Map<Long, Content> contents = page.getRecords().stream()
-                .collect(Collectors.toMap(Content::getId, Function.identity()));
+        List<Boolean> follows = viewerId == null ? List.of(Boolean.FALSE)
+                : userFollowService.isFollowOnList(List.of(authorId), viewerId);
+        Map<Long, Boolean> followByAuthor = Map.of(authorId, !follows.isEmpty() && Boolean.TRUE.equals(follows.get(0)));
+        List<ContentFeedVO> list = buildContentFeedRows(page.getRecords(), viewerId, followByAuthor);
+        return PageResult.of(page.getTotal(), page.getPages(), list);
+    }
 
+    @Override
+    public PageResult<ContentFeedVO> followFeed(Long userId, PageQuery pageQuery) {
+        List<Long> followIds = userFollowService.getFollowIds(userId);
+        if (followIds == null || followIds.isEmpty()) {
+            return PageResult.of(0, 0, List.of());
+        }
+        Page<Content> page = contentService.page(pageQuery.toPage(),
+                new LambdaQueryWrapper<Content>()
+                        .in(Content::getAuthorId, followIds)
+                        .eq(Content::getStatus, VideoStatusEnum.PUBLISHED.getCode())
+                        .eq(Content::getVisibility, "public")
+                        .orderByDesc(Content::getCreateTime));
+        if (page.getRecords().isEmpty()) {
+            return PageResult.of(page.getTotal(), page.getPages(), List.of());
+        }
+        Map<Long, Boolean> followByAuthor = followIds.stream()
+                .collect(Collectors.toMap(Function.identity(), id -> true));
+        List<ContentFeedVO> list = buildContentFeedRows(page.getRecords(), userId, followByAuthor);
+        return PageResult.of(page.getTotal(), page.getPages(), list);
+    }
+
+    /**
+     * content 页行 → 卡片 VO: 补齐视频/动态媒体字段、作者信息与点赞态; followByAuthor 提供关注态
+     */
+    private List<ContentFeedVO> buildContentFeedRows(List<Content> rows, Long viewerId, Map<Long, Boolean> followByAuthor) {
+        List<Long> ids = rows.stream().map(Content::getId).toList();
         Map<Long, Video> videos = videoMapper.selectList(
                         new LambdaQueryWrapper<Video>().in(Video::getId, ids).eq(Video::getIsDelete, 0))
                 .stream().collect(Collectors.toMap(Video::getId, Function.identity()));
         Map<Long, Dynamic> dynamics = dynamicMapper.selectList(
                         new LambdaQueryWrapper<Dynamic>().in(Dynamic::getId, ids).eq(Dynamic::getIsDelete, 0))
                 .stream().collect(Collectors.toMap(Dynamic::getId, Function.identity()));
-
-        Map<Long, String> nicknames = userPort.getNicknames(List.of(authorId));
-        Map<Long, String> avatars = userPort.getAvatars(List.of(authorId));
+        List<Long> authorIds = rows.stream().map(Content::getAuthorId).distinct().toList();
+        Map<Long, String> nicknames = userPort.getNicknames(authorIds);
+        Map<Long, String> avatars = userPort.getAvatars(authorIds);
         Set<Long> likedIds = viewerId == null ? Set.of() : contentLikeMapper.selectList(
                         new LambdaQueryWrapper<ContentLike>()
                                 .eq(ContentLike::getUserId, viewerId)
                                 .eq(ContentLike::getIsLiked, ContentLikeConstants.LIKE)
                                 .in(ContentLike::getContentId, ids))
                 .stream().map(ContentLike::getContentId).collect(Collectors.toSet());
-        List<Boolean> follows = viewerId == null ? List.of(Boolean.FALSE)
-                : userFollowService.isFollowOnList(List.of(authorId), viewerId);
-        boolean isFollow = !follows.isEmpty() && Boolean.TRUE.equals(follows.get(0));
 
-        List<ContentFeedVO> list = new ArrayList<>(ids.size());
-        for (Long id : ids) {
-            Content c = contents.get(id);
+        List<ContentFeedVO> list = new ArrayList<>(rows.size());
+        for (Content c : rows) {
+            Long id = c.getId();
             Video v = videos.get(id);
             Dynamic d = dynamics.get(id);
             if (v == null && d == null) {
@@ -224,11 +250,11 @@ public class ContentFeedServiceImpl implements IContentFeedService {
             vo.setCommentCount(c.getCommentCount());
             vo.setShareCount(c.getShareCount());
             vo.setCreateTime(c.getCreateTime());
-            vo.setAuthorId(authorId);
-            vo.setAuthorNickname(nicknames.get(authorId));
-            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(avatars.get(authorId), URL_SIGN_EXPIRE_SECONDS));
+            vo.setAuthorId(c.getAuthorId());
+            vo.setAuthorNickname(nicknames.get(c.getAuthorId()));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(avatars.get(c.getAuthorId()), URL_SIGN_EXPIRE_SECONDS));
             vo.setIsLike(likedIds.contains(id));
-            vo.setIsFollow(isFollow);
+            vo.setIsFollow(Boolean.TRUE.equals(followByAuthor.get(c.getAuthorId())));
             if (v != null) {
                 vo.setTitle(v.getTitle());
                 vo.setDescription(v.getDescription());
@@ -244,7 +270,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
             }
             list.add(vo);
         }
-        return PageResult.of(page.getTotal(), page.getPages(), list);
+        return list;
     }
 
     /** 从时间轴 JSON 里取首帧图片 objectKey 作封面 */

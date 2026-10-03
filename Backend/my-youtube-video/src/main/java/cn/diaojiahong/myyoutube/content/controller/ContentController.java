@@ -35,6 +35,14 @@ public class ContentController {
     }
 
     /**
+     * 关注流(关注页连播): 所有关注作者的内容, 视频与动态同池, 时间序
+     */
+    @GetMapping("/follow/list")
+    public Result<PageResult<ContentFeedVO>> followList(@ModelAttribute PageQuery pageQuery) {
+        return Result.success(contentFeedService.followFeed(getUserId(), pageQuery));
+    }
+
+    /**
      * 统一消费流(连播): 推荐召回全量混排
      */
     @GetMapping("/feed")

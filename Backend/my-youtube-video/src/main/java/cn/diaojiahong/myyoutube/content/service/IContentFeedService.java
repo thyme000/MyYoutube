@@ -30,4 +30,9 @@ public interface IContentFeedService {
      * 他人视角仅公开已发布, 本人视角已发布全可见(含私密)
      */
     PageResult<ContentFeedVO> byAuthor(Long viewerId, Long authorId, PageQuery pageQuery);
+
+    /**
+     * 关注流(关注页连播): 所有关注作者的内容, 视频与动态同池, 时间序
+     */
+    PageResult<ContentFeedVO> followFeed(Long userId, PageQuery pageQuery);
 }
