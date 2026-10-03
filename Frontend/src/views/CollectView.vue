@@ -3,6 +3,7 @@
  * 我的收藏页。content 级混排收藏(视频/动态同池), 状态取自 collectStore。
  * 视频卡 hover 预览+进全屏连播, 动态卡直达详情层; 支持取消收藏。
  */
+import { isDynamicRow } from "../utils/contentKind";
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
@@ -32,7 +33,7 @@ const profile = useProfileStore();
 const router = useRouter();
 
 function isDynamicItem(item) {
-  return String(item?.type ?? "") === "dynamic";
+  return isDynamicRow(item);
 }
 
 function fmtCollectTime(row) {

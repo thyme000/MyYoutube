@@ -4,6 +4,7 @@
  * loadProfileUser（App）与 patchFeedVideoById（跨列表同步）经注册钩子注入；
  * 撤桥过渡期 App 在 setup 末尾调用两个 registerXxx 完成接线。
  */
+import { isDynamicRow } from "../utils/contentKind.js";
 import { defineStore } from "pinia";
 import { setMyVideoPublic, setMyVideoPrivate, openMyVideoComment, closeMyVideoComment } from "../api/videoApi";
 import {
@@ -126,7 +127,7 @@ export const useStudioStore = defineStore("studio", {
     async toggleRowVisibility(row) {
       if (!row?.id) return;
       this.closeRowMenu();
-      const isDynamic = String(row?.type) === "dynamic";
+      const isDynamic = isDynamicRow(row);
       const isPrivate = rowVisibilityIsPrivate(row);
       try {
         if (isPrivate) {
@@ -145,7 +146,7 @@ export const useStudioStore = defineStore("studio", {
     async toggleRowComment(row) {
       if (!row?.id) return;
       this.closeRowMenu();
-      const isDynamic = String(row?.type) === "dynamic";
+      const isDynamic = isDynamicRow(row);
       const current = Number(row.allowComment ?? 1);
       const enable = current !== 1;
       try {

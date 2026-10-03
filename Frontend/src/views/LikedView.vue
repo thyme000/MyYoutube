@@ -1,4 +1,5 @@
 <script setup>
+import { isDynamicRow } from "../utils/contentKind";
 import { useRouter } from "vue-router";
 /**
  * 「赞过的视频」页。状态与连播入口都取自 store，不再经 App 注入。
@@ -45,7 +46,7 @@ const likedHasMore = computed(() => likedPageNo.value < (likedPages.value || 0))
 /** 统一内容池: 动态卡直达详情层, 视频卡进连播流 */
 const router = useRouter();
 function isDynamicItem(item) {
-  return String(item?.type ?? "") === "dynamic";
+  return isDynamicRow(item);
 }
 function openLikedCard(item) {
   if (isDynamicItem(item)) {

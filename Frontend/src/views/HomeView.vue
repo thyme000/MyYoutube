@@ -3,6 +3,7 @@
  * 首页：分类栏 + 长短视频混合流。状态直连 homeStore；
  * 残余桥仅含 App 级依赖（短视频条滚动加载/进短视频流/卡片进详情/进他人主页）。
  */
+import { isDynamicRow } from "../utils/contentKind";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
@@ -58,7 +59,7 @@ const homeLongTailCards = computed(() => {
 
 /** 统一内容池: 动态卡无播放地址, 不参与视频 hover 预览 */
 function isDynamicCard(card) {
-  return String(card?.type ?? "") === "dynamic";
+  return isDynamicRow(card);
 }
 
 const hoverPreview = useHoverPreviewStore();

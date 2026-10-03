@@ -3,6 +3,7 @@
  * 观看历史页。content 级混排历史(视频/动态同池), 状态取自 historyStore。
  * 视频卡 hover 预览+进全屏连播, 动态卡直达详情层; 支持删除单条与一键清空。
  */
+import { isDynamicRow } from "../utils/contentKind";
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
@@ -32,7 +33,7 @@ const profile = useProfileStore();
 const router = useRouter();
 
 function isDynamicItem(item) {
-  return String(item?.type ?? "") === "dynamic";
+  return isDynamicRow(item);
 }
 
 function fmtViewTime(row) {

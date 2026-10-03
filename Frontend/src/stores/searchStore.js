@@ -4,6 +4,7 @@
  * 全屏放大层的播放控制是命令式的（PIP / 全屏 / 音量 / 拖动），所以播放器 DOM ref 由宿主经
  * registerSearchExpandRefs 注入；跨域能力（短视频历史、跨列表补丁、转发弹窗）经 registerSearchExpandHooks 注入。
  */
+import { isDynamicRow } from "../utils/contentKind.js";
 import { defineStore } from "pinia";
 import { nextTick } from "vue";
 import { fetchSearchHot, fetchSearchVideo, fetchSearchUser, fetchSearchTag } from "../api/searchApi.js";
@@ -417,7 +418,7 @@ export const useSearchStore = defineStore("search", {
 
     openSearchExpand(card, index) {
       // 动态行不进视频放大层, 直达动态详情
-      if (String(card?.type ?? "") === "dynamic") {
+      if (isDynamicRow(card)) {
         hooks.openDynamicDetail?.(card);
         return;
       }
