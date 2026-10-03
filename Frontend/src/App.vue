@@ -1,4 +1,5 @@
 <script setup>
+import { isDynamicRow } from "./utils/contentKind.js";
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { RouterView, useRoute, useRouter } from "vue-router";
@@ -275,7 +276,7 @@ const {
 /** 详情域动作：App 的菜单/弹窗/地址栏入口仍要调，保留同名薄封装 */
 const openVideoDetail = (card, opts) => detailStore.openDetail(card, opts);
 const closeVideoDetail = () => detailStore.closeDetail();
-const restoreVideoDetailFromUrl = (vidRaw) => detailStore.restoreFromUrl(vidRaw);
+const restoreVideoDetailFromUrl = (vidRaw, opts) => detailStore.restoreFromUrl(vidRaw, opts);
 const hideDetailBufferingOverlay = () => detailStore.hideBufferingOverlay();
 /** 短视频播放器域状态在 pinia immersiveStore（含历史/赞过/主页/关注共用的全屏队列），同名解构零引用改动 */
 const immersiveStore = useImmersiveStore();
@@ -480,8 +481,10 @@ watch(
     }
     if (p.startsWith("/video/")) {
       enterVideoDetailFromRoute(p);
-    } else if (showVideoDetail.value) {
-      /** 离开 /video（后退/前进/深链回退）：route 单向收敛详情状态 */
+    } else if (p.startsWith("/dynamic/")) {
+      enterDynamicDetailFromRoute(p);
+    } else if (showVideoDetail.value || route.name === "dynamic") {
+      /** 离开详情层（后退/前进/深链回退）：route 单向收敛详情状态 */
       detailStore.closeByHistory();
       void reloadFeedAfterLeavingDetail();
     }
@@ -508,6 +511,22 @@ function enterVideoDetailFromRoute(p) {
     return;
   }
   void restoreVideoDetailFromUrl(vid);
+}
+
+/** /dynamic/:id 深链/刷新：与视频详情同一详情层组件，restore 时显式标注动态类型 */
+function enterDynamicDetailFromRoute(p) {
+  if (!isAuthed.value) return;
+  const vid = p.slice("/dynamic/".length);
+  if (!vid) return;
+  if (
+    showVideoDetail.value &&
+    detailStore.isDynamicRow &&
+    videoDetail.value?.id != null &&
+    String(videoDetail.value.id) === vid
+  ) {
+    return;
+  }
+  void restoreVideoDetailFromUrl(vid, { asDynamic: true });
 }
 
 /** 当前 feedScope 对应的路由；主区 feed（home/immersive）不入路由 */
@@ -940,7 +959,7 @@ const confirmDeleteCurrentSelfVideo = () => immersiveStore.confirmDeleteCurrentS
 function onStudioRowRequestDelete(row) {
   if (!row?.id) return;
   immersiveStore.pendingDeleteVideoId = String(row.id);
-  immersiveStore.pendingDeleteRowType = String(row?.type) === "dynamic" ? "dynamic" : "video";
+  immersiveStore.pendingDeleteRowType = isDynamicRow(row) ? "dynamic" : "video";
   immersiveStore.selfVideoDeleteConfirmOpen = true;
   closeStudioRowMenu();
 }
@@ -968,7 +987,7 @@ watch(isDynamicDetailRoute, (active) => {
 
 /** 卡片点击分流: 动态进 /dynamic/:id, 视频进详情弹层 */
 function isDynamicCard(card) {
-  return String(card?.type ?? "") === "dynamic";
+  return isDynamicRow(card);
 }
 
 function onVideoCardClick(card) {
@@ -1085,11 +1104,6 @@ function onGlobalKeydown(ev) {
 }
 
 async function openProfileWorkFeed(item) {
-  // 动态行不进连播流, 直达动态详情
-  if (String(item?.type ?? "") === "dynamic") {
-    void router.push(`/dynamic/${item.id}`);
-    return;
-  }
   const source = profileWorksRows.value;
   if (!source.length) {
     pageHint.value = "该作者暂无可播放作品";
@@ -1097,7 +1111,8 @@ async function openProfileWorkFeed(item) {
   }
   resetImmersiveFeedProgressUiForSwitch();
   const selectedUrl = resolveVideoUrl(item) || resolveVideoUrlForListItem(item.id, item);
-  if (!selectedUrl) {
+  // 动态行没有视频地址, 连播层按 type 走 DynamicPlayer; 只有视频行缺地址才拦
+  if (!isDynamicCard(item) && !selectedUrl) {
     pageHint.value = "该内容暂无视频地址";
     return;
   }
@@ -1125,7 +1140,7 @@ async function openProfileWorkFeed(item) {
       const authorNickname = x.authorNickname || x.author || viewNick;
       return { ...x, videoUrl: url, authorId, authorAvatarUrl, authorNickname };
     })
-    .filter((x) => x.videoUrl);
+    .filter((x) => isDynamicCard(x) || x.videoUrl);
   if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
     playableQueue.unshift({ ...item, videoUrl: selectedUrl });
   }
@@ -1637,9 +1652,6 @@ registerNavigationHooks({
     uploadModalOpen.value = false;
     showStudio.value = false;
   },
-  // 详情层离场语义（视频详情收敛 store / 动态详情走路由历史）集中在这里，
-  // 详情内「返回」按钮与 ESC 仲裁共用，视图不再各自复制一份
-  leaveDetailLayer: () => onDetailLayerBack(),
 });
 /** searchStore 的宿主依赖：搜索结果列表的内联预览观察器与跨列表补丁仍在 App */
 registerSearchExpandHooks({
@@ -1678,7 +1690,8 @@ registerDetailHooks({
   patchAuthorFollow: (authorId, isFollow) => patchIsFollowForAuthor(authorId, isFollow),
   onSearchTagNavigate: (tag) => onSearchTagNavigate(tag),
   navigateToVideo: (id, { replace = false } = {}) => {
-    const target = `/video/${id}`;
+    // 详情行类型决定路由：动态行回 /dynamic/:id，视频行回 /video/:id
+    const target = `${detailStore.isDynamicRow ? "/dynamic" : "/video"}/${id}`;
     if (route.path === target) return;
     if (replace) {
       void router.replace(target);
