@@ -133,11 +133,15 @@ export const useHomeStore = defineStore("home", {
         const nextList = Array.isArray(res.list) ? res.list : [];
         if (nextList.length) {
           this.immersiveRows = [...this.immersiveRows, ...nextList];
+          this.immersivePages = res.pages ?? this.immersivePages;
+        } else {
+          // 空页即到底: 不信任 pages 提示, 防止滚动无限翻页
+          this.immersivePages = this.immersivePageNo;
         }
-        this.immersivePages = res.pages ?? this.immersivePages;
         this.immersivePageNo = nextPage;
       } catch {
-        // 保持当前列表，避免影响首页主流
+        // 失败即判定到尾: 避免滚动事件反复重试, 加载态闪烁
+        this.immersivePages = this.immersivePageNo;
       } finally {
         this.immersiveLoadingMore = false;
         if (useNavigationStore().activeMenuKey === "home") {
@@ -171,11 +175,15 @@ export const useHomeStore = defineStore("home", {
         const nextList = Array.isArray(res.list) ? res.list : [];
         if (nextList.length) {
           this.cards = [...this.cards, ...nextList];
+          this.homeLongPages = res.pages ?? this.homeLongPages;
+        } else {
+          // 空页即到底: 不信任 pages 提示, 防止滚动无限翻页
+          this.homeLongPages = this.homeLongPageNo;
         }
-        this.homeLongPages = res.pages ?? this.homeLongPages;
         this.homeLongPageNo = nextPage;
       } catch {
-        // 静默失败，不影响当前浏览
+        // 失败即判定到尾: 避免滚动事件反复重试, 骨架屏闪烁
+        this.homeLongPages = this.homeLongPageNo;
       } finally {
         this.homeLongLoadingMore = false;
         this.homeLongLoadLock = false;

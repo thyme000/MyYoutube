@@ -88,9 +88,6 @@ function openLikedCard(item) {
                 @mouseleave="hoverPreview.leave(item, 'liked-work')"
               >
                 <div class="work-thumb">
-                  <span v-if="isDynamicItem(item)" class="work-card-badge">
-                    <i class="ri-gallery-view-2-line"></i> 轮播图集
-                  </span>
                   <video
                     v-if="hoverPreview.activeId === cardPreviewKey(item, 'liked-work')"
                     class="work-preview-video"

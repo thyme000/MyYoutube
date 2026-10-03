@@ -56,7 +56,7 @@ const homeLongTailCards = computed(() => {
   return cards.value.slice(homeLongHeadCount.value);
 });
 
-/** 统一内容池: 动态卡显示轮播角标, 不参与视频 hover 预览 */
+/** 统一内容池: 动态卡无播放地址, 不参与视频 hover 预览 */
 function isDynamicCard(card) {
   return String(card?.type ?? "") === "dynamic";
 }
@@ -115,9 +115,6 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                 @mouseenter="!isDynamicCard(card) && hoverPreview.enter(card, 'home-head')"
                 @mouseleave="hoverPreview.leave(card, 'home-head')"
               >
-                <span v-if="isDynamicCard(card)" class="video-card-badge">
-                  <i class="ri-gallery-view-2-line"></i> 轮播图集
-                </span>
                 <video
                   v-if="hoverPreview.activeId === cardPreviewKey(card, 'home-head')"
                   class="video-cover video-cover--preview"
@@ -167,9 +164,6 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                   @mouseleave="hoverPreview.leave(card, 'home-immersive')"
                 >
                   <div class="home-immersive-media">
-                    <span v-if="isDynamicCard(card)" class="video-card-badge">
-                      <i class="ri-gallery-view-2-line"></i> 轮播图集
-                    </span>
                     <video
                       v-if="hoverPreview.activeId === cardPreviewKey(card, 'home-immersive')"
                       class="home-immersive-cover home-immersive-cover--video video-cover--preview"
@@ -212,9 +206,6 @@ const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
                 @mouseenter="!isDynamicCard(card) && hoverPreview.enter(card, 'home-tail')"
                 @mouseleave="hoverPreview.leave(card, 'home-tail')"
               >
-                <span v-if="isDynamicCard(card)" class="video-card-badge">
-                  <i class="ri-gallery-view-2-line"></i> 轮播图集
-                </span>
                 <video
                   v-if="hoverPreview.activeId === cardPreviewKey(card, 'home-tail')"
                   class="video-cover video-cover--preview"
