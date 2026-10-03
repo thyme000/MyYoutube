@@ -13,10 +13,11 @@ import { fetchVideoDetail, normalizeVideoDetail } from "../api/videoApi.js";
  *   wasLiked: boolean,
  *   likeCount: any,
  *   patch: (patch: { isLike?: boolean, likeCount?: number }) => void,
+ *   skipDetailSync?: boolean,
  * }} opts
  * @returns {Promise<void>} 失败时抛出，由调用方决定提示文案
  */
-export async function toggleVideoLikeAndSync(videoId, { wasLiked, likeCount, patch }) {
+export async function toggleVideoLikeAndSync(videoId, { wasLiked, likeCount, patch, skipDetailSync }) {
   if (wasLiked) {
     await cancelLikeVideo(videoId);
     patch({ isLike: false, likeCount: Math.max(0, Number(likeCount ?? 0) - 1) });
@@ -24,6 +25,7 @@ export async function toggleVideoLikeAndSync(videoId, { wasLiked, likeCount, pat
     await likeVideo(videoId);
     patch({ isLike: true, likeCount: Number(likeCount ?? 0) + 1 });
   }
+  if (skipDetailSync) return;
   // 乐观计数可能盖掉后端的并发结果，回读详情再校正一次
   const merged = normalizeVideoDetail(await fetchVideoDetail(videoId));
   if (merged && merged.likeCount != null) {

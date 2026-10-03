@@ -145,6 +145,16 @@ function onImmersiveDynamicTimeUpdate(sec) {
   immersiveStore.onImmersiveFeedDynamicTimeUpdate(sec);
 }
 
+/** 动态行的播放态同步: pause overlay 与底栏按钮都读 immersiveFeedPaused */
+function onImmersiveDynamicPlay() {
+  immersiveStore.immersiveFeedPaused = false;
+}
+
+function onImmersiveDynamicPause() {
+  if (immersiveStore.immersiveFeedAutoplayPending) return;
+  immersiveStore.immersiveFeedPaused = true;
+}
+
 // store action 与 store 绑定，可直接解构；带括号调用的函数型接口（如 searchExpandVideoUrl）
 // 在 store 里就是 action，不能写成 getter
 const {
@@ -863,7 +873,7 @@ function onImmersivePanelCommentUserClick(ev, userId) {
                       v-if="immersiveFeedIsDynamic && dynamicDetail"
                       ref="immersiveFeedDynamicRef"
                       :key="dynamicDetail.id"
-                      class="immersive-feed-dynamic"
+                      class="immersive-feed-dynamic dyn-player--controlled"
                       :dynamic="dynamicDetail"
                       :loop="false"
                       controlled
@@ -873,6 +883,8 @@ function onImmersivePanelCommentUserClick(ev, userId) {
                       @ended="onImmersiveFeedFgEnded"
                       @durationchange="onImmersiveDynamicReady"
                       @timeupdate="onImmersiveDynamicTimeUpdate"
+                      @play="onImmersiveDynamicPlay"
+                      @pause="onImmersiveDynamicPause"
                       @request-toggle-play="immersiveTogglePlay"
                       @request-toggle-mute="immersiveToggleMute"
                     />

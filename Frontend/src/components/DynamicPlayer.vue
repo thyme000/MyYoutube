@@ -29,6 +29,8 @@ const emit = defineEmits([
   "durationchange",
   "request-toggle-play",
   "request-toggle-mute",
+  "play",
+  "pause",
 ]);
 
 const rootRef = ref(null);
@@ -215,6 +217,11 @@ watch(
   }
 );
 
+// 对齐 <video> 的事件契约: 播放态变化上报, 宿主靠它同步暂停标识等 UI
+watch(playing, (p) => {
+  emit(p ? "play" : "pause");
+});
+
 watch(
   () => props.muted,
   (m) => {
@@ -270,6 +277,7 @@ defineExpose({ seek, togglePlay, play, pause, setMuted, setVolume });
     :class="dynamic.canvasType === 'horizontal' ? 'dyn-player--horizontal' : 'dyn-player--vertical'"
     @click="onRootClick"
   >
+    <img v-if="controlled && items[activeIndex]" :src="items[activeIndex].imageUrl" class="dyn-bg" alt="" />
     <img
       v-for="(item, i) in items"
       :key="i"
@@ -319,6 +327,29 @@ defineExpose({ seek, togglePlay, play, pause, setMuted, setVolume });
 }
 .dyn-player--horizontal {
   aspect-ratio: 16 / 9;
+}
+/* 全屏铺排变体: 由使用方显式传类(连播层舞台). controlled prop 只管控制权, 不再自动挂此类 */
+.dyn-player--controlled {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.dyn-player--controlled .dyn-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(26px) brightness(0.78);
+  transform: scale(1.12);
+  pointer-events: none;
+}
+.dyn-player--controlled .dyn-img {
+  object-fit: contain;
 }
 .dyn-img {
   position: absolute;

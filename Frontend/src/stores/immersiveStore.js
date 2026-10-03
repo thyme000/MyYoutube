@@ -5,6 +5,7 @@
  * 跨域能力（跨列表补丁、菜单归属）经 registerImmersiveHooks 注入；
  * 播放器 DOM ref 由宿主组件 ImmersiveView 经 registerImmersiveFeedPlayerRefs 注册。
  */
+import { isDynamicRow } from "../utils/contentKind.js";
 import { defineStore } from "pinia";
 import { nextTick, toRaw } from "vue";
 import {
@@ -38,7 +39,14 @@ import {
   openMyVideoComment,
   closeMyVideoComment,
 } from "../api/videoApi.js";
-import { deleteMyDynamic } from "../api/dynamicApi.js";
+import {
+  deleteMyDynamic,
+  fetchDynamicDetail,
+  setMyDynamicPrivate,
+  setMyDynamicPublic,
+  openMyDynamicComment,
+  closeMyDynamicComment,
+} from "../api/dynamicApi.js";
 import { useHistoryStore, HISTORY_MIN_PLAY_SEC } from "./historyStore.js";
 import { followAuthor, unfollowAuthor } from "../api/followApi.js";
 import { toast as pushToast } from "../utils/toast.js";
@@ -50,7 +58,6 @@ import { useCommentStore } from "./commentStore.js";
 import { useDetailStore } from "./detailStore.js";
 import { useDynamicStore } from "./dynamicStore.js";
 import { useFollowStore } from "./followStore.js";
-import { fetchDynamicDetail } from "../api/dynamicApi";
 import { useHomeStore } from "./homeStore.js";
 import { useLikedStore } from "./likedStore.js";
 import { useProfileStore } from "./profileStore.js";
@@ -261,7 +268,7 @@ export const useImmersiveStore = defineStore("immersive", {
      * @returns {boolean}
      */
     immersiveFeedIsDynamic() {
-      return String(this.immersiveFeedCurrent?.type ?? "") === "dynamic";
+      return isDynamicRow(this.immersiveFeedCurrent);
     },
     /**
      * 普通流看接口 isLike；赞过列表后端可能不传该字段，默认视为已赞，
@@ -799,7 +806,7 @@ export const useImmersiveStore = defineStore("immersive", {
         void useBehaviorStore().report(cur.id, "FINISH", now * 1000);
       }
       // 动态行没有 video 元素, 轮播一轮即切下一条(评论打开时停留)
-      if (String(cur?.type ?? "") === "dynamic") {
+      if (isDynamicRow(cur)) {
         if (this.unifiedFeedList.length > 1 && !useCommentPanelStore().immersiveCommentPanelOpen) {
           this.immersiveFeedNext();
         }
@@ -1115,6 +1122,8 @@ export const useImmersiveStore = defineStore("immersive", {
           wasLiked: this.immersiveFeedLikedDisplay,
           likeCount: cur.likeCount,
           patch: (p) => hooks.patchFeedVideoById(cur.id, p),
+          // 动态行没有视频详情可回读, 计数以乐观补丁为准
+          skipDetailSync: isDynamicRow(cur),
         });
         void useBehaviorStore().report(cur.id, "LIKE", Number(this.immersiveFeedCurrentTime || 0) * 1000);
       } catch (error) {
@@ -1143,7 +1152,12 @@ export const useImmersiveStore = defineStore("immersive", {
     },
 
     onImmersiveForwardClick() {
-      useShareStore().openForwardVideo(this.immersiveFeedCurrent);
+      const cur = this.immersiveFeedCurrent;
+      if (isDynamicRow(cur)) {
+        useShareStore().openForwardDynamic(cur);
+        return;
+      }
+      useShareStore().openForwardVideo(cur);
     },
 
     async toggleImmersiveFollow() {
@@ -1207,14 +1221,15 @@ export const useImmersiveStore = defineStore("immersive", {
       const cur = this.immersiveFeedCurrent;
       if (!cur?.id) return;
       const goingPrivate = String(cur.visibility || "").toUpperCase() !== "PRIVATE";
+      const isDynamic = isDynamicRow(cur);
       this.closeSelfVideoActionMenu();
       try {
         if (goingPrivate) {
-          await setMyVideoPrivate(cur.id);
+          await (isDynamic ? setMyDynamicPrivate(cur.id) : setMyVideoPrivate(cur.id));
           this.patchCurrentSelfVideo({ visibility: "PRIVATE" });
           pushToast("已设为私密", "success");
         } else {
-          await setMyVideoPublic(cur.id);
+          await (isDynamic ? setMyDynamicPublic(cur.id) : setMyVideoPublic(cur.id));
           this.patchCurrentSelfVideo({ visibility: "PUBLIC" });
           pushToast("已设为公开", "success");
         }
@@ -1227,14 +1242,15 @@ export const useImmersiveStore = defineStore("immersive", {
       const cur = this.immersiveFeedCurrent;
       if (!cur?.id) return;
       const enable = Number(cur.allowComment ?? 1) !== 1;
+      const isDynamic = isDynamicRow(cur);
       this.closeSelfVideoActionMenu();
       try {
         if (enable) {
-          await openMyVideoComment(cur.id);
+          await (isDynamic ? openMyDynamicComment(cur.id) : openMyVideoComment(cur.id));
           this.patchCurrentSelfVideo({ allowComment: 1 });
           pushToast("已开启评论", "success");
         } else {
-          await closeMyVideoComment(cur.id);
+          await (isDynamic ? closeMyDynamicComment(cur.id) : closeMyVideoComment(cur.id));
           this.patchCurrentSelfVideo({ allowComment: 0 });
           pushToast("已关闭评论", "success");
         }
@@ -1254,6 +1270,7 @@ export const useImmersiveStore = defineStore("immersive", {
       if (!cur?.id) return;
       this.closeSelfVideoActionMenu();
       this.pendingDeleteVideoId = String(cur.id);
+      this.pendingDeleteRowType = isDynamicRow(cur) ? "dynamic" : "video";
       this.selfVideoDeleteConfirmOpen = true;
     },
 
