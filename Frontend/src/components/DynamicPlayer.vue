@@ -65,7 +65,6 @@ function updateActive() {
 
 /** 只在跨过 0.1s 档位时上报，避免 60fps 灌爆宿主的进度状态 */
 function reportProgress() {
-  if (!props.controlled) return;
   const tenth = Math.floor(currentSec.value * 10);
   if (tenth === lastReportedTenth) return;
   lastReportedTenth = tenth;
@@ -80,9 +79,10 @@ function tick() {
     currentSec.value = (performance.now() - clockStartMs) / 1000;
   }
   if (totalSec.value > 0 && currentSec.value >= totalSec.value) {
+    // 完播先于循环重启上报: 宿主(详情层行为信号)依赖 ended, 受控连播同样依赖
+    emit("ended");
     if (!props.loop) {
       pause();
-      emit("ended");
       return;
     }
     restart();

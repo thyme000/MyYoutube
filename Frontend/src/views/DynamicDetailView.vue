@@ -4,7 +4,7 @@
  * 动态详情层: /dynamic/:id 路由命名视图(与视频详情同一遮罩层, main 被 v-show 隐藏)。
  * 复用 DynamicPlayer 本地合成预览 + 互动栏(点赞/评论, 统一内容池) + 保存成片(懒转码)。
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import DynamicPlayer from "../components/DynamicPlayer.vue";
 import { fetchDynamicDetail, requestDynamicDownload } from "../api/dynamicApi";
@@ -12,6 +12,7 @@ import { fetchCommentPage, publishComment } from "../api/commentApi";
 import { likeVideo, cancelLikeVideo, fetchVideoLikedStatus } from "../api/likeApi";
 import { normalizeCommentVo } from "../api/commentApi";
 import { useAuthStore } from "../stores/authStore";
+import { useBehaviorStore } from "../stores/behaviorStore";
 import { useCommentStore } from "../stores/commentStore";
 import { useNavigationStore } from "../stores/navigationStore";
 import { applyAvatarFallback, DEFAULT_PROFILE_AVATAR_URL } from "../utils/userProfile";
@@ -20,10 +21,19 @@ const route = useRoute();
 const auth = useAuthStore();
 const navigationStore = useNavigationStore();
 const commentStore = useCommentStore();
+const behavior = useBehaviorStore();
+
+/** 与 detailStore 同口径: 播放时长过总时长 70% 记 PLAY, 单次进度增量超 3s 视为 seek 丢弃 */
+const PLAY_THRESHOLD = 0.7;
+const MAX_PLAY_DELTA_SEC = 3;
 
 const dynamic = ref(null);
 const loading = ref(true);
 const errorMsg = ref("");
+
+let dynPlayAccSec = 0;
+let lastDynTimeSec = null;
+let dynFinishReported = false;
 
 const liked = ref(false);
 const likeCount = ref(0);
@@ -47,6 +57,36 @@ function fmtDate(ms) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function resetBehaviorAcc() {
+  dynPlayAccSec = 0;
+  lastDynTimeSec = null;
+  dynFinishReported = false;
+}
+
+/** 动态三信号: 累计播放过 70% 记 PLAY(计播放量+偏好分), 翻完一轮记 FINISH, 时长随事件携带 */
+function onDynTimeUpdate(sec) {
+  const d = dynamic.value;
+  if (!d?.id) return;
+  const prev = lastDynTimeSec;
+  lastDynTimeSec = sec;
+  if (prev != null) {
+    const delta = sec - prev;
+    if (delta > 0 && delta <= MAX_PLAY_DELTA_SEC) dynPlayAccSec += delta;
+  }
+  const totalSec = Number(d.totalDurationMs) / 1000;
+  if (totalSec > 0 && dynPlayAccSec >= totalSec * PLAY_THRESHOLD && !behavior.hasPlayReported(d.id)) {
+    behavior.markPlayReported(d.id);
+    void behavior.report(d.id, "PLAY", sec * 1000);
+  }
+}
+
+function onDynEnded() {
+  const d = dynamic.value;
+  if (!d?.id || dynFinishReported) return;
+  dynFinishReported = true;
+  void behavior.report(d.id, "FINISH", (lastDynTimeSec || 0) * 1000);
+}
+
 async function loadDetail() {
   loading.value = true;
   errorMsg.value = "";
@@ -61,6 +101,7 @@ async function loadDetail() {
       return;
     }
     dynamic.value = data;
+    resetBehaviorAcc();
     likeCount.value = Number(data.likeCount) || 0;
     if (isAuthed.value) {
       liked.value = await fetchVideoLikedStatus(data.id);
@@ -180,6 +221,7 @@ function triggerBrowserDownload() {
 }
 
 onMounted(loadDetail);
+onBeforeUnmount(resetBehaviorAcc);
 watch(() => route.params.id, (id, prev) => {
   if (route.name === "dynamic" && id && id !== prev) void loadDetail();
 });
@@ -205,7 +247,11 @@ function onAvatarError(e) {
 
     <div v-else-if="dynamic" class="dyn-detail-body">
       <div class="dyn-detail-stage">
-        <DynamicPlayer :dynamic="dynamic" />
+        <DynamicPlayer
+          :dynamic="dynamic"
+          @timeupdate="onDynTimeUpdate"
+          @ended="onDynEnded"
+        />
       </div>
 
       <aside class="dyn-detail-side">
