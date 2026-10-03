@@ -110,6 +110,11 @@ export function forwardVideoMessage(body) {
   return httpRequest("/chat/message/forward/video", { method: "PUT", body });
 }
 
+/** @param {Record<string, unknown>} body ChatMessageDTO */
+export function forwardDynamicMessage(body) {
+  return httpRequest("/chat/message/forward/dynamic", { method: "PUT", body });
+}
+
 /** @param {Record<string, unknown>} body ChatMessageWithdrawDTO */
 export function withdrawMessage(body) {
   return httpRequest("/chat/message/withdraw", { method: "POST", body });

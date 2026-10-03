@@ -259,6 +259,7 @@ function previewFromSendWs(o) {
   if (ct === "FILE") return "[文件]";
   if (ct === "SYSTEM") return "[系统消息]";
   if (ct === "FORWARD_VIDEO") return "[转发视频]";
+  if (ct === "FORWARD_DYNAMIC") return "[转发动态]";
   return "[消息]";
 }
 

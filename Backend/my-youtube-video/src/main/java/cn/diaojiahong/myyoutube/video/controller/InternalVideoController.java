@@ -10,7 +10,11 @@ import cn.diaojiahong.myyoutube.video.api.NotificationPort;
 import cn.diaojiahong.myyoutube.video.api.VideoInternalPort;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
+import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.PreferencePort;
@@ -25,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * video 服务内部接口: 供 chat 等服务经 Feign 调用, 不经网关暴露
@@ -35,7 +40,9 @@ import java.util.List;
 public class InternalVideoController {
 
     private final IVideoService videoService;
+    private final DynamicMapper dynamicMapper;
     private final IContentService contentService;
+    private final ObjectMapper objectMapper;
     private final IUserFollowService userFollowService;
     private final IUserNotificationService userNotificationService;
     private final IUserTagPreferenceService userTagPreferenceService;
@@ -47,6 +54,32 @@ public class InternalVideoController {
             return null;
         }
         return new VideoInternalPort.ForwardVideoInfo(video.getId(), video.getTitle(), video.getCoverUrl());
+    }
+
+    @GetMapping("/dynamic/forward-info/{dynamicId}")
+    public VideoInternalPort.ForwardDynamicInfo getForwardDynamic(@PathVariable Long dynamicId) {
+        Dynamic dynamic = dynamicMapper.selectById(dynamicId);
+        if (dynamic == null || Integer.valueOf(1).equals(dynamic.getIsDelete())) {
+            return null;
+        }
+        return new VideoInternalPort.ForwardDynamicInfo(dynamic.getId(), dynamic.getTitle(), firstFrameKey(dynamic.getTimelineJson()));
+    }
+
+    /** 从时间轴 JSON 里取首帧图片 objectKey 作封面(与 ContentSummaryPortImpl 同口径) */
+    private String firstFrameKey(String timelineJson) {
+        if (timelineJson == null) {
+            return null;
+        }
+        try {
+            List<Map<String, Object>> timeline = objectMapper.readValue(timelineJson,
+                    new TypeReference<List<Map<String, Object>>>() {});
+            if (!timeline.isEmpty() && timeline.get(0).get("imageObjectKey") != null) {
+                return String.valueOf(timeline.get(0).get("imageObjectKey"));
+            }
+        } catch (Exception ignored) {
+            // 时间轴解析失败时封面留空
+        }
+        return null;
     }
 
     @PostMapping("/video/share/{videoId}")

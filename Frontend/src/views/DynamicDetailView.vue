@@ -403,6 +403,9 @@ function onAvatarError(e) {
           <button type="button" class="dyn-detail-like" :disabled="!isAuthed" @click="onDislike">
             <i class="ri-thumb-down-line"></i> 不感兴趣
           </button>
+          <button type="button" class="dyn-detail-like" :disabled="!isAuthed" @click="shareStore.openForwardDynamic(dynamic)">
+            <i class="ri-share-forward-line"></i> 分享
+          </button>
           <button type="button" class="dyn-detail-download" @click="saveClip">
             <i class="ri-download-2-line"></i>
             {{ downloadState.status === "DONE" ? "已生成, 点击保存" : "保存成片" }}

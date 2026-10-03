@@ -1,4 +1,5 @@
 <script setup>
+import { useRouter } from "vue-router";
 import ChatWorkspace from "../components/chat/ChatWorkspace.vue";
 import { useAuthStore } from "../stores/authStore";
 import { useDetailStore } from "../stores/detailStore";
@@ -7,6 +8,7 @@ import { useProfileStore } from "../stores/profileStore";
 const auth = useAuthStore();
 const detail = useDetailStore();
 const profile = useProfileStore();
+const router = useRouter();
 </script>
 
 <template>
@@ -15,6 +17,7 @@ const profile = useProfileStore();
       v-if="auth.isAuthed"
       :self-user-id="auth.userId"
       @open-video="({ videoId }) => detail.openDetail({ id: videoId })"
+      @open-dynamic="({ dynamicId }) => router.push(`/dynamic/${dynamicId}`)"
       @open-user="({ userId }) => profile.openOther(userId)"
     />
     <div v-else class="module-empty explore-chat-empty">

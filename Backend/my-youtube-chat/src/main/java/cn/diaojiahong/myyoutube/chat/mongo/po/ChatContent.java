@@ -31,4 +31,8 @@ public class ChatContent {
     private Long forwardVideoId;
     private String forwardVideoTitle;
     private String forwardVideoCoverObjectKey;
+
+    private Long forwardDynamicId;
+    private String forwardDynamicTitle;
+    private String forwardDynamicCoverObjectKey;
 }

@@ -27,6 +27,20 @@ export const useShareStore = defineStore("share", {
       this.forwardVideoCard = card;
       this.forwardVideoOpen = true;
     },
+    /** 转发动态: 复用转发弹窗, forwardType 区分卡片类型 */
+    openForwardDynamic(dynamic) {
+      const auth = useAuthStore();
+      if (!auth.isAuthed) {
+        toast("请先登录后使用转发", "info");
+        return;
+      }
+      if (!dynamic?.id) {
+        toast("缺少动态信息", "error");
+        return;
+      }
+      this.forwardVideoCard = { ...dynamic, forwardType: "dynamic" };
+      this.forwardVideoOpen = true;
+    },
     openCommentReport(comment) {
       const auth = useAuthStore();
       if (!auth.isAuthed) {

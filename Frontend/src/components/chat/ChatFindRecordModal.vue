@@ -74,6 +74,7 @@ function recordPreview(item) {
   if (ct === "SYSTEM") return String(c.systemText || c.text || "").trim() || "[系统]";
   if (ct === "IMAGE") return "[图片]";
   if (ct === "FORWARD_VIDEO") return "[转发视频]";
+  if (ct === "FORWARD_DYNAMIC") return "[转发动态]";
   if (ct === "FILE" || ct === "VIDEO") return String(c.fileName || "").trim() || "[文件]";
   return String(c.text || "").trim() || "[消息]";
 }

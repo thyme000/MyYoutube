@@ -2,7 +2,7 @@
 /** 图集配乐动态域 API。后端路由 /dynamics/**，长整型 id 均以字符串交互。 */
 import { httpRequest } from "./http";
 
-/** @typedef {{ id: string, userId: string, title: string, canvasType: string, canvasW: number, canvasH: number, transition: string, fadeMs: number, audioUrl: string|null, audioDurationMs: number, totalDurationMs: number, items: Array<{ imageObjectKey?: string, imageUrl: string, startMs: number, durationMs: number, focusX: number, focusY: number }>, authorNickname: string, authorAvatarUrl: string, createTime: number|null }} DynamicVO */
+/** @typedef {{ id: string, userId: string, title: string, canvasType: string, canvasW: number, canvasH: number, transition: string, fadeMs: number, audioUrl: string|null, audioDurationMs: number, totalDurationMs: number, items: Array<{ imageObjectKey?: string, imageUrl: string, startMs: number, durationMs: number, focusX: number, focusY: number }>, authorId: string, authorNickname: string, authorAvatarUrl: string, createTime: number|null, allowComment?: number|null, visibility?: string|null, tags?: string|null }} DynamicVO */
 
 /**
  * 发布图集配乐动态

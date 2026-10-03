@@ -106,5 +106,11 @@ public class ChatMessageController {
     public Result<ChatMessageAckDTO> forwardVideo(@Valid @RequestBody ChatMessageDTO chatMessageDTO) {
         return chatMessageService.forwardVideo(chatMessageDTO);
     }
+
+    @Operation(summary = "用户转发动态")
+    @PutMapping("/forward/dynamic")
+    public Result<ChatMessageAckDTO> forwardDynamic(@Valid @RequestBody ChatMessageDTO chatMessageDTO) {
+        return chatMessageService.forwardDynamic(chatMessageDTO);
+    }
 }
 

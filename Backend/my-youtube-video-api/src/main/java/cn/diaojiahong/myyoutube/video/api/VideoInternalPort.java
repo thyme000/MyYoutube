@@ -19,6 +19,10 @@ public interface VideoInternalPort {
     @GetMapping("/forward-info/{videoId}")
     ForwardVideoInfo getForwardVideo(@PathVariable("videoId") Long videoId);
 
+    /** 转发动态卡片信息(标题+首帧 objectKey), 动态不存在返回 null */
+    @GetMapping("/dynamic/forward-info/{dynamicId}")
+    ForwardDynamicInfo getForwardDynamic(@PathVariable("dynamicId") Long dynamicId);
+
     /** 分享数 +1, 仅对已发布且公开的视频生效 */
     @PostMapping("/share/{videoId}")
     boolean incrementShareCount(@PathVariable("videoId") Long videoId);
@@ -30,5 +34,14 @@ public interface VideoInternalPort {
         private Long videoId;
         private String title;
         private String coverUrl;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class ForwardDynamicInfo {
+        private Long dynamicId;
+        private String title;
+        private String coverObjectKey;
     }
 }

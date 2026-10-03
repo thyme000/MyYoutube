@@ -104,6 +104,7 @@ export function useChatMessageDisplay(props) {
     if (ct === "TEXT") return c.text || "";
     if (ct === "SYSTEM") return c.systemText || c.text || "[系统]";
     if (ct === "FORWARD_VIDEO") return "[转发视频]";
+  if (ct === "FORWARD_DYNAMIC") return "[转发动态]";
     if (ct === "IMAGE") return "";
     if (messageMediaKind(m) === "video") return "";
     if (isChatGenericFile(m)) return "";

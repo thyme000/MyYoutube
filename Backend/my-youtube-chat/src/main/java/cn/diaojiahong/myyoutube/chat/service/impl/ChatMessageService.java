@@ -173,7 +173,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         ChatMessageDoc chatMessageDoc = BeanUtil.toBean(chatMessageDTO, ChatMessageDoc.class);
         chatMessageDoc.setCreatedAt(LocalDateTime.now());
         chatMessageDoc.setStatus(MessageStatusEnum.SENT);
-        if (chatMessageDoc.getContentType().isForwardVideo()) {
+        if (chatMessageDoc.getContentType() == ChatContentTypeEnum.FORWARD_VIDEO) {
             Long forwardVideoId = chatMessageDoc.getContent().getForwardVideoId();
             VideoInternalPort.ForwardVideoInfo video = videoInternalPort.getForwardVideo(forwardVideoId);
             if (video == null) {
@@ -183,6 +183,18 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             chatContent.setForwardVideoCoverObjectKey(video.getCoverUrl());
             chatContent.setForwardVideoId(forwardVideoId);
             chatContent.setForwardVideoTitle(video.getTitle());
+            chatMessageDoc.setContent(chatContent);
+        } else if (chatMessageDoc.getContentType() == ChatContentTypeEnum.FORWARD_DYNAMIC) {
+            Long forwardDynamicId = chatMessageDoc.getContent().getForwardDynamicId();
+            VideoInternalPort.ForwardDynamicInfo dynamic = videoInternalPort.getForwardDynamic(forwardDynamicId);
+            if (dynamic == null) {
+                throw new BizException(BizException.MESSAGE_ERROR, "动态不存在");
+            }
+            // 快照标题与首帧, 与转发视频同一套不可变卡片语义
+            ChatContent chatContent = new ChatContent();
+            chatContent.setForwardDynamicCoverObjectKey(dynamic.getCoverObjectKey());
+            chatContent.setForwardDynamicId(forwardDynamicId);
+            chatContent.setForwardDynamicTitle(dynamic.getTitle());
             chatMessageDoc.setContent(chatContent);
         } else {
             chatMessageDoc.setContent(chatMessageDTO.getContent());
@@ -215,8 +227,10 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             chatConversationDoc.setLastMessagePreview("[媒体文件]");
         } else if (chatMessageDoc.getContentType().isText()) {
             chatConversationDoc.setLastMessagePreview(chatMessageDoc.getContent().getText());
-        } else if (chatMessageDoc.getContentType().isForwardVideo()) {
+        } else if (chatMessageDoc.getContentType() == ChatContentTypeEnum.FORWARD_VIDEO) {
             chatConversationDoc.setLastMessagePreview("[转发视频]");
+        } else if (chatMessageDoc.getContentType() == ChatContentTypeEnum.FORWARD_DYNAMIC) {
+            chatConversationDoc.setLastMessagePreview("[转发动态]");
         }
         if (chatConversationDoc.getType().equals(ConversationTypeEnum.GROUP)) {
             chatConversationDoc.setLastMessageSenderNickname(userPort.getUser(Long.valueOf(userId)).getNickname());
@@ -343,6 +357,11 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                     throw new BizException(BizException.MESSAGE_ERROR, "转发视频id不能为空");
                 }
             }
+            case FORWARD_DYNAMIC -> {
+                if (c.getForwardDynamicId() == null) {
+                    throw new BizException(BizException.MESSAGE_ERROR, "转发动态id不能为空");
+                }
+            }
             default -> {
                 throw new BizException(BizException.MESSAGE_ERROR, "消息类型错误");
             }
@@ -381,6 +400,10 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             } else if (vo.getContentType() == ChatContentTypeEnum.FORWARD_VIDEO) {
                 if (doc.getContent().getForwardVideoCoverObjectKey() != null && !doc.getContent().getForwardVideoCoverObjectKey().isBlank()) {
                     doc.getContent().setForwardVideoCoverObjectKey(storageUtil.signGetUrl(doc.getContent().getForwardVideoCoverObjectKey(), STORAGE_EXPIRE));
+                }
+            } else if (vo.getContentType() == ChatContentTypeEnum.FORWARD_DYNAMIC) {
+                if (doc.getContent().getForwardDynamicCoverObjectKey() != null && !doc.getContent().getForwardDynamicCoverObjectKey().isBlank()) {
+                    doc.getContent().setForwardDynamicCoverObjectKey(storageUtil.signGetUrl(doc.getContent().getForwardDynamicCoverObjectKey(), STORAGE_EXPIRE));
                 }
             }
             vo.setContent(doc.getContent());
@@ -534,6 +557,11 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                     content.setForwardVideoCoverObjectKey(storageUtil.signGetUrl(content.getForwardVideoCoverObjectKey(), STORAGE_EXPIRE));
                 }
                 vo.setContent(content);
+            } else if (content != null && doc.getContentType() == ChatContentTypeEnum.FORWARD_DYNAMIC) {
+                if (content.getForwardDynamicCoverObjectKey() != null && !content.getForwardDynamicCoverObjectKey().isBlank()) {
+                    content.setForwardDynamicCoverObjectKey(storageUtil.signGetUrl(content.getForwardDynamicCoverObjectKey(), STORAGE_EXPIRE));
+                }
+                vo.setContent(content);
             } else {
                 vo.setContent(content);
             }
@@ -555,6 +583,23 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         if (!success) {
             log.error("更新视频分享数失败,视频id:{}", forwardVideoId);
             return Result.fail("转发视频失败!");
+        }
+        return result;
+    }
+
+    @Transactional
+    public Result<ChatMessageAckDTO> forwardDynamic(@Valid ChatMessageDTO chatMessageDTO) {
+        // 用户转发动态, 需要更新内容的分享数(动态与视频同池, share_count 在 content 上)
+        ChatContent content = chatMessageDTO.getContent();
+        Long forwardDynamicId = content.getForwardDynamicId();
+        if (forwardDynamicId == null) {
+            return Result.fail("转发动态id不能为空");
+        }
+        Result<ChatMessageAckDTO> result = send(chatMessageDTO);
+        boolean success = videoInternalPort.incrementShareCount(forwardDynamicId);
+        if (!success) {
+            log.error("更新动态分享数失败,动态id:{}", forwardDynamicId);
+            return Result.fail("转发动态失败!");
         }
         return result;
     }

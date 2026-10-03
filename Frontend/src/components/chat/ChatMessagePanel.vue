@@ -44,7 +44,7 @@ const props = defineProps({
   announcementUnread: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["send", "load-history", "withdraw", "open-info", "open-video"]);
+const emit = defineEmits(["send", "load-history", "withdraw", "open-info", "open-video", "open-dynamic"]);
 
 const {
   isSelf,
@@ -161,6 +161,13 @@ function onForwardVideoClick(m) {
   const vid = c.forwardVideoId ?? c.forwardVideoID ?? c.videoId;
   if (vid == null || vid === "") return;
   emit("open-video", { videoId: String(vid) });
+}
+
+function onForwardDynamicClick(m) {
+  const c = m?.content || {};
+  const did = c.forwardDynamicId;
+  if (did == null || did === "") return;
+  emit("open-dynamic", { dynamicId: String(did) });
 }
 
 function onBubbleImageError() {
@@ -524,6 +531,34 @@ async function onChatFileChange(ev) {
                       <div v-if="m.content?.forwardVideoTitle" class="chat-msg-fwd-card__info">
                         <span class="chat-msg-fwd-card__title" :title="String(m.content.forwardVideoTitle || '')">{{
                           String(m.content.forwardVideoTitle || '')
+                        }}</span>
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    v-else-if="String(m.contentType || '').toUpperCase() === 'FORWARD_DYNAMIC'"
+                    type="button"
+                    class="chat-msg-fwd-card"
+                    :class="{ 'chat-msg-fwd-card--self': isSelf(m), 'chat-msg-fwd-card--no-cover': !m.content?.forwardDynamicCoverObjectKey }"
+                    @click="onForwardDynamicClick(m)"
+                  >
+                    <div class="chat-msg-fwd-card__media">
+                      <img
+                        v-if="m.content?.forwardDynamicCoverObjectKey"
+                        class="chat-msg-fwd-card__cover"
+                        :src="sanitizeImageUrl(m.content.forwardDynamicCoverObjectKey)"
+                        alt=""
+                        draggable="false"
+                        @error="onBubbleImageError"
+                        @load="onChatMediaLayout"
+                      />
+                      <span class="chat-msg-fwd-card__play" aria-hidden="true">
+                        <i class="ri-gallery-view-2-line"></i>
+                      </span>
+                      <span class="chat-msg-fwd-card__tag" aria-hidden="true">动态</span>
+                      <div v-if="m.content?.forwardDynamicTitle" class="chat-msg-fwd-card__info">
+                        <span class="chat-msg-fwd-card__title" :title="String(m.content.forwardDynamicTitle || '')">{{
+                          String(m.content.forwardDynamicTitle || '')
                         }}</span>
                       </div>
                     </div>

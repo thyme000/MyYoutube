@@ -1920,9 +1920,13 @@ onBeforeUnmount(() => {
     <ChatForwardVideoModal
       v-model="forwardVideoOpen"
       :self-user-id="currentUserId"
-      :video-id="forwardVideoCard?.id ?? null"
-      :video-title="forwardVideoCard?.title ?? ''"
-      :video-cover-url="forwardVideoCard?.coverUrl || forwardVideoCard?.cover || forwardVideoCard?.avatarUrl || ''"
+      :forward-type="String(forwardVideoCard?.forwardType || 'video')"
+      :video-id="String(forwardVideoCard?.forwardType || 'video') === 'video' ? forwardVideoCard?.id ?? null : null"
+      :video-title="String(forwardVideoCard?.forwardType || 'video') === 'video' ? forwardVideoCard?.title ?? '' : ''"
+      :video-cover-url="String(forwardVideoCard?.forwardType || 'video') === 'video' ? forwardVideoCard?.coverUrl || forwardVideoCard?.cover || forwardVideoCard?.avatarUrl || '' : ''"
+      :dynamic-id="String(forwardVideoCard?.forwardType || 'video') === 'dynamic' ? forwardVideoCard?.id ?? null : null"
+      :dynamic-title="String(forwardVideoCard?.forwardType || 'video') === 'dynamic' ? forwardVideoCard?.title ?? '' : ''"
+      :dynamic-cover-url="String(forwardVideoCard?.forwardType || 'video') === 'dynamic' ? forwardVideoCard?.coverUrl || forwardVideoCard?.avatarUrl || '' : ''"
       @sent="() => refreshConversationList(true)"
     />
     <CommentReportModal

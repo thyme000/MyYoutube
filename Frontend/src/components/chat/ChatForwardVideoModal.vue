@@ -8,9 +8,14 @@ import BaseModal from "../ui/BaseModal.vue";
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   selfUserId: { type: [String, Number], default: null },
+  /** 转发卡片类型: video/dynamic(统一内容池) */
+  forwardType: { type: String, default: "video" },
   videoId: { type: [String, Number], default: null },
   videoTitle: { type: String, default: "" },
   videoCoverUrl: { type: String, default: "" },
+  dynamicId: { type: [String, Number], default: null },
+  dynamicTitle: { type: String, default: "" },
+  dynamicCoverUrl: { type: String, default: "" },
 });
 
 const emit = defineEmits(["update:modelValue", "sent"]);
@@ -25,7 +30,13 @@ const keyword = ref("");
 const selected = ref(/** @type {Record<string, boolean>} */ ({}));
 const sending = ref(false);
 
-const displayTitle = computed(() => String(props.videoTitle || "").trim() || "视频");
+const isDynamic = computed(() => String(props.forwardType) === "dynamic");
+const displayTitle = computed(() => {
+  const t = String(isDynamic.value ? props.dynamicTitle : props.videoTitle || "").trim();
+  return t || (isDynamic.value ? "动态" : "视频");
+});
+const displayId = computed(() => (isDynamic.value ? props.dynamicId : props.videoId));
+const displayCoverUrl = computed(() => (isDynamic.value ? props.dynamicCoverUrl : props.videoCoverUrl));
 
 const filteredRows = computed(() => {
   const kw = keyword.value.trim().toLowerCase();
@@ -72,7 +83,7 @@ const selectedIds = computed(() =>
 
 async function fetchPage(reset) {
   const uid = props.selfUserId != null ? String(props.selfUserId) : "";
-  const vid = props.videoId != null ? String(props.videoId) : "";
+  const vid = displayId.value != null ? String(displayId.value) : "";
   if (!uid) {
     error.value = "未登录";
     rows.value = [];
@@ -81,7 +92,7 @@ async function fetchPage(reset) {
     return;
   }
   if (!vid) {
-    error.value = "缺少视频信息";
+    error.value = isDynamic.value ? "缺少动态信息" : "缺少视频信息";
     rows.value = [];
     pages.value = 1;
     page.value = 1;
@@ -131,13 +142,13 @@ function onLoadMore() {
 
 async function onSend() {
   const uid = props.selfUserId != null ? String(props.selfUserId) : "";
-  const vid = props.videoId != null ? String(props.videoId) : "";
+  const vid = displayId.value != null ? String(displayId.value) : "";
   if (!uid) {
     toast("请先登录", "info");
     return;
   }
   if (!vid) {
-    toast("缺少视频信息", "error");
+    toast(isDynamic.value ? "缺少动态信息" : "缺少视频信息", "error");
     return;
   }
   const ids = selectedIds.value;
@@ -153,13 +164,22 @@ async function onSend() {
     let lastErr = "";
     for (const cid of ids) {
       try {
-        await chatApi.forwardVideoMessage({
-          conversationId: String(cid),
-          senderId: String(uid),
-          contentType: "FORWARD_VIDEO",
-          content: { forwardVideoId: String(vid) },
-          clientMsgId: `fwd-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        });
+        const send = isDynamic.value
+          ? chatApi.forwardDynamicMessage({
+              conversationId: String(cid),
+              senderId: String(uid),
+              contentType: "FORWARD_DYNAMIC",
+              content: { forwardDynamicId: String(vid) },
+              clientMsgId: `fwd-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            })
+          : chatApi.forwardVideoMessage({
+              conversationId: String(cid),
+              senderId: String(uid),
+              contentType: "FORWARD_VIDEO",
+              content: { forwardVideoId: String(vid) },
+              clientMsgId: `fwd-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            });
+        await send;
         ok += 1;
       } catch (e) {
         fail += 1;
@@ -209,7 +229,7 @@ watch(() => props.modelValue,
         </header>
 
         <div class="chat-fwd__preview">
-          <img class="chat-fwd__cover" :src="sanitizeImageUrl(videoCoverUrl)" alt="" @error="onAvatarError" />
+          <img class="chat-fwd__cover" :src="sanitizeImageUrl(displayCoverUrl)" alt="" @error="onAvatarError" />
           <div class="chat-fwd__preview-mid">
             <p class="chat-fwd__preview-title">{{ displayTitle }}</p>
             <p class="chat-fwd__preview-sub">选择会话发送</p>

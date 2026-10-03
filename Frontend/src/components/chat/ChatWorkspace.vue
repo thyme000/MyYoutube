@@ -25,7 +25,7 @@ const props = defineProps({
   selfUserId: { type: [String, Number], default: null },
 });
 
-const emit = defineEmits(["open-video", "open-user"]);
+const emit = defineEmits(["open-video", "open-dynamic", "open-user"]);
 
 const activeRow = computed(() =>
   chatConversations.value.find((r) => String(r.conversationId) === String(chatActiveConversationId.value)),
@@ -136,6 +136,10 @@ function onOpenVideo(e) {
   emit("open-video", e);
 }
 
+function onOpenDynamic(e) {
+  emit("open-dynamic", e);
+}
+
 function onOpenUser(e) {
   sessionDetailOpen.value = false;
   emit("open-user", e);
@@ -171,6 +175,7 @@ function onOpenUser(e) {
           @withdraw="onWithdraw"
           @open-info="onOpenSessionInfo"
           @open-video="onOpenVideo"
+          @open-dynamic="onOpenDynamic"
         />
         <div v-else class="chat-workspace__placeholder">
           <p>选择右侧会话开始聊天</p>
