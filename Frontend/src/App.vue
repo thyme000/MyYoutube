@@ -1012,7 +1012,8 @@ function openFollowFeedFromCard(item) {
     return;
   }
   const selectedUrl = resolveVideoUrl(item) || resolveVideoUrlForListItem(item.id, item);
-  if (!selectedUrl) {
+  // 动态行没有视频地址, 连播层按 type 走 DynamicPlayer; 只有视频行缺地址才拦
+  if (!isDynamicRow(item) && !selectedUrl) {
     pageHint.value = "该内容暂无视频地址";
     return;
   }
@@ -1021,11 +1022,11 @@ function openFollowFeedFromCard(item) {
       const url = resolveVideoUrl(x) || resolveVideoUrlForListItem(x.id, x);
       return { ...x, videoUrl: url };
     })
-    .filter((x) => x.videoUrl);
+    .filter((x) => isDynamicRow(x) || x.videoUrl);
   if (!playableQueue.find((x) => String(x.id) === String(item.id))) {
     playableQueue.unshift({ ...item, videoUrl: selectedUrl });
   }
-  if (!playableQueue.length && selectedUrl) {
+  if (!playableQueue.length && !isDynamicRow(item) && selectedUrl) {
     playableQueue.push({ ...item, videoUrl: selectedUrl });
   }
   const idx = playableQueue.findIndex((x) => String(x.id) === String(item.id));

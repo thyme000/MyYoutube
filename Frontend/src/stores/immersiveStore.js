@@ -6,6 +6,7 @@
  * 播放器 DOM ref 由宿主组件 ImmersiveView 经 registerImmersiveFeedPlayerRefs 注册。
  */
 import { isDynamicRow } from "../utils/contentKind.js";
+import { fetchAuthorContents, fetchFollowContents } from "../api/contentApi.js";
 import { defineStore } from "pinia";
 import { nextTick, toRaw } from "vue";
 import {
@@ -31,8 +32,6 @@ import {
 } from "../api/commentApi.js";
 import { dislikeVideo as dislikeVideoApi } from "../api/likeApi.js";
 import {
-  fetchFollowVideoFeedPage,
-  fetchOtherUserVideos,
   deleteMyVideo,
   setMyVideoPrivate,
   setMyVideoPublic,
@@ -1351,7 +1350,7 @@ export const useImmersiveStore = defineStore("immersive", {
 
     // ===== 关注页：全部动态 / 按作者筛选 =====
 
-    /** 列表行 → 可播放行：补齐播放地址，剔除取不到地址的 */
+    /** 列表行 → 可播放行：视频补齐播放地址(取不到则剔), 动态行没有地址由连播层媒体区分流渲染 */
     mapToFollowPlayableRows(list) {
       const sources = [
         useProfileStore().worksRows,
@@ -1360,13 +1359,16 @@ export const useImmersiveStore = defineStore("immersive", {
       ];
       return (Array.isArray(list) ? list : [])
         .map((x) => {
+          if (isDynamicRow(x)) {
+            return { ...x, videoUrl: "" };
+          }
           const url =
             resolveVideoUrl(x) ||
             resolveVideoUrlFromLists(x.id, x, sources) ||
             String(x?.videoUrl || "").trim();
           return { ...x, videoUrl: url || x.videoUrl };
         })
-        .filter((x) => Boolean(String(resolveVideoUrl(x) || x.videoUrl || "").trim()));
+        .filter((x) => isDynamicRow(x) || Boolean(String(resolveVideoUrl(x) || x.videoUrl || "").trim()));
     },
 
     async loadSubscribedFollowVideos({ reset = false } = {}) {
@@ -1377,7 +1379,7 @@ export const useImmersiveStore = defineStore("immersive", {
       this.followVideoLoadingMore = true;
       try {
         const pageNo = reset ? 1 : this.followVideoPageNo;
-        const res = await fetchFollowVideoFeedPage({ pageNo, pageSize: FOLLOW_FEED_PAGE_SIZE });
+        const res = await fetchFollowContents({ pageNo, pageSize: FOLLOW_FEED_PAGE_SIZE });
         if (seq !== followFeedLoadSeq) return;
         if (this.followSubscribedFilterAuthorId != null && this.followSubscribedFilterAuthorId !== "") {
           return;
@@ -1403,7 +1405,7 @@ export const useImmersiveStore = defineStore("immersive", {
         this.followVideoHasMore =
           list.length >= FOLLOW_FEED_PAGE_SIZE && (pages <= 0 || pageNo < pages);
         if (list.length && !playable.length) {
-          pushToast("接口返回了视频但未解析到播放地址，请检查对象存储签名或 videoUrl 字段", "info");
+          pushToast("返回的内容未解析到播放地址，请检查对象存储签名或 videoUrl 字段", "info");
         }
       } catch (e) {
         if (seq !== followFeedLoadSeq) return;
@@ -1415,7 +1417,7 @@ export const useImmersiveStore = defineStore("immersive", {
           useHomeStore().cards = [];
         }
         this.followVideoHasMore = false;
-        pushToast(e?.message || "加载关注视频失败", "error");
+        pushToast(e?.message || "加载关注内容失败", "error");
       } finally {
         if (seq === followFeedLoadSeq) {
           this.followVideoLoadingMore = false;
@@ -1432,7 +1434,7 @@ export const useImmersiveStore = defineStore("immersive", {
       this.followAuthorLoadingMore = true;
       try {
         const pageNo = reset ? 1 : this.followAuthorVideoPageNo;
-        const res = await fetchOtherUserVideos(aid, { pageNo, pageSize: FOLLOW_FEED_PAGE_SIZE });
+        const res = await fetchAuthorContents(aid, { pageNo, pageSize: FOLLOW_FEED_PAGE_SIZE });
         if (seq !== followAuthorLoadSeq) return;
         if (String(this.followSubscribedFilterAuthorId || "") !== aid) return;
         const list = Array.isArray(res.list) ? res.list : [];
@@ -1464,7 +1466,7 @@ export const useImmersiveStore = defineStore("immersive", {
           this.followAuthorFeedQueue = [];
         }
         this.followAuthorVideoHasMore = false;
-        pushToast(e?.message || "加载作者视频失败", "error");
+        pushToast(e?.message || "加载作者作品失败", "error");
       } finally {
         if (seq === followAuthorLoadSeq) {
           this.followAuthorLoadingMore = false;

@@ -45,6 +45,16 @@ export async function fetchAuthorContents(authorId, query = {}) {
   return normalizeContentPage(data);
 }
 
+/**
+ * GET /contents/follow/list 关注流(关注页连播): 所有关注作者的内容, 视频与动态同池时间序
+ * @param {{ pageNo?: number, pageSize?: number }} [query]
+ * @returns {Promise<{ total: number, pages: number, list: Array<object> }>}
+ */
+export async function fetchFollowContents(query = {}) {
+  const data = await httpRequest("/contents/follow/list", { method: "GET", query });
+  return normalizeContentPage(data);
+}
+
 /** @param {any} data @returns {{ total: number, pages: number, list: Array<object> }} */
 function normalizeContentPage(data) {
   const raw = data && typeof data === "object" ? data : {};
