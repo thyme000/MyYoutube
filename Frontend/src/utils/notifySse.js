@@ -15,6 +15,8 @@ let activeHandlers = null;
 let lastReceivedAtMs = 0;
 /** 心跳看护：服务端 25s 一跳，超过 75s 没有任何报文就视为半开连接，强制重建 */
 let watchdogTimer = null;
+/** visibilitychange 只挂一次 */
+let lifecycleHooked = false;
 
 function clearReconnectTimer() {
   if (reconnectTimer != null) {
@@ -123,8 +125,8 @@ function connectOnce(handlers) {
 }
 
 function hookLifecycleOnce() {
-  if (hookLifecycleOnce.done) return;
-  hookLifecycleOnce.done = true;
+  if (lifecycleHooked) return;
+  lifecycleHooked = true;
   // 切后台断开省连接, 回前台立即重连(EventSource 无法挂起只能关掉)
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {

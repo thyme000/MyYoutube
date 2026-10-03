@@ -55,9 +55,12 @@ async function loadDetail() {
   loading.value = true;
   errorMsg.value = "";
   try {
-    const data = await fetchDynamicDetail(route.params.id);
-    if (!data || data.code === 400) {
-      errorMsg.value = data?.message || "动态不存在";
+    // 路由参数可能是数组(可重复段)，统一收敛成字符串再交给 api
+    const data = await fetchDynamicDetail(String(route.params.id ?? ""));
+    // httpRequest 已拆掉 {code,message,data} 外壳：非 200 一律 throw 走 catch，
+    // 所以这里只可能拿到成功态的 data，"动态不存在" 由 catch 里的后端 message 兜住
+    if (!data) {
+      errorMsg.value = "动态不存在";
       dynamic.value = null;
       return;
     }
@@ -190,7 +193,7 @@ watch(() => route.params.id, (id, prev) => {
 
 /** 头像兜底 */
 function onAvatarError(e) {
-  e.target.src = applyAvatarFallback(e.target.src) || DEFAULT_PROFILE_AVATAR_URL;
+  applyAvatarFallback(e, DEFAULT_PROFILE_AVATAR_URL);
 }
 
 </script>

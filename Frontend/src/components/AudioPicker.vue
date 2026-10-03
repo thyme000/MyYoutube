@@ -42,12 +42,12 @@ async function load(reset) {
   loading.value = true;
   err.value = "";
   try {
-    const fetcher = tab.value === "my" ? fetchMyAudios : fetchAudioLibrary;
-    const { total, pages: ps, list } = await fetcher({
-      keyword: keywordDebounced.value,
-      pageNo: page,
-      pageSize: 20,
-    });
+    // /audios/my 只收分页(后端 PageQuery 无 keyword)，关键词仅对公开库有意义
+    const pageQuery = { pageNo: page, pageSize: 20 };
+    const { total, pages: ps, list } =
+      tab.value === "my"
+        ? await fetchMyAudios(pageQuery)
+        : await fetchAudioLibrary({ ...pageQuery, keyword: keywordDebounced.value });
     rows.value = reset ? list : [...rows.value, ...list];
     pages.value = ps;
     pageNo.value = page;

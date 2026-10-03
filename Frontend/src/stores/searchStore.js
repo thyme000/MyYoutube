@@ -65,6 +65,7 @@ let expandResumeLastSentAtMs = 0;
  *   searchUserRowIsFollowed: (u: any) => boolean,
  *   toggleSearchUserFollow: (u: any) => void,
  *   onSearchFeedLikeClick: (card: any, ev: any) => void,
+ *   openDynamicDetail: (card: any) => void,
  * }}
  */
 const hooks = {
@@ -85,6 +86,8 @@ const hooks = {
   toggleSearchUserFollow: () => {},
   /** 搜索结果竖滑流点赞（复用 App 的 like 编排） */
   onSearchFeedLikeClick: () => {},
+  /** 动态行不进放大层，直达动态详情层（App 级路由跳转） */
+  openDynamicDetail: () => {},
 };
 
 export function registerSearchExpandHooks(next = {}) {

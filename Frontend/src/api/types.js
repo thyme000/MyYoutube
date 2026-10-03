@@ -22,6 +22,9 @@
  * @property {number=} likeCount
  * @property {number=} commentCount
  * @property {number=} shareCount
+ * @property {string=} type 内容类型: video/dynamic(统一内容池)；normalizeVideo 不产出
+ * @property {number=} duration 视频时长(秒)；动态为 null
+ * @property {number=} totalDurationMs 动态成片总时长(毫秒)；视频为 null
  * @property {string} videoUrl
  * @property {string} coverUrl
  * @property {string} avatarUrl 与 coverUrl 一致，兼容旧模板
@@ -89,6 +92,7 @@
  * @property {string} content
  * @property {any} refId
  * @property {any} videoId
+ * @property {string} refType 引用对象类型(如 dynamic)，决定通知点击后进哪一层
  * @property {string} createTime
  * @property {boolean} isRead
  * @property {string} conversationId
