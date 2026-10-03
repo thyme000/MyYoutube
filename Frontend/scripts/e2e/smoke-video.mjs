@@ -4,7 +4,9 @@
  * 用法：node scripts/e2e/smoke-video.mjs
  */
 import { Cdp, browserEndpoint, evaluate } from "./cdp.mjs";
-import { openVideoDetail } from "./fixtures.mjs";
+import { assertEnv, openVideoDetail } from "./fixtures.mjs";
+
+await assertEnv();
 
 const FRONT = "http://localhost:5173";
 const results = [];

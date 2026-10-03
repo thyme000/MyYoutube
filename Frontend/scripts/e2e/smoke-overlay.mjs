@@ -5,6 +5,9 @@
  * 用法：node scripts/e2e/smoke-overlay.mjs
  */
 import { Cdp, browserEndpoint, evaluate } from "./cdp.mjs";
+import { assertEnv } from "./fixtures.mjs";
+
+await assertEnv();
 
 const results = [];
 const check = (name, ok, detail = "") => {

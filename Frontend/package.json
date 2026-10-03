@@ -14,6 +14,11 @@
     "test:watch": "vitest",
     "e2e:snapshot": "node scripts/e2e/snapshot.mjs",
     "e2e:diff": "node scripts/e2e/diff.mjs",
+    "e2e:video": "node scripts/e2e/smoke-video.mjs",
+    "e2e:video-extra": "node scripts/e2e/smoke-video-extra.mjs",
+    "e2e:overlay": "node scripts/e2e/smoke-overlay.mjs",
+    "e2e:menu": "node scripts/e2e/smoke-menu-orch.mjs",
+    "e2e:smoke": "node scripts/e2e/run-all.mjs",
     "prepare": "cd .. && husky .husky"
   },
   "engines": {

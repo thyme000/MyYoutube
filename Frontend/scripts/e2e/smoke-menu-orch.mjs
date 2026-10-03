@@ -4,6 +4,9 @@
  * 用法：node scripts/e2e/smoke-menu-orch.mjs
  */
 import { Cdp, browserEndpoint, evaluate } from "./cdp.mjs";
+import { assertEnv } from "./fixtures.mjs";
+
+await assertEnv();
 
 const results = [];
 const check = (name, ok, detail = "") => {
@@ -84,6 +87,20 @@ await js(`document.querySelector(".video-card:not(.video-card--skeleton)").dispa
 check("详情仍可打开", await waitFor(`/^\\/(video|dynamic)\\/\\d+$/.test(location.pathname)`, 12000));
 await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); 1`);
 check("ESC 关详情", await waitFor(`location.pathname === "/"`, 12000));
+
+// 详情内「返回」按钮与 ESC 都汇到 App 的详情层离场语义，但模板绑定是独立的一条线，单独验。
+// 优先点视图内的 .dyn-detail-back（走 navigationStore.leaveDetailLayer 钩子）：
+// 动态详情下顶栏也有个「返回」，直接找 textContent 会先命中顶栏那个，测不到钩子。
+await js(`document.querySelector(".video-card:not(.video-card--skeleton)").dispatchEvent(new MouseEvent("click", { bubbles: true }))`);
+check("详情可再次打开", await waitFor(`/^\\/(video|dynamic)\\/\\d+$/.test(location.pathname)`, 12000));
+const backHit = await js(`(() => {
+  const btn = document.querySelector(".dyn-detail-back") ||
+    [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "返回");
+  if (!btn) return "NOT FOUND";
+  btn.click();
+  return btn.className;
+})()`);
+check("详情内返回按钮回菜单页", await waitFor(`location.pathname === "/"`, 12000), String(backHit));
 
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} PASS`);
