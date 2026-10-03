@@ -4,6 +4,7 @@
  * 用法：node scripts/e2e/smoke-video.mjs
  */
 import { Cdp, browserEndpoint, evaluate } from "./cdp.mjs";
+import { openVideoDetail } from "./fixtures.mjs";
 
 const FRONT = "http://localhost:5173";
 const results = [];
@@ -50,19 +51,23 @@ await js(`(async () => {
 })()`);
 check("登录成功进入首页", await waitFor(`!!document.querySelector(".app-layout") && location.pathname === "/"`, 15000));
 
-// ---- 首页点开一个真实视频卡 → /video/:id ----
+// ---- 进视频详情：首页有可播放视频卡就点卡，否则深链（首页已混排，首卡可能是动态）----
 const cardFound = await waitFor(
   `document.querySelectorAll(".video-card:not(.video-card--skeleton)").length > 0`,
   20000
 );
 check("首页卡片加载完成", cardFound);
 await js(`window.__errs = []; window.addEventListener("error", (e) => window.__errs.push(String(e.message)));`);
-await js(`document.querySelector(".video-card:not(.video-card--skeleton)")
-  .dispatchEvent(new MouseEvent("click", { bubbles: true }));`);
-check("点卡进入 /video/:id", await waitFor(`/^\\/video\\/\\d+$/.test(location.pathname)`), await js("location.pathname"));
+const entered = await openVideoDetail(js, waitFor, { front: FRONT });
+check(`进入视频详情(入口=${entered.via})`, !!entered.vid, await js("location.pathname"));
 check("详情层已渲染", await js(`!!document.querySelector("[class*=detail]")`), (await js("JSON.stringify(window.__errs)")) || "");
 
-const vid = await js("location.pathname.slice('/video/'.length)");
+const vid = entered.vid;
+if (!vid) {
+  console.log("\n拿不到真实视频 id（/videos/list 为空），后续路由用例无法执行");
+  console.log(`\n${results.filter((r) => r.ok).length}/${results.length} PASS`);
+  process.exit(1);
+}
 
 // ---- 浏览器后退 → 详情关、回菜单页 ----
 await js(`history.back(); 'ok'`);

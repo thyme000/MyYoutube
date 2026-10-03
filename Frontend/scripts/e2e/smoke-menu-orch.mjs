@@ -80,7 +80,8 @@ check("切到 /chat", await waitFor(`location.pathname === "/chat"`));
 console.log("切首页:", await clickMenu("首页"));
 check("回 / 且卡片加载", await waitFor(`location.pathname === "/" && document.querySelectorAll(".video-card:not(.video-card--skeleton)").length > 0`, 20000));
 await js(`document.querySelector(".video-card:not(.video-card--skeleton)").dispatchEvent(new MouseEvent("click", { bubbles: true }))`);
-check("详情仍可打开", await waitFor(`/^\\/video\\/\\d+$/.test(location.pathname)`, 12000));
+// 首页混排: 首卡可能是动态(/dynamic/:id)也可能是视频(/video/:id), 两者都算详情层打开
+check("详情仍可打开", await waitFor(`/^\\/(video|dynamic)\\/\\d+$/.test(location.pathname)`, 12000));
 await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); 1`);
 check("ESC 关详情", await waitFor(`location.pathname === "/"`, 12000));
 
