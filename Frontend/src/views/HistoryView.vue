@@ -12,6 +12,7 @@ import {
   cardCoverSrc,
   cardAuthorLabel,
 } from "../utils/videoCard.js";
+import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar } from "../utils/userProfile.js";
 
 const {
   historyLongRows,
@@ -22,6 +23,7 @@ const {
 } = storeToRefs(useHistoryStore());
 const historyStore = useHistoryStore();
 const hoverPreview = useHoverPreviewStore();
+const { videoUrl: activePreviewVideoUrl } = storeToRefs(hoverPreview);
 const profile = useProfileStore();
 </script>
 

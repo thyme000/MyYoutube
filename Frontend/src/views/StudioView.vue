@@ -103,7 +103,7 @@ const {
                 <p>{{ studioMsg || "直播内容尚未接入。" }}</p>
               </div>
               <div v-else-if="studioLoading" class="studio-placeholder-card">加载中…</div>
-              <div v-else class="studio-table-panel" @click="closeStudioRowMenu">
+              <div v-else class="studio-table-panel" @click="studioStore.closeRowMenu">
                 <table class="studio-table" @click.stop>
                   <thead>
                     <tr>
@@ -170,7 +170,7 @@ const {
                     type="button"
                     class="studio-pager-btn"
                     :disabled="studioPageNo <= 1"
-                    @click="studioPageNo--; loadStudioVideos()"
+                    @click="studioStore.prevPage"
                   >
                     上一页
                   </button>
@@ -179,7 +179,7 @@ const {
                     type="button"
                     class="studio-pager-btn"
                     :disabled="studioPageNo >= (studioPages || 1)"
-                    @click="studioPageNo++; loadStudioVideos()"
+                    @click="studioStore.nextPage"
                   >
                     下一页
                   </button>

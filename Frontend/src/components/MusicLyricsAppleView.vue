@@ -35,7 +35,8 @@ import { useVolumePanel } from "../composables/useVolumePanel.js";
 /** 开关：gradflow-vue Silk 流光层（替代原 CSS 双层扫光） */
 const shimmerOn = ref(true);
 
-const { lyricsScrollRef, marqueeEpoch, marqueeWrapStyle, refreshActiveMarquee } = useLyricsMarquee();
+const { lyricsScrollRef, marqueeEnabled, marqueeEpoch, marqueeWrapStyle, refreshActiveMarquee } =
+  useLyricsMarquee();
 const { blurMode, frostedOn, blurAmount, meshBackgroundStyle, gradFlowSilkConfig, coverBgStyle } =
   useMusicAmbient();
 const {

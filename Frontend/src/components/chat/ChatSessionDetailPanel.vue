@@ -6,6 +6,7 @@ import {
   togglePinRow,
   toggleConversationBanned,
 } from "../../stores/chatStore.js";
+import { sanitizeImageUrl, DEFAULT_PROFILE_AVATAR_URL } from "../../utils/userProfile.js";
 import { toast } from "../../utils/toast.js";
 import ChatFindRecordModal from "./ChatFindRecordModal.vue";
 import { useChatSessionMeta } from "../../composables/chat/useChatSessionMeta.js";

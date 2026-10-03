@@ -243,7 +243,11 @@ export const useImmersiveStore = defineStore("immersive", {
     immersiveFeedVideoSrc() {
       return resolveVideoUrl(this.immersiveFeedCurrent);
     },
-    /** 当前条是否动态(统一内容池): 渲染 DynamicPlayer 而非 video 元素 */
+    /**
+     * 当前条是动态(统一内容池)时渲染 DynamicPlayer 而非 video 元素。
+     * 本 getter 用了 `this.`，必须显式标注返回类型，否则 vue-tsc 走 `this` → `G` 成环。
+     * @returns {boolean}
+     */
     immersiveFeedIsDynamic() {
       return String(this.immersiveFeedCurrent?.type ?? "") === "dynamic";
     },

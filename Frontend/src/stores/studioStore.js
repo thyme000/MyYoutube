@@ -51,6 +51,17 @@ export const useStudioStore = defineStore("studio", {
       this.studioPageNo = 1;
       void this.load();
     },
+    // 翻页与 tab 切换同属导航，页码边界与在途请求都由 store 兜住，视图只发意图
+    prevPage() {
+      if (this.studioPageNo <= 1 || this.studioLoading) return;
+      this.studioPageNo -= 1;
+      void this.load();
+    },
+    nextPage() {
+      if (this.studioPageNo >= (this.studioPages || 1) || this.studioLoading) return;
+      this.studioPageNo += 1;
+      void this.load();
+    },
     closeRowMenu() {
       this.studioRowMenuOpenId = null;
     },

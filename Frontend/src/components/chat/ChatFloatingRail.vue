@@ -60,12 +60,24 @@ function onLeave() {
   scheduleCollapse();
 }
 
+/** 缩入动画只播一次：animationend 会从子元素冒泡上来，只认根元素自己那一次 */
+function onDockAnimationEnd(ev) {
+  if (ev.target !== floatRootRef.value) return;
+  dockSlideActive.value = false;
+}
+
 watch(
   () => props.chatPageActive,
-  (v) => {
+  (v, wasActive) => {
     if (v) {
       collapsed.value = true;
       clearLeaveTimer();
+      return;
+    }
+    // 刚离开聊天全屏页：此时处于收起态，补播一次自右缘缩入。
+    // 若落点是 suppress 页则悬浮条本就不可见，留标志会在下次显形时迟到播放。
+    if (wasActive && props.authed && !props.suppress) {
+      dockSlideActive.value = true;
     }
   },
 );

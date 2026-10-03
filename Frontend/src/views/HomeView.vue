@@ -17,6 +17,7 @@ import {
   cardAuthorLabel,
   formatCompactStat,
 } from "../utils/videoCard.js";
+import { DEFAULT_PROFILE_AVATAR_URL as profileAvatar } from "../utils/userProfile.js";
 
 const homeStore = useHomeStore();
 const profile = useProfileStore();
