@@ -24,4 +24,10 @@ public interface IContentFeedService {
      * 我的内容(创作中心/我的作品): 视频与动态同列, 含审核状态与可见性, 不做公开性过滤
      */
     PageResult<ContentFeedVO> mine(Long userId, PageQuery pageQuery);
+
+    /**
+     * 按作者查内容(详情层侧栏): 视频与动态同列;
+     * 他人视角仅公开已发布, 本人视角已发布全可见(含私密)
+     */
+    PageResult<ContentFeedVO> byAuthor(Long viewerId, Long authorId, PageQuery pageQuery);
 }

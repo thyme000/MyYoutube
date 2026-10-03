@@ -171,9 +171,84 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         return PageResult.of(page.getTotal(), page.getPages(), list);
     }
 
+    @Override
+    public PageResult<ContentFeedVO> byAuthor(Long viewerId, Long authorId, PageQuery pageQuery) {
+        boolean self = viewerId != null && viewerId.equals(authorId);
+        LambdaQueryWrapper<Content> q = new LambdaQueryWrapper<Content>()
+                .eq(Content::getAuthorId, authorId)
+                .eq(Content::getStatus, VideoStatusEnum.PUBLISHED.getCode());
+        if (!self) {
+            q.eq(Content::getVisibility, "public");
+        }
+        q.orderByDesc(Content::getCreateTime);
+        Page<Content> page = contentService.page(pageQuery.toPage(), q);
+        List<Long> ids = page.getRecords().stream().map(Content::getId).toList();
+        if (ids.isEmpty()) {
+            return PageResult.of(page.getTotal(), page.getPages(), List.of());
+        }
+        Map<Long, Content> contents = page.getRecords().stream()
+                .collect(Collectors.toMap(Content::getId, Function.identity()));
+
+        Map<Long, Video> videos = videoMapper.selectList(
+                        new LambdaQueryWrapper<Video>().in(Video::getId, ids).eq(Video::getIsDelete, 0))
+                .stream().collect(Collectors.toMap(Video::getId, Function.identity()));
+        Map<Long, Dynamic> dynamics = dynamicMapper.selectList(
+                        new LambdaQueryWrapper<Dynamic>().in(Dynamic::getId, ids).eq(Dynamic::getIsDelete, 0))
+                .stream().collect(Collectors.toMap(Dynamic::getId, Function.identity()));
+
+        Map<Long, String> nicknames = userPort.getNicknames(List.of(authorId));
+        Map<Long, String> avatars = userPort.getAvatars(List.of(authorId));
+        Set<Long> likedIds = viewerId == null ? Set.of() : contentLikeMapper.selectList(
+                        new LambdaQueryWrapper<ContentLike>()
+                                .eq(ContentLike::getUserId, viewerId)
+                                .eq(ContentLike::getIsLiked, ContentLikeConstants.LIKE)
+                                .in(ContentLike::getContentId, ids))
+                .stream().map(ContentLike::getContentId).collect(Collectors.toSet());
+        List<Boolean> follows = viewerId == null ? List.of(Boolean.FALSE)
+                : userFollowService.isFollowOnList(List.of(authorId), viewerId);
+        boolean isFollow = !follows.isEmpty() && Boolean.TRUE.equals(follows.get(0));
+
+        List<ContentFeedVO> list = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            Content c = contents.get(id);
+            Video v = videos.get(id);
+            Dynamic d = dynamics.get(id);
+            if (v == null && d == null) {
+                continue;
+            }
+            ContentFeedVO vo = new ContentFeedVO();
+            vo.setId(String.valueOf(id));
+            vo.setType(v != null ? "video" : "dynamic");
+            vo.setLikeCount(c.getLikeCount());
+            vo.setPlayCount(c.getPlayCount());
+            vo.setCommentCount(c.getCommentCount());
+            vo.setShareCount(c.getShareCount());
+            vo.setCreateTime(c.getCreateTime());
+            vo.setAuthorId(authorId);
+            vo.setAuthorNickname(nicknames.get(authorId));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(avatars.get(authorId), URL_SIGN_EXPIRE_SECONDS));
+            vo.setIsLike(likedIds.contains(id));
+            vo.setIsFollow(isFollow);
+            if (v != null) {
+                vo.setTitle(v.getTitle());
+                vo.setDescription(v.getDescription());
+                vo.setCoverUrl(storageUtil.signGetUrl(v.getCoverUrl(), URL_SIGN_EXPIRE_SECONDS));
+                vo.setVideoUrl(storageUtil.signGetUrl(v.getVideoUrl(), URL_SIGN_EXPIRE_SECONDS));
+                vo.setDuration(v.getDuration());
+                vo.setVisibility(v.getVisibility() != null ? v.getVisibility().getCode() : null);
+            } else {
+                vo.setTitle(d.getTitle());
+                vo.setCoverUrl(storageUtil.signGetUrl(firstFrameKey(d.getTimelineJson()), URL_SIGN_EXPIRE_SECONDS));
+                vo.setTotalDurationMs(d.getTotalDurationMs());
+                vo.setVisibility(d.getVisibility() != null ? d.getVisibility() : "public");
+            }
+            list.add(vo);
+        }
+        return PageResult.of(page.getTotal(), page.getPages(), list);
+    }
+
     /** 从时间轴 JSON 里取首帧图片 objectKey 作封面 */
-    private String firstFrameKey(String timelineJson) {
-        if (timelineJson == null) {
+    private String firstFrameKey(String timelineJson) {        if (timelineJson == null) {
             return null;
         }
         try {

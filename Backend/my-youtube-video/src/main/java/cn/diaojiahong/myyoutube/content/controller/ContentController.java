@@ -11,6 +11,7 @@ import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,6 +25,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class ContentController {
 
     private final IContentFeedService contentFeedService;
+
+    /**
+     * 按作者查内容(详情层侧栏): 视频与动态同列; 他人仅公开, 本人含私密
+     */
+    @GetMapping("/author/{authorId}")
+    public Result<PageResult<ContentFeedVO>> byAuthor(@PathVariable Long authorId, @ModelAttribute PageQuery pageQuery) {
+        return Result.success(contentFeedService.byAuthor(getUserId(), authorId, pageQuery));
+    }
 
     /**
      * 统一消费流(连播): 推荐召回全量混排
