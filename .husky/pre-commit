@@ -1,4 +1,0 @@
-#!/usr/bin/env sh
-# git 钩子在仓库根执行，而 npm 工程在 Frontend/
-cd "$(dirname "$0")/../Frontend" || exit 1
-npx lint-staged

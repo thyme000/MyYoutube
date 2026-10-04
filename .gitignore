@@ -31,12 +31,9 @@ HELP.md
 .apt_generated
 Backend/**/.mvn/wrapper/maven-wrapper.jar
 
-# ===== 前端构建产物 =====
-node_modules/
-dist/
-.vite/
-*.local
-frontend/.env
+# ===== 前端（本仓库暂不维护，前端在独立仓库重建） =====
+Frontend/
+frontend-admin/
 
 # ===== 敏感配置 =====
 .env
@@ -45,14 +42,6 @@ frontend/.env
 
 # ==== 项目文档(后续重构完毕后添加) =====
 README.md
-# 前端构建/依赖说明需要保留
-!Frontend/README.md
-
-# nginx
-Frontend/nginx-1.29.6/
-
-# ===== e2e 回归快照（含录制到的真实接口响应，可能带个人信息） =====
-Frontend/scripts/e2e/.snapshots/
 
 # workbuddy-ai 工作区数据
 .workbuddy-ai/
