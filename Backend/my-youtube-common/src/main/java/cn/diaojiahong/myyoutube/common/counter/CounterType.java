@@ -16,7 +16,11 @@ public enum CounterType {
      */
     USER_LIKE("user:like", false),
     /** 收藏数。权威值是 content_collect 行数 */
-    CONTENT_COLLECT("content:collect", true);
+    CONTENT_COLLECT("content:collect", true),
+    /**
+     * 分享数。只增不减、没有可信权威来源(转发无法撤销), 同 USER_LIKE 只走增量路径。
+     */
+    CONTENT_SHARE("content:share", false);
 
     private final String code;
     private final boolean reconcile;

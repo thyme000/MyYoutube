@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
+import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
+import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
@@ -42,6 +44,7 @@ public class InternalVideoController {
     private final IVideoService videoService;
     private final DynamicMapper dynamicMapper;
     private final IContentService contentService;
+    private final CounterBuffer counterBuffer;
     private final ObjectMapper objectMapper;
     private final IUserFollowService userFollowService;
     private final IUserNotificationService userNotificationService;
@@ -84,9 +87,9 @@ public class InternalVideoController {
 
     @PostMapping("/video/share/{videoId}")
     public boolean incrementShareCount(@PathVariable Long videoId) {
-        return contentService.lambdaUpdate().eq(Content::getId, videoId)
-                .setIncrBy(Content::getShareCount, 1)
-                .update();
+        // 计数缓冲: 转发链路高频小增量, 批量落库
+        counterBuffer.add(CounterType.CONTENT_SHARE, videoId, 1);
+        return true;
     }
 
     @GetMapping("/follow/follow-ids")
