@@ -51,7 +51,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<?> handleException(Exception e) {
-    log.error("异常: {}", e.getMessage(), e);
+        log.error("异常: {}", e.getMessage(), e);
         return Result.fail("系统繁忙,请稍后再试～");
     }
 }
