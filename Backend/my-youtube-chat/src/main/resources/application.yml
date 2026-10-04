@@ -44,3 +44,6 @@ my-youtube:
     url: ${USER_SERVICE_URL:}
   video-service:
     url: ${VIDEO_SERVICE_URL:}
+  ws:
+    # 生产改为站点具体来源, 如 https://www.example.com
+    allowed-origins: ${WS_ALLOWED_ORIGINS:*}
