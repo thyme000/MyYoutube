@@ -84,6 +84,9 @@ public class RedisConstants {
     /** 多实例推送扇出: SSE 门铃通道(只承载"有新通知"轻量信号) */
     public static final String PUSH_CHANNEL_SSE = "push:channel:sse";
 
+    /** 长连接连接票: value=userId, 短时效一次性, 由网关 GETDEL 原子消费 */
+    public static final String PUSH_CONNECTION_TICKET = "push:ticket:";
+
     /** 动态成片 LRU: zset member=taskKey, score=最近访问毫秒 */
     public static final String TRANSCODE_LRU = "transcode:lru";
 

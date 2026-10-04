@@ -27,8 +27,8 @@ import java.util.stream.Collectors;
  * 网关统一鉴权: 本地验签 access JWT(不查 token 表), 仅作废时间戳命中时查一次 Redis,
  * 通过后把 userId 透传给下游服务(X-User-Id 头), 下游服务只解析头;
  * 配置了内部密钥时附带 X-Internal-Token, 供下游拒绝绕网关直连的伪造请求。
- * 长连接(聊天 WS / SSE 门铃)的 token 在 query 上(浏览器 WS/EventSource 带不了自定义 header),
- * 同样在此验签, 并把 token 从 query 剥掉再转发, 下游链路不再出现明文 token。
+ * 长连接(聊天 WS / SSE 门铃): 优先消费 ?ticket= 一次性连接票(chat 的 /chat/push/ticket 以 Bearer 换取),
+ * 兼容旧 ?token= 走验签; 凭证验完即从 query 剥掉换头转发, 下游链路不出现明文凭证。
  */
 @Component
 public class GatewayAuthFilter implements GlobalFilter, Ordered {
@@ -39,6 +39,10 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
     private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
     private static final String TOKEN_VER_KEY_PREFIX = "user:token-ver:";
     private static final String TOKEN_QUERY_PARAM = "token";
+    private static final String TICKET_QUERY_PARAM = "ticket";
+    private static final String TICKET_KEY_PREFIX = "push:ticket:";
+    /** 长连接转发前必须从 query 剥掉的凭证参数 */
+    private static final List<String> CONNECTION_CREDENTIAL_PARAMS = List.of(TOKEN_QUERY_PARAM, TICKET_QUERY_PARAM);
 
     /** 放行接口, 与各服务的公开接口保持一致 */
     private static final List<String> WHITELIST = List.of(
@@ -66,6 +70,20 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
         }
         boolean connectionPath = CONNECTION_PREFIXES.stream().anyMatch(path::startsWith);
 
+        // 一次性连接票优先: 签发时已过 Bearer 鉴权, 票本身就是凭证, GETDEL 原子消费
+        String ticket = connectionPath ? exchange.getRequest().getQueryParams().getFirst(TICKET_QUERY_PARAM) : null;
+        if (ticket != null && !ticket.isBlank()) {
+            return redisTemplate.opsForValue().getAndDelete(TICKET_KEY_PREFIX + ticket)
+                    .defaultIfEmpty("")
+                    .flatMap(userId -> {
+                        if (userId.isEmpty()) {
+                            return unauthorized(exchange);
+                        }
+                        ServerHttpRequest request = buildDownstreamRequest(exchange, userId, true);
+                        return chain.filter(exchange.mutate().request(request).build());
+                    });
+        }
+
         String token = extractToken(exchange, connectionPath);
         if (token == null) {
             return unauthorized(exchange);
@@ -82,7 +100,7 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
                     if (!ver.isEmpty() && payload.issuedAtMillis() < Long.parseLong(ver)) {
                         return unauthorized(exchange);
                     }
-                    ServerHttpRequest request = buildDownstreamRequest(exchange, payload, connectionPath);
+                    ServerHttpRequest request = buildDownstreamRequest(exchange, String.valueOf(payload.userId()), connectionPath);
                     return chain.filter(exchange.mutate().request(request).build());
                 });
     }
@@ -99,26 +117,27 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
         return null;
     }
 
-    private ServerHttpRequest buildDownstreamRequest(ServerWebExchange exchange, JwtPayload payload, boolean connectionPath) {
+    private ServerHttpRequest buildDownstreamRequest(ServerWebExchange exchange, String userId, boolean connectionPath) {
         ServerHttpRequest.Builder builder = exchange.getRequest().mutate()
-                .header(USER_ID_HEADER, String.valueOf(payload.userId()));
+                .header(USER_ID_HEADER, userId);
         if (!internalToken.isBlank()) {
             // 下游 UserIdHeaderFilter 据此拒绝绕过网关直连时伪造的 X-User-Id
             builder.header(INTERNAL_TOKEN_HEADER, internalToken);
         }
         if (connectionPath) {
-            builder.uri(stripQueryParam(exchange.getRequest().getURI(), TOKEN_QUERY_PARAM));
+            builder.uri(stripConnectionParams(exchange.getRequest().getURI()));
         }
         return builder.build();
     }
 
-    private static URI stripQueryParam(URI uri, String name) {
+    private static URI stripConnectionParams(URI uri) {
         String rawQuery = uri.getRawQuery();
         if (rawQuery == null || rawQuery.isEmpty()) {
             return uri;
         }
         String stripped = Arrays.stream(rawQuery.split("&"))
-                .filter(p -> !p.equals(name) && !p.startsWith(name + "="))
+                .filter(p -> CONNECTION_CREDENTIAL_PARAMS.stream()
+                        .noneMatch(n -> p.equals(n) || p.startsWith(n + "=")))
                 .collect(Collectors.joining("&"));
         return UriComponentsBuilder.fromUri(uri)
                 .replaceQuery(stripped.isEmpty() ? null : stripped)
