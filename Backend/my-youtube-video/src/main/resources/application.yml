@@ -38,6 +38,8 @@ mybatis-plus:
 
 # 全部服务已注册进 Nacos, 置空走负载均衡
 my-youtube:
+  # 网关与下游共享的内部密钥, 置空则不启用来源校验; 生产务必通过 INTERNAL_TOKEN 设置
+  internal-token: ${INTERNAL_TOKEN:}
   user-service:
     url: ${USER_SERVICE_URL:}
   search-service:

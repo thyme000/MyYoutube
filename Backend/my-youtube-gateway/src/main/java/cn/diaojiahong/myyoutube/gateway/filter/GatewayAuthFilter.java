@@ -21,7 +21,8 @@ import java.util.List;
 
 /**
  * 网关统一鉴权: 本地验签 access JWT(不查 token 表), 仅作废时间戳命中时查一次 Redis,
- * 通过后把 userId 透传给下游服务(X-User-Id 头), 下游服务只解析头。
+ * 通过后把 userId 透传给下游服务(X-User-Id 头), 下游服务只解析头;
+ * 配置了内部密钥时附带 X-Internal-Token, 供下游拒绝绕网关直连的伪造请求。
  */
 @Component
 public class GatewayAuthFilter implements GlobalFilter, Ordered {
@@ -29,6 +30,7 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
     private static final String AUTH_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String USER_ID_HEADER = "X-User-Id";
+    private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
     private static final String TOKEN_VER_KEY_PREFIX = "user:token-ver:";
 
     /** 放行接口, 与各服务的公开接口保持一致 */
@@ -39,10 +41,13 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
     private static final List<String> SELF_AUTH_PREFIXES = List.of("/ws/", "/sse/");
 
     private final ReactiveStringRedisTemplate redisTemplate;
+    private final String internalToken;
 
     public GatewayAuthFilter(ReactiveStringRedisTemplate redisTemplate,
-                             @Value("${jwt.secret}") String jwtSecret) {
+                             @Value("${jwt.secret}") String jwtSecret,
+                             @Value("${my-youtube.internal-token:}") String internalToken) {
         this.redisTemplate = redisTemplate;
+        this.internalToken = internalToken;
         JwtUtil.init(jwtSecret);
     }
 
@@ -72,10 +77,13 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
                     if (!ver.isEmpty() && payload.issuedAtMillis() < Long.parseLong(ver)) {
                         return unauthorized(exchange);
                     }
-                    ServerHttpRequest mutated = exchange.getRequest().mutate()
-                            .header(USER_ID_HEADER, String.valueOf(payload.userId()))
-                            .build();
-                    return chain.filter(exchange.mutate().request(mutated).build());
+                    ServerHttpRequest.Builder builder = exchange.getRequest().mutate()
+                            .header(USER_ID_HEADER, String.valueOf(payload.userId()));
+                    if (!internalToken.isBlank()) {
+                        // 下游 UserIdHeaderFilter 据此拒绝绕过网关直连时伪造的 X-User-Id
+                        builder.header(INTERNAL_TOKEN_HEADER, internalToken);
+                    }
+                    return chain.filter(exchange.mutate().request(builder.build()).build());
                 });
     }
 

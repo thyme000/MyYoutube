@@ -57,3 +57,6 @@ spring:
               predicates: [ "Path=/admin/**" ]
               order: 50
 
+my-youtube:
+  # 网关与下游共享的内部密钥, 置空则不启用来源校验; 生产务必通过 INTERNAL_TOKEN 设置
+  internal-token: ${INTERNAL_TOKEN:}

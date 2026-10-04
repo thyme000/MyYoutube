@@ -34,6 +34,8 @@ server:
 
 # 过渡期: user 服务已注册, 置空走 Nacos 负载均衡
 my-youtube:
+  # 网关与下游共享的内部密钥, 置空则不启用来源校验; 生产务必通过 INTERNAL_TOKEN 设置
+  internal-token: ${INTERNAL_TOKEN:}
   user-service:
     url: ${USER_SERVICE_URL:}
   video-service:
