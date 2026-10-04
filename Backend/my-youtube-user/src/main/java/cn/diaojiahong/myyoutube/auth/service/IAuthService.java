@@ -9,13 +9,13 @@ import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
 
 public interface IAuthService {
 
-    Result<LoginResponseDTO> login(LoginRequestDTO loginRequestDTO);
+    LoginResponseDTO login(LoginRequestDTO loginRequestDTO);
 
-    Result<LoginResponseDTO> refresh(RefreshTokenDTO refreshTokenDTO);
+    LoginResponseDTO refresh(RefreshTokenDTO refreshTokenDTO);
 
-    Result<String> logout(RefreshTokenDTO refreshTokenDTO);
+    void logout(RefreshTokenDTO refreshTokenDTO);
 
-    Result<String> register(RegisterRequestDTO registerRequestDTO);
+    void register(RegisterRequestDTO registerRequestDTO);
 
-    Result<String> forgetPassword(ForgetPasswordDTO forgetPasswordDTO);
+    void forgetPassword(ForgetPasswordDTO forgetPasswordDTO);
 }

@@ -30,7 +30,7 @@ public class AdminController {
     @Operation(summary = "审核通过")
     @PostMapping("/review/pass/{videoId}")
     public Result<String> pass(@PathVariable Long videoId) {
-        return adminService.pass(videoId);
+        return Result.success(adminService.pass(videoId));
     }
 
     /**
@@ -41,7 +41,7 @@ public class AdminController {
     @Operation(summary = "审核不通过")
     @PostMapping("/review/ban/{videoId}")
     public Result<String> ban(@PathVariable Long videoId) {
-        return adminService.ban(videoId);
+        return Result.success(adminService.ban(videoId));
     }
 
     /**
@@ -52,7 +52,7 @@ public class AdminController {
     @Operation(summary = "查看所有带审查的视频")
     @GetMapping("/list")
     public Result<PageResult<AdminVideoVO>> getVideosPage(@ModelAttribute AdminVideoPageQueryDTO adminVideoPageQueryDTO) {
-        return adminService.getVideosPage(adminVideoPageQueryDTO);
+        return Result.success(adminService.getVideosPage(adminVideoPageQueryDTO));
     }
 
     /**
@@ -63,7 +63,8 @@ public class AdminController {
     @Operation(summary = "设置评论违规")
     @PostMapping("/comment/blocked/{commentId}")
     public Result<Void> blockComment(@PathVariable Long commentId) {
-        return adminService.blockComment(commentId);
+        adminService.blockComment(commentId);
+        return Result.success();
     }
 
     /**
@@ -74,7 +75,7 @@ public class AdminController {
     @Operation(summary = "查看所有违规评论")
     @GetMapping("/comment/list")
     public Result<PageResult<AdminCommentVO>> getCommentsPage(@ModelAttribute PageQuery pageQuery) {
-        return adminService.getCommentsPage(pageQuery);
+        return Result.success(adminService.getCommentsPage(pageQuery));
     }
 
     /**
@@ -85,7 +86,8 @@ public class AdminController {
     @Operation(summary = "恢复违规评论")
     @PostMapping("/comment/restore/{commentId}")
     public Result<Void> restoreComment(@PathVariable Long commentId) {
-        return adminService.restoreComment(commentId);
+        adminService.restoreComment(commentId);
+        return Result.success();
     }
 
     /**
@@ -96,7 +98,8 @@ public class AdminController {
     @Operation(summary = "忽略举报评论")
     @PostMapping("/comment/report/ignore/{commentId}")
     public Result<Void> ignoreReportComment(@PathVariable Long commentId) {
-        return adminService.ignoreReportComment(commentId);
+        adminService.ignoreReportComment(commentId);
+        return Result.success();
     }
 
     /**
@@ -107,6 +110,6 @@ public class AdminController {
     @Operation(summary = "查看用户举报评论")
     @GetMapping("/comment/report")
     public Result<PageResult<AdminCommentReportVO>> getReportCommentsPage(@ModelAttribute AdminCommentReportPageQueryDTO pageQuery) {
-        return adminService.getReportCommentsPage(pageQuery);
+        return Result.success(adminService.getReportCommentsPage(pageQuery));
     }
 }

@@ -41,7 +41,7 @@ public class UserController {
     @Operation(summary = "获取用户信息")
     @GetMapping("/info/{userId}")
     public Result<UserVO> getUserInfo(@PathVariable Long userId) {
-        return userService.getUserInfo(userId);
+        return Result.success(userService.getUserInfo(userId));
     }
 
     /**
@@ -51,7 +51,7 @@ public class UserController {
     @Operation(summary = "获取当前用户的信息")
     @GetMapping("/info")
     public Result<UserVO> getCurrentUserInfo() {
-        return userService.getCurrentUserInfo();
+        return Result.success(userService.getCurrentUserInfo());
     }
 
 
@@ -65,7 +65,7 @@ public class UserController {
     @Operation(summary = "用户修改头像")
     @PostMapping("/avatar")
     public Result<String> updateAvatar(@RequestParam("avatar") MultipartFile avatar) {
-        return userService.updateAvatar(avatar);
+        return Result.success(userService.updateAvatar(avatar));
     }
 
     /**
@@ -77,7 +77,7 @@ public class UserController {
     @Operation(summary = "用户修改背景图片")
     @PostMapping("/bg-image")
     public Result<String> updateBgImage(@RequestParam("bgImage") MultipartFile bgImage) {
-        return userService.updateBgImage(bgImage);
+        return Result.success(userService.updateBgImage(bgImage));
     }
 
     /**
@@ -89,7 +89,7 @@ public class UserController {
     @Operation(summary = "用户修改资料")
     @PutMapping("/{id}")
     public Result<String> updateUser(@PathVariable Long id, @RequestBody UserDTO userDTO) {
-        return userService.updateUser(id, userDTO);
+        return Result.success(userService.updateUser(id, userDTO));
     }
 
 

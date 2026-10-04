@@ -10,19 +10,19 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 
 public interface IAdminService {
-    Result<String> pass(Long videoId);
+    String pass(Long videoId);
 
-    Result<String> ban(Long videoId);
+    String ban(Long videoId);
 
-    Result<PageResult<AdminVideoVO>> getVideosPage(AdminVideoPageQueryDTO adminVideoPageQueryDTO);
+    PageResult<AdminVideoVO> getVideosPage(AdminVideoPageQueryDTO adminVideoPageQueryDTO);
 
-    Result<Void> blockComment(Long commentId);
+    void blockComment(Long commentId);
 
-    Result<PageResult<AdminCommentVO>> getCommentsPage(PageQuery pageQuery);
+    PageResult<AdminCommentVO> getCommentsPage(PageQuery pageQuery);
 
-    Result<Void> restoreComment(Long commentId);
+    void restoreComment(Long commentId);
 
-    Result<PageResult<AdminCommentReportVO>> getReportCommentsPage(AdminCommentReportPageQueryDTO pageQuery);
+    PageResult<AdminCommentReportVO> getReportCommentsPage(AdminCommentReportPageQueryDTO pageQuery);
 
-    Result<Void> ignoreReportComment(Long commentId);
+    void ignoreReportComment(Long commentId);
 }

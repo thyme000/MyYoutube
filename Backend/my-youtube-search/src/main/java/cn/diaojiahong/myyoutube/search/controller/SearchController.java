@@ -32,7 +32,7 @@ public class SearchController {
     @Operation(summary = "用户搜索视频")
     @GetMapping("/video")
     public Result<PageResult<SearchVideoVO>> searchVideo(@ModelAttribute SearchVideoPageQuery query) {
-        return searchService.searchVideo(query);
+        return Result.success(searchService.searchVideo(query));
     }
 
     /**
@@ -43,7 +43,7 @@ public class SearchController {
     @Operation(summary = "用户搜索用户")
     @GetMapping("/user")
     public Result<PageResult<SearchUserVO>> searchUser(@ModelAttribute SearchUserPageQuery pageQuery) {
-        return searchService.searchUser(pageQuery);
+        return Result.success(searchService.searchUser(pageQuery));
     }
 
     /**
@@ -54,7 +54,7 @@ public class SearchController {
     @Operation(summary = "根据用户输入提示搜索")
     @GetMapping("/prompt")
     public Result<List<String>> prompt(@RequestParam String keyword) {
-        return searchService.prompt(keyword);
+        return Result.success(searchService.prompt(keyword));
     }
 
 
@@ -66,7 +66,7 @@ public class SearchController {
     @Operation(summary = "用户点击标签,根据标签进行视频搜索")
     @GetMapping("/tag")
     public Result<PageResult<SearchVideoVO>> searchByTag(@ModelAttribute SearchVideoByTagPageQuery pageQuery) {
-        return searchService.searchByTag(pageQuery);
+        return Result.success(searchService.searchByTag(pageQuery));
     }
 
     /**
@@ -76,6 +76,6 @@ public class SearchController {
     @Operation(summary = "热搜榜")
     @GetMapping("/hot")
     public Result<List<String>> hot() {
-        return searchService.hot();
+        return Result.success(searchService.hot());
     }
 }

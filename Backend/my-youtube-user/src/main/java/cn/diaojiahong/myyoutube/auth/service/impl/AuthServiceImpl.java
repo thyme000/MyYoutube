@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.auth.service.impl;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.PasswordEncoder;
 import cn.diaojiahong.myyoutube.common.utils.RegexUtils;
@@ -43,7 +44,7 @@ public class AuthServiceImpl implements IAuthService {
             RedisScript.of(new ClassPathResource("lua/refresh-rotate.lua"), String.class);
 
     @Override
-    public Result<LoginResponseDTO> login(LoginRequestDTO loginRequestDTO) {
+    public LoginResponseDTO login(LoginRequestDTO loginRequestDTO) {
         String username = loginRequestDTO.getUsername();
         String rawPassword = loginRequestDTO.getPassword();
 
@@ -52,12 +53,12 @@ public class AuthServiceImpl implements IAuthService {
                 .eq(User::getUsername, username)
                 .one();
         if (user == null) {
-            return Result.fail("用户不存在!");
+            throw new BizException(BizException.BIZ_ERROR, "用户不存在!");
         }
 
         // BCrypt 校验：matches(明文, 哈希)，第一个参数必须是原始明文
         if (!PasswordEncoder.matches(rawPassword, user.getPassword())) {
-            return Result.fail("密码错误!");
+            throw new BizException(BizException.BIZ_ERROR, "密码错误!");
         }
 
 
@@ -67,14 +68,14 @@ public class AuthServiceImpl implements IAuthService {
         saveRefreshToken(refreshToken, user.getId());
 
         log.info("用户 [{}] 登录成功", username);
-        return Result.success(new LoginResponseDTO(accessToken, refreshToken));
+        return new LoginResponseDTO(accessToken, refreshToken);
     }
 
     @Override
-    public Result<LoginResponseDTO> refresh(RefreshTokenDTO refreshTokenDTO) {
+    public LoginResponseDTO refresh(RefreshTokenDTO refreshTokenDTO) {
         String refreshToken = refreshTokenDTO == null ? null : refreshTokenDTO.getRefreshToken();
         if (refreshToken == null || refreshToken.isBlank()) {
-            return Result.fail("登录已过期，请重新登录!");
+            throw new BizException(BizException.BIZ_ERROR, "登录已过期，请重新登录!");
         }
 
         String newRefreshToken = UUID.randomUUID().toString();
@@ -89,19 +90,19 @@ public class AuthServiceImpl implements IAuthService {
 
         // USED=已用过/不存在; REVOKED=被 token-ver 作废(改密码/封号)
         if (userId == null || userId.equals("USED") || userId.equals("REVOKED")) {
-            return Result.fail("登录已过期，请重新登录!");
+            throw new BizException(BizException.BIZ_ERROR, "登录已过期，请重新登录!");
         }
 
-        return Result.success(new LoginResponseDTO(JwtUtil.sign(Long.parseLong(userId)), newRefreshToken));
+        return new LoginResponseDTO(JwtUtil.sign(Long.parseLong(userId)), newRefreshToken);
     }
 
     @Override
-    public Result<String> logout(RefreshTokenDTO refreshTokenDTO) {
+    public void logout(RefreshTokenDTO refreshTokenDTO) {
         String refreshToken = refreshTokenDTO == null ? null : refreshTokenDTO.getRefreshToken();
         if (refreshToken != null && !refreshToken.isBlank()) {
             redisTemplate.delete(RedisConstants.USER_REFRESH_TOKEN + refreshToken);
         }
-        return Result.success();
+        return;
     }
 
     private void saveRefreshToken(String refreshToken, Long userId) {
@@ -111,24 +112,24 @@ public class AuthServiceImpl implements IAuthService {
     }
 
     @Override
-    public Result<String> register(RegisterRequestDTO registerRequestDTO) {
+    public void register(RegisterRequestDTO registerRequestDTO) {
         // 两次密码一致性校验
         if (!registerRequestDTO.getPassword().equals(registerRequestDTO.getConfirmPassword())) {
-            return Result.fail("两次密码不一致!");
+            throw new BizException(BizException.BIZ_ERROR, "两次密码不一致!");
         }
 
 
         // 密码格式校验
         if (RegexUtils.isPasswordInvalid(registerRequestDTO.getPassword())) {
-            return Result.fail("密码格式错误，需10~32位字母/数字/下划线!");
+            throw new BizException(BizException.BIZ_ERROR, "密码格式错误，需10~32位字母/数字/下划线!");
         }
         // 邮箱格式校验
         if (RegexUtils.isEmailInvalid(registerRequestDTO.getEmail())) {
-            return Result.fail("邮箱格式错误!");
+            throw new BizException(BizException.BIZ_ERROR, "邮箱格式错误!");
         }
         // 手机号格式校验
         if (RegexUtils.isPhoneInvalid(registerRequestDTO.getPhone())) {
-            return Result.fail("手机号格式错误!");
+            throw new BizException(BizException.BIZ_ERROR, "手机号格式错误!");
         }
 
         String username = registerRequestDTO.getUsername().trim();
@@ -137,15 +138,15 @@ public class AuthServiceImpl implements IAuthService {
 
         // 用户名唯一性校验
         if (userService.lambdaQuery().eq(User::getUsername, username).exists()) {
-            return Result.fail("用户名已存在!");
+            throw new BizException(BizException.BIZ_ERROR, "用户名已存在!");
         }
         // 手机号唯一性校验
         if (userService.lambdaQuery().eq(User::getPhone, phone).exists()) {
-            return Result.fail("手机号已被注册!");
+            throw new BizException(BizException.BIZ_ERROR, "手机号已被注册!");
         }
         // 邮箱唯一性校验
         if (userService.lambdaQuery().eq(User::getEmail, email).exists()) {
-            return Result.fail("邮箱已被注册!");
+            throw new BizException(BizException.BIZ_ERROR, "邮箱已被注册!");
         }
 
         registerRequestDTO.setUsername(username);
@@ -169,15 +170,15 @@ public class AuthServiceImpl implements IAuthService {
                 new UserDocSyncMessage(user.getId()));
 
         log.info("用户 [{}] 注册成功", registerRequestDTO.getUsername());
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<String> forgetPassword(ForgetPasswordDTO forgetPasswordDTO) {
+    public void forgetPassword(ForgetPasswordDTO forgetPasswordDTO) {
         // 校验字段
         String newPassword = forgetPasswordDTO.getNewPassword();
         if (RegexUtils.isPasswordInvalid(newPassword)) {
-            return Result.fail("密码格式错误，需10~32位字母/数字/下划线!");
+            throw new BizException(BizException.BIZ_ERROR, "密码格式错误，需10~32位字母/数字/下划线!");
         }
         // 校验字段是否有效
         User user = userService.lambdaQuery()
@@ -185,7 +186,7 @@ public class AuthServiceImpl implements IAuthService {
                 .eq(User::getPhone, forgetPasswordDTO.getPhone())
                 .one();
         if (user == null) {
-            return Result.fail("用户不存在!");
+            throw new BizException(BizException.BIZ_ERROR, "用户不存在!");
         }
 
 
@@ -199,6 +200,6 @@ public class AuthServiceImpl implements IAuthService {
                 String.valueOf(System.currentTimeMillis()));
 
         log.info("用户 [{}] 重置密码成功", forgetPasswordDTO.getUsername());
-        return Result.success();
+        return;
     }
 }

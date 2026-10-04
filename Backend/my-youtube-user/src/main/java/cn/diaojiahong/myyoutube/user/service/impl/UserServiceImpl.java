@@ -51,30 +51,30 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private final RocketMQTemplate rocketMQTemplate;
 
     @Override
-    public Result<UserVO> getUserInfo(Long userId) {
+    public UserVO getUserInfo(Long userId) {
         User user = getById(userId);
         if (user == null) {
-            return Result.fail("用户不存在");
+            throw new BizException(BizException.BIZ_ERROR, "用户不存在");
         }
 
         user.setAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), STORAGE_EXPIRE));
         user.setBgImage(storageUtil.signGetUrl(user.getBgImage(), STORAGE_EXPIRE));
 
-        return Result.success(BeanUtil.toBean(user, UserVO.class));
+        return BeanUtil.toBean(user, UserVO.class);
     }
 
     @Override
-    public Result<String> updateAvatar(MultipartFile avatar) {
+    public String updateAvatar(MultipartFile avatar) {
         String upload = getUpdatedUrl(avatar, "avatar");
         if (upload == null) {
-            return Result.fail("上传头像失败");
+            throw new BizException(BizException.BIZ_ERROR, "上传头像失败");
         }
         // 更新用户头像url
         lambdaUpdate()
                 .set(User::getAvatarUrl, upload)
                 .eq(User::getId, UserContext.getUserId())
                 .update();
-        return Result.success(upload);
+        return upload;
     }
 
     private String getUpdatedUrl(MultipartFile file, String bizPrefix) {
@@ -89,25 +89,28 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
 
     @Override
-    public Result<String> updateBgImage(MultipartFile bgImage) {
+    public String updateBgImage(MultipartFile bgImage) {
         String upload = getUpdatedUrl(bgImage, "bg");
         if (upload == null) {
-            return Result.fail("上传背景图片失败");
+            throw new BizException(BizException.BIZ_ERROR, "上传背景图片失败");
         }
         // 更新用户头像url
         lambdaUpdate()
                 .set(User::getBgImage, upload)
                 .eq(User::getId, UserContext.getUserId())
                 .update();
-        return Result.success(upload);
+        return upload;
     }
 
     @Override
-    public Result<String> updateUser(Long id, UserDTO userDTO) {
+    public String updateUser(Long id, UserDTO userDTO) {
         if (id == null) {
-            return Result.fail("用户ID不能为空");
+            throw new BizException(BizException.BIZ_ERROR, "用户ID不能为空");
         }
         User user = getById(id);
+        if (user == null) {
+            throw new BizException(BizException.USER_ERROR, "用户不存在");
+        }
         String oldName = user.getNickname();
         user.setNickname(userDTO.getNickname() == null || userDTO.getNickname().isEmpty() ?
                 oldName : userDTO.getNickname());
@@ -115,14 +118,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 user.getIntroduction() : userDTO.getIntroduction());
         boolean success = updateById(user);
         if (!success) {
-            return Result.fail("服务器繁忙,请稍后再试～");
+            throw new BizException(BizException.BIZ_ERROR, "服务器繁忙,请稍后再试～");
         }
         // 同步 ES 文档: 发消息, 由 search 侧以 MySQL 为准重建
         rocketMQTemplate.syncSend(MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
                 new UserDocSyncMessage(user.getId()));
 
         log.info("用户{},更新用户资料成功...", id);
-        return Result.success("修改成功");
+        return "修改成功";
     }
 
     @Override
@@ -153,14 +156,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     // getShortsHistory 已随 user_shorts_play 行为记录一并退役(统一内容池一期)
 
     @Override
-    public Result<UserVO> getCurrentUserInfo() {
+    public UserVO getCurrentUserInfo() {
         Long userId = getUserId();
         User userInfo = getById(userId);
 
         userInfo.setAvatarUrl(storageUtil.signGetUrl(userInfo.getAvatarUrl(), STORAGE_EXPIRE));
         userInfo.setBgImage(storageUtil.signGetUrl(userInfo.getBgImage(), STORAGE_EXPIRE));
 
-        return Result.success(BeanUtil.toBean(userInfo, UserVO.class));
+        return BeanUtil.toBean(userInfo, UserVO.class);
     }
 
 }

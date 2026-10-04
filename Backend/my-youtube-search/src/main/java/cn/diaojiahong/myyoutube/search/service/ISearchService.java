@@ -11,13 +11,13 @@ import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
 import java.util.List;
 
 public interface ISearchService {
-    Result<PageResult<SearchVideoVO>> searchVideo(SearchVideoPageQuery query);
+    PageResult<SearchVideoVO> searchVideo(SearchVideoPageQuery query);
 
-    Result<PageResult<SearchUserVO>> searchUser(SearchUserPageQuery pageQuery);
+    PageResult<SearchUserVO> searchUser(SearchUserPageQuery pageQuery);
 
-    Result<List<String>> prompt(String keyword);
+    List<String> prompt(String keyword);
 
-    Result<PageResult<SearchVideoVO>> searchByTag(SearchVideoByTagPageQuery pageQuery);
+    PageResult<SearchVideoVO> searchByTag(SearchVideoByTagPageQuery pageQuery);
 
-    Result<List<String>> hot();
+    List<String> hot();
 }

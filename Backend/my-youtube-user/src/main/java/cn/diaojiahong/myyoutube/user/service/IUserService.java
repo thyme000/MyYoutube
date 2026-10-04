@@ -23,19 +23,19 @@ import java.util.Map;
  */
 public interface IUserService extends IService<User> {
 
-    Result<UserVO> getUserInfo(Long userId);
+    UserVO getUserInfo(Long userId);
 
-    Result<String> updateAvatar(MultipartFile avatar);
+    String updateAvatar(MultipartFile avatar);
 
-    Result<String> updateBgImage(MultipartFile bgImage);
+    String updateBgImage(MultipartFile bgImage);
 
-    Result<String> updateUser(Long id, UserDTO userDTO);
+    String updateUser(Long id, UserDTO userDTO);
 
     Map<Long, String> getAuthorNicknames(List<Long> ids);
 
     Map<Long, String> getAuthorAvatarUrls(List<Long> authorIds);
 
 
-    Result<UserVO> getCurrentUserInfo();
+    UserVO getCurrentUserInfo();
 
 }

@@ -32,7 +32,7 @@ public class AuthController {
     @Operation(summary = "登录")
     @PostMapping("/login")
     public Result<LoginResponseDTO> login(@RequestBody LoginRequestDTO loginRequestDTO) {
-        return authService.login(loginRequestDTO);
+        return Result.success(authService.login(loginRequestDTO));
     }
 
     /**
@@ -41,7 +41,7 @@ public class AuthController {
     @Operation(summary = "续签")
     @PostMapping("/refresh")
     public Result<LoginResponseDTO> refresh(@RequestBody RefreshTokenDTO refreshTokenDTO) {
-        return authService.refresh(refreshTokenDTO);
+        return Result.success(authService.refresh(refreshTokenDTO));
     }
 
     /**
@@ -49,8 +49,9 @@ public class AuthController {
      */
     @Operation(summary = "登出")
     @PostMapping("/logout")
-    public Result<String> logout(@RequestBody RefreshTokenDTO refreshTokenDTO) {
-        return authService.logout(refreshTokenDTO);
+    public Result<Void> logout(@RequestBody RefreshTokenDTO refreshTokenDTO) {
+        authService.logout(refreshTokenDTO);
+        return Result.success();
     }
 
     /**
@@ -61,8 +62,9 @@ public class AuthController {
      */
     @Operation(summary = "注册")
     @PostMapping("/register")
-    public Result<String> register(@RequestBody RegisterRequestDTO registerRequestDTO) {
-        return authService.register(registerRequestDTO);
+    public Result<Void> register(@RequestBody RegisterRequestDTO registerRequestDTO) {
+        authService.register(registerRequestDTO);
+        return Result.success();
     }
 
     /**
@@ -72,7 +74,8 @@ public class AuthController {
      */
     @Operation(summary = "忘记密码")
     @PostMapping("/forget-password")
-    public Result<String> forgetPassword(@RequestBody ForgetPasswordDTO forgetPasswordDTO) {
-        return authService.forgetPassword(forgetPasswordDTO);
+    public Result<Void> forgetPassword(@RequestBody ForgetPasswordDTO forgetPasswordDTO) {
+        authService.forgetPassword(forgetPasswordDTO);
+        return Result.success();
     }
 }

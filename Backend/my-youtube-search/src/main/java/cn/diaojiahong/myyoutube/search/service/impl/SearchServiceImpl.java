@@ -60,7 +60,7 @@ public class SearchServiceImpl implements ISearchService {
     private static final int STORAGE_EXPIRE_SECONDS = 3600 * 10;
 
     @Override
-    public Result<PageResult<SearchVideoVO>> searchVideo(SearchVideoPageQuery pageQuery) {
+    public PageResult<SearchVideoVO> searchVideo(SearchVideoPageQuery pageQuery) {
         Long userId = getUserId();
         // 用户搜索的关键词
         String keyword = pageQuery.getKeyword() == null ? "" : pageQuery.getKeyword().trim();
@@ -124,15 +124,13 @@ public class SearchServiceImpl implements ISearchService {
                     .build();
         }
         // 3. 执行查询
-        Result<PageResult<SearchVideoVO>> result = getSearchPageResult(query, pageQuery.getPageSize());
-        if (result.getData() != null) {
-            loadForHotSearch(userId, keyword);
-        }
+        PageResult<SearchVideoVO> result = getSearchPageResult(query, pageQuery.getPageSize());
+        loadForHotSearch(userId, keyword);
         return result;
     }
 
     @Override
-    public Result<PageResult<SearchUserVO>> searchUser(SearchUserPageQuery pageQuery) {
+    public PageResult<SearchUserVO> searchUser(SearchUserPageQuery pageQuery) {
         Long userId = getUserId();
         // 获取关键字
         String keyword = pageQuery.getKeyword() == null ? "" : pageQuery.getKeyword().trim();
@@ -196,7 +194,7 @@ public class SearchServiceImpl implements ISearchService {
         SearchHits<UserDoc> hits = elasticsearchOperations.search(query, UserDoc.class);
         List<UserDoc> list = hits.getSearchHits().stream().map(SearchHit::getContent).toList();
         if (list.isEmpty()) {
-            return Result.success(PageResult.of(0, 0, Collections.emptyList()));
+            return PageResult.of(0, 0, Collections.emptyList());
         }
         // 转换为VO
         List<SearchUserVO> result = BeanUtil.copyToList(list, SearchUserVO.class);
@@ -204,7 +202,7 @@ public class SearchServiceImpl implements ISearchService {
         Map<Long, String> avatarUrls = UserSummaries.toAvatarMap(
                 userPort.listByIds(result.stream().map(SearchUserVO::getId).collect(Collectors.toList())));
         if (avatarUrls == null || avatarUrls.isEmpty()) {
-            return Result.success(PageResult.of(0, 0, result));
+            return PageResult.of(0, 0, result);
         }
         result.forEach(vo -> {
             vo.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(vo.getId()), STORAGE_EXPIRE_SECONDS));
@@ -219,7 +217,7 @@ public class SearchServiceImpl implements ISearchService {
 
         long total = hits.getTotalHits();
         long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
-        return Result.success(PageResult.of(total, pages, result));
+        return PageResult.of(total, pages, result);
     }
 
     private void loadForHotSearch(Long userId, String keyword) {
@@ -243,10 +241,10 @@ public class SearchServiceImpl implements ISearchService {
     }
 
     @Override
-    public Result<List<String>> prompt(String keyword) {
+    public List<String> prompt(String keyword) {
         String q = keyword == null ? "" : keyword.trim();
         if (q.isEmpty()) {
-            return Result.success(Collections.emptyList());
+            return Collections.emptyList();
         }
         try {
             var videoResp = elasticsearchClient.search(s -> s
@@ -267,10 +265,10 @@ public class SearchServiceImpl implements ISearchService {
             appendSuggestTexts(videoResp, "video_suggest", merged);
             appendSuggestTexts(userResp, "user_suggest", merged);
 
-            return Result.success(merged.stream().limit(10).toList());
+            return merged.stream().limit(10).toList();
         } catch (Exception e) {
             log.error("提示查询失败,请稍后重试", e);
-            return Result.fail("系统繁忙,请稍后再试");
+            throw new BizException(BizException.BIZ_ERROR, "系统繁忙,请稍后再试");
         }
     }
 
@@ -297,7 +295,7 @@ public class SearchServiceImpl implements ISearchService {
     }
 
     @Override
-    public Result<PageResult<SearchVideoVO>> searchByTag(SearchVideoByTagPageQuery pageQuery) {
+    public PageResult<SearchVideoVO> searchByTag(SearchVideoByTagPageQuery pageQuery) {
         Long userId = getUserId();
         String tagName = pageQuery.getTagName() == null ? "" : pageQuery.getTagName().trim();
         // 构造ES查询
@@ -331,15 +329,13 @@ public class SearchServiceImpl implements ISearchService {
                 .build();
 
         // 3. 执行查询
-        Result<PageResult<SearchVideoVO>> result = getSearchPageResult(query, pageQuery.getPageSize());
-        if (result.getData() != null) {
-            loadForHotSearch(userId, tagName);
-        }
+        PageResult<SearchVideoVO> result = getSearchPageResult(query, pageQuery.getPageSize());
+        loadForHotSearch(userId, tagName);
         return result;
     }
 
     @Override
-    public Result<List<String>> hot() {
+    public List<String> hot() {
         // 倒序获取热门搜索的前七个
         Set<String> hotSearches = redisTemplate.opsForZSet()
                 .reverseRangeByScore(
@@ -350,19 +346,19 @@ public class SearchServiceImpl implements ISearchService {
                         7                            // 数量（取前7个）
                 );
         if (hotSearches == null || hotSearches.isEmpty()) {
-            return Result.success(Collections.emptyList());
+            return Collections.emptyList();
         }
-        return Result.success(hotSearches.stream().toList());
+        return hotSearches.stream().toList();
     }
 
-    private Result<PageResult<SearchVideoVO>> getSearchPageResult(NativeQuery query, int pageSize) {
+    private PageResult<SearchVideoVO> getSearchPageResult(NativeQuery query, int pageSize) {
         SearchHits<ContentDoc> hits = elasticsearchOperations.search(query, ContentDoc.class);
         List<String> list = hits.getSearchHits().stream().map(hit -> {
             ContentDoc doc = hit.getContent();
             return doc.getId().toString();
         }).collect(Collectors.toList());
         if (list.isEmpty()) {
-            return Result.success(PageResult.of(0, 0, Collections.emptyList()));
+            return PageResult.of(0, 0, Collections.emptyList());
         }
         List<ContentSummary> videos = contentSummaryPort.listByIdsOrdered(new HashSet<>(list));
         List<SearchVideoVO> result = BeanUtil.copyToList(videos, SearchVideoVO.class);
@@ -371,7 +367,7 @@ public class SearchServiceImpl implements ISearchService {
         Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(authors);
         Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(authors);
         if (authorNicknames == null || authorAvatarUrls == null) {
-            return Result.success(PageResult.of(0, 0, result));
+            return PageResult.of(0, 0, result);
         }
         result.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
@@ -401,7 +397,7 @@ public class SearchServiceImpl implements ISearchService {
 
         long total = hits.getTotalHits();
         long pages = (total + pageSize - 1) / pageSize;
-        return Result.success(PageResult.of(total, pages, result));
+        return PageResult.of(total, pages, result);
     }
 
     private List<Long> isLike(Long userId, List<Long> videoIds) {

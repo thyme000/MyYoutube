@@ -10,6 +10,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.common.result.ResultCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.search.api.UserDocPort;
@@ -51,17 +52,17 @@ public class AdminServiceImpl implements IAdminService {
     private final S3StorageUtil storageUtil;
 
     @Override
-    public Result<String> pass(Long videoId) {
+    public String pass(Long videoId) {
         checkAdmin();
         Result<Boolean> markResult = videoAdminPort.markStatus(
                 new VideoAdminPort.MarkStatus(videoId, VideoStatusEnum.PUBLISHED.getCode()));
         if (!Boolean.TRUE.equals(markResult.getData())) {
-            return Result.fail("发布失败");
+            throw new BizException(BizException.BIZ_ERROR, "发布失败");
         }
         Result<VideoSummary> videoResult = videoAdminPort.getVideo(new VideoAdminPort.VideoId(videoId));
         VideoSummary video = videoResult.getData();
         if (video == null) {
-            return Result.fail("视频不存在");
+            throw new BizException(BizException.BIZ_ERROR, "视频不存在");
         }
         // 作者作品数 +1
         userPort.adjustCounters(List.of(new CounterAdjust(video.getAuthorId(), "videoCount", 1)));
@@ -70,16 +71,16 @@ public class AdminServiceImpl implements IAdminService {
                 VideoStatusEnum.PUBLISHED.getCode(), video.getTitle(), video.getDescription(),
                 video.getTags(), true));
         userDocPort.adjustVideoCount(video.getAuthorId(), 1);
-        return Result.success("发布成功");
+        return "发布成功";
     }
 
     @Override
-    public Result<String> ban(Long videoId) {
+    public String ban(Long videoId) {
         checkAdmin();
         Result<VideoSummary> videoResult = videoAdminPort.getVideo(new VideoAdminPort.VideoId(videoId));
         VideoSummary video = videoResult.getData();
         if (video == null) {
-            return Result.fail("视频不存在");
+            throw new BizException(BizException.BIZ_ERROR, "视频不存在");
         }
         boolean wasPublished = VideoStatusEnum.PUBLISHED.getCode().equals(video.getStatus());
         videoAdminPort.markStatus(new VideoAdminPort.MarkStatus(videoId, VideoStatusEnum.BANNED.getCode()));
@@ -89,11 +90,11 @@ public class AdminServiceImpl implements IAdminService {
         }
         contentDocPort.syncStatus(videoId, new ContentDocPort.StatusSync(
                 VideoStatusEnum.BANNED.getCode(), null, null, null, false));
-        return Result.success("封禁成功");
+        return "封禁成功";
     }
 
     @Override
-    public Result<PageResult<AdminVideoVO>> getVideosPage(AdminVideoPageQueryDTO q) {
+    public PageResult<AdminVideoVO> getVideosPage(AdminVideoPageQueryDTO q) {
         checkAdmin();
         Result<PageResult<VideoSummary>> pageResult = videoAdminPort.pageVideos(new VideoAdminPort.AdminVideoQuery(
                 q.getVideoStatus() != null ? q.getVideoStatus().getCode() : null,
@@ -103,7 +104,7 @@ public class AdminServiceImpl implements IAdminService {
                 q.getPageSize()));
         PageResult<VideoSummary> page = pageResult.getData();
         if (page == null || page.getList() == null || page.getList().isEmpty()) {
-            return Result.success(PageResult.of(0, 0, new ArrayList<>()));
+            return PageResult.of(0, 0, new ArrayList<>());
         }
         List<Long> authorIds = page.getList().stream().map(VideoSummary::getAuthorId).toList();
         List<UserSummary> authors = userPort.listByIds(authorIds);
@@ -121,23 +122,23 @@ public class AdminServiceImpl implements IAdminService {
             vo.setAuthorAvatarUrl(storageUtil.signGetUrl(avatars.get(v.getAuthorId()), 60 * 10));
             return vo;
         }).collect(Collectors.toList());
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
+        return PageResult.of(page.getTotal(), page.getPages(), voList);
     }
 
     @Override
-    public Result<Void> blockComment(Long commentId) {
+    public void blockComment(Long commentId) {
         checkAdmin();
-        return commentAdminPort.block(new CommentAdminPort.CommentId(commentId));
+        requireOk(commentAdminPort.block(new CommentAdminPort.CommentId(commentId)));
     }
 
     @Override
-    public Result<PageResult<AdminCommentVO>> getCommentsPage(PageQuery pageQuery) {
+    public PageResult<AdminCommentVO> getCommentsPage(PageQuery pageQuery) {
         checkAdmin();
         Result<PageResult<CommentAdminPort.CommentSummary>> page = commentAdminPort.pageBlockedComments(
                 new CommentAdminPort.PageQuery(pageQuery.getPageNo(), pageQuery.getPageSize()));
         PageResult<CommentAdminPort.CommentSummary> data = page.getData();
         if (data == null || data.getList() == null || data.getList().isEmpty()) {
-            return Result.success(PageResult.of(0, 0, new ArrayList<>()));
+            return PageResult.of(0, 0, new ArrayList<>());
         }
         List<AdminCommentVO> voList = data.getList().stream().map(c -> {
             AdminCommentVO vo = new AdminCommentVO();
@@ -147,17 +148,17 @@ public class AdminServiceImpl implements IAdminService {
             vo.setCreateTime(c.getCreateTime());
             return vo;
         }).collect(Collectors.toList());
-        return Result.success(PageResult.of(data.getTotal(), data.getPages(), voList));
+        return PageResult.of(data.getTotal(), data.getPages(), voList);
     }
 
     @Override
-    public Result<Void> restoreComment(Long commentId) {
+    public void restoreComment(Long commentId) {
         checkAdmin();
-        return commentAdminPort.restore(new CommentAdminPort.CommentId(commentId));
+        requireOk(commentAdminPort.restore(new CommentAdminPort.CommentId(commentId)));
     }
 
     @Override
-    public Result<PageResult<AdminCommentReportVO>> getReportCommentsPage(AdminCommentReportPageQueryDTO pageQuery) {
+    public PageResult<AdminCommentReportVO> getReportCommentsPage(AdminCommentReportPageQueryDTO pageQuery) {
         checkAdmin();
         Result<PageResult<CommentAdminPort.ReportSummary>> page = commentAdminPort.pageReports(
                 new CommentAdminPort.ReportQuery(
@@ -167,7 +168,7 @@ public class AdminServiceImpl implements IAdminService {
                         pageQuery.getPageSize()));
         PageResult<CommentAdminPort.ReportSummary> data = page.getData();
         if (data == null || data.getList() == null || data.getList().isEmpty()) {
-            return Result.success(PageResult.of(0, 0, new ArrayList<>()));
+            return PageResult.of(0, 0, new ArrayList<>());
         }
         List<AdminCommentReportVO> voList = data.getList().stream().map(r -> {
             AdminCommentReportVO vo = new AdminCommentReportVO();
@@ -178,13 +179,20 @@ public class AdminServiceImpl implements IAdminService {
             vo.setContent(r.getContent());
             return vo;
         }).collect(Collectors.toList());
-        return Result.success(PageResult.of(data.getTotal(), data.getPages(), voList));
+        return PageResult.of(data.getTotal(), data.getPages(), voList);
     }
 
     @Override
-    public Result<Void> ignoreReportComment(Long commentId) {
+    public void ignoreReportComment(Long commentId) {
         checkAdmin();
-        return commentAdminPort.ignoreReport(new CommentAdminPort.CommentId(commentId));
+        requireOk(commentAdminPort.ignoreReport(new CommentAdminPort.CommentId(commentId)));
+    }
+
+    /** 内部端口返回的 Result 拆包: 非 200 转业务异常, Result 不穿透本层 */
+    private void requireOk(Result<?> r) {
+        if (r == null || r.getCode() != ResultCode.SUCCESS.getCode()) {
+            throw new BizException(BizException.BIZ_ERROR, r != null ? r.getMessage() : "下游服务无响应");
+        }
     }
 
     private void checkAdmin() {
