@@ -8,7 +8,6 @@ import cn.diaojiahong.myyoutube.chat.mongo.vo.ValidUserConversationVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
@@ -56,21 +55,19 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         return Long.parseLong(userId);
     }
 
-    public Result<Void> setMute(String conversationId, boolean mute) {
+    public void setMute(String conversationId, boolean mute) {
         Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(getUserId());
         Update u = new Update().set("mute", mute);
         mongoTemplate.updateFirst(Query.query(c), u, ChatUserConversationDoc.class);
-        return Result.success();
     }
 
-    public Result<Void> setPin(String conversationId, boolean pin) {
+    public void setPin(String conversationId, boolean pin) {
         Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(getUserId());
         Update u = new Update().set("pin", pin);
         mongoTemplate.updateFirst(Query.query(c), u, ChatUserConversationDoc.class);
-        return Result.success();
     }
 
-    public Result<PageResult<UserConversationVO>> getPageConversations(Long page, Long pageSize) {
+    public PageResult<UserConversationVO> getPageConversations(Long page, Long pageSize) {
         // 置顶优先,其次按最后活跃时间来排序
         Query query = Query.query(
                 Criteria.where("userId").is(getUserId()).and("deleted").is(false));
@@ -84,7 +81,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         Page<ChatUserConversationDoc> p = this.page(query, pageable);
         List<ChatUserConversationDoc> content = p.getContent();
         if (content.isEmpty()) {
-            return Result.success(PageResult.of(0, 0, List.of()));
+            return PageResult.of(0, 0, List.of());
         }
         List<String> list = content.stream().map(ChatUserConversationDoc::getConversationId).toList();
         Query q = Query.query(Criteria.where("id").in(list));
@@ -127,10 +124,10 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                     return vo;
                 })
                 .toList();
-        return Result.success(PageResult.of(p.getTotalElements(), p.getTotalPages(), voList));
+        return PageResult.of(p.getTotalElements(), p.getTotalPages(), voList);
     }
 
-    public Result<Long> getUnreadMessages() {
+    public Long getUnreadMessages() {
         Long userId = getUserId();
         // 统计用户所有会话的未读消息数总和
         Aggregation aggregation = Aggregation.newAggregation(
@@ -144,35 +141,33 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         // 获取统计结果（$sum 在 BSON 中常为 Long，不能用 getInteger 强转）
         Document result = results.getUniqueMappedResult();
         if (result == null) {
-            return Result.success(0L);
+            return 0L;
         }
         Object raw = result.get("totalUnread");
-        Long total = raw instanceof Number ? ((Number) raw).longValue() : 0L;
-        return Result.success(total);
+        return raw instanceof Number ? ((Number) raw).longValue() : 0L;
     }
 
-    public Result<Void> readAnnouncement(String conversationId) {
+    public void readAnnouncement(String conversationId) {
         Long userId = getUserId();
         Criteria c = Criteria.where("id").is(conversationId);
         Query query = Query.query(c);
         ChatConversationDoc chatConversationDoc = mongoTemplate.findOne(query, ChatConversationDoc.class);
         if (chatConversationDoc == null) {
-            return Result.fail("会话不存在");
+            throw new BizException(BizException.CONVERSATION_ERROR, "会话不存在");
         }
         // 读取群公告
         if (chatConversationDoc.getAnnouncement() == null) {
-            return Result.success(null);
+            return;
         }
         if (!chatConversationDoc.getMemberIds().contains(userId)) {
-            return Result.fail("用户不是群成员");
+            throw new BizException(BizException.CONVERSATION_ERROR, "用户不是群成员");
         }
         c = Criteria.where("conversationId").is(conversationId).and("userId").is(userId);
         Update update = new Update().set("lastSeenAnnouncementVersion", chatConversationDoc.getAnnouncementVersion());
         mongoTemplate.updateFirst(Query.query(c), update, ChatUserConversationDoc.class);
-        return Result.success();
     }
 
-    public Result<PageResult<ValidUserConversationVO>> getValidConversations(Long page, Long pageSize) {
+    public PageResult<ValidUserConversationVO> getValidConversations(Long page, Long pageSize) {
         // 置顶优先,其次按最后活跃时间来排序
         Long userId = getUserId();
         Query query = Query.query(
@@ -189,7 +184,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         Page<ChatUserConversationDoc> p = this.page(query, pageable);
         List<ChatUserConversationDoc> content = p.getContent();
         if (content.isEmpty()) {
-            return Result.success(PageResult.of(0, 0, List.of()));
+            return PageResult.of(0, 0, List.of());
         }
         List<String> list = new java.util.ArrayList<>(content.stream()
                 .map(ChatUserConversationDoc::getConversationId).toList());
@@ -216,6 +211,6 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                     return vo;
                 })
                 .toList();
-        return Result.success(PageResult.of(p.getTotalElements(), p.getTotalPages(), voList));
+        return PageResult.of(p.getTotalElements(), p.getTotalPages(), voList);
     }
 }

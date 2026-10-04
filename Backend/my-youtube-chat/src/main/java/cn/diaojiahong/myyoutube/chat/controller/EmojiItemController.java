@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.chat.controller;
 
-
 import cn.diaojiahong.myyoutube.chat.mongo.po.EmojiItem;
 import cn.diaojiahong.myyoutube.chat.service.IEmojiItemService;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -38,6 +37,6 @@ public class EmojiItemController {
     @Operation(summary = "分类获取表情包")
     @GetMapping("/category")
     public Result<List<EmojiItem>> getCategory(@RequestParam String categoryCode) {
-        return emojiItemService.getEmojiByCategory(categoryCode);
+        return Result.success(emojiItemService.getEmojiByCategory(categoryCode));
     }
 }

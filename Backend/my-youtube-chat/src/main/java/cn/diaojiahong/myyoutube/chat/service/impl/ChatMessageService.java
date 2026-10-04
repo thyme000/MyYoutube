@@ -17,13 +17,14 @@ import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.VideoInternalPort;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
@@ -41,7 +42,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.transaction.annotation.Transactional;
-
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -112,7 +112,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     }
 
     @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
-    public Result<ChatMessageAckDTO> send(ChatMessageDTO chatMessageDTO) {
+    public ChatMessageAckDTO send(ChatMessageDTO chatMessageDTO) {
         validateByType(chatMessageDTO);
         String userId = getUserId();
         String conversationId = chatMessageDTO.getConversationId();
@@ -124,7 +124,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         }
         // 判断是否被禁言
         if (Boolean.TRUE.equals(userConversationDoc.getBanned())) {
-            return Result.fail("您已被禁言");
+            throw new BizException(BizException.CONVERSATION_ERROR, "您已被禁言");
         }
         if (chatMessageDTO.getClientMsgId() == null) {
             throw new BizException(BizException.MESSAGE_ERROR, "客户端幂等id不能为空");
@@ -137,7 +137,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             if (!old.getConversationId().equals(conversationId)) {
                 throw new BizException(BizException.MESSAGE_ERROR, "会话id不一致");
             }
-            return Result.success(getAck(old, old.getStatus()));
+            return getAck(old, old.getStatus());
         }
         // 判断是否是发送人
         if (!chatMessageDTO.getSenderId().toString().equals(userId)) {
@@ -154,7 +154,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         // 判断是否开启了全员禁言 且 发送人不是创建人
         if (Boolean.TRUE.equals(chatConversationDoc.getBanned()) &&
                 !chatConversationDoc.getCreatedBy().equals(Long.valueOf(userId))) {
-            return Result.fail("全员禁言开启中");
+            throw new BizException(BizException.CONVERSATION_ERROR, "全员禁言开启中");
         }
         boolean isInterrelated = false;
         if (chatConversationDoc.getType().equals(ConversationTypeEnum.SINGLE)) {
@@ -165,7 +165,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                 // 不是互关关系的私聊,每天只能给对方发送10条消息
                 Double times = redisTemplate.opsForZSet().score(RedisConstants.USER_CONVERSATION + userId, conversationId);
                 if (times != null && times > 10) {
-                    return Result.fail("你们暂时还不是互关关系哦,每天只能给对方发送10条消息");
+                    throw new BizException(BizException.MESSAGE_ERROR, "你们暂时还不是互关关系哦,每天只能给对方发送10条消息");
                 }
             }
             chatConversationDoc.getMemberIds().add(Long.valueOf(userId));
@@ -237,7 +237,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         }
         mongoTemplate.save(chatConversationDoc, "chat_conversations");
         rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
-        return Result.success(chatMessageAckDTO);
+        return chatMessageAckDTO;
     }
 
     private ChatMessageAckDTO getAck(ChatMessageDoc chatMessageDoc, MessageStatusEnum status) {
@@ -270,7 +270,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     }
 
     @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
-    public Result<ChatMessageAckDTO> withdraw(ChatMessageWithdrawDTO chatMessageWithdrawDTO) {
+    public ChatMessageAckDTO withdraw(ChatMessageWithdrawDTO chatMessageWithdrawDTO) {
         String userId = getUserId();
         if (chatMessageWithdrawDTO.getClientMsgId() == null) {
             throw new BizException(BizException.MESSAGE_ERROR, "客户端幂等id不能为空");
@@ -291,7 +291,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         LocalDateTime recallTime = LocalDateTime.now();
         // 判断是否已经撤回了,直接返回ack
         if (chatMessageDoc.getRecalled() != null && chatMessageDoc.getRecalled()) {
-            return Result.success(getAck(chatMessageDoc, chatMessageDoc.getStatus()));
+            return getAck(chatMessageDoc, chatMessageDoc.getStatus());
         }
         Criteria c = Criteria.where("conversationId").is(chatMessageDoc.getConversationId()).and("id").is(chatMessageDoc.getId());
         Update up = new Update().set("recalled", true).set("recalledAt", recallTime).set("status", MessageStatusEnum.WITHDRAWN);
@@ -329,7 +329,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                 .recallType(recallTypeForMq)
                 .serviceTime(recallTime).event("withdraw").build();
         rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
-        return Result.success(chatMessageAckDTO);
+        return chatMessageAckDTO;
     }
 
     private void validateByType(ChatMessageDTO dto) {
@@ -368,7 +368,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         }
     }
 
-    public Result<MessagePageVO> getMessageList(String conversationId, MessageListPageQuery messageListPageQuery) {
+    public MessagePageVO getMessageList(String conversationId, MessageListPageQuery messageListPageQuery) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         List<Long> memberIds = chatConversationDoc.getMemberIds();
         // 判断是否是会话成员
@@ -376,13 +376,14 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             throw new BizException(BizException.USER_ERROR, "不是会话成员");
         }
         // 用户信息
-        Map<Long, String> authorNicknames = userPort.getNicknames(memberIds);
-        Map<Long, String> authorAvatarUrls = userPort.getAvatars(memberIds);
+        List<UserSummary> members = userPort.listByIds(memberIds);
+        Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(members);
+        Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(members);
         // 分页查询
         Page<ChatMessageDoc> page = pageByConversation(conversationId, messageListPageQuery.getSeq(), messageListPageQuery.getSize());
         List<MessagePage> result = getMessagePageVOS(page, authorNicknames, authorAvatarUrls);
         MessagePageVO vo = MessagePageVO.builder().messages(result).nextSeq(page.hasNext() ? page.getContent().get(0).getSeq() : null).hasMore(page.hasNext()).build();
-        return Result.success(vo);
+        return vo;
     }
 
     private List<MessagePage> getMessagePageVOS(Page<ChatMessageDoc> page, Map<Long, String> authorNicknames, Map<Long, String> authorAvatarUrls) {
@@ -417,7 +418,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         }).toList();
     }
 
-    public Result<MessagePageVO> syncMessageList(String conversationId, @Valid MessageListPageQuery messageListPageQuery) {
+    public MessagePageVO syncMessageList(String conversationId, @Valid MessageListPageQuery messageListPageQuery) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         List<Long> memberIds = chatConversationDoc.getMemberIds();
         // 判断是否是会话成员
@@ -425,17 +426,18 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             throw new BizException(BizException.USER_ERROR, "不是会话成员");
         }
         // 用户信息
-        Map<Long, String> authorNicknames = userPort.getNicknames(memberIds);
-        Map<Long, String> authorAvatarUrls = userPort.getAvatars(memberIds);
+        List<UserSummary> members = userPort.listByIds(memberIds);
+        Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(members);
+        Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(members);
         // 分页查询
         Page<ChatMessageDoc> page = syncPageByConversation(conversationId, messageListPageQuery.getSeq(), messageListPageQuery.getSize());
         List<MessagePage> result = getMessagePageVOS(page, authorNicknames, authorAvatarUrls);
         MessagePageVO vo = MessagePageVO.builder().messages(result).nextSeq(page.hasNext() ? page.getContent().get(0).getSeq() : null).hasMore(page.hasNext()).build();
-        return Result.success(vo);
+        return vo;
     }
 
     @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
-    public Result<Void> read(String conversationId, Long lastReadSeq) {
+    public void read(String conversationId, Long lastReadSeq) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         // 判断是否是会话成员
         List<Long> memberIds = chatConversationDoc.getMemberIds();
@@ -466,7 +468,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         }
         if (oldLastReadSeq.equals(lastReadSeq)) {
             // 已读状态不用改变
-            return Result.success();
+            return;
         }
         // 更新用户会话状态
         Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(Long.parseLong(getUserId()));
@@ -478,7 +480,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         mongoTemplate.updateFirst(Query.query(c), up, ChatUserConversationDoc.class);
         // 判断是否是私聊,只有私聊才有是否已读状态,才需要推送消息
         if (!Objects.equals(chatConversationDoc.getType(), ConversationTypeEnum.SINGLE)) {
-            return Result.success();
+            return;
         }
         // 推送消息给对方
         Long receiverId = null;
@@ -495,7 +497,6 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         ReadMessageMessage vo = ReadMessageMessage.builder()
                 .lastReadSeq(lastReadSeq).receiverId(receiverId.toString()).conversationId(conversationId).build();
         rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_READ, vo);
-        return Result.success();
     }
 
     private ChatConversationDoc getChatConversationDoc(String conversationId) {
@@ -506,8 +507,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return opt.get();
     }
 
-
-    public Result<PageResult<FindRecordVO>> findRecord(String conversationId, String keyword, Integer pageNum, Integer pageSize) {
+    public PageResult<FindRecordVO> findRecord(String conversationId, String keyword, Integer pageNum, Integer pageSize) {
         ChatConversationDoc conv = getChatConversationDoc(conversationId);
         List<Long> memberIds = conv.getMemberIds();
         if (!memberIds.contains(Long.valueOf(getUserId()))) {
@@ -515,7 +515,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         }
         String kw = keyword == null ? "" : keyword.trim();
         if (kw.isEmpty()) {
-            return Result.success(PageResult.of(0L, 0L, List.of()));
+            return PageResult.of(0L, 0L, List.of());
         }
         int pn = pageNum == null || pageNum < 1 ? 1 : pageNum;
         int ps = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 50);
@@ -530,14 +530,15 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         Query countQ = Query.query(c);
         long total = mongoTemplate.count(countQ, ChatMessageDoc.class);
         if (total == 0L) {
-            return Result.success(PageResult.of(0L, 0L, List.of()));
+            return PageResult.of(0L, 0L, List.of());
         }
         long pages = (total + ps - 1) / ps;
         Query q = Query.query(c)
                 .with(PageRequest.of(pn - 1, ps, Sort.by(Sort.Direction.DESC, "seq")));
         List<ChatMessageDoc> docs = mongoTemplate.find(q, ChatMessageDoc.class);
-        Map<Long, String> nickMap = userPort.getNicknames(memberIds);
-        Map<Long, String> avMap = userPort.getAvatars(memberIds);
+        List<UserSummary> members = userPort.listByIds(memberIds);
+        Map<Long, String> nickMap = UserSummaries.toNicknameMap(members);
+        Map<Long, String> avMap = UserSummaries.toAvatarMap(members);
         List<FindRecordVO> list = new ArrayList<>(docs.size());
         for (ChatMessageDoc doc : docs) {
             FindRecordVO vo = new FindRecordVO();
@@ -567,40 +568,39 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             }
             list.add(vo);
         }
-        return Result.success(PageResult.of(total, pages, list));
+        return PageResult.of(total, pages, list);
     }
 
-    @Transactional
-    public Result<ChatMessageAckDTO> forwardVideo(@Valid ChatMessageDTO chatMessageDTO) {
+    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
+    public ChatMessageAckDTO forwardVideo(@Valid ChatMessageDTO chatMessageDTO) {
         // 用户转发视频,需要更新视频的分享数
         ChatContent content = chatMessageDTO.getContent();
         Long forwardVideoId = content.getForwardVideoId();
         if (forwardVideoId == null) {
-            return Result.fail("转发视频id不能为空");
+            throw new BizException(BizException.MESSAGE_ERROR, "转发视频id不能为空");
         }
-        Result<ChatMessageAckDTO> result = send(chatMessageDTO);
+        ChatMessageAckDTO ack = send(chatMessageDTO);
+        // 分享计数尽力而为: 远端计数不在 Mongo 事务里, 失败只记日志, 消息照发
         boolean success = videoInternalPort.incrementShareCount(forwardVideoId);
         if (!success) {
             log.error("更新视频分享数失败,视频id:{}", forwardVideoId);
-            return Result.fail("转发视频失败!");
         }
-        return result;
+        return ack;
     }
 
-    @Transactional
-    public Result<ChatMessageAckDTO> forwardDynamic(@Valid ChatMessageDTO chatMessageDTO) {
+    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
+    public ChatMessageAckDTO forwardDynamic(@Valid ChatMessageDTO chatMessageDTO) {
         // 用户转发动态, 需要更新内容的分享数(动态与视频同池, share_count 在 content 上)
         ChatContent content = chatMessageDTO.getContent();
         Long forwardDynamicId = content.getForwardDynamicId();
         if (forwardDynamicId == null) {
-            return Result.fail("转发动态id不能为空");
+            throw new BizException(BizException.MESSAGE_ERROR, "转发动态id不能为空");
         }
-        Result<ChatMessageAckDTO> result = send(chatMessageDTO);
+        ChatMessageAckDTO ack = send(chatMessageDTO);
         boolean success = videoInternalPort.incrementShareCount(forwardDynamicId);
         if (!success) {
             log.error("更新动态分享数失败,动态id:{}", forwardDynamicId);
-            return Result.fail("转发动态失败!");
         }
-        return result;
+        return ack;
     }
 }

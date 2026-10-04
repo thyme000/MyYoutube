@@ -8,7 +8,6 @@ import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
@@ -17,6 +16,8 @@ import cn.diaojiahong.myyoutube.notification.domain.vo.NotificationVO;
 import cn.diaojiahong.myyoutube.notification.mapper.UserNotificationMapper;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
@@ -45,7 +46,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
     private final S3StorageUtil storageUtil;
 
     @Override
-    public Result<PageResult<NotificationVO>> getNotificationList(PageQuery pageQuery) {
+    public PageResult<NotificationVO> getNotificationList(PageQuery pageQuery) {
         Long userId = getUserId();
         Page<UserNotification> page = lambdaQuery()
                 .eq(UserNotification::getReceiverId, userId)
@@ -53,7 +54,8 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
                 .page(pageQuery.toPage());
         List<UserNotification> records = page.getRecords();
         if (records == null) {
-            return Result.success(PageResult.of(0, 0, List.of()));
+
+            return PageResult.of(0, 0, List.of());
         }
 
         List<NotificationVO> result = new ArrayList<>(records.size());
@@ -64,19 +66,24 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
             vo.setSenderId(r.getSenderId());
             vo.setType(NotificationTypeEnum.valueOf(r.getType()));
             if (r.getType().equals(NotificationTypeEnum.VIDEO_COMMENT.getCode())) {
+
                 // 存库时 refId 即为内容 id（非评论 id）
                 vo.setVideoId(r.getRefId());
             } else if (r.getType().equals(NotificationTypeEnum.COMMENT_LIKE.getCode()) ||
                     r.getType().equals(NotificationTypeEnum.COMMENT_REPLY.getCode())) {
+
                 ContentComment comment = videoCommentService.getById(r.getRefId());
                 if (comment != null && !comment.getStatus().equals(CommentStatusEnum.DELETED.getCode())) {
+
                     vo.setVideoId(comment.getContentId());
                 }
             }
             // 跳转目标的内容类型(视频/动态), 供前端分流
             if (vo.getVideoId() != null) {
+
                 Content content = contentService.getById(vo.getVideoId());
                 if (content != null && content.getType() != null) {
+
                     vo.setRefType(content.getType().getCode());
                 }
             }
@@ -87,27 +94,28 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
             result.add(vo);
         });
 
-        // 填充发送者昵称
+        // 填充发送者昵称与头像url
         List<Long> senderIds = result.stream().map(NotificationVO::getSenderId).toList();
-        Map<Long, String> nicknames = userPort.getNicknames(senderIds);
+        List<UserSummary> senders = userPort.listByIds(senderIds);
+        Map<Long, String> nicknames = UserSummaries.toNicknameMap(senders);
         result.forEach(r -> {
             r.setSenderNickname(nicknames.getOrDefault(r.getSenderId(), ""));
         });
-        // 填充发送者头像url
-        List<Long> senderAvatarIds = senderIds;
-        Map<Long, String> avatarUrls = userPort.getAvatars(senderAvatarIds);
+        Map<Long, String> avatarUrls = UserSummaries.toAvatarMap(senders);
         result.forEach(r -> {
             r.setSenderAvatarUrl(storageUtil.signGetUrl(avatarUrls.getOrDefault(r.getSenderId(), ""), 300));
         });
 
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), result));
+        return PageResult.of(page.getTotal(), page.getPages(), result);
     }
 
     @Override
     public void readNotification(Long notificationId) {
+
         UserNotification notification = getById(notificationId);
         Long userId = getUserId();
         if (!Objects.equals(notification.getReceiverId(), userId)) {
+
             throw new BizException(BizException.NOTIFICATION_ERROR,"不能读取他人通知");
         }
         // 是自己的通知,可以正常读取
@@ -116,25 +124,30 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
     }
 
     @Override
-    public Result<Long> getUnreadCount() {
+    public Long getUnreadCount() {
         Long userId = getUserId();
         Long count = lambdaQuery()
                 .eq(UserNotification::getReceiverId, userId)
                 .eq(UserNotification::getIsRead, 0).count();
-        return Result.success(count);
+        return count;
     }
 
     @Override
-    public Result<Void> deleteNotification(Long notificationId) {
+    public void deleteNotification(Long notificationId) {
         boolean success = lambdaUpdate().eq(UserNotification::getId, notificationId)
                 .eq(UserNotification::getReceiverId, getUserId())
                 .remove();
-        return success ? Result.success() : Result.fail("删除失败");
+        if (!success) {
+
+            throw new BizException(BizException.BIZ_ERROR, "删除失败");
+        }
     }
 
     private Long getUserId() {
+
         String userId = UserContext.getUserId();
         if (userId == null) {
+
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
         return Long.valueOf(userId);

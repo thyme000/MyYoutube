@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.comment.controller;
 
-
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentDTO;
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentPageQuery;
 import cn.diaojiahong.myyoutube.comment.domain.vo.CommentVO;
@@ -36,7 +35,8 @@ public class ContentCommentController {
     @Operation(summary = "发布评论")
     @PostMapping("/publish")
     public Result<Void> publishComment(@RequestBody CommentDTO commentDTO) {
-        return videoCommentService.publishComment(commentDTO);
+        videoCommentService.publishComment(commentDTO);
+        return Result.success();
     }
 
     /**
@@ -47,7 +47,8 @@ public class ContentCommentController {
     @Operation(summary = "用户删除评论")
     @PostMapping("/delete")
     public Result<Void> deleteComment(@RequestParam Long commentId) {
-        return videoCommentService.deleteComment(commentId);
+        videoCommentService.deleteComment(commentId);
+        return Result.success();
     }
 
     /**
@@ -58,6 +59,6 @@ public class ContentCommentController {
     @Operation(summary = "用户查询评论列表")
     @GetMapping("/list")
     public Result<PageResult<CommentVO>> getCommentList(@ModelAttribute CommentPageQuery commentPageQuery) {
-        return videoCommentService.getCommentList(commentPageQuery);
+        return Result.success(videoCommentService.getCommentList(commentPageQuery));
     }
 }

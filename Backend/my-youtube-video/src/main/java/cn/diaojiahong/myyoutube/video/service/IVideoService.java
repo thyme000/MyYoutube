@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.video.service;
 
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.*;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -19,39 +18,24 @@ import com.baomidou.mybatisplus.extension.service.IService;
  */
 public interface IVideoService extends IService<Video> {
 
-    Result<String> publishVideo(VideoDTO videoDTO);
-
+    String publishVideo(VideoDTO videoDTO);
     /**
      * 事务消息的本地事务: 视频入库 + 标签异步保存
      */
     void persistNewVideo(Video video);
 
-    Result<PageResult<VideoListVO>> getVideoList(VideoPageQuery pageQuery);
-
-    Result<VideoDetailVO> getVideoDetail(Long videoId);
-
-    Result<PageResult<VideoListVO>> getVideoListByAuthorId(Long authorId, VideoPageQuery pageQuery);
-
-    Result<PageResult<VideoListVO>> getMyVideoList(VideoPageQuery pageQuery);
-
-    Result<String> generateVideoCover(VideoCoverMessage videoCoverMessage);
-
-    Result<PageResult<ShortsVO>> getShortsFeed(PageQuery pageQuery);
-
-    Result<Void> updatePlaybackResume(RecordUserWatchTimeDTO userWatchTimeDTO);
-
-    Result<PageResult<VideoListVO>> getOtherUserVideoList(Long userId, PageQuery pageQuery);
-
-    Result<PageResult<FollowVideoVO>> getFollowVideoList(PageQuery pageQuery);
-
-    Result<Void> deleteVideo(Long videoId);
-
-    Result<Void> privateVideo(Long videoId);
-
-    Result<String> publicVideo(Long videoId);
-
-    Result<Void> openComment(Long videoId);
-
-    Result<Void> closeComment(Long videoId);
-
+    PageResult<VideoListVO> getVideoList(VideoPageQuery pageQuery);
+    VideoDetailVO getVideoDetail(Long videoId);
+    PageResult<VideoListVO> getVideoListByAuthorId(Long authorId, VideoPageQuery pageQuery);
+    PageResult<VideoListVO> getMyVideoList(VideoPageQuery pageQuery);
+    String generateVideoCover(VideoCoverMessage videoCoverMessage);
+    PageResult<ShortsVO> getShortsFeed(PageQuery pageQuery);
+    void updatePlaybackResume(RecordUserWatchTimeDTO userWatchTimeDTO);
+    PageResult<VideoListVO> getOtherUserVideoList(Long userId, PageQuery pageQuery);
+    PageResult<FollowVideoVO> getFollowVideoList(PageQuery pageQuery);
+    void deleteVideo(Long videoId);
+    void privateVideo(Long videoId);
+    String publicVideo(Long videoId);
+    void openComment(Long videoId);
+    void closeComment(Long videoId);
 }

@@ -30,60 +30,65 @@ public class DynamicController {
     @PostMapping("/publish")
     @Operation(summary = "发布图集配乐动态")
     public Result<String> publish(@RequestBody DynamicPublishDTO dto) {
-        return dynamicService.publish(dto);
+        return Result.success(dynamicService.publish(dto));
     }
 
     @GetMapping("/feed")
     @Operation(summary = "动态信息流(按时间倒序分页)")
     public Result<PageResult<DynamicVO>> feed(@ModelAttribute PageQuery pageQuery) {
-        return dynamicService.feed(pageQuery);
+        return Result.success(dynamicService.feed(pageQuery));
     }
 
     @GetMapping("/detail/{id}")
     @Operation(summary = "动态详情")
     public Result<DynamicVO> detail(@PathVariable Long id) {
-        return dynamicService.detail(id);
+        return Result.success(dynamicService.detail(id));
     }
 
     @PostMapping("/{id}/download")
     @Operation(summary = "请求下载成片(懒触发 ffmpeg 转码, 幂等)")
     public Result<DynamicDownloadVO> requestDownload(@PathVariable Long id) {
-        return dynamicService.requestDownload(id);
+        return Result.success(dynamicService.requestDownload(id));
     }
 
     @DeleteMapping("/{id}")
     @Operation(summary = "删除动态")
     public Result<Void> deleteDynamic(@PathVariable Long id) {
-        return dynamicService.deleteDynamic(id);
+        dynamicService.deleteDynamic(id);
+        return Result.success();
     }
 
     @PostMapping("/private/{id}")
     @Operation(summary = "动态设为私密")
     public Result<Void> privateDynamic(@PathVariable Long id) {
-        return dynamicService.privateDynamic(id);
+        dynamicService.privateDynamic(id);
+        return Result.success();
     }
 
     @PostMapping("/public/{id}")
     @Operation(summary = "动态设为公开")
     public Result<Void> publicDynamic(@PathVariable Long id) {
-        return dynamicService.publicDynamic(id);
+        dynamicService.publicDynamic(id);
+        return Result.success();
     }
 
     @PostMapping("/open/comment/{id}")
     @Operation(summary = "开启动态评论")
     public Result<Void> openComment(@PathVariable Long id) {
-        return dynamicService.openComment(id);
+        dynamicService.openComment(id);
+        return Result.success();
     }
 
     @PostMapping("/close/comment/{id}")
     @Operation(summary = "关闭动态评论")
     public Result<Void> closeComment(@PathVariable Long id) {
-        return dynamicService.closeComment(id);
+        dynamicService.closeComment(id);
+        return Result.success();
     }
 
     @GetMapping("/download/{taskId}/status")
     @Operation(summary = "查询转码任务状态, DONE 时返回成片下载地址")
     public Result<DynamicDownloadVO> getDownloadStatus(@PathVariable Long taskId) {
-        return dynamicService.getDownloadStatus(taskId);
+        return Result.success(dynamicService.getDownloadStatus(taskId));
     }
 }

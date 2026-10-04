@@ -14,7 +14,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -39,24 +38,6 @@ public class UserPortAdapter implements UserPort {
             return List.of();
         }
         return userService.listByIds(ids).stream().map(UserPortAdapter::toSummary).collect(Collectors.toList());
-    }
-
-    @Override
-    public Map<Long, String> getNicknames(Collection<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return Map.of();
-        }
-        return userService.listByIds(ids).stream()
-                .collect(Collectors.toMap(User::getId, u -> u.getNickname() != null ? u.getNickname() : ""));
-    }
-
-    @Override
-    public Map<Long, String> getAvatars(Collection<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return Map.of();
-        }
-        return userService.listByIds(ids).stream()
-                .collect(Collectors.toMap(User::getId, User::getAvatarUrl));
     }
 
     @Override

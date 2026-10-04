@@ -5,7 +5,6 @@ import cn.diaojiahong.myyoutube.comment.domain.dto.CommentPageQuery;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.domain.vo.CommentVO;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 /**
@@ -18,10 +17,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
  */
 public interface IContentCommentService extends IService<ContentComment> {
 
-    Result<Void> publishComment(CommentDTO commentDTO);
-
-    Result<Void> deleteComment(Long commentId);
-
-    Result<PageResult<CommentVO>> getCommentList(CommentPageQuery commentPageQuery);
-
+    void publishComment(CommentDTO commentDTO);
+    void deleteComment(Long commentId);
+    PageResult<CommentVO> getCommentList(CommentPageQuery commentPageQuery);
 }

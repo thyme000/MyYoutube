@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.notification.controller;
 
-
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -35,7 +34,7 @@ public class UserNotificationController {
     @Operation(summary = "分页查询用户收到的通知")
     @PutMapping("/list")
     public Result<PageResult<NotificationVO>> getNotificationList(@RequestBody PageQuery pageQuery) {
-        return userNotificationService.getNotificationList(pageQuery);
+        return Result.success(userNotificationService.getNotificationList(pageQuery));
     }
 
     /**
@@ -57,7 +56,7 @@ public class UserNotificationController {
     @Operation(summary = "查询用户有多少条未读的通知")
     @GetMapping("/unread-count")
     public Result<Long> getUnreadCount() {
-        return userNotificationService.getUnreadCount();
+        return Result.success(userNotificationService.getUnreadCount());
     }
 
     /**
@@ -68,6 +67,7 @@ public class UserNotificationController {
     @Operation(summary = "用户删除某条通知")
     @DeleteMapping("/{notificationId}")
     public Result<Void> deleteNotification(@PathVariable Long notificationId) {
-        return userNotificationService.deleteNotification(notificationId);
+        userNotificationService.deleteNotification(notificationId);
+        return Result.success();
     }
 }

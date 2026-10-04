@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.service;
 
 import cn.diaojiahong.myyoutube.chat.mongo.po.EmojiItem;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 import java.util.List;
@@ -16,6 +15,6 @@ import java.util.List;
  */
 public interface IEmojiItemService extends IService<EmojiItem> {
 
-    Result<List<EmojiItem>> getEmojiByCategory(String categoryCode);
+    List<EmojiItem> getEmojiByCategory(String categoryCode);
 
 }

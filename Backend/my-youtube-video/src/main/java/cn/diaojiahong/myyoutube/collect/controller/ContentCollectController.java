@@ -35,24 +35,26 @@ public class ContentCollectController {
     @Operation(summary = "收藏内容")
     @PutMapping("/{contentId}")
     public Result<Void> collect(@PathVariable Long contentId) {
-        return contentCollectService.collect(contentId);
+        contentCollectService.collect(contentId);
+        return Result.success();
     }
 
     @Operation(summary = "取消收藏")
     @DeleteMapping("/{contentId}")
     public Result<Void> cancelCollect(@PathVariable Long contentId) {
-        return contentCollectService.cancelCollect(contentId);
+        contentCollectService.cancelCollect(contentId);
+        return Result.success();
     }
 
     @Operation(summary = "我的收藏分页")
     @GetMapping("/page")
     public Result<PageResult<CollectVO>> page(@ModelAttribute PageQuery pageQuery) {
-        return contentCollectService.page(pageQuery);
+        return Result.success(contentCollectService.page(pageQuery));
     }
 
     @Operation(summary = "我是否收藏了该内容")
     @GetMapping("/{contentId}/status")
     public Result<Boolean> status(@PathVariable Long contentId) {
-        return contentCollectService.status(contentId);
+        return Result.success(contentCollectService.status(contentId));
     }
 }

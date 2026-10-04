@@ -15,7 +15,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-
 @RestController
 @RequestMapping("/chat/message")
 @RequiredArgsConstructor
@@ -32,7 +31,7 @@ public class ChatMessageController {
     @Operation(summary = "发送消息")
     @PostMapping("/send")
     public Result<ChatMessageAckDTO> send(@Valid @RequestBody ChatMessageDTO chatMessageDTO) {
-        return chatMessageService.send(chatMessageDTO);
+        return Result.success(chatMessageService.send(chatMessageDTO));
     }
 
     /**
@@ -43,7 +42,7 @@ public class ChatMessageController {
     @Operation(summary = "撤回消息")
     @PostMapping("/withdraw")
     public Result<ChatMessageAckDTO> withdraw(@Valid @RequestBody ChatMessageWithdrawDTO chatMessageWithdrawDTO) {
-        return chatMessageService.withdraw(chatMessageWithdrawDTO);
+        return Result.success(chatMessageService.withdraw(chatMessageWithdrawDTO));
     }
 
     /**
@@ -55,7 +54,7 @@ public class ChatMessageController {
     @Operation(summary = "分页查询历史消息")
     @GetMapping("/list/{conversationId}")
     public Result<MessagePageVO> getMessageList(@PathVariable String conversationId, @Valid @ModelAttribute MessageListPageQuery messageListPageQuery) {
-        return chatMessageService.getMessageList(conversationId, messageListPageQuery);
+        return Result.success(chatMessageService.getMessageList(conversationId, messageListPageQuery));
     }
 
     /**
@@ -67,7 +66,7 @@ public class ChatMessageController {
     @Operation(summary = "重连查询增量消息(同步消息)")
     @GetMapping("/sync/{conversationId}")
     public Result<MessagePageVO> syncMessageList(@PathVariable String conversationId, @Valid @ModelAttribute MessageListPageQuery messageListPageQuery) {
-        return chatMessageService.syncMessageList(conversationId, messageListPageQuery);
+        return Result.success(chatMessageService.syncMessageList(conversationId, messageListPageQuery));
     }
 
     /**
@@ -78,7 +77,8 @@ public class ChatMessageController {
     @Operation(summary = "会话消息已读")
     @PostMapping("/read/{conversationId}")
     public Result<Void> read(@PathVariable String conversationId, @RequestParam Long lastReadSeq) {
-        return chatMessageService.read(conversationId, lastReadSeq);
+        chatMessageService.read(conversationId, lastReadSeq);
+        return Result.success();
     }
 
     /**
@@ -93,7 +93,7 @@ public class ChatMessageController {
     @GetMapping("/find/record/{conversationId}")
     public Result<PageResult<FindRecordVO>> findRecord(@PathVariable String conversationId,  @RequestParam String keyword,
                                                        @RequestParam Integer pageNum, @RequestParam Integer pageSize) {
-        return chatMessageService.findRecord(conversationId, keyword, pageNum, pageSize);
+        return Result.success(chatMessageService.findRecord(conversationId, keyword, pageNum, pageSize));
     }
 
     /**
@@ -104,13 +104,13 @@ public class ChatMessageController {
     @Operation(summary = "用户转发视频")
     @PutMapping("/forward/video")
     public Result<ChatMessageAckDTO> forwardVideo(@Valid @RequestBody ChatMessageDTO chatMessageDTO) {
-        return chatMessageService.forwardVideo(chatMessageDTO);
+        return Result.success(chatMessageService.forwardVideo(chatMessageDTO));
     }
 
     @Operation(summary = "用户转发动态")
     @PutMapping("/forward/dynamic")
     public Result<ChatMessageAckDTO> forwardDynamic(@Valid @RequestBody ChatMessageDTO chatMessageDTO) {
-        return chatMessageService.forwardDynamic(chatMessageDTO);
+        return Result.success(chatMessageService.forwardDynamic(chatMessageDTO));
     }
 }
 

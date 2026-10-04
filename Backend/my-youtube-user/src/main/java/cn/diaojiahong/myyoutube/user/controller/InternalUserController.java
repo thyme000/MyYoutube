@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 
 /**
  * user 服务内部接口: 供 video/chat/admin 等服务经 Feign 调用, 不经网关暴露
@@ -33,16 +32,6 @@ public class InternalUserController {
     @PostMapping("/list-by-ids")
     public List<UserSummary> listByIds(@RequestBody Collection<Long> ids) {
         return userPortAdapter.listByIds(ids);
-    }
-
-    @PostMapping("/nicknames")
-    public Map<Long, String> getNicknames(@RequestBody Collection<Long> ids) {
-        return userPortAdapter.getNicknames(ids);
-    }
-
-    @PostMapping("/avatars")
-    public Map<Long, String> getAvatars(@RequestBody Collection<Long> ids) {
-        return userPortAdapter.getAvatars(ids);
     }
 
     @PostMapping("/counters/adjust")

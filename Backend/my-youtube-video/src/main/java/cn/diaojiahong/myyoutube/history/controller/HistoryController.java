@@ -35,24 +35,27 @@ public class HistoryController {
     @Operation(summary = "记录观看历史(重复观看自动置顶)")
     @PutMapping("/{contentId}")
     public Result<Void> record(@PathVariable Long contentId) {
-        return historyService.record(contentId);
+        historyService.record(contentId);
+        return Result.success();
     }
 
     @Operation(summary = "我的浏览历史分页")
     @GetMapping("/page")
     public Result<PageResult<HistoryVO>> page(@ModelAttribute PageQuery pageQuery) {
-        return historyService.page(pageQuery);
+        return Result.success(historyService.page(pageQuery));
     }
 
     @Operation(summary = "删除单条历史")
     @DeleteMapping("/{contentId}")
     public Result<Void> removeOne(@PathVariable Long contentId) {
-        return historyService.removeOne(contentId);
+        historyService.removeOne(contentId);
+        return Result.success();
     }
 
     @Operation(summary = "清空我的历史")
     @DeleteMapping
     public Result<Void> clear() {
-        return historyService.clear();
+        historyService.clear();
+        return Result.success();
     }
 }

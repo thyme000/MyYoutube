@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.comment.controller;
 
-
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentReportDTO;
 import cn.diaojiahong.myyoutube.comment.domain.po.CommentReport;
 import cn.diaojiahong.myyoutube.comment.service.ICommentReportService;
@@ -39,6 +38,7 @@ public class CommentReportController {
     @Operation(summary = "用户举报评论")
     @PutMapping()
     public Result<Void> reportComment(@Valid @RequestBody CommentReportDTO commentReportDTO) {
-        return commentReportService.reportComment(commentReportDTO);
+        commentReportService.reportComment(commentReportDTO);
+        return Result.success();
     }
 }

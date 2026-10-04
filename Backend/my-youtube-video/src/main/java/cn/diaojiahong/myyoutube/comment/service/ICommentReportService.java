@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.comment.service;
 
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentReportDTO;
 import cn.diaojiahong.myyoutube.comment.domain.po.CommentReport;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 /**
@@ -15,6 +14,5 @@ import com.baomidou.mybatisplus.extension.service.IService;
  */
 public interface ICommentReportService extends IService<CommentReport> {
 
-    Result<Void> reportComment(CommentReportDTO commentReportDTO);
-
+    void reportComment(CommentReportDTO commentReportDTO);
 }

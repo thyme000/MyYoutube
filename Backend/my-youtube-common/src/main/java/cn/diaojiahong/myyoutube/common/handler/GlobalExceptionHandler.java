@@ -39,6 +39,14 @@ public class GlobalExceptionHandler {
         return Result.fail(e.getMessage());
     }
 
+    // 业务校验抛出的非法参数(如权限/状态不满足), 按业务错误返回 400 而非 500
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<?> handleIllegalArgument(IllegalArgumentException e) {
+        log.warn("非法参数: {}", e.getMessage());
+        return Result.fail(e.getMessage());
+    }
+
     // 处理其他异常类型
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)

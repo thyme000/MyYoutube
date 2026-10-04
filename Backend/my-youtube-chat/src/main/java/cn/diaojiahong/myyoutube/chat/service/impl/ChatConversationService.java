@@ -9,8 +9,8 @@ import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationMembersVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
@@ -59,13 +59,13 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     }
 
     @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
-    public Result<ConversationVO> createConversation(CreateConversationDTO createConversationDTO) {
+    public ConversationVO createConversation(CreateConversationDTO createConversationDTO) {
         Long userId = getUserId();
         // 判断是否是互关用户 -> 不是互关用户则返回错误
         List<Long> memberIds = createConversationDTO.getMemberIds();
         if (createConversationDTO.getType() == ConversationTypeEnum.GROUP) {
             if (!followPort.interrelated(new FollowPort.InterrelatedQuery(userId, memberIds))) {
-                return Result.fail("不是互关用户");
+                throw new BizException(BizException.CONVERSATION_ERROR, "不是互关用户");
             }
             // 刚创建的群聊将使用前端默认头像为会话头像url
         }
@@ -73,11 +73,11 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         // 判断是否和需要创建的用户已经有会话了 -> 已有则返回提示
         if (isSingle) {
             if (memberIds == null || memberIds.size() != 1) {
-                return Result.fail("私聊请选择一位对方用户");
+                throw new BizException(BizException.CONVERSATION_ERROR, "私聊请选择一位对方用户");
             }
             Long peerId = memberIds.get(0);
             if (peerId == null || peerId.equals(userId)) {
-                return Result.fail("不能与自己发起私聊");
+                throw new BizException(BizException.CONVERSATION_ERROR, "不能与自己发起私聊");
             }
             Query dup = new Query(
                     Criteria.where("type").is(ConversationTypeEnum.SINGLE)
@@ -87,7 +87,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
                             )
             );
             if (mongoTemplate.exists(dup, ChatConversationDoc.class)) {
-                return Result.fail("与该用户已有私聊会话");
+                throw new BizException(BizException.CONVERSATION_ERROR, "与该用户已有私聊会话");
             }
         }
         memberIds.add(userId);
@@ -132,7 +132,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         conversationVO.setType(createConversationDTO.getType());
         conversationVO.setMemberIds(memberIds);
         conversationVO.setName(createConversationDTO.getName());
-        return Result.success(conversationVO);
+        return conversationVO;
     }
 
     private Long getUserId() {
@@ -143,7 +143,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         return Long.parseLong(userId);
     }
 
-    public Result<String> updateConversationAvatar(String conversationId, MultipartFile avatar) {
+    public String updateConversationAvatar(String conversationId, MultipartFile avatar) {
         Long userId = getUserId();
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
@@ -163,10 +163,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         // 更新会话头像url
         chatConversationDoc.setAvatar(avatarUrl);
         save(chatConversationDoc);
-        return Result.success(avatarUrl);
+        return avatarUrl;
     }
 
-    public Result<String> updateConversationName(String conversationId, String name) {
+    public String updateConversationName(String conversationId, String name) {
         Long userId = getUserId();
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
@@ -178,13 +178,13 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         // 更新会话名称
         chatConversationDoc.setName(name);
         save(chatConversationDoc);
-        return Result.success(name);
+        return name;
     }
 
     /**
-     * 发布/更新群公告：仅群主（创建人），写入会话文档并递增版本；经 WebSocket 通知成员刷新。
+     * 发布/更新群公告：仅群主（创建人），写入会话文档并递增版本；经 WebSocket 通知成员。
      */
-    public Result<AnnouncementPublishVO> publishAnnouncement(String conversationId, String text) {
+    public AnnouncementPublishVO publishAnnouncement(String conversationId, String text) {
         Long userId = getUserId();
         ChatConversationDoc doc = getChatConversationDoc(conversationId);
         if (doc.getType() != ConversationTypeEnum.GROUP) {
@@ -218,10 +218,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
                 }
             }
         }
-        return Result.success(new AnnouncementPublishVO(conversationId, next, t));
+        return new AnnouncementPublishVO(conversationId, next, t);
     }
 
-    public Result<String> deleteConversation(String conversationId) {
+    public String deleteConversation(String conversationId) {
         Long userId = getUserId();
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         List<Long> memberIds = chatConversationDoc.getMemberIds();
@@ -250,11 +250,11 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             Update update = new Update().set("deleted", true);
             mongoTemplate.updateMulti(new Query(c), update, ChatUserConversationDoc.class);
         }
-        return Result.success("删除成功");
+        return "删除成功";
     }
 
     @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
-    public Result<Void> removeConversationMember(String conversationId, List<Long> removeUserIds) {
+    public void removeConversationMember(String conversationId, List<Long> removeUserIds) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
             throw new IllegalArgumentException("私聊不能移除成员");
@@ -271,7 +271,6 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").in(removeUserIds);
         Update update = new Update().set("deleted", true);
         mongoTemplate.updateMulti(new Query(c), update, ChatUserConversationDoc.class);
-        return Result.success(null);
     }
 
     private ChatConversationDoc getChatConversationDoc(String conversationId) {
@@ -283,7 +282,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     }
 
     @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
-    public Result<Void> inviteConversationMember(String conversationId, Long invitedUserId) {
+    public void inviteConversationMember(String conversationId, Long invitedUserId) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         Long userId = getUserId();
         UserSummary user = userPort.getUser(invitedUserId);
@@ -295,11 +294,11 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             throw new IllegalArgumentException("私聊不能邀请成员");
         }
         if (!memberIds.contains(userId)) {
-            return Result.fail("你不是该群的成员");
+            throw new BizException(BizException.CONVERSATION_ERROR, "你不是该群的成员");
         }
         // 判断是否是互关关系
         if (!followPort.interrelated(new FollowPort.InterrelatedQuery(userId, List.of(invitedUserId)))) {
-            return Result.fail("不是互关用户,无法邀请对方");
+            throw new BizException(BizException.CONVERSATION_ERROR, "不是互关用户,无法邀请对方");
         }
         // 邀请会话成员
         memberIds.add(invitedUserId);
@@ -320,10 +319,9 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         userConversationDoc.setCreatedAt(now);
         userConversationDoc.setUpdatedAt(now);
         mongoTemplate.insert(userConversationDoc, "chat_user_conversation");
-        return Result.success(null);
     }
 
-    public Result<List<ConversationMembersVO>> getConversationMembers(String conversationId) {
+    public List<ConversationMembersVO> getConversationMembers(String conversationId) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
             throw new IllegalArgumentException("私聊不能查询成员");
@@ -335,10 +333,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
                     user.getNickname(), storageUtil.signGetUrl(user.getAvatarUrl(), 600),
                     userId.equals(chatConversationDoc.getCreatedBy())));
         }
-        return Result.success(conversationMembersVOs);
+        return conversationMembersVOs;
     }
 
-    public Result<Void> banConversation(String conversationId, Boolean banned) {
+    public void banConversation(String conversationId, Boolean banned) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
             throw new IllegalArgumentException("私聊不能开启全员禁言");
@@ -360,29 +358,28 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         for (Long memberId : memberIds) {
             pushFanoutPublisher.pushWs(memberId, json);
         }
-        return Result.success(null);
     }
 
-    public Result<AnnouncementPublishVO> getAnnouncement(String conversationId) {
+    public AnnouncementPublishVO getAnnouncement(String conversationId) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
             throw new IllegalArgumentException("私聊没有公告");
         }
         if (!chatConversationDoc.getMemberIds().contains(getUserId())) {
-            return Result.fail("你不是该群的成员");
+            throw new BizException(BizException.CONVERSATION_ERROR, "你不是该群的成员");
         }
         if (chatConversationDoc.getAnnouncement() == null) {
-            return Result.success(new AnnouncementPublishVO(conversationId, 0, null));
+            return new AnnouncementPublishVO(conversationId, 0, null);
         }
-        return Result.success(new AnnouncementPublishVO(conversationId, chatConversationDoc.getAnnouncementVersion(),
-                chatConversationDoc.getAnnouncement()));
+        return new AnnouncementPublishVO(conversationId, chatConversationDoc.getAnnouncementVersion(),
+                chatConversationDoc.getAnnouncement());
     }
 
-    public Result<Void> banConversationMember(Long userId, String conversationId, Boolean banned) {
+    public void banConversationMember(Long userId, String conversationId, Boolean banned) {
         // 判断是否有权限
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (!chatConversationDoc.getMemberIds().contains(getUserId())) {
-            return Result.fail("你不是该群的成员");
+            throw new BizException(BizException.CONVERSATION_ERROR, "你不是该群的成员");
         }
         if (!chatConversationDoc.getCreatedBy().equals(getUserId())) {
             throw new IllegalArgumentException("不是创建人");
@@ -401,6 +398,5 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         data.put("conversationId", conversationId);
         String json = new GsonBuilder().create().toJson(data);
         pushFanoutPublisher.pushWs(userId, json);
-        return Result.success(null);
     }
 }

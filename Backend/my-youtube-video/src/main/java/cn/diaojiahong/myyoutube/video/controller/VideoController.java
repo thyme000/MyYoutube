@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
-
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -36,7 +35,7 @@ public class VideoController {
     @PutMapping("/publish")
     @Operation(summary ="发布视频")
     public Result<String> publishVideo(@RequestBody VideoDTO videoDTO) {
-        return videoService.publishVideo(videoDTO);
+        return Result.success(videoService.publishVideo(videoDTO));
     }
 
     /**
@@ -47,7 +46,7 @@ public class VideoController {
     @GetMapping("/list")
     @Operation(summary = "获取视频列表")
     public Result<PageResult<VideoListVO>> getVideoList(@ModelAttribute VideoPageQuery pageQuery) {
-        return videoService.getVideoList(pageQuery);
+        return Result.success(videoService.getVideoList(pageQuery));
     }
 
     /**
@@ -58,7 +57,7 @@ public class VideoController {
     @GetMapping("/detail/{videoId}")
     @Operation(summary = "获取视频详情")
     public Result<VideoDetailVO> getVideoDetail(@PathVariable Long videoId) {
-        return videoService.getVideoDetail(videoId);
+        return Result.success(videoService.getVideoDetail(videoId));
     }
 
     /**
@@ -70,7 +69,7 @@ public class VideoController {
     @GetMapping("/{authorId}")
     @Operation(summary = "获取作者视频列表")
     public Result<PageResult<VideoListVO>> getVideoListByAuthorId(@PathVariable Long authorId, @ModelAttribute VideoPageQuery pageQuery) {
-        return videoService.getVideoListByAuthorId(authorId, pageQuery);
+        return Result.success(videoService.getVideoListByAuthorId(authorId, pageQuery));
     }
 
     /**
@@ -81,7 +80,7 @@ public class VideoController {
     @GetMapping("/me/list")
     @Operation(summary = "获取我的视频列表")
     public Result<PageResult<VideoListVO>> getMyVideoList(@ModelAttribute VideoPageQuery pageQuery) {
-        return videoService.getMyVideoList(pageQuery);
+        return Result.success(videoService.getMyVideoList(pageQuery));
     }
 
     /**
@@ -92,7 +91,7 @@ public class VideoController {
     @Operation(summary = "自动生成视频封面")
     @PostMapping("/generate-cover")
     public Result<String> generateCover(@RequestBody VideoCoverMessage request) {
-        return videoService.generateVideoCover(request);
+        return Result.success(videoService.generateVideoCover(request));
     }
 
     /**
@@ -103,7 +102,7 @@ public class VideoController {
     @Operation(summary = "获取短视频列表")
     @GetMapping("/shorts/feed")
     public Result<PageResult<ShortsVO>> getShortsFeed(@ModelAttribute PageQuery pageQuery) {
-        return videoService.getShortsFeed(pageQuery);
+        return Result.success(videoService.getShortsFeed(pageQuery));
     }
 
     /**
@@ -114,7 +113,8 @@ public class VideoController {
     @Operation(summary = "用户播放视频时长记录")
     @PutMapping("/playback/resume")
     public Result<Void> updatePlaybackResume(@RequestBody RecordUserWatchTimeDTO userWatchTimeDTO) {
-        return videoService.updatePlaybackResume(userWatchTimeDTO);
+        videoService.updatePlaybackResume(userWatchTimeDTO);
+        return Result.success();
     }
 
     /**
@@ -126,7 +126,7 @@ public class VideoController {
     @Operation(summary = "用户查看他人公开的视频列表")
     @GetMapping("/{userId}/list")
     public Result<PageResult<VideoListVO>> getOtherUserVideoList(@PathVariable Long userId, @ModelAttribute PageQuery pageQuery) {
-        return videoService.getOtherUserVideoList(userId, pageQuery);
+        return Result.success(videoService.getOtherUserVideoList(userId, pageQuery));
     }
 
     /**
@@ -137,7 +137,7 @@ public class VideoController {
     @Operation(summary = "用户查看关注视频列表")
     @GetMapping("/follow/list")
     public Result<PageResult<FollowVideoVO>> getFollowVideoList(@ModelAttribute PageQuery pageQuery) {
-        return videoService.getFollowVideoList(pageQuery);
+        return Result.success(videoService.getFollowVideoList(pageQuery));
     }
 
     /**
@@ -148,7 +148,8 @@ public class VideoController {
     @Operation(summary = "用户删除某视频")
     @DeleteMapping("/{videoId}")
     public Result<Void> deleteVideo(@PathVariable Long videoId) {
-        return videoService.deleteVideo(videoId);
+        videoService.deleteVideo(videoId);
+        return Result.success();
     }
 
     /**
@@ -159,7 +160,8 @@ public class VideoController {
     @Operation(summary = "用户私密视频")
     @PostMapping("/private/{videoId}")
     public Result<Void> privateVideo(@PathVariable Long videoId) {
-        return videoService.privateVideo(videoId);
+        videoService.privateVideo(videoId);
+        return Result.success();
     }
 
     /**
@@ -170,7 +172,7 @@ public class VideoController {
     @Operation(summary = "用户公开视频(原本在review状态的仍然需要审核)")
     @PostMapping("/public/{videoId}")
     public Result<String> publicVideo(@PathVariable Long videoId) {
-        return videoService.publicVideo(videoId);
+        return Result.success(videoService.publicVideo(videoId));
     }
 
     /**
@@ -181,7 +183,8 @@ public class VideoController {
     @Operation(summary = "用户开启评论")
     @PostMapping("/open/comment/{videoId}")
     public Result<Void> openComment(@PathVariable Long videoId) {
-        return videoService.openComment(videoId);
+        videoService.openComment(videoId);
+        return Result.success();
     }
 
     /**
@@ -192,6 +195,7 @@ public class VideoController {
     @Operation(summary = "用户关闭评论")
     @PostMapping("/close/comment/{videoId}")
     public Result<Void> closeComment(@PathVariable Long videoId) {
-        return videoService.closeComment(videoId);
+        videoService.closeComment(videoId);
+        return Result.success();
     }
 }

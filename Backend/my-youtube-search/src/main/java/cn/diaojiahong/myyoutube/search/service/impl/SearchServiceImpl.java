@@ -17,6 +17,7 @@ import cn.diaojiahong.myyoutube.search.domain.vo.SearchUserVO;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
 import cn.diaojiahong.myyoutube.search.service.ISearchService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
@@ -200,7 +201,8 @@ public class SearchServiceImpl implements ISearchService {
         // 转换为VO
         List<SearchUserVO> result = BeanUtil.copyToList(list, SearchUserVO.class);
         // 填充头像url
-        Map<Long, String> avatarUrls = userPort.getAvatars(result.stream().map(SearchUserVO::getId).collect(Collectors.toList()));
+        Map<Long, String> avatarUrls = UserSummaries.toAvatarMap(
+                userPort.listByIds(result.stream().map(SearchUserVO::getId).collect(Collectors.toList())));
         if (avatarUrls == null || avatarUrls.isEmpty()) {
             return Result.success(PageResult.of(0, 0, result));
         }
@@ -364,9 +366,10 @@ public class SearchServiceImpl implements ISearchService {
         }
         List<ContentSummary> videos = contentSummaryPort.listByIdsOrdered(new HashSet<>(list));
         List<SearchVideoVO> result = BeanUtil.copyToList(videos, SearchVideoVO.class);
-        // 填充用户昵称和头像url
-        Map<Long, String> authorNicknames = userPort.getNicknames(videos.stream().map(ContentSummary::getAuthorId).collect(Collectors.toList()));
-        Map<Long, String> authorAvatarUrls = userPort.getAvatars(videos.stream().map(ContentSummary::getAuthorId).collect(Collectors.toList()));
+        // 填充用户昵称和头像url(一次批量取摘要, 本地投影)
+        List<UserSummary> authors = userPort.listByIds(videos.stream().map(ContentSummary::getAuthorId).collect(Collectors.toList()));
+        Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(authors);
+        Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(authors);
         if (authorNicknames == null || authorAvatarUrls == null) {
             return Result.success(PageResult.of(0, 0, result));
         }

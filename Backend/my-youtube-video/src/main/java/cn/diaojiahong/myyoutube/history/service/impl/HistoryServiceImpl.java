@@ -3,7 +3,6 @@ package cn.diaojiahong.myyoutube.history.service;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
@@ -12,6 +11,8 @@ import cn.diaojiahong.myyoutube.history.domain.po.UserViewHistory;
 import cn.diaojiahong.myyoutube.history.domain.vo.HistoryVO;
 import cn.diaojiahong.myyoutube.history.mapper.UserViewHistoryMapper;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import cn.hutool.core.bean.BeanUtil;
@@ -47,22 +48,24 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
     private final S3StorageUtil storageUtil;
 
     @Override
-    public Result<Void> record(Long contentId) {
+    public void record(Long contentId) {
         Long userId = getUserId();
         if (contentService.getById(contentId) == null) {
-            return Result.fail("内容不存在");
+
+            throw new BizException(BizException.BIZ_ERROR, "内容不存在");
         }
         historyMapper.upsert(userId, contentId);
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<PageResult<HistoryVO>> page(PageQuery pageQuery) {
+    public PageResult<HistoryVO> page(PageQuery pageQuery) {
         Long userId = getUserId();
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
         List<Long> contentIds = historyMapper.selectHistoryIds(userId, offset, pageQuery.getPageSize());
         if (contentIds.isEmpty()) {
-            return Result.success(PageResult.of(0, 0, List.of()));
+
+            return PageResult.of(0, 0, List.of());
         }
 
         // LinkedHashSet 保序: 摘要装配按入参迭代序返回, 即 view_time 倒序
@@ -70,7 +73,8 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
                 contentIds.stream().map(String::valueOf).collect(Collectors.toCollection(LinkedHashSet::new)));
         // 内容被删的条目不再回显, 以摘要装配结果为准
         if (summaries.isEmpty()) {
-            return Result.success(PageResult.of(0, 0, List.of()));
+
+            return PageResult.of(0, 0, List.of());
         }
 
         Map<Long, LocalDateTime> viewTimeById = lambdaQuery()
@@ -87,10 +91,12 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
         }).toList();
 
         List<Long> authorIds = voList.stream().map(HistoryVO::getAuthorId).toList();
-        Map<Long, String> authorNicknames = userPort.getNicknames(authorIds);
-        Map<Long, String> authorAvatarUrls = userPort.getAvatars(authorIds);
+        List<UserSummary> authors = userPort.listByIds(authorIds);
+        Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(authors);
+        Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(authors);
         List<Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);
         for (int i = 0; i < voList.size(); i++) {
+
             HistoryVO vo = voList.get(i);
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
             vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), STORAGE_EXPIRE));
@@ -101,29 +107,31 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
 
         int total = historyMapper.selectHistoryCount(userId);
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
-        return Result.success(PageResult.of(total, totalPages, voList));
+        return PageResult.of(total, totalPages, voList);
     }
 
     @Override
-    public Result<Void> removeOne(Long contentId) {
+    public void removeOne(Long contentId) {
         Long userId = getUserId();
         lambdaUpdate()
                 .eq(UserViewHistory::getUserId, userId)
                 .eq(UserViewHistory::getContentId, contentId)
                 .remove();
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<Void> clear() {
+    public void clear() {
         Long userId = getUserId();
         lambdaUpdate().eq(UserViewHistory::getUserId, userId).remove();
-        return Result.success();
+        return;
     }
 
     private Long getUserId() {
+
         String userId = UserContext.getUserId();
         if (userId == null) {
+
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
         return Long.valueOf(userId);

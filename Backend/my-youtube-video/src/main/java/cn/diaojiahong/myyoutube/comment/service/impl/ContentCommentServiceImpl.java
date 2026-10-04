@@ -10,13 +10,14 @@ import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -35,9 +36,11 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * <p>
@@ -62,23 +65,29 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
 
     @Transactional
     @Override
-    public Result<Void> publishComment(CommentDTO commentDTO) {
+    public void publishComment(CommentDTO commentDTO) {
         Long parentId = commentDTO.getParentId();
         if (parentId == null) {
+
             throw new IllegalArgumentException("父评论id不能为空");
         }
         Content content = contentService.getById(commentDTO.getVideoId());
         if (content == null) {
+
             throw new IllegalArgumentException("内容不存在");
         } else if (content.getType() == ContentTypeEnum.VIDEO) {
+
             // 评论开关是视频域的; 动态默认可评论
             Video video = videoService.getById(content.getId());
             if (video != null && video.getAllowComment() == 0) {
+
                 throw new IllegalArgumentException("视频不允许评论");
             }
         } else if (content.getType() == ContentTypeEnum.DYNAMIC) {
+
             Dynamic dynamic = dynamicMapper.selectById(content.getId());
             if (dynamic != null && dynamic.getAllowComment() != null && dynamic.getAllowComment() == 0) {
+
                 throw new IllegalArgumentException("动态不允许评论");
             }
         }
@@ -92,13 +101,16 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         ContentComment parent = getById(parentId);
         // 判断是否是一级评论
         if (parentId == 0) {
+
             videoComment.setRootId(null);
         } else {
             // 父评论
             if (parent == null || !CommentStatusEnum.VISIBLE.getCode().equals(parent.getStatus())) {
+
                 throw new IllegalArgumentException("父评论不存在或不可回复");
             }
             if (!Objects.equals(parent.getContentId(), commentDTO.getVideoId())) {
+
                 throw new IllegalArgumentException("父评论不属于该内容");
             }
             videoComment.setReplyUserId(parent.getUserId());
@@ -118,8 +130,10 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         CommentMessage message = null;
         boolean isSend = false;
         if (parentId == 0) {
+
             // 接受方是内容作者
             if (!userId.equals(content.getAuthorId())) {
+
                 message = CommentMessage.builder()
                        .content(commentDTO.getContent()).contentId(content.getId())
                        .senderId(userId).receiverId(content.getAuthorId()).isContentComment(true)
@@ -129,6 +143,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         } else {
             // 接受方是父评论的用户
             if (!userId.equals(parent.getUserId())) {
+
                 message = CommentMessage.builder()
                         .content(commentDTO.getContent()).contentId(content.getId())
                         .senderId(userId).receiverId(parent.getUserId()).isContentComment(false)
@@ -137,21 +152,24 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
             }
         }
         if (isSend) {
+
             rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_PUBLISH, message);
         }
 
-        return Result.success();
+        return;
     }
 
     @Transactional
     @Override
-    public Result<Void> deleteComment(Long commentId) {
+    public void deleteComment(Long commentId) {
         ContentComment videoComment = getById(commentId);
         if (videoComment == null) {
+
             throw new IllegalArgumentException("评论不存在");
         }
         Long userId = getUserId();
         if (!videoComment.getUserId().equals(userId)) {
+
             throw new IllegalArgumentException("用户没有权限删除评论");
         }
         videoComment.setStatus(CommentStatusEnum.DELETED.getCode());
@@ -159,6 +177,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         // 本次真正被标记删除的条数
         long removed = 1;
         if (videoComment.getParentId() == 0) {
+
             // 删除所有回复评论; 已经 deleted 的不重复计数
             removed += baseMapper.update(null, new LambdaUpdateWrapper<ContentComment>()
                     .eq(ContentComment::getRootId, commentId)
@@ -174,11 +193,11 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         contentService.lambdaUpdate().eq(Content::getId, videoComment.getContentId())
                 .ge(Content::getCommentCount, removed)
                 .setIncrBy(Content::getCommentCount, -removed).update();
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<PageResult<CommentVO>> getCommentList(CommentPageQuery commentPageQuery) {
+    public PageResult<CommentVO> getCommentList(CommentPageQuery commentPageQuery) {
         // 视频评论 -> 根据点赞量排序(一样按创建时间排序)
         LambdaQueryWrapper<ContentComment> w = new LambdaQueryWrapper<ContentComment>()
                 .eq(ContentComment::getContentId, commentPageQuery.getVideoId())
@@ -186,6 +205,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
                 .orderByDesc(ContentComment::getLikeCount)
                 .orderByDesc(ContentComment::getReplyCount);
         if (commentPageQuery.getParentId() == 0) {
+
             w.isNull(ContentComment::getRootId);
             w.orderByDesc(ContentComment::getCreateTime);
         } else {
@@ -199,53 +219,56 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
                 .map(record -> BeanUtil.toBean(record, CommentVO.class)).toList();
         // 对违规的评论处理
         for (CommentVO commentVO : commentVOList) {
+
             if (commentVO.getStatus().equals(CommentStatusEnum.BLOCKED.getCode())) {
+
                 commentVO.setContent("[评论违规,已被处理]");
             }
         }
-        // 填充用户昵称
-        // 填充用户头像url
+        // 填充用户昵称与头像url(评论者与回复者合并一次批量取)
         List<Long> userIds = commentVOList.stream().map(CommentVO::getUserId).toList();
-        Map<Long, String> nicknames = userPort.getNicknames(userIds);
-        Map<Long, String> avatarUrls = userPort.getAvatars(userIds);
-        if (nicknames == null || nicknames.isEmpty() || avatarUrls == null || avatarUrls.isEmpty()) {
-            return Result.success(PageResult.of(page.getTotal(), page.getPages(), commentVOList));
-        }
+        List<Long> replyUserIds = commentVOList.stream().map(CommentVO::getReplyUserId).toList();
+        Set<Long> allUserIds = new LinkedHashSet<>(userIds);
+        allUserIds.addAll(replyUserIds);
+        List<UserSummary> users = userPort.listByIds(allUserIds);
+        Map<Long, String> nicknames = UserSummaries.toNicknameMap(users);
+        Map<Long, String> avatarUrls = UserSummaries.toAvatarMap(users);
         commentVOList.forEach(commentVO -> commentVO.setNickname(nicknames.get(commentVO.getUserId())));
         commentVOList.forEach(commentVO -> commentVO.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(commentVO.getUserId()), STORAGE_EXPIRE)));
 
         // 填充回复用户的昵称
-        List<Long> replyUserIds = commentVOList.stream().map(CommentVO::getReplyUserId).toList();
-        Map<Long, String> replyNicknames = userPort.getNicknames(replyUserIds);
-        if (replyNicknames != null && !replyNicknames.isEmpty()) {
-            commentVOList.forEach(commentVO -> commentVO.setReplyNickname(replyNicknames.get(commentVO.getReplyUserId())));
-        }
+        commentVOList.forEach(commentVO -> commentVO.setReplyNickname(nicknames.get(commentVO.getReplyUserId())));
 
         // 查询用户是否点过赞
         Long userId = getUserId();
         if (!commentVOList.isEmpty()) {
+
             String key = RedisConstants.USER_LIKE_COMMENT + userId;
             StringRedisSerializer strSer = new StringRedisSerializer();
             byte[] rawKey = strSer.serialize(key);
             List<Object> scoreResults = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
                 for (CommentVO v : commentVOList) {
+
                     byte[] member = strSer.serialize(v.getId().toString());
                     connection.zScore(rawKey, member);
                 }
                 return null;
             });
             for (int i = 0; i < commentVOList.size(); i++) {
+
                 Double score = (Double) scoreResults.get(i);
                 commentVOList.get(i).setIsLike(score != null);
             }
         }
 
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), commentVOList));
+        return PageResult.of(page.getTotal(), page.getPages(), commentVOList);
     }
 
     private Long getUserId() {
+
         String userId = UserContext.getUserId();
         if (userId == null || userId.isEmpty()) {
+
             throw new IllegalArgumentException("用户未登录");
         }
         return Long.valueOf(userId);

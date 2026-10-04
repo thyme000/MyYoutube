@@ -13,6 +13,8 @@ import cn.diaojiahong.myyoutube.like.domain.constants.ContentLikeConstants;
 import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
@@ -125,8 +127,9 @@ public class ContentFeedServiceImpl implements IContentFeedService {
                         new LambdaQueryWrapper<Dynamic>().in(Dynamic::getId, ids).eq(Dynamic::getIsDelete, 0))
                 .stream().collect(Collectors.toMap(Dynamic::getId, Function.identity()));
 
-        Map<Long, String> nicknames = userPort.getNicknames(List.of(userId));
-        Map<Long, String> avatars = userPort.getAvatars(List.of(userId));
+        UserSummary author = userPort.getUser(userId);
+        String nickname = author != null ? author.getNickname() : null;
+        String avatarUrl = author != null ? author.getAvatarUrl() : null;
 
         List<ContentFeedVO> list = new ArrayList<>(ids.size());
         for (Long id : ids) {
@@ -145,8 +148,8 @@ public class ContentFeedServiceImpl implements IContentFeedService {
             vo.setShareCount(c.getShareCount());
             vo.setCreateTime(c.getCreateTime());
             vo.setAuthorId(userId);
-            vo.setAuthorNickname(nicknames.get(userId));
-            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(avatars.get(userId), URL_SIGN_EXPIRE_SECONDS));
+            vo.setAuthorNickname(nickname);
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(avatarUrl, URL_SIGN_EXPIRE_SECONDS));
             if (v != null) {
                 vo.setType("video");
                 vo.setTitle(v.getTitle());
@@ -225,8 +228,9 @@ public class ContentFeedServiceImpl implements IContentFeedService {
                         new LambdaQueryWrapper<Dynamic>().in(Dynamic::getId, ids).eq(Dynamic::getIsDelete, 0))
                 .stream().collect(Collectors.toMap(Dynamic::getId, Function.identity()));
         List<Long> authorIds = rows.stream().map(Content::getAuthorId).distinct().toList();
-        Map<Long, String> nicknames = userPort.getNicknames(authorIds);
-        Map<Long, String> avatars = userPort.getAvatars(authorIds);
+        List<UserSummary> authors = userPort.listByIds(authorIds);
+        Map<Long, String> nicknames = UserSummaries.toNicknameMap(authors);
+        Map<Long, String> avatars = UserSummaries.toAvatarMap(authors);
         Set<Long> likedIds = viewerId == null ? Set.of() : contentLikeMapper.selectList(
                         new LambdaQueryWrapper<ContentLike>()
                                 .eq(ContentLike::getUserId, viewerId)
@@ -313,8 +317,9 @@ public class ContentFeedServiceImpl implements IContentFeedService {
             return List.of();
         }
 
-        Map<Long, String> nicknames = userPort.getNicknames(summaries.stream().map(ContentSummary::getAuthorId).toList());
-        Map<Long, String> avatars = userPort.getAvatars(summaries.stream().map(ContentSummary::getAuthorId).toList());
+        List<UserSummary> authors = userPort.listByIds(summaries.stream().map(ContentSummary::getAuthorId).toList());
+        Map<Long, String> nicknames = UserSummaries.toNicknameMap(authors);
+        Map<Long, String> avatars = UserSummaries.toAvatarMap(authors);
         Set<Long> likedIds = likedContentIds(userId, summaries);
         List<Boolean> follows = userFollowService.isFollowOnList(
                 summaries.stream().map(ContentSummary::getAuthorId).toList(), userId);

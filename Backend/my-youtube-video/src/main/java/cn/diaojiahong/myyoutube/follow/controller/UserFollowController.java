@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.follow.controller;
 
-
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -35,7 +34,8 @@ public class UserFollowController {
     @Operation(summary = "关注用户")
     @PostMapping("/{authorId}")
     public Result<Void> follow(@PathVariable Long authorId) {
-        return userFollowService.follow(authorId);
+        userFollowService.follow(authorId);
+        return Result.success();
     }
 
     /**
@@ -46,7 +46,8 @@ public class UserFollowController {
     @Operation(summary = "取关用户")
     @DeleteMapping("/{authorId}")
     public Result<Void> cancelFollow(@PathVariable Long authorId) {
-        return userFollowService.cancelFollow(authorId);
+        userFollowService.cancelFollow(authorId);
+        return Result.success();
     }
 
     /**
@@ -56,9 +57,8 @@ public class UserFollowController {
     @Operation(summary = "获取用户的关注列表")
     @GetMapping("/list")
     public Result<PageResult<UserRelationshipVO>> getUserFollowList(@ModelAttribute PageQuery pageQuery) {
-        return userFollowService.getUserFollowList(pageQuery);
+        return Result.success(userFollowService.getUserFollowList(pageQuery));
     }
-
 
     /**
      * 查看用户是否关注了该作者
@@ -68,9 +68,8 @@ public class UserFollowController {
     @Operation(summary = "查看用户是否关注了该作者")
     @GetMapping("/isFollow/{authorId}")
     public Result<Boolean> isFollow(@PathVariable Long authorId) {
-        return userFollowService.isFollow(authorId);
+        return Result.success(userFollowService.isFollow(authorId));
     }
-
 
     /**
      * 用户查看粉丝列表
@@ -80,7 +79,7 @@ public class UserFollowController {
     @Operation(summary = "用户查看粉丝列表")
     @GetMapping("/fans")
     public Result<PageResult<UserRelationshipVO>> getFansList(@ModelAttribute PageQuery pageQuery) {
-        return userFollowService.getFansList(pageQuery);
+        return Result.success(userFollowService.getFansList(pageQuery));
     }
 
     /**
@@ -91,7 +90,8 @@ public class UserFollowController {
     @Operation(summary = "用户移除粉丝")
     @PostMapping("/remove/{followerId}")
     public Result<Void> removeFan(@PathVariable Long followerId) {
-        return userFollowService.removeFan(followerId);
+        userFollowService.removeFan(followerId);
+        return Result.success();
     }
 
     /**
@@ -102,6 +102,6 @@ public class UserFollowController {
     @Operation(summary = "查询互关用户")
     @GetMapping("/interrelated")
     public Result<PageResult<UserRelationshipVO>> interrelated(@ModelAttribute PageQuery pageQuery) {
-        return userFollowService.getInterrelated(pageQuery);
+        return Result.success(userFollowService.getInterrelated(pageQuery));
     }
 }

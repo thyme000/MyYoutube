@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.follow.service;
 
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
 import cn.diaojiahong.myyoutube.follow.domain.vo.UserRelationshipVO;
 import com.baomidou.mybatisplus.extension.service.IService;
@@ -19,14 +18,10 @@ import java.util.List;
  */
 public interface IUserFollowService extends IService<UserFollow> {
 
-    Result<Void> follow(Long authorId);
-
-    Result<Void> cancelFollow(Long authorId);
-
-    Result<PageResult<UserRelationshipVO>> getUserFollowList(PageQuery pageQuery);
-
-    Result<Boolean> isFollow(Long authorId);
-
+    void follow(Long authorId);
+    void cancelFollow(Long authorId);
+    PageResult<UserRelationshipVO> getUserFollowList(PageQuery pageQuery);
+    Boolean isFollow(Long authorId);
     Boolean interrelated(Long userId, List<Long> memberIds);
 
     /** 粉丝数权威值, 供 user 服务对 user.fans 做对账覆盖 */
@@ -35,13 +30,10 @@ public interface IUserFollowService extends IService<UserFollow> {
     /** 关注数权威值, 供 user 服务对 user.attention_count 做对账覆盖 */
     Long countAttention(Long followerId);
 
-    Result<PageResult<UserRelationshipVO>> getFansList(PageQuery pageQuery);
-
+    PageResult<UserRelationshipVO> getFansList(PageQuery pageQuery);
     List<Long> getFollowIds(Long userId);
 
     List<Boolean> isFollowOnList(List<Long> authorIds, Long userId);
 
-    Result<Void> removeFan(Long followerId);
-
-    Result<PageResult<UserRelationshipVO>> getInterrelated(PageQuery pageQuery);
-}
+    void removeFan(Long followerId);
+    PageResult<UserRelationshipVO> getInterrelated(PageQuery pageQuery);}

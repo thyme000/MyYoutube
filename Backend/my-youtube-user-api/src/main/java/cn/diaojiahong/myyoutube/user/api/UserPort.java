@@ -10,12 +10,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 
 /**
  * user 服务对外契约: 用户信息查询与计数调整。
  * 拆部署前由 user 模块的 UserPortAdapter 提供本地实现;
  * 拆部署后走 Feign, 过渡期用 my-youtube.user-service.url 指向旧单体。
+ * 昵称/头像等单列值从 listByIds 的 UserSummary 里本地投影, 不再单设端点。
  */
 @FeignClient(name = "my-youtube-user-service", contextId = "userPort", path = "/internal/user",
         url = "${my-youtube.user-service.url:}")
@@ -26,12 +26,6 @@ public interface UserPort {
 
     @PostMapping("/list-by-ids")
     List<UserSummary> listByIds(@RequestBody Collection<Long> ids);
-
-    @PostMapping("/nicknames")
-    Map<Long, String> getNicknames(@RequestBody Collection<Long> ids);
-
-    @PostMapping("/avatars")
-    Map<Long, String> getAvatars(@RequestBody Collection<Long> ids);
 
     /** 计数增减(fans/attentionCount/likeCount/videoCount), 减到 0 为止 */
     @PostMapping("/counters/adjust")

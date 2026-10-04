@@ -3,7 +3,6 @@ package cn.diaojiahong.myyoutube.video.service.impl;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.domain.dto.AudioPublishDTO;
@@ -32,20 +31,24 @@ public class AudioServiceImpl implements IAudioService {
     private final S3StorageUtil storageUtil;
 
     @Override
-    public Result<String> publish(AudioPublishDTO dto) {
+    public String publish(AudioPublishDTO dto) {
         Long userId = getUserId();
         if (dto == null || !StringUtils.hasText(dto.getObjectKey())) {
-            return Result.fail("音频文件不能为空");
+
+            throw new BizException(BizException.BIZ_ERROR, "音频文件不能为空");
         }
         if (dto.getDurationMs() == null || dto.getDurationMs() <= 0) {
-            return Result.fail("音频时长无效");
+
+            throw new BizException(BizException.BIZ_ERROR, "音频时长无效");
         }
         if (dto.getDurationMs() > AUDIO_MAX_DURATION_MS) {
-            return Result.fail("音频时长不能超过 10 分钟");
+
+            throw new BizException(BizException.BIZ_ERROR, "音频时长不能超过 10 分钟");
         }
         String objectKey = storageUtil.normalizeToObjectKey(dto.getObjectKey().trim());
         if (!objectKeyBelongsToUser(userId, objectKey)) {
-            return Result.fail("无权使用该音频文件");
+
+            throw new BizException(BizException.BIZ_ERROR, "无权使用该音频文件");
         }
         String visibility = VISIBILITY_PRIVATE.equals(dto.getVisibility()) ? VISIBILITY_PRIVATE : VISIBILITY_PUBLIC;
         Audio audio = new Audio();
@@ -56,79 +59,84 @@ public class AudioServiceImpl implements IAudioService {
         audio.setVisibility(visibility);
         audio.setIsDelete(0);
         audioMapper.insert(audio);
-        return Result.success(String.valueOf(audio.getId()));
+        return String.valueOf(audio.getId());
     }
 
     @Override
-    public Result<PageResult<AudioVO>> myAudios(PageQuery pageQuery) {
+    public PageResult<AudioVO> myAudios(PageQuery pageQuery) {
         Long userId = getUserId();
         Page<Audio> page = audioMapper.selectPage(pageQuery.toPage(),
                 new LambdaQueryWrapper<Audio>()
                         .eq(Audio::getUploaderId, userId)
                         .eq(Audio::getIsDelete, 0)
                         .orderByDesc(Audio::getCreateTime));
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(),
-                page.getRecords().stream().map(a -> toVO(a, true)).toList()));
+        return PageResult.of(page.getTotal(), page.getPages(),
+                page.getRecords().stream().map(a -> toVO(a, true)).toList());
     }
 
     @Override
-    public Result<PageResult<AudioVO>> library(String keyword, PageQuery pageQuery) {
+    public PageResult<AudioVO> library(String keyword, PageQuery pageQuery) {
         LambdaQueryWrapper<Audio> wrapper = new LambdaQueryWrapper<Audio>()
                 .eq(Audio::getVisibility, VISIBILITY_PUBLIC)
                 .eq(Audio::getIsDelete, 0);
         if (StringUtils.hasText(keyword)) {
+
             wrapper.like(Audio::getTitle, keyword.trim());
         }
         Page<Audio> page = audioMapper.selectPage(pageQuery.toPage(), wrapper.orderByDesc(Audio::getCreateTime));
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(),
-                page.getRecords().stream().map(a -> toVO(a, true)).toList()));
+        return PageResult.of(page.getTotal(), page.getPages(),
+                page.getRecords().stream().map(a -> toVO(a, true)).toList());
     }
 
     @Override
-    public Result<Void> setVisibility(Long id, String visibility) {
+    public void setVisibility(Long id, String visibility) {
         Long userId = getUserId();
         Audio audio = audioMapper.selectById(id);
         if (audio == null || audio.getIsDelete() == 1 || !audio.getUploaderId().equals(userId)) {
-            return Result.fail("音频不存在");
+
+            throw new BizException(BizException.BIZ_ERROR, "音频不存在");
         }
         if (!VISIBILITY_PUBLIC.equals(visibility) && !VISIBILITY_PRIVATE.equals(visibility)) {
-            return Result.fail("可见性参数无效");
+
+            throw new BizException(BizException.BIZ_ERROR, "可见性参数无效");
         }
         // 在先使用权: 转私密只影响库内可发现性与新增引用, 已发布动态持快照不受影响
         Audio patch = new Audio();
         patch.setVisibility(visibility);
         audioMapper.update(patch, new LambdaQueryWrapper<Audio>().eq(Audio::getId, id));
-        return Result.success(null);
     }
 
     @Override
-    public Result<Void> delete(Long id) {
+    public void delete(Long id) {
         Long userId = getUserId();
         Audio audio = audioMapper.selectById(id);
         if (audio == null || audio.getIsDelete() == 1 || !audio.getUploaderId().equals(userId)) {
-            return Result.fail("音频不存在");
+
+            throw new BizException(BizException.BIZ_ERROR, "音频不存在");
         }
         // 快照机制保证已引用动态不受影响, 直接软删库条目即可
         Audio patch = new Audio();
         patch.setIsDelete(1);
         audioMapper.update(patch, new LambdaQueryWrapper<Audio>().eq(Audio::getId, id));
-        return Result.success(null);
     }
 
     @Override
-    public Result<Audio> getReferenceable(Long audioId, Long userId) {
+    public Audio getReferenceable(Long audioId, Long userId) {
         Audio audio = audioMapper.selectById(audioId);
         if (audio == null || audio.getIsDelete() == 1) {
-            return Result.fail("音频不存在或已被删除");
+
+            throw new BizException(BizException.BIZ_ERROR, "音频不存在或已被删除");
         }
         if (!VISIBILITY_PUBLIC.equals(audio.getVisibility()) && !audio.getUploaderId().equals(userId)) {
-            return Result.fail("无权使用该音频");
+
+            throw new BizException(BizException.BIZ_ERROR, "无权使用该音频");
         }
-        return Result.success(audio);
+        return audio;
     }
 
     @Override
     public AudioVO toVO(Audio audio, boolean withUrl) {
+
         AudioVO vo = new AudioVO();
         vo.setId(String.valueOf(audio.getId()));
         vo.setTitle(audio.getTitle());
@@ -137,13 +145,16 @@ public class AudioServiceImpl implements IAudioService {
         vo.setUploaderId(String.valueOf(audio.getUploaderId()));
         vo.setCreateTime(audio.getCreateTime());
         if (withUrl && StringUtils.hasText(audio.getObjectKey())) {
+
             vo.setPreviewUrl(storageUtil.signGetUrl(audio.getObjectKey(), SIGN_SECONDS));
         }
         return vo;
     }
 
     private boolean objectKeyBelongsToUser(Long userId, String objectKey) {
+
         if (!StringUtils.hasText(objectKey)) {
+
             return false;
         }
         String k = objectKey.startsWith("uploads/") ? objectKey.trim() : storageUtil.normalizeToObjectKey(objectKey);
@@ -151,8 +162,10 @@ public class AudioServiceImpl implements IAudioService {
     }
 
     private static Long getUserId() {
+
         String userId = UserContext.getUserId();
         if (userId == null) {
+
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
         return Long.valueOf(userId);

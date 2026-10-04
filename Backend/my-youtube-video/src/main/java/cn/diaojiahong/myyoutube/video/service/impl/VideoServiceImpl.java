@@ -5,7 +5,6 @@ import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -85,9 +84,20 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
     @Transactional
     @Override
-    public Result<String> publishVideo(VideoDTO videoDTO) {
+    public String publishVideo(VideoDTO videoDTO) {
+
+        // fail-fast: 校验全部前置, 通过后才进入半消息/本地事务
         if (StrUtils.isEmpty(videoDTO.getVideoUrl())) {
-            return Result.fail("视频地址不能为空～");
+
+            throw new BizException(BizException.BIZ_ERROR, "视频地址不能为空～");
+        }
+        if (videoDTO.getDuration() == null) {
+
+            throw new BizException(BizException.BIZ_ERROR, "视频时长不能为空～");
+        }
+        if (StrUtils.isEmpty(videoDTO.getTitle())) {
+
+            throw new BizException(BizException.BIZ_ERROR, "视频标题不能为空～");
         }
 
         Long userId = getUserId();
@@ -99,12 +109,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 上传即公开, 不接受客户端指定可见性; 私密走发布后的设为私密入口
         video.setVisibility(VideoVisibilityEnum.PUBLIC);
 
-        if (video.getDuration() == null) {
-            return Result.fail("视频时长不能为空～");
-        }
-
         // 判断用户有没有输入标签
         if (StrUtils.isEmpty(videoDTO.getTags())) {
+
             // 使用标题填充
             video.setTags(videoDTO.getTitle().replaceAll("\\s+", ","));
         }
@@ -124,12 +131,13 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .build();
         rocketMQTemplate.sendMessageInTransaction(MqConstants.TOPIC_VIDEO_COVER, message, video);
 
-        return Result.success(video.getId() + "/" + "视频发布成功,等待审核中....");
+        return video.getId() + "/" + "视频发布成功,等待审核中....";
     }
 
     @Transactional
     @Override
     public void persistNewVideo(Video video) {
+
         // content 池先行: 同一雪花id下先有"内容"再有领域记录
         Content content = new Content()
                 .setId(video.getId())
@@ -156,11 +164,12 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     }
 
     @Override
-    public Result<PageResult<VideoListVO>> getVideoList(VideoPageQuery pageQuery) {
+    public PageResult<VideoListVO> getVideoList(VideoPageQuery pageQuery) {
         Long userId = getUserId();
 
         // 推荐视频
         if (pageQuery.getSort() == VideoSortEnum.RECOMMENDED) {
+
             List<Long> ids = recommendPort.recommend(new RecommendPort.RecommendQuery(
                     userId,
                     pageQuery.getCategory() != null ? pageQuery.getCategory().getCode() : null,
@@ -168,6 +177,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                     pageQuery.getPageSize()
             ));
             if (!ids.isEmpty()) {
+
                 // 用 MySQL 按 ids 批量查详情（保持字段一致）
                 List<Video> videos = lambdaQuery().in(Video::getId, ids)
                         .eq(Video::getIsDelete, 0)
@@ -181,8 +191,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                         .filter(Objects::nonNull)
                         .map(v -> VideoVoConverter.toListVo(v, contents.get(v.getId())))
                         .toList();
-                fillAuthorNicknames(list);
-                fillAuthorAvatarUrls(list);
+                fillAuthorInfo(list);
                 signListCoverUrlsForVideoListVO(list);
                 signListVideoUrlsForVideoListVO(list);
 
@@ -192,7 +201,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                         (long)pageQuery.getPageNo() * pageQuery.getPageSize() + 1;
                 long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
 
-                return Result.success(PageResult.of(total, pages, list));
+                return PageResult.of(total, pages, list);
             }
 
         }
@@ -204,18 +213,23 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         q.eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC);
 
         if (pageQuery.getCategory() != null) {
+
             q.eq(Video::getCategory, pageQuery.getCategory());
         }
         if (pageQuery.getAuthorId() != null) {
+
             q.eq(Video::getAuthorId, pageQuery.getAuthorId());
         }
         if (pageQuery.getBegin() != null) {
+
             q.ge(Video::getCreateTime, pageQuery.getBegin());
         }
         if (pageQuery.getEnd() != null) {
+
             q.le(Video::getCreateTime, pageQuery.getEnd());
         }
         if (pageQuery.getTags() != null && !pageQuery.getTags().isBlank()) {
+
             q.like(Video::getTags, pageQuery.getTags().trim());
         }
 
@@ -226,6 +240,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         VideoSortEnum sort = pageQuery.getSort();
         if (sort == VideoSortEnum.MOST_LIKED || sort == VideoSortEnum.MOST_SHARED
                 || sort == VideoSortEnum.MOST_PLAYED || sort == VideoSortEnum.RECOMMENDED) {
+
             // 计数列在 content 表, 计数类排序走联表查询
             result = baseMapper.selectPageSorted(pageQuery.toPage(), userId,
                     pageQuery.getCategory() != null ? pageQuery.getCategory().getCode() : null,
@@ -237,16 +252,17 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             result = page(pageQuery.toPage(), q.eq(Video::getStatus, PUBLISHED));
         }
         List<VideoListVO> list = toListVosWithCounts(result.getRecords());
-        fillAuthorNicknames(list);
-        fillAuthorAvatarUrls(list);
+        fillAuthorInfo(list);
         signListCoverUrlsForVideoListVO(list);
         signListVideoUrlsForVideoListVO(list);
-        return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
+        return PageResult.of(result.getTotal(), result.getPages(), list);
     }
 
     private Map<Long, Content> loadContents(List<Video> videos) {
+
         List<Long> ids = videos.stream().map(Video::getId).toList();
         if (ids.isEmpty()) {
+
             return Map.of();
         }
         return contentService.listByIds(ids).stream()
@@ -254,39 +270,30 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
     }
 
     private List<VideoListVO> toListVosWithCounts(List<Video> videos) {
+
         Map<Long, Content> contents = loadContents(videos);
         return videos.stream()
                 .map(v -> VideoVoConverter.toListVo(v, contents.get(v.getId())))
                 .collect(Collectors.toList());
     }
 
-    private void fillAuthorAvatarUrls(List<VideoListVO> list) {
-        if (list == null || list.isEmpty()) {
-            return;
-        }
-        Map<Long, String> map = userPort
-                .getAvatars(list.stream()
-                        .map(VideoListVO::getAuthorId)
-                        .collect(Collectors.toList()));
-        list.forEach(vo ->
-                vo.setAuthorAvatarUrl(storageUtil.signGetUrl(map.getOrDefault(vo.getAuthorId(), null),
-                        STORAGE_READ_SIGN_EXPIRE_SECONDS)));
-    }
-
     @Override
-    public Result<VideoDetailVO> getVideoDetail(Long videoId) {
+    public VideoDetailVO getVideoDetail(Long videoId) {
         Long userId = getUserId();
         Video video = getById(videoId);
 
         if (video == null || (video.getIsDelete() != null && video.getIsDelete() != 0)) {
-            return Result.fail("视频不存在或未发布～");
+
+            throw new BizException(BizException.BIZ_ERROR, "视频不存在或未发布～");
         }
         if (!PUBLISHED.getCode().equals(video.getStatus().getCode())) {
-            return Result.fail("视频已私密或已被封禁～");
+
+            throw new BizException(BizException.BIZ_ERROR, "视频已私密或已被封禁～");
         }
         // 私密视频仅作者本人可看(直链直达也拦)
         if (video.getVisibility() == VideoVisibilityEnum.PRIVATE && !video.getAuthorId().equals(userId)) {
-            return Result.fail("无权查看该视频～");
+
+            throw new BizException(BizException.BIZ_ERROR, "无权查看该视频～");
         }
 
         VideoDetailVO detailVo = VideoVoConverter.toDetailVo(video, contentService.getById(videoId));
@@ -297,6 +304,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         String playTimeStr = (String) redisTemplate.opsForHash().get(RedisConstants.USER_PLAYBACK_RESUME + userId, videoId.toString());
         Long playTime = (playTimeStr != null && !playTimeStr.isBlank()) ? Long.parseLong(playTimeStr) : null;
         if (playTime != null) {
+
             // 说明存在播放记录,则设置播放时间
             detailVo.setPlaybackTime(playTime);
         }
@@ -304,18 +312,18 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 获取作者的信息
         UserSummary author = userPort.getUser(video.getAuthorId());
         if (author == null) {
-            return Result.fail("作者不存在");
+
+            throw new BizException(BizException.BIZ_ERROR, "作者不存在");
         }
         detailVo.setAuthorFanCount(author.getFans());
         detailVo.setAuthorAvatarUrl(storageUtil.signGetUrl(author.getAvatarUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         detailVo.setAuthorNickname(author.getNickname());
 
-        return Result.success(detailVo);
+        return detailVo;
     }
 
-
     @Override
-    public Result<PageResult<VideoListVO>> getVideoListByAuthorId(Long authorId, VideoPageQuery pageQuery) {
+    public PageResult<VideoListVO> getVideoListByAuthorId(Long authorId, VideoPageQuery pageQuery) {
         Page<Video> result = lambdaQuery()
                 .eq(Video::getIsDelete, 0)
                 .eq(Video::getAuthorId, authorId)
@@ -324,13 +332,13 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .orderByDesc(Video::getCreateTime)
                 .page(pageQuery.toPage());
         List<VideoListVO> list = toListVosWithCounts(result.getRecords());
-        fillAuthorNicknames(list);
+        fillAuthorInfo(list);
         signListCoverUrlsForVideoListVO(list);
-        return Result.success(PageResult.of(result.getTotal(), result.getPages(), list));
+        return PageResult.of(result.getTotal(), result.getPages(), list);
     }
 
     @Override
-    public Result<PageResult<VideoListVO>> getMyVideoList(VideoPageQuery pageQuery) {
+    public PageResult<VideoListVO> getMyVideoList(VideoPageQuery pageQuery) {
         Long userId = getUserId();
 
         LambdaQueryWrapper<Video> q = new LambdaQueryWrapper<>();
@@ -353,45 +361,51 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 转换为map
         Map<Long, Boolean> likeMap = null;
         if (isLike == null || isLike.isEmpty()) {
+
             likeMap = Collections.emptyMap();
         } else {
             likeMap = isLike.stream().collect(Collectors.toMap(v -> v, v -> true));
         }
         // 填充点赞信息
         for (VideoListVO vo : result) {
+
             vo.setIsLike(likeMap.getOrDefault(Long.valueOf(vo.getId()), false));
         }
 
         log.info("查询用户 {} 的视频列表，共 {} 条", userId, result.size());
-        return Result.success(PageResult.of(list.getTotal(), list.getPages(), result));
+        return PageResult.of(list.getTotal(), list.getPages(), result);
     }
 
     private void signListVideoUrlsForVideoListVO(List<VideoListVO> list) {
+
         if (list.isEmpty()) {
+
             return;
         }
         for (VideoListVO vo : list) {
+
             vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 
     @Override
-    public Result<String> generateVideoCover(VideoCoverMessage videoCoverMessage) {
+    public String generateVideoCover(VideoCoverMessage videoCoverMessage) {
         // 异步生成视频封面
         rocketMQTemplate.syncSend(MqConstants.TOPIC_VIDEO_COVER, videoCoverMessage);
         log.info("发送视频封面消息, 视频id: {}", videoCoverMessage.getVideoId());
-        return Result.success("发布成功");
+        return "发布成功";
     }
 
     @Override
-    public Result<PageResult<ShortsVO>> getShortsFeed(PageQuery pageQuery) {
+    public PageResult<ShortsVO> getShortsFeed(PageQuery pageQuery) {
         Long userId = getUserId();
         // 连播池不过滤形态, 全量混排
         List<Long> videoIds = recommendPort.recommend(new RecommendPort.RecommendQuery(
                 userId, null, pageQuery.getPageNo(), pageQuery.getPageSize()));
         if (videoIds.isEmpty()) {
+
             // 直接返回空列表
-            return Result.success(PageResult.of(0,0, Collections.emptyList()));
+            return PageResult.of(0,0, Collections.emptyList());
         }
 
         // 查询视频信息
@@ -410,14 +424,20 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 获取所有作者id
         List<Long> authorIds = voList.stream().map(ShortsVO::getAuthorId).toList();
         if (!authorIds.isEmpty()) {
-            // 查询作者昵称
-            Map<Long, String> authorNicknames = userPort.getNicknames(authorIds);
-            // 作者头像url
-            Map<Long, String> authorAvatarUrls = userPort.getAvatars(authorIds);
+
+            // 一次批量取作者摘要, 本地投影昵称与头像
+            Map<Long, UserSummary> authors = userPort.listByIds(authorIds).stream()
+                    .filter(u -> u.getId() != null)
+                    .collect(Collectors.toMap(UserSummary::getId, u -> u, (a, b) -> a));
             // 填充
-            voList.forEach(vo -> vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId())));
             voList.forEach(vo -> {
-                vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), STORAGE_READ_SIGN_EXPIRE_SECONDS));
+                UserSummary u = authors.get(vo.getAuthorId());
+                if (u == null) {
+
+                    return;
+                }
+                vo.setAuthorNickname(u.getNickname());
+                vo.setAuthorAvatarUrl(storageUtil.signGetUrl(u.getAvatarUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
             });
             // 签名封面url
             signListCoverUrlsForShortsVO(voList);
@@ -427,6 +447,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
             // 填充是否关注了该作者
             List<Boolean> followOnList = userFollowService.isFollowOnList(authorIds, userId);
             for (int i = 0; i < voList.size(); i++) {
+
                 Boolean isFollow = followOnList.get(i);
                 voList.get(i).setIsFollow(isFollow != null && isFollow);
             }
@@ -445,11 +466,13 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 (long)pageQuery.getPageNo() * pageQuery.getPageSize() + 1;
         long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
 
-        return Result.success(PageResult.of(total, pages, voList));
+        return PageResult.of(total, pages, voList);
     }
 
     private List<Long> isLike(Long userId, List<Long> videoIds) {
+
         if (videoIds == null || videoIds.isEmpty()) {
+
             return Collections.emptyList();
         }
         List<ContentLike> list = new LambdaQueryChainWrapper<>(contentLikeMapper)
@@ -457,13 +480,14 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .eq(ContentLike::getUserId, userId)
                 .in(ContentLike::getContentId, videoIds).list();
         if (list == null || list.isEmpty()) {
+
             return Collections.emptyList();
         }
         return list.stream().map(ContentLike::getContentId).toList();
     }
 
     @Override
-    public Result<Void> updatePlaybackResume(RecordUserWatchTimeDTO userWatchTimeDTO) {
+    public void updatePlaybackResume(RecordUserWatchTimeDTO userWatchTimeDTO) {
         Long userId = userWatchTimeDTO.getUserId();
         // 记录当前的时间戳
         redisTemplate.opsForZSet().add(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId,
@@ -477,11 +501,11 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         redisTemplate.expire(RedisConstants.USER_PLAYBACK_RESUME + userId, RedisConstants.USER_PLAYBACK_RESUME_EXPIRE, TimeUnit.DAYS);
         redisTemplate.expire(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + userId, RedisConstants.USER_PLAYBACK_RESUME_EXPIRE, TimeUnit.DAYS);
 
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<PageResult<VideoListVO>> getOtherUserVideoList(Long userId, PageQuery pageQuery) {
+    public PageResult<VideoListVO> getOtherUserVideoList(Long userId, PageQuery pageQuery) {
         // 查询他人公开的视频
         Page<Video> page = lambdaQuery().eq(Video::getAuthorId, userId)
                 .eq(Video::getVisibility, VideoVisibilityEnum.PUBLIC)
@@ -491,7 +515,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .page(pageQuery.toPage());
         List<Video> videoList = page.getRecords();
         if (videoList == null || videoList.isEmpty()) {
-            return Result.success(PageResult.of(0,0, Collections.emptyList()));
+
+            return PageResult.of(0,0, Collections.emptyList());
         }
         // 转换为VO
         List<VideoListVO> voList = toListVosWithCounts(videoList);
@@ -499,7 +524,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 获取作者昵称
         UserSummary author = userPort.getUser(userId);
         if (author == null) {
-            return Result.success(PageResult.of(0,0, Collections.emptyList()));
+
+            return PageResult.of(0,0, Collections.emptyList());
         }
         // 填充作者昵称
         voList.forEach(vo -> vo.setAuthorNickname(author.getNickname()));
@@ -512,25 +538,28 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         List<Long> likedIds = isLike(getUserId(), videoList.stream().map(Video::getId).toList());
         Map<Long, Boolean> collect = likedIds.stream().collect(Collectors.toMap(v -> v, v -> true));
         for (int i = 0; i < voList.size(); i++) {
+
             voList.get(i).setIsLike(collect.getOrDefault(videoList.get(i).getId(), false));
         }
 
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
+        return PageResult.of(page.getTotal(), page.getPages(), voList);
     }
 
     @Override
-    public Result<PageResult<FollowVideoVO>> getFollowVideoList(PageQuery pageQuery) {
+    public PageResult<FollowVideoVO> getFollowVideoList(PageQuery pageQuery) {
         // 获取用户信息
         Long userId = getUserId();
         // 获取关注用户列表
         List<Long> followIds = userFollowService.getFollowIds(userId);
         if (followIds == null || followIds.isEmpty()) {
-            return Result.success(PageResult.of(0,0, Collections.emptyList()));
+
+            return PageResult.of(0,0, Collections.emptyList());
         }
         List<Long> videoIds = recommendPort.recommendForFollow(new RecommendPort.FollowRecommendQuery(
                 followIds, userId, pageQuery.getPageNo(), pageQuery.getPageSize()));
         if (videoIds == null || videoIds.isEmpty()) {
-            return Result.success(PageResult.of(0,0, Collections.emptyList()));
+
+            return PageResult.of(0,0, Collections.emptyList());
         }
 
         // 查询视频
@@ -544,6 +573,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                     FollowVideoVO vo = BeanUtil.toBean(v, FollowVideoVO.class);
                     Content c = contents.get(v.getId());
                     if (c != null) {
+
                         vo.setLikeCount(c.getLikeCount());
                         vo.setPlayCount(c.getPlayCount());
                         vo.setShareCount(c.getShareCount());
@@ -551,22 +581,29 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                     }
                     return vo;
                 }).toList();
+        // 一次批量取作者摘要, 本地投影昵称与头像
+        Map<Long, UserSummary> authors = userPort.listByIds(videoIds).stream()
+                .filter(u -> u.getId() != null)
+                .collect(Collectors.toMap(UserSummary::getId, u -> u, (a, b) -> a));
         // 填充作者昵称
-        Map<Long, String> idToNick = userPort.getNicknames(videoIds);
         for (FollowVideoVO vo : voList) {
-            vo.setAuthorNickname(idToNick.get(vo.getAuthorId()));
-        }
-        // 填充作者头像url
-        Map<Long, String> idToAvatar = userPort.getAvatars(videoIds);
-        for (FollowVideoVO vo : voList) {
-            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(idToAvatar.get(vo.getAuthorId()), STORAGE_READ_SIGN_EXPIRE_SECONDS));
+
+            UserSummary u = authors.get(vo.getAuthorId());
+            if (u == null) {
+
+                continue;
+            }
+            vo.setAuthorNickname(u.getNickname());
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(u.getAvatarUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         }
         // 签名视频封面url
         for (FollowVideoVO vo : voList) {
+
             vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         }
         // 签名视频url
         for (FollowVideoVO vo : voList) {
+
             vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         }
 
@@ -574,6 +611,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         List<Long> likedIds = isLike(userId, videoIds);
         Map<Long, Boolean> c = likedIds.stream().collect(Collectors.toMap(v -> v, v -> true));
         for (FollowVideoVO vo : voList) {
+
             vo.setIsLike(c.getOrDefault(Long.valueOf(vo.getId()), false));
         }
 
@@ -583,18 +621,19 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 (long)pageQuery.getPageNo() * pageQuery.getPageSize() + 1;
         long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
 
-        return Result.success(PageResult.of(total, pages, voList));
+        return PageResult.of(total, pages, voList);
     }
 
     @Transactional
     @Override
-    public Result<Void> deleteVideo(Long videoId) {
+    public void deleteVideo(Long videoId) {
         Long userId = getUserId();
         boolean success = lambdaUpdate().eq(Video::getId, videoId)
                 .eq(Video::getAuthorId, userId)
                 .set(Video::getIsDelete, true).update();
         if (!success) {
-            return Result.fail("删除失败,请稍后再试");
+
+            throw new BizException(BizException.BIZ_ERROR, "删除失败,请稍后再试");
         }
         // content 池无删除标记, 不同步摘除的话池分发与创作中心会把已删视频查回来
         contentService.removeById(videoId);
@@ -602,92 +641,103 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         try {
             contentDocPort.deleteDoc(videoId);
         } catch (Exception e) {
+
             log.warn("ES 文档删除失败, videoId={}", videoId, e);
         }
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<Void> privateVideo(Long videoId) {
+    public void privateVideo(Long videoId) {
         Long userId = getUserId();
         boolean success = lambdaUpdate().eq(Video::getId, videoId)
                 .eq(Video::getAuthorId, userId)
                 .set(Video::getVisibility, VideoVisibilityEnum.PRIVATE).update();
         if (!success) {
-            return Result.fail("修改失败");
+
+            throw new BizException(BizException.BIZ_ERROR, "修改失败");
         }
         // 在es中更新这个文档
         contentDocPort.syncVisibility(videoId, new VisibilitySync(null, null, null, "private", false));
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<String> publicVideo(Long videoId) {
+    public String publicVideo(Long videoId) {
         Long userId = getUserId();
         Video video = lambdaQuery().eq(Video::getId, videoId)
                 .eq(Video::getAuthorId, userId)
                 .one();
         if (video == null) {
-            return Result.fail("该视频不存在");
+
+            throw new BizException(BizException.BIZ_ERROR, "该视频不存在");
         }
         if (video.getStatus().equals(BANNED)) {
-            return Result.fail("该视频已被封禁,无法修改");
+
+            throw new BizException(BizException.BIZ_ERROR, "该视频已被封禁,无法修改");
         }
         if (video.getStatus().equals(REVIEW)) {
+
             boolean success = lambdaUpdate().eq(Video::getId, videoId)
                     .eq(Video::getAuthorId, userId)
                     .set(Video::getVisibility, VideoVisibilityEnum.PUBLIC).update();
             if (!success) {
-                return Result.fail("修改失败");
+
+                throw new BizException(BizException.BIZ_ERROR, "修改失败");
             } else {
                 // 在es中更新这个文档
                 contentDocPort.syncVisibility(videoId, new VisibilitySync(null, null, null, "public", false));
-                return Result.success("修改成功,等待审核中");
+                return "修改成功,等待审核中";
             }
         }
         // 在es中更新这个文档
         contentDocPort.syncVisibility(videoId, new VisibilitySync(video.getTitle(), video.getDescription(), video.getTags(), "public", true));
-        return Result.success("修改成功");
+        return "修改成功";
     }
 
     @Override
-    public Result<Void> openComment(Long videoId) {
+    public void openComment(Long videoId) {
         Long userId = getUserId();
         boolean success = lambdaUpdate().eq(Video::getId, videoId)
                 .eq(Video::getAuthorId, userId)
                 .set(Video::getAllowComment, 1).update();
         if (!success) {
-            return Result.fail("修改失败");
+
+            throw new BizException(BizException.BIZ_ERROR, "修改失败");
         }
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<Void> closeComment(Long videoId) {
+    public void closeComment(Long videoId) {
         Long userId = getUserId();
         boolean success = lambdaUpdate().eq(Video::getId, videoId)
                 .eq(Video::getAuthorId, userId)
                 .set(Video::getAllowComment, 0).update();
         if (!success) {
-            return Result.fail("修改失败");
+
+            throw new BizException(BizException.BIZ_ERROR, "修改失败");
         }
-        return Result.success();
+        return;
     }
 
     private static Long getUserId() {
+
         String userId = UserContext.getUserId();
         if (userId == null) {
+
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
         return Long.valueOf(userId);
     }
 
-
     /**
-     * 批量查询作者昵称，避免前端仅展示「用户 作者id」。
+     * 批量填充作者昵称与头像: 同一批 authorId 只做一次远程查询, 本地投影, 避免昵称/头像各拉一遍。
      */
-    private void fillAuthorNicknames(List<VideoListVO> list) {
+    private void fillAuthorInfo(List<VideoListVO> list) {
+
         if (list == null || list.isEmpty()) {
+
             return;
         }
         Set<Long> ids = list.stream()
@@ -695,46 +745,59 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
         if (ids.isEmpty()) {
+
             return;
         }
-        List<UserSummary> users = userPort.listByIds(ids);
-        Map<Long, String> idToNick = users.stream()
+        Map<Long, UserSummary> users = userPort.listByIds(ids).stream()
                 .filter(u -> u.getId() != null)
-                .collect(Collectors.toMap(UserSummary::getId, u -> u.getNickname() != null ? u.getNickname() : "", (a, b) -> a));
+                .collect(Collectors.toMap(UserSummary::getId, u -> u, (a, b) -> a));
         for (VideoListVO vo : list) {
-            Long aid = vo.getAuthorId();
-            if (aid != null && idToNick.containsKey(aid)) {
-                String nick = idToNick.get(aid);
-                if (nick != null && !nick.isBlank()) {
-                    vo.setAuthorNickname(nick);
-                }
+
+            UserSummary u = vo.getAuthorId() == null ? null : users.get(vo.getAuthorId());
+            if (u == null) {
+
+                continue;
             }
+            if (u.getNickname() != null && !u.getNickname().isBlank()) {
+
+                vo.setAuthorNickname(u.getNickname());
+            }
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(u.getAvatarUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 
     private void signListCoverUrlsForVideoListVO(List<VideoListVO> list) {
+
         if (list == null || list.isEmpty()) {
+
             return;
         }
         for (VideoListVO vo : list) {
+
             vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 
     private void signListCoverUrlsForShortsVO(List<ShortsVO> list) {
+
         if (list == null || list.isEmpty()) {
+
             return;
         }
         for (ShortsVO vo : list) {
+
             vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 
     private void signListVideoUrlForShortsVO(List<ShortsVO> list) {
+
         if (list == null || list.isEmpty()) {
+
             return;
         }
         for (ShortsVO vo : list) {
+
             vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         }
     }

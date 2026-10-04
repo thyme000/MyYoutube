@@ -26,7 +26,8 @@ public class ChatUserConversationController {
     @Operation(summary = "开启或关闭免打扰")
     @PutMapping("/{conversationId}/mute")
     public Result<Void> setMute(@PathVariable String conversationId, @RequestParam boolean mute) {
-        return chatUserConversationService.setMute(conversationId, mute);
+        chatUserConversationService.setMute(conversationId, mute);
+        return Result.success();
     }
 
     /**
@@ -37,7 +38,8 @@ public class ChatUserConversationController {
     @Operation(summary = "对某会话置顶或取消置顶")
     @PutMapping("/{conversationId}/pin")
     public Result<Void> setPin(@PathVariable String conversationId, @RequestParam boolean pin) {
-        return chatUserConversationService.setPin(conversationId, pin);
+        chatUserConversationService.setPin(conversationId, pin);
+        return Result.success();
     }
 
     /**
@@ -47,7 +49,7 @@ public class ChatUserConversationController {
     @Operation(summary = "获取用户所有聊天会话")
     @GetMapping("/list")
     public Result<PageResult<UserConversationVO>> getPageConversations(@RequestParam Long page, @RequestParam Long pageSize) {
-        return chatUserConversationService.getPageConversations(page, pageSize);
+        return Result.success(chatUserConversationService.getPageConversations(page, pageSize));
     }
 
     /**
@@ -57,7 +59,7 @@ public class ChatUserConversationController {
     @Operation(summary = "查询用户所有未读的消息")
     @GetMapping("/unread")
     public Result<Long> getUnreadMessages() {
-        return chatUserConversationService.getUnreadMessages();
+        return Result.success(chatUserConversationService.getUnreadMessages());
     }
 
     /**
@@ -68,7 +70,8 @@ public class ChatUserConversationController {
     @Operation(summary = "读取群公告")
     @PutMapping("/{conversationId}/read/announcement")
     public Result<Void> readAnnouncement(@PathVariable String conversationId) {
-        return chatUserConversationService.readAnnouncement(conversationId);
+        chatUserConversationService.readAnnouncement(conversationId);
+        return Result.success();
     }
 
     /**
@@ -80,6 +83,6 @@ public class ChatUserConversationController {
     @Operation(summary = "获取用户合法的聊天会话列表")
     @GetMapping("/valid")
     public Result<PageResult<ValidUserConversationVO>> getValidConversations(@RequestParam Long page, @RequestParam Long pageSize) {
-        return chatUserConversationService.getValidConversations(page, pageSize);
+        return Result.success(chatUserConversationService.getValidConversations(page, pageSize));
     }
 }

@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.like.controller;
 
-
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -37,7 +36,8 @@ public class ContentLikeController {
     @Operation(summary = "用户点赞视频")
     @PutMapping("/{videoId}")
     public Result<Void> likeVideo(@PathVariable Long videoId) {
-        return contentLikeService.likeVideo(videoId);
+        contentLikeService.likeVideo(videoId);
+        return Result.success();
     }
 
     /**
@@ -48,7 +48,8 @@ public class ContentLikeController {
     @Operation(summary = "用户取消点赞视频")
     @DeleteMapping("/{videoId}")
     public Result<Void> cancelLikeVideo(@PathVariable Long videoId) {
-        return contentLikeService.cancelLikeVideo(videoId);
+        contentLikeService.cancelLikeVideo(videoId);
+        return Result.success();
     }
 
     /**
@@ -59,7 +60,8 @@ public class ContentLikeController {
     @Operation(summary = "用户不喜欢(踩过)这个视频")
     @PostMapping("/dislike/{videoId}")
     public Result<Void> dislikeVideo(@PathVariable Long videoId) {
-        return contentLikeService.dislikeVideo(videoId);
+        contentLikeService.dislikeVideo(videoId);
+        return Result.success();
     }
 
     /**
@@ -71,7 +73,7 @@ public class ContentLikeController {
     @Operation(summary = "用户查看点赞视频")
     @GetMapping("/{userId}/list")
     public Result<PageResult<LikeVideoVO>> getLikeVideoList(@PathVariable Long userId, @ModelAttribute PageQuery pageQuery) {
-        return contentLikeService.getLikeVideoList(userId, pageQuery);
+        return Result.success(contentLikeService.getLikeVideoList(userId, pageQuery));
     }
 
     /**
@@ -82,7 +84,7 @@ public class ContentLikeController {
     @Operation(summary = "用户是否给这个视频点过赞")
     @GetMapping("/{videoId}/status")
     public Result<Boolean> getLikeStatus(@PathVariable Long videoId) {
-        return contentLikeService.getLikeStatus(videoId);
+        return Result.success(contentLikeService.getLikeStatus(videoId));
     }
 
     /**
@@ -93,7 +95,8 @@ public class ContentLikeController {
     @Operation(summary = "用户给评论点赞")
     @PostMapping("/comment/{commentId}")
     public Result<Void> likeComment(@PathVariable Long commentId) {
-        return contentLikeService.likeComment(commentId);
+        contentLikeService.likeComment(commentId);
+        return Result.success();
     }
 
     /**
@@ -104,6 +107,7 @@ public class ContentLikeController {
     @DeleteMapping("/comment/{commentId}")
     @Operation(summary = "用户给评论取消点赞")
     public Result<Void> cancelLikeComment(@PathVariable Long commentId) {
-        return contentLikeService.cancelLikeComment(commentId);
+        contentLikeService.cancelLikeComment(commentId);
+        return Result.success();
     }
 }

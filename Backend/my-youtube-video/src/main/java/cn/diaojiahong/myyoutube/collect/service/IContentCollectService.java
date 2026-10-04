@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.collect.service;
 
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.collect.domain.vo.CollectVO;
 
 /**
@@ -11,14 +10,10 @@ import cn.diaojiahong.myyoutube.collect.domain.vo.CollectVO;
 public interface IContentCollectService {
 
     /** 收藏内容, 已收藏时幂等 */
-    Result<Void> collect(Long contentId);
-
+    void collect(Long contentId);
     /** 取消收藏, 未收藏时幂等 */
-    Result<Void> cancelCollect(Long contentId);
-
+    void cancelCollect(Long contentId);
     /** 我的收藏, 按收藏时间倒序 */
-    Result<PageResult<CollectVO>> page(PageQuery pageQuery);
-
+    PageResult<CollectVO> page(PageQuery pageQuery);
     /** 我是否收藏了该内容 */
-    Result<Boolean> status(Long contentId);
-}
+    Boolean status(Long contentId);}

@@ -16,6 +16,8 @@ import cn.diaojiahong.myyoutube.search.api.UserDocPort;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.CommentAdminPort;
 import cn.diaojiahong.myyoutube.video.api.VideoAdminPort;
 import cn.diaojiahong.myyoutube.video.api.dto.VideoSummary;
@@ -104,8 +106,9 @@ public class AdminServiceImpl implements IAdminService {
             return Result.success(PageResult.of(0, 0, new ArrayList<>()));
         }
         List<Long> authorIds = page.getList().stream().map(VideoSummary::getAuthorId).toList();
-        Map<Long, String> avatars = userPort.getAvatars(authorIds);
-        Map<Long, String> nicknames = userPort.getNicknames(authorIds);
+        List<UserSummary> authors = userPort.listByIds(authorIds);
+        Map<Long, String> avatars = UserSummaries.toAvatarMap(authors);
+        Map<Long, String> nicknames = UserSummaries.toNicknameMap(authors);
         List<AdminVideoVO> voList = page.getList().stream().map(v -> {
             AdminVideoVO vo = new AdminVideoVO();
             vo.setVideoId(v.getId());

@@ -4,7 +4,6 @@ import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
@@ -49,9 +48,10 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     @Transactional
-    public Result<Void> follow(Long authorId) {
+    public void follow(Long authorId) {
         Long userId = getUserId();
         if (userId.equals(authorId)) {
+
             throw new BizException(BizException.USER_ERROR, "不能关注自己");
         }
         // 存在就修改,不存在就新增
@@ -59,6 +59,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         int row = baseMapper.followOrRestore(id, userId, authorId);
         // 关注成功后，更新用户信息 -> 被关注者粉丝数加一,关注者关注数量加一
         if (row > 0) {
+
             userPort.adjustCounters(List.of(
                     new CounterAdjust(authorId, "fans", 1),
                     new CounterAdjust(userId, "attentionCount", 1)));
@@ -67,12 +68,14 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         rocketMQTemplate.syncSendDelayTimeSeconds(
                 MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
                 new UserDocSyncMessage(authorId), 5);
-        return Result.success();
+        return;
     }
 
     private Long getUserId() {
+
         String userId = UserContext.getUserId();
         if (userId == null) {
+
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
         return Long.valueOf(userId);
@@ -80,12 +83,13 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Transactional
     @Override
-    public Result<Void> cancelFollow(Long authorId) {
+    public void cancelFollow(Long authorId) {
         Long userId = getUserId();
         // 取消关注
         int row = baseMapper.cancelFollow(userId, authorId);
         // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一
         if (row > 0) {
+
             userPort.adjustCounters(List.of(
                     new CounterAdjust(authorId, "fans", -1),
                     new CounterAdjust(userId, "attentionCount", -1)));
@@ -94,11 +98,11 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         rocketMQTemplate.syncSendDelayTimeSeconds(
                 MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
                 new UserDocSyncMessage(authorId), 5);
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<PageResult<UserRelationshipVO>> getUserFollowList(PageQuery pageQuery) {
+    public PageResult<UserRelationshipVO> getUserFollowList(PageQuery pageQuery) {
         Long userId = getUserId();
         Page<UserFollow> page = lambdaQuery().eq(UserFollow::getFollowerId, userId)
                 .eq(UserFollow::getIsDeleted, false)
@@ -106,32 +110,35 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 .page(pageQuery.toPage());
         List<UserFollow> follows = page.getRecords();
         if (follows == null || follows.isEmpty()) {
-            return Result.success(PageResult.of(page.getTotal(), page.getPages(), List.of()));
+
+            return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
         List<Long> list = follows.stream().map(UserFollow::getFolloweeId).toList();
 
         List<UserRelationshipVO> voList = getUserRelationshipVOS(list);
 
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
+        return PageResult.of(page.getTotal(), page.getPages(), voList);
     }
 
     @Override
-    public Result<Boolean> isFollow(Long authorId) {
+    public Boolean isFollow(Long authorId) {
         Long userId = getUserId();
         UserFollow one = lambdaQuery()
                 .eq(UserFollow::getFollowerId, userId)
                 .eq(UserFollow::getFolloweeId, authorId).one();
-        return Result.success(one != null && !one.getIsDeleted());
+        return one != null && !one.getIsDeleted();
     }
 
     @Override
     public Boolean interrelated(Long userId, List<Long> memberIds) {
+
         int expectedCount = (int) memberIds.stream().distinct().count();
         return baseMapper.interrelated(userId, memberIds, expectedCount);
     }
 
     @Override
     public Long countFans(Long followeeId) {
+
         return lambdaQuery()
                 .eq(UserFollow::getFolloweeId, followeeId)
                 .eq(UserFollow::getIsDeleted, false)
@@ -140,15 +147,15 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public Long countAttention(Long followerId) {
+
         return lambdaQuery()
                 .eq(UserFollow::getFollowerId, followerId)
                 .eq(UserFollow::getIsDeleted, false)
                 .count();
     }
 
-
     @Override
-    public Result<PageResult<UserRelationshipVO>> getFansList(PageQuery pageQuery) {
+    public PageResult<UserRelationshipVO> getFansList(PageQuery pageQuery) {
         Long userId = getUserId();
         Page<UserFollow> page = lambdaQuery().eq(UserFollow::getFolloweeId, userId)
                 .eq(UserFollow::getIsDeleted, false)
@@ -156,15 +163,17 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 .page(pageQuery.toPage());
         List<UserFollow> follows = page.getRecords();
         if (follows == null || follows.isEmpty()) {
-            return Result.success(PageResult.of(page.getTotal(), page.getPages(), List.of()));
+
+            return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
         List<Long> list = follows.stream().map(UserFollow::getFollowerId).toList();
         List<UserRelationshipVO> voList = getUserRelationshipVOS(list);
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
+        return PageResult.of(page.getTotal(), page.getPages(), voList);
     }
 
     @Override
     public List<Long> getFollowIds(Long userId) {
+
         return lambdaQuery()
                 .eq(UserFollow::getFollowerId, userId)
                 .eq(UserFollow::getIsDeleted, false)
@@ -176,10 +185,13 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public List<Boolean> isFollowOnList(List<Long> authorIds, Long userId) {
+
         if (userId == null) {
+
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
         if (authorIds == null || authorIds.isEmpty()) {
+
             return List.of();
         }
         Map<Long, Boolean> collect = lambdaQuery()
@@ -191,12 +203,13 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     }
 
     @Override
-    public Result<Void> removeFan(Long followerId) {
+    public void removeFan(Long followerId) {
         Long userId = getUserId();
         // 取消关注
         int row = baseMapper.cancelFollow(followerId, userId);
         // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一
         if (row > 0) {
+
             userPort.adjustCounters(List.of(
                     new CounterAdjust(userId, "fans", -1),
                     new CounterAdjust(followerId, "attentionCount", -1)));
@@ -205,25 +218,28 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         rocketMQTemplate.syncSendDelayTimeSeconds(
                 MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
                 new UserDocSyncMessage(userId), 5);
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<PageResult<UserRelationshipVO>> getInterrelated(PageQuery pageQuery) {
+    public PageResult<UserRelationshipVO> getInterrelated(PageQuery pageQuery) {
         Long userId = getUserId();
         Page<Long> page = baseMapper.selectInterrelatedPage(pageQuery.toPage(), userId);
         if (page == null) {
-            return Result.success(PageResult.of(0, 0, List.of()));
+
+            return PageResult.of(0, 0, List.of());
         }
         List<Long> records = page.getRecords() != null ? page.getRecords() : List.of();
         if (records.isEmpty()) {
-            return Result.success(PageResult.of(page.getTotal(), page.getPages(), List.of()));
+
+            return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
         List<UserRelationshipVO> voList = getUserRelationshipVOS(records);
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), voList));
+        return PageResult.of(page.getTotal(), page.getPages(), voList);
     }
 
     private List<UserRelationshipVO> getUserRelationshipVOS(List<Long> records) {
+
         List<UserSummary> users = userPort.listByIds(records);
         // 转换为 Map
         Map<Long, UserSummary> userMap = users.stream()

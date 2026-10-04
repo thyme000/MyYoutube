@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.recommend.controller;
 
-
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.recommend.domain.dto.BehaviorDTO;
 import cn.diaojiahong.myyoutube.recommend.service.IUserVideoBehaviorService;
@@ -37,6 +36,7 @@ public class UserVideoBehaviorController {
     @PostMapping("/content")
     @Operation(summary = "用户观看内容行为")
     public Result<Void> report(@RequestBody BehaviorDTO behaviorDTO) {
-        return userVideoBehaviorService.report(behaviorDTO);
+        userVideoBehaviorService.report(behaviorDTO);
+        return Result.success();
     }
 }

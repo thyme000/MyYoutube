@@ -3,7 +3,6 @@ package cn.diaojiahong.myyoutube.video.service.impl;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -15,6 +14,7 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
@@ -77,12 +77,14 @@ public class DynamicServiceImpl implements IDynamicService {
 
     @Override
     @Transactional
-    public Result<String> publish(DynamicPublishDTO dto) {
+    public String publish(DynamicPublishDTO dto) {
         if (dto == null || dto.getItems() == null || dto.getItems().isEmpty()) {
-            return Result.fail("图片列表不能为空");
+
+            throw new BizException(BizException.BIZ_ERROR, "图片列表不能为空");
         }
         if (dto.getItems().isEmpty() || dto.getItems().size() > MAX_IMAGES) {
-            return Result.fail("图片数量需在 " + MIN_IMAGES + "~" + MAX_IMAGES + " 张之间");
+
+            throw new BizException(BizException.BIZ_ERROR, "图片数量需在 " + MIN_IMAGES + "~" + MAX_IMAGES + " 张之间");
         }
         Long userId = getUserId();
 
@@ -98,19 +100,17 @@ public class DynamicServiceImpl implements IDynamicService {
         String audioTitle = "";
         Long audioId = null;
         if (dto.getAudioId() == null) {
-            return Result.fail("请选择背景音乐");
+
+            throw new BizException(BizException.BIZ_ERROR, "请选择背景音乐");
         }
         // 音频库引用校验: 公开或本人私有才可用; objectKey/时长/标题作为快照落库,
         // 之后音频转私密/删除/改名均不影响已发布动态(在先使用权)
-        Result<Audio> audioResult = audioService.getReferenceable(dto.getAudioId(), userId);
-        if (audioResult.getCode() != 200 || audioResult.getData() == null) {
-            return Result.fail(audioResult.getMessage());
-        }
-        Audio audio = audioResult.getData();
+        Audio audio = audioService.getReferenceable(dto.getAudioId(), userId);
         audioId = audio.getId();
         audioKey = audio.getObjectKey();
         audioTitle = audio.getTitle();
         if (audio.getDurationMs() != null && audio.getDurationMs() > 0) {
+
             audioMs = Math.min(audio.getDurationMs(), AUDIO_MAX_DURATION_MS);
         }
 
@@ -119,16 +119,20 @@ public class DynamicServiceImpl implements IDynamicService {
         long[] durations = new long[n];
         List<String> imageKeys = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
+
             DynamicPublishDTO.DynamicItemDTO item = dto.getItems().get(i);
             if (item == null || !StringUtils.hasText(item.getImageObjectKey())) {
-                return Result.fail("图片列表存在空项");
+
+                throw new BizException(BizException.BIZ_ERROR, "图片列表存在空项");
             }
             String key = storageUtil.normalizeToObjectKey(item.getImageObjectKey().trim());
             if (!objectKeyBelongsToUser(userId, key)) {
-                return Result.fail("存在无权使用的图片资源");
+
+                throw new BizException(BizException.BIZ_ERROR, "存在无权使用的图片资源");
             }
             imageKeys.add(key);
             if (item.getDurationMs() != null && item.getDurationMs() > 0) {
+
                 durations[i] = Math.max(item.getDurationMs(), MIN_ITEM_DURATION_MS);
             } else {
                 durations[i] = uniform;
@@ -140,7 +144,9 @@ public class DynamicServiceImpl implements IDynamicService {
         long startMs = 0L;
         long sumDurations = 0L;
         for (int i = 0; i < n; i++) {
+
             if (i > 0) {
+
                 startMs = sumDurations - (long) i * fade;
             }
             Map<String, Object> entry = new LinkedHashMap<>();
@@ -154,6 +160,7 @@ public class DynamicServiceImpl implements IDynamicService {
         }
         long total = sumDurations - (long) (n - 1) * fade;
         if (audioMs > total) {
+
             total = audioMs;
         }
 
@@ -173,8 +180,9 @@ public class DynamicServiceImpl implements IDynamicService {
         try {
             dynamic.setTimelineJson(objectMapper.writeValueAsString(timeline));
         } catch (Exception e) {
+
             log.warn("dynamic 序列化时间轴失败", e);
-            return Result.fail("发布失败");
+            throw new BizException(BizException.BIZ_ERROR, "发布失败");
         }
         dynamic.setIsDelete(0);
         dynamic.setCreateTime(java.time.LocalDateTime.now());
@@ -206,31 +214,34 @@ public class DynamicServiceImpl implements IDynamicService {
                         .authorId(userId)
                         .createTime(dynamic.getCreateTime()).tagIds(tagIds)
                         .build(), 5);
-        return Result.success(String.valueOf(dynamic.getId()));
+        return String.valueOf(dynamic.getId());
     }
 
     @Override
-    public Result<PageResult<DynamicVO>> feed(PageQuery pageQuery) {
+    public PageResult<DynamicVO> feed(PageQuery pageQuery) {
         Page<Dynamic> page = dynamicMapper.selectPage(pageQuery.toPage(),
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Dynamic>()
                         .eq(Dynamic::getIsDelete, 0)
                         .eq(Dynamic::getVisibility, "public")
                         .orderByDesc(Dynamic::getCreateTime));
         List<DynamicVO> vos = toVOs(page.getRecords());
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), vos));
+        return PageResult.of(page.getTotal(), page.getPages(), vos);
     }
 
     @Override
-    public Result<DynamicVO> detail(Long id) {
+    public DynamicVO detail(Long id) {
         Dynamic dynamic = dynamicMapper.selectById(id);
         if (dynamic == null || dynamic.getIsDelete() != null && dynamic.getIsDelete() == 1) {
-            return Result.fail("动态不存在");
+
+            throw new BizException(BizException.BIZ_ERROR, "动态不存在");
         }
         // 私密动态仅作者本人可见
         if ("private".equals(dynamic.getVisibility())) {
+
             String uid = UserContext.getUserId();
             if (uid == null || !uid.equals(String.valueOf(dynamic.getUserId()))) {
-                return Result.fail("无权查看该动态");
+
+                throw new BizException(BizException.BIZ_ERROR, "无权查看该动态");
             }
         }
         List<DynamicVO> vos = toVOs(List.of(dynamic));
@@ -238,22 +249,25 @@ public class DynamicServiceImpl implements IDynamicService {
         // 详情附互动计数(来自 content 池)
         Content c = contentService.getById(id);
         if (c != null) {
+
             vo.setLikeCount(c.getLikeCount());
             vo.setCommentCount(c.getCommentCount());
         }
         // 作者粉丝数(详情层展示, 与视频详情同口径)
         UserSummary author = userPort.getUser(dynamic.getUserId());
         if (author != null) {
+
             vo.setAuthorFanCount(author.getFans());
         }
-        return Result.success(vo);
+        return vo;
     }
 
     @Override
-    public Result<DynamicDownloadVO> requestDownload(Long dynamicId) {
+    public DynamicDownloadVO requestDownload(Long dynamicId) {
         Dynamic dynamic = dynamicMapper.selectById(dynamicId);
         if (dynamic == null || dynamic.getIsDelete() != null && dynamic.getIsDelete() == 1) {
-            return Result.fail("动态不存在");
+
+            throw new BizException(BizException.BIZ_ERROR, "动态不存在");
         }
         TranscodeSubmitDTO submit = buildSubmitDTO(dynamic);
         // 任务归属请求者: SSE 通知与状态查询权限都按这个 id
@@ -262,37 +276,42 @@ public class DynamicServiceImpl implements IDynamicService {
         try {
             task = transcodePort.submitTask(submit);
         } catch (Exception e) {
+
             log.error("提交转码任务失败 dynamicId={}", dynamicId, e);
-            return Result.fail("转码服务暂不可用，请稍后再试");
+            throw new BizException(BizException.BIZ_ERROR, "转码服务暂不可用，请稍后再试");
         }
         if (task == null || task.getTaskId() == null) {
-            return Result.fail("创建下载任务失败");
+
+            throw new BizException(BizException.BIZ_ERROR, "创建下载任务失败");
         }
-        return Result.success(toDownloadVO(task));
+        return toDownloadVO(task);
     }
 
     @Override
-    public Result<DynamicDownloadVO> getDownloadStatus(Long taskId) {
+    public DynamicDownloadVO getDownloadStatus(Long taskId) {
         Long userId = getUserId();
         TranscodeTaskVO task;
         try {
             task = transcodePort.getTask(taskId);
         } catch (Exception e) {
+
             log.error("查询转码任务失败 taskId={}", taskId, e);
-            return Result.fail("转码服务暂不可用，请稍后再试");
+            throw new BizException(BizException.BIZ_ERROR, "转码服务暂不可用，请稍后再试");
         }
         if (task == null || task.getTaskId() == null) {
-            return Result.fail("任务不存在");
+
+            throw new BizException(BizException.BIZ_ERROR, "任务不存在");
         }
         if (!Objects.equals(task.getUserId(), userId)) {
-            return Result.fail("无权查看该任务");
+
+            throw new BizException(BizException.BIZ_ERROR, "无权查看该任务");
         }
-        return Result.success(toDownloadVO(task));
+        return toDownloadVO(task);
     }
 
     @Override
     @Transactional
-    public Result<Void> deleteDynamic(Long id) {
+    public void deleteDynamic(Long id) {
         Long userId = getUserId();
         boolean success = dynamicMapper.update(null,
                 new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Dynamic>()
@@ -300,7 +319,8 @@ public class DynamicServiceImpl implements IDynamicService {
                         .eq(Dynamic::getUserId, userId)
                         .set(Dynamic::getIsDelete, 1)) > 0;
         if (!success) {
-            return Result.fail("删除失败,请稍后再试");
+
+            throw new BizException(BizException.BIZ_ERROR, "删除失败,请稍后再试");
         }
         // content 池无删除标记, 不同步摘除的话池分发与创作中心会把已删动态查回来
         contentService.removeById(id);
@@ -308,26 +328,29 @@ public class DynamicServiceImpl implements IDynamicService {
         try {
             contentDocPort.deleteDoc(id);
         } catch (Exception e) {
+
             log.warn("ES 动态文档删除失败, dynamicId={}", id, e);
         }
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<Void> privateDynamic(Long id) {
-        return switchVisibility(id, "private");
+    public void privateDynamic(Long id) {
+        switchVisibility(id, "private");
     }
 
     @Override
-    public Result<Void> publicDynamic(Long id) {
-        return switchVisibility(id, "public");
+    public void publicDynamic(Long id) {
+        switchVisibility(id, "public");
     }
 
-    private Result<Void> switchVisibility(Long id, String visibility) {
+    private void switchVisibility(Long id, String visibility) {
+
         Long userId = getUserId();
         Dynamic dynamic = dynamicMapper.selectById(id);
         if (dynamic == null || !userId.equals(dynamic.getUserId())) {
-            return Result.fail("动态不存在");
+
+            throw new BizException(BizException.BIZ_ERROR, "动态不存在");
         }
         boolean success = dynamicMapper.update(null,
                 new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Dynamic>()
@@ -335,7 +358,8 @@ public class DynamicServiceImpl implements IDynamicService {
                         .eq(Dynamic::getUserId, userId)
                         .set(Dynamic::getVisibility, visibility)) > 0;
         if (!success) {
-            return Result.fail("修改失败");
+
+            throw new BizException(BizException.BIZ_ERROR, "修改失败");
         }
         // content 池随领域状态机同步
         contentService.lambdaUpdate()
@@ -345,6 +369,7 @@ public class DynamicServiceImpl implements IDynamicService {
         // ES 同步: 私密清空 suggest 防搜索联想泄露, 公开按动态字段重建
         try {
             if ("private".equals(visibility)) {
+
                 contentDocPort.syncVisibility(id, new VisibilitySync(null, null, null, "private", false));
             } else {
                 // 动态无简介字段, suggest 重建时以空串占位(List.of 不允许 null 元素)
@@ -353,22 +378,24 @@ public class DynamicServiceImpl implements IDynamicService {
                         "", dynamic.getTags(), "public", true));
             }
         } catch (Exception e) {
+
             log.warn("ES 动态可见性同步失败, dynamicId={}, visibility={}", id, visibility, e);
         }
-        return Result.success();
+        return;
     }
 
     @Override
-    public Result<Void> openComment(Long id) {
-        return switchComment(id, 1);
+    public void openComment(Long id) {
+        switchComment(id, 1);
     }
 
     @Override
-    public Result<Void> closeComment(Long id) {
-        return switchComment(id, 0);
+    public void closeComment(Long id) {
+        switchComment(id, 0);
     }
 
-    private Result<Void> switchComment(Long id, int allow) {
+    private void switchComment(Long id, int allow) {
+
         Long userId = getUserId();
         boolean success = dynamicMapper.update(null,
                 new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Dynamic>()
@@ -376,14 +403,17 @@ public class DynamicServiceImpl implements IDynamicService {
                         .eq(Dynamic::getUserId, userId)
                         .set(Dynamic::getAllowComment, allow)) > 0;
         if (!success) {
-            return Result.fail("修改失败");
+
+            throw new BizException(BizException.BIZ_ERROR, "修改失败");
         }
-        return Result.success();
+        return;
     }
 
     private DynamicDownloadVO toDownloadVO(TranscodeTaskVO task) {
+
         String url = null;
         if (TranscodeTaskVO.STATUS_DONE.equals(task.getStatus()) && StringUtils.hasText(task.getResultObjectKey())) {
+
             url = storageUtil.signGetUrl(task.getResultObjectKey(), DOWNLOAD_SIGN_SECONDS);
         }
         return DynamicDownloadVO.builder()
@@ -394,6 +424,7 @@ public class DynamicServiceImpl implements IDynamicService {
     }
 
     private TranscodeSubmitDTO buildSubmitDTO(Dynamic dynamic) {
+
         TranscodeSubmitDTO submit = new TranscodeSubmitDTO();
         submit.setUserId(dynamic.getUserId());
         submit.setDynamicId(dynamic.getId());
@@ -406,6 +437,7 @@ public class DynamicServiceImpl implements IDynamicService {
         submit.setTotalDurationMs(dynamic.getTotalDurationMs() != null ? dynamic.getTotalDurationMs().longValue() : 0L);
         List<TranscodeItemDTO> items = new ArrayList<>();
         for (DynamicVO.Item item : parseTimeline(dynamic.getTimelineJson())) {
+
             TranscodeItemDTO ti = new TranscodeItemDTO();
             ti.setImageObjectKey(item.getImageObjectKey());
             ti.setStartMs(item.getStartMs());
@@ -419,11 +451,13 @@ public class DynamicServiceImpl implements IDynamicService {
     }
 
     private List<DynamicVO.Item> parseTimeline(String timelineJson) {
+
         try {
             List<Map<String, Object>> raw = objectMapper.readValue(timelineJson,
                     new TypeReference<List<Map<String, Object>>>() {});
             List<DynamicVO.Item> items = new ArrayList<>(raw.size());
             for (Map<String, Object> m : raw) {
+
                 DynamicVO.Item item = new DynamicVO.Item();
                 item.setImageObjectKey(String.valueOf(m.get("imageObjectKey")));
                 item.setStartMs(toLong(m.get("startMs")));
@@ -434,36 +468,45 @@ public class DynamicServiceImpl implements IDynamicService {
             }
             return items;
         } catch (Exception e) {
+
             log.warn("解析时间轴失败: {}", timelineJson, e);
             return List.of();
         }
     }
 
     private static Long toLong(Object v) {
+
         // 全局 ObjectMapper 会把 Long 序列化成字符串落库, 这里兼容两种形态
         if (v == null) {
+
             return null;
         }
         return v instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(v));
     }
 
     private static Double toDouble(Object v) {
+
         if (v == null) {
+
             return null;
         }
         return v instanceof Number n ? n.doubleValue() : Double.parseDouble(String.valueOf(v));
     }
 
     private List<DynamicVO> toVOs(List<Dynamic> dynamics) {
+
         if (dynamics == null || dynamics.isEmpty()) {
+
             return List.of();
         }
         List<Long> authorIds = dynamics.stream().map(Dynamic::getUserId).distinct().collect(Collectors.toList());
-        Map<Long, String> nicknames = authorIds.isEmpty() ? Map.of() : userPort.getNicknames(authorIds);
-        Map<Long, String> avatars = authorIds.isEmpty() ? Map.of() : userPort.getAvatars(authorIds);
+        List<UserSummary> authors = authorIds.isEmpty() ? List.of() : userPort.listByIds(authorIds);
+        Map<Long, String> nicknames = UserSummaries.toNicknameMap(authors);
+        Map<Long, String> avatars = UserSummaries.toAvatarMap(authors);
 
         List<DynamicVO> vos = new ArrayList<>(dynamics.size());
         for (Dynamic d : dynamics) {
+
             DynamicVO vo = new DynamicVO();
             vo.setId(String.valueOf(d.getId()));
             vo.setUserId(String.valueOf(d.getUserId()));
@@ -490,7 +533,9 @@ public class DynamicServiceImpl implements IDynamicService {
                     : d.getCreateTime().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli());
             List<DynamicVO.Item> items = parseTimeline(d.getTimelineJson());
             for (DynamicVO.Item item : items) {
+
                 if (StringUtils.hasText(item.getImageObjectKey())) {
+
                     item.setImageUrl(storageUtil.signGetUrl(item.getImageObjectKey(), MEDIA_SIGN_SECONDS));
                 }
             }
@@ -504,21 +549,27 @@ public class DynamicServiceImpl implements IDynamicService {
      * 均分时长: 成片填满音频时 D = (T + (n-1)*fade) / n, 无音频给固定 3s。
      */
     private static long uniformDurationMs(int n, long audioMs, long fade) {
+
         if (audioMs > 0) {
+
             return Math.max((audioMs + (long) (n - 1) * fade) / n, MIN_ITEM_DURATION_MS);
         }
         return DEFAULT_ITEM_DURATION_MS;
     }
 
     private static double clampRatio(Double v) {
+
         if (v == null || v.isNaN()) {
+
             return 0.5;
         }
         return Math.max(0.0, Math.min(1.0, v));
     }
 
     private boolean objectKeyBelongsToUser(Long userId, String objectKey) {
+
         if (!StringUtils.hasText(objectKey)) {
+
             return false;
         }
         String k = objectKey.startsWith("uploads/") ? objectKey.trim() : storageUtil.normalizeToObjectKey(objectKey);
@@ -526,8 +577,10 @@ public class DynamicServiceImpl implements IDynamicService {
     }
 
     private static Long getUserId() {
+
         String userId = UserContext.getUserId();
         if (userId == null) {
+
             throw new BizException(BizException.USER_ERROR, "用户未登录");
         }
         return Long.valueOf(userId);

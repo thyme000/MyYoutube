@@ -32,7 +32,7 @@ public class ChatConversationController {
     @Operation(summary = "创建会话")
     @PostMapping("/create")
     public Result<ConversationVO> createConversation(@RequestBody CreateConversationDTO createConversationDTO) {
-        return chatConversationService.createConversation(createConversationDTO);
+        return Result.success(chatConversationService.createConversation(createConversationDTO));
     }
 
     /**
@@ -44,7 +44,7 @@ public class ChatConversationController {
     @Operation(summary = "修改群头像")
     @PutMapping("/avatar/{conversationId}")
     public Result<String> updateConversationAvatar(@PathVariable String conversationId, @RequestParam MultipartFile avatar) {
-        return chatConversationService.updateConversationAvatar(conversationId, avatar);
+        return Result.success(chatConversationService.updateConversationAvatar(conversationId, avatar));
     }
 
     /**
@@ -56,7 +56,7 @@ public class ChatConversationController {
     @Operation(summary = "修改群名称")
     @PutMapping("/name/{conversationId}")
     public Result<String> updateConversationName(@PathVariable String conversationId, @RequestParam String name) {
-        return chatConversationService.updateConversationName(conversationId, name);
+        return Result.success(chatConversationService.updateConversationName(conversationId, name));
     }
 
     /**
@@ -67,7 +67,7 @@ public class ChatConversationController {
     @Operation(summary = "删除会话")
     @DeleteMapping("/delete/{conversationId}")
     public Result<String> deleteConversation(@PathVariable String conversationId) {
-        return chatConversationService.deleteConversation(conversationId);
+        return Result.success(chatConversationService.deleteConversation(conversationId));
     }
 
     /**
@@ -79,7 +79,8 @@ public class ChatConversationController {
     @Operation(summary = "移除会话成员")
     @DeleteMapping("/remove/member/{conversationId}")
     public Result<Void> removeConversationMember(@PathVariable String conversationId, @RequestParam List<Long> userIds) {
-        return chatConversationService.removeConversationMember(conversationId, userIds);
+        chatConversationService.removeConversationMember(conversationId, userIds);
+        return Result.success(null);
     }
 
     /**
@@ -91,7 +92,8 @@ public class ChatConversationController {
     @Operation(summary = "邀请互关用户加入群")
     @PutMapping("/invite/{conversationId}/{userId}")
     public Result<Void> inviteConversationMember(@PathVariable String conversationId, @PathVariable Long userId) {
-        return chatConversationService.inviteConversationMember(conversationId, userId);
+        chatConversationService.inviteConversationMember(conversationId, userId);
+        return Result.success(null);
     }
 
     /**
@@ -102,7 +104,7 @@ public class ChatConversationController {
     @Operation(summary = "查询群成员列表")
     @GetMapping("/member/list/{conversationId}")
     public Result<List<ConversationMembersVO>> getConversationMembers(@PathVariable String conversationId) {
-        return chatConversationService.getConversationMembers(conversationId);
+        return Result.success(chatConversationService.getConversationMembers(conversationId));
     }
 
     /**
@@ -113,7 +115,8 @@ public class ChatConversationController {
     @Operation(summary = "开启或关闭全员禁言")
     @PutMapping("/ban/{conversationId}")
     public Result<Void> banConversation(@PathVariable String conversationId, @RequestParam Boolean banned) {
-        return chatConversationService.banConversation(conversationId, banned);
+        chatConversationService.banConversation(conversationId, banned);
+        return Result.success(null);
     }
 
     /**
@@ -125,7 +128,8 @@ public class ChatConversationController {
     @Operation(summary = "禁言或取消禁言会话成员")
     @PutMapping("/ban/{userId}/{conversationId}")
     public Result<Void> banConversationMember(@PathVariable Long userId, @PathVariable String conversationId, @RequestParam Boolean banned) {
-        return chatConversationService.banConversationMember(userId, conversationId, banned);
+        chatConversationService.banConversationMember(userId, conversationId, banned);
+        return Result.success(null);
     }
 
     /**
@@ -136,7 +140,7 @@ public class ChatConversationController {
     public Result<AnnouncementPublishVO> publishAnnouncement(
             @PathVariable String conversationId,
             @Valid @RequestBody PublishAnnouncementDTO body) {
-        return chatConversationService.publishAnnouncement(conversationId, body.getText());
+        return Result.success(chatConversationService.publishAnnouncement(conversationId, body.getText()));
     }
 
     /**
@@ -147,6 +151,6 @@ public class ChatConversationController {
     @Operation(summary = "查询群公告")
     @GetMapping("/announcement/{conversationId}")
     public Result<AnnouncementPublishVO> getAnnouncement(@PathVariable String conversationId) {
-        return chatConversationService.getAnnouncement(conversationId);
+        return Result.success(chatConversationService.getAnnouncement(conversationId));
     }
 }

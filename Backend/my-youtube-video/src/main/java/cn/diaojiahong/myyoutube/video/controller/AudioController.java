@@ -30,31 +30,33 @@ public class AudioController {
     @PostMapping("/publish")
     @Operation(summary = "音频入库(上传后调用, 默认公开)")
     public Result<String> publish(@RequestBody AudioPublishDTO dto) {
-        return audioService.publish(dto);
+        return Result.success(audioService.publish(dto));
     }
 
     @GetMapping("/my")
     @Operation(summary = "我的音频列表(含私密)")
     public Result<PageResult<AudioVO>> myAudios(@ModelAttribute PageQuery pageQuery) {
-        return audioService.myAudios(pageQuery);
+        return Result.success(audioService.myAudios(pageQuery));
     }
 
     @GetMapping("/library")
     @Operation(summary = "公开音频库(可选关键词搜索)")
     public Result<PageResult<AudioVO>> library(@RequestParam(required = false) String keyword,
                                                @ModelAttribute PageQuery pageQuery) {
-        return audioService.library(keyword, pageQuery);
+        return Result.success(audioService.library(keyword, pageQuery));
     }
 
     @PostMapping("/{id}/visibility")
     @Operation(summary = "切换可见性(仅上传者)")
     public Result<Void> setVisibility(@PathVariable Long id, @RequestParam String visibility) {
-        return audioService.setVisibility(id, visibility);
+        audioService.setVisibility(id, visibility);
+        return Result.success();
     }
 
     @DeleteMapping("/{id}")
     @Operation(summary = "删除音频(仅上传者, 已引用动态持快照不受影响)")
     public Result<Void> delete(@PathVariable Long id) {
-        return audioService.delete(id);
+        audioService.delete(id);
+        return Result.success();
     }
 }

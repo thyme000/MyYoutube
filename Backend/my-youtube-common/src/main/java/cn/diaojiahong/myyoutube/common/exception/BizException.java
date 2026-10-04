@@ -14,6 +14,7 @@ public class BizException extends RuntimeException {
     public static final int NOTIFICATION_ERROR = 10004;
     public static final int MESSAGE_ERROR = 10005;
     public static final int CONVERSATION_ERROR = 10006;
+    public static final int BIZ_ERROR = 10007;
 
     private final int code;
     private final String message;
