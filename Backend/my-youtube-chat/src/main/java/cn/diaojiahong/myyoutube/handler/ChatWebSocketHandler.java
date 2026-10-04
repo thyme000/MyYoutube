@@ -6,7 +6,6 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Map;
 import java.util.Set;
@@ -16,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 聊天专用 WS 通道(纯下行, 未来承载"正在输入"等上行状态流)。
  * 连接生命周期由前端挂 in 聊天页: 进页连、离开断。
  * 报文经 Redis 扇出由 LocalPushDispatcher 推给本实例连接。
+ * 鉴权经网关完成, userId 由 UserHandshakeInterceptor 在握手期写入 attributes。
  */
 @Component
 @RequiredArgsConstructor
@@ -23,16 +23,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     // userId -> 多个连接（多标签页）
     private static final Map<Long, Set<WebSocketSession>> USER_SESSIONS = new ConcurrentHashMap<>();
-    private final ConnectionAuth connectionAuth;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        Long userId = resolveUserId(session);
+        Long userId = (Long) session.getAttributes().get("userId");
         if (userId == null) {
             try { session.close(CloseStatus.NOT_ACCEPTABLE); } catch (Exception ignored) {}
             return;
         }
-        session.getAttributes().put("userId", userId);
         USER_SESSIONS.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet()).add(session);
     }
 
@@ -62,14 +60,5 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 try { s.sendMessage(new TextMessage(json)); } catch (Exception ignored) {}
             }
         }
-    }
-
-    private Long resolveUserId(WebSocketSession session) {
-        String q = session.getUri() != null ? session.getUri().getQuery() : null;
-        if (q == null) {
-            return null;
-        }
-        String token = UriComponentsBuilder.fromUriString("?" + q).build().getQueryParams().getFirst("token");
-        return connectionAuth.resolveUserId(token);
     }
 }

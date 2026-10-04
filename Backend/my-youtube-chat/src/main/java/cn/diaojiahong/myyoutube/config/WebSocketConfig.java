@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.config;
 
 import cn.diaojiahong.myyoutube.handler.ChatWebSocketHandler;
+import cn.diaojiahong.myyoutube.handler.UserHandshakeInterceptor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
@@ -12,18 +13,22 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 public class WebSocketConfig implements WebSocketConfigurer {
 
     private final ChatWebSocketHandler chatWebSocketHandler;
+    private final UserHandshakeInterceptor userHandshakeInterceptor;
     private final String[] allowedOrigins;
 
     public WebSocketConfig(ChatWebSocketHandler chatWebSocketHandler,
+                           UserHandshakeInterceptor userHandshakeInterceptor,
                            @Value("${my-youtube.ws.allowed-origins:*}") String[] allowedOrigins) {
         this.chatWebSocketHandler = chatWebSocketHandler;
+        this.userHandshakeInterceptor = userHandshakeInterceptor;
         this.allowedOrigins = allowedOrigins;
     }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        // 前端进聊天页时连接: ws://host/ws/chat?token=xxx (通知类推送已迁至 SSE /sse/notify)
+        // 前端进聊天页时连接: ws://host/ws/chat?token=xxx(网关验签后剥掉)
         registry.addHandler(chatWebSocketHandler, "/ws/chat")
+                .addInterceptors(userHandshakeInterceptor)
                 .setAllowedOrigins(allowedOrigins);
     }
 }

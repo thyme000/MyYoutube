@@ -14,15 +14,21 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 网关统一鉴权: 本地验签 access JWT(不查 token 表), 仅作废时间戳命中时查一次 Redis,
  * 通过后把 userId 透传给下游服务(X-User-Id 头), 下游服务只解析头;
  * 配置了内部密钥时附带 X-Internal-Token, 供下游拒绝绕网关直连的伪造请求。
+ * 长连接(聊天 WS / SSE 门铃)的 token 在 query 上(浏览器 WS/EventSource 带不了自定义 header),
+ * 同样在此验签, 并把 token 从 query 剥掉再转发, 下游链路不再出现明文 token。
  */
 @Component
 public class GatewayAuthFilter implements GlobalFilter, Ordered {
@@ -32,13 +38,14 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
     private static final String TOKEN_VER_KEY_PREFIX = "user:token-ver:";
+    private static final String TOKEN_QUERY_PARAM = "token";
 
     /** 放行接口, 与各服务的公开接口保持一致 */
     private static final List<String> WHITELIST = List.of(
             "/login", "/register", "/forget-password", "/refresh", "/logout");
 
-    /** 长连接(聊天 WS / SSE 门铃)握手带不了自定义 header, 走 query token 由下游 ConnectionAuth 自行验签 */
-    private static final List<String> SELF_AUTH_PREFIXES = List.of("/ws/", "/sse/");
+    /** 长连接(聊天 WS / SSE 门铃): token 在 query 上, 验签后剥掉换头转发 */
+    private static final List<String> CONNECTION_PREFIXES = List.of("/ws/", "/sse/");
 
     private final ReactiveStringRedisTemplate redisTemplate;
     private final String internalToken;
@@ -57,15 +64,13 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
         if (WHITELIST.stream().anyMatch(path::equals)) {
             return chain.filter(exchange);
         }
-        if (SELF_AUTH_PREFIXES.stream().anyMatch(path::startsWith)) {
-            return chain.filter(exchange);
-        }
+        boolean connectionPath = CONNECTION_PREFIXES.stream().anyMatch(path::startsWith);
 
-        String header = exchange.getRequest().getHeaders().getFirst(AUTH_HEADER);
-        if (header == null || !header.startsWith(BEARER_PREFIX)) {
+        String token = extractToken(exchange, connectionPath);
+        if (token == null) {
             return unauthorized(exchange);
         }
-        JwtPayload payload = JwtUtil.verify(header.substring(BEARER_PREFIX.length()));
+        JwtPayload payload = JwtUtil.verify(token);
         if (payload == null) {
             return unauthorized(exchange);
         }
@@ -77,14 +82,48 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
                     if (!ver.isEmpty() && payload.issuedAtMillis() < Long.parseLong(ver)) {
                         return unauthorized(exchange);
                     }
-                    ServerHttpRequest.Builder builder = exchange.getRequest().mutate()
-                            .header(USER_ID_HEADER, String.valueOf(payload.userId()));
-                    if (!internalToken.isBlank()) {
-                        // 下游 UserIdHeaderFilter 据此拒绝绕过网关直连时伪造的 X-User-Id
-                        builder.header(INTERNAL_TOKEN_HEADER, internalToken);
-                    }
-                    return chain.filter(exchange.mutate().request(builder.build()).build());
+                    ServerHttpRequest request = buildDownstreamRequest(exchange, payload, connectionPath);
+                    return chain.filter(exchange.mutate().request(request).build());
                 });
+    }
+
+    /** 普通请求只认 Bearer; 长连接优先 Bearer, 兜底 query 上的 token */
+    private String extractToken(ServerWebExchange exchange, boolean connectionPath) {
+        String header = exchange.getRequest().getHeaders().getFirst(AUTH_HEADER);
+        if (header != null && header.startsWith(BEARER_PREFIX)) {
+            return header.substring(BEARER_PREFIX.length());
+        }
+        if (connectionPath) {
+            return exchange.getRequest().getQueryParams().getFirst(TOKEN_QUERY_PARAM);
+        }
+        return null;
+    }
+
+    private ServerHttpRequest buildDownstreamRequest(ServerWebExchange exchange, JwtPayload payload, boolean connectionPath) {
+        ServerHttpRequest.Builder builder = exchange.getRequest().mutate()
+                .header(USER_ID_HEADER, String.valueOf(payload.userId()));
+        if (!internalToken.isBlank()) {
+            // 下游 UserIdHeaderFilter 据此拒绝绕过网关直连时伪造的 X-User-Id
+            builder.header(INTERNAL_TOKEN_HEADER, internalToken);
+        }
+        if (connectionPath) {
+            builder.uri(stripQueryParam(exchange.getRequest().getURI(), TOKEN_QUERY_PARAM));
+        }
+        return builder.build();
+    }
+
+    private static URI stripQueryParam(URI uri, String name) {
+        String rawQuery = uri.getRawQuery();
+        if (rawQuery == null || rawQuery.isEmpty()) {
+            return uri;
+        }
+        String stripped = Arrays.stream(rawQuery.split("&"))
+                .filter(p -> !p.equals(name) && !p.startsWith(name + "="))
+                .collect(Collectors.joining("&"));
+        return UriComponentsBuilder.fromUri(uri)
+                .replaceQuery(stripped.isEmpty() ? null : stripped)
+                .build(true)
+                .toUri();
     }
 
     /** 归一化去掉尾斜杠, 避免 /login/ 之类变体绕开白名单精确匹配落进 401 */
