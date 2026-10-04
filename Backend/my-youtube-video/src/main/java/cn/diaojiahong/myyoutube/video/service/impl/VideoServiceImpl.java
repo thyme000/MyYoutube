@@ -581,16 +581,15 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                     }
                     return vo;
                 }).toList();
-        // 一次批量取作者摘要, 本地投影昵称与头像
-        Map<Long, UserSummary> authors = userPort.listByIds(videoIds).stream()
+        // 一次批量取作者摘要, 本地投影昵称与头像(注意按作者id查, 不是内容id)
+        List<Long> authorIds = voList.stream().map(FollowVideoVO::getAuthorId).filter(Objects::nonNull).toList();
+        Map<Long, UserSummary> authors = userPort.listByIds(authorIds).stream()
                 .filter(u -> u.getId() != null)
                 .collect(Collectors.toMap(UserSummary::getId, u -> u, (a, b) -> a));
         // 填充作者昵称
         for (FollowVideoVO vo : voList) {
-
             UserSummary u = authors.get(vo.getAuthorId());
             if (u == null) {
-
                 continue;
             }
             vo.setAuthorNickname(u.getNickname());
