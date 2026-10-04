@@ -48,7 +48,7 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        String path = exchange.getRequest().getPath().value();
+        String path = normalizePath(exchange.getRequest().getPath().value());
         if (WHITELIST.stream().anyMatch(path::equals)) {
             return chain.filter(exchange);
         }
@@ -77,6 +77,14 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
                             .build();
                     return chain.filter(exchange.mutate().request(mutated).build());
                 });
+    }
+
+    /** 归一化去掉尾斜杠, 避免 /login/ 之类变体绕开白名单精确匹配落进 401 */
+    private static String normalizePath(String path) {
+        while (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return path;
     }
 
     private Mono<Void> unauthorized(ServerWebExchange exchange) {
