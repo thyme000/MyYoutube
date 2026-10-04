@@ -45,11 +45,17 @@ public class ContentDocPortImpl implements ContentDocPort {
     public void syncStatus(Long contentId, StatusSync sync) {
         contentDocRepository.findById(contentId).ifPresent(doc -> {
             if (sync.rebuildSuggest()) {
-                List<String> list = new ArrayList<>(List.of(
-                        sync.title(),
-                        sync.description(),
-                        doc.getAuthorName()
-                ));
+                // List.of 不接受 null 元素, 无简介/未取到作者名的视频要跳过
+                List<String> list = new ArrayList<>();
+                if (sync.title() != null) {
+                    list.add(sync.title());
+                }
+                if (sync.description() != null) {
+                    list.add(sync.description());
+                }
+                if (doc.getAuthorName() != null) {
+                    list.add(doc.getAuthorName());
+                }
                 if (sync.tags() != null) {
                     list.addAll(Arrays.asList(sync.tags().split(",")));
                 }
