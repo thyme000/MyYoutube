@@ -1,30 +1,16 @@
 package cn.diaojiahong.myyoutube.search.domain.vo;
 
+import cn.diaojiahong.myyoutube.video.api.dto.VideoSummaryVO;
 import lombok.Data;
-
-import java.time.LocalDateTime;
+import lombok.EqualsAndHashCode;
 
 @Data
-public class SearchVideoVO {
-    private String id;
+@EqualsAndHashCode(callSuper = true)
+public class SearchVideoVO extends VideoSummaryVO {
     /** 内容类型: video/dynamic */
     private String type;
-    private String title;
-    private String description;
-    private String coverUrl;
-    private String videoUrl;
-    private Integer duration;
-    private Long likeCount;
-    private Long playCount;
-    private Long shareCount;
-    private Long commentCount;
-    private Integer allowComment;
-    private Long authorId;
-    private String authorNickname;
-    private String authorAvatarUrl;
-    private LocalDateTime createTime;
-    private String tags;
-    // 视频类型
+    // 是否点赞了该视频
     private Boolean isLike;
+    // 是否关注了该作者
     private Boolean isFollow;
 }
