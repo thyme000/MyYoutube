@@ -1,28 +1,15 @@
 spring:
   config:
-    import: optional:classpath:application-local.yml
+    import:
+      - classpath:application-common.yml
+      - optional:classpath:application-local.yml
   application:
     name: my-youtube-admin-service
-  cloud:
-    nacos:
-      discovery:
-        server-addr: ${NACOS_ADDR:localhost:8848}
   # 管理端无自有数据库, 排除 JDBC/MyBatis 自动配置
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
       - com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration
 
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:123456}
-      timeout: 3000ms
-
 server:
   port: ${SERVER_PORT:8085}
-
-my-youtube:
-  # 网关与下游共享的内部密钥, 置空则不启用来源校验; 生产务必通过 INTERNAL_TOKEN 设置
-  internal-token: ${INTERNAL_TOKEN:}

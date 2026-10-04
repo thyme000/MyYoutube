@@ -1,17 +1,9 @@
-server:
-  port: 8080
-
-jwt:
-  secret: ${JWT_SECRET:dev-insecure-jwt-secret}
-
+# 网关不依赖 common 模块(servlet 栈), 共享配置无法 import, 自带以下键
 spring:
+  config:
+    import: optional:classpath:application-local.yml
   application:
     name: my-youtube-gateway
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:123456}
   cloud:
     nacos:
       discovery:
@@ -56,6 +48,18 @@ spring:
               uri: lb://my-youtube-admin-service
               predicates: [ "Path=/admin/**" ]
               order: 50
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:123456}
+
+jwt:
+  secret: ${JWT_SECRET:dev-insecure-jwt-secret}
+
+server:
+  port: 8080
 
 my-youtube:
   # 网关与下游共享的内部密钥, 置空则不启用来源校验; 生产务必通过 INTERNAL_TOKEN 设置
