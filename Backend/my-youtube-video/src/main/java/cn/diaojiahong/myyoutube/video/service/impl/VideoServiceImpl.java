@@ -55,6 +55,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum.*;
@@ -192,8 +194,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                         .map(v -> VideoVoConverter.toListVo(v, contents.get(v.getId())))
                         .toList();
                 fillAuthorInfo(list);
-                signListCoverUrlsForVideoListVO(list);
-                signListVideoUrlsForVideoListVO(list);
+                signUrls(list, VideoListVO::getCoverUrl, VideoListVO::setCoverUrl);
+                signUrls(list, VideoListVO::getVideoUrl, VideoListVO::setVideoUrl);
 
                 // 近似值
                 long total = list.size() < pageQuery.getPageSize() ?
@@ -253,8 +255,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
         List<VideoListVO> list = toListVosWithCounts(result.getRecords());
         fillAuthorInfo(list);
-        signListCoverUrlsForVideoListVO(list);
-        signListVideoUrlsForVideoListVO(list);
+        signUrls(list, VideoListVO::getCoverUrl, VideoListVO::setCoverUrl);
+        signUrls(list, VideoListVO::getVideoUrl, VideoListVO::setVideoUrl);
         return PageResult.of(result.getTotal(), result.getPages(), list);
     }
 
@@ -333,7 +335,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 .page(pageQuery.toPage());
         List<VideoListVO> list = toListVosWithCounts(result.getRecords());
         fillAuthorInfo(list);
-        signListCoverUrlsForVideoListVO(list);
+        signUrls(list, VideoListVO::getCoverUrl, VideoListVO::setCoverUrl);
         return PageResult.of(result.getTotal(), result.getPages(), list);
     }
 
@@ -349,9 +351,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
         List<VideoListVO> result = toListVosWithCounts(list.getRecords());
         // 封面url
-        signListCoverUrlsForVideoListVO(result);
+        signUrls(result, VideoListVO::getCoverUrl, VideoListVO::setCoverUrl);
         // 视频url
-        signListVideoUrlsForVideoListVO(result);
+        signUrls(result, VideoListVO::getVideoUrl, VideoListVO::setVideoUrl);
 
         // 查看点赞状态
         List<Long> videoIds = result.stream().map(v -> {
@@ -374,18 +376,6 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
 
         log.info("查询用户 {} 的视频列表，共 {} 条", userId, result.size());
         return PageResult.of(list.getTotal(), list.getPages(), result);
-    }
-
-    private void signListVideoUrlsForVideoListVO(List<VideoListVO> list) {
-
-        if (list.isEmpty()) {
-
-            return;
-        }
-        for (VideoListVO vo : list) {
-
-            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
-        }
     }
 
     @Override
@@ -440,9 +430,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
                 vo.setAuthorAvatarUrl(storageUtil.signGetUrl(u.getAvatarUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
             });
             // 签名封面url
-            signListCoverUrlsForShortsVO(voList);
+            signUrls(voList, ShortsVO::getCoverUrl, ShortsVO::setCoverUrl);
             // 签名视频url
-            signListVideoUrlForShortsVO(voList);
+            signUrls(voList, ShortsVO::getVideoUrl, ShortsVO::setVideoUrl);
 
             // 填充是否关注了该作者
             List<Boolean> followOnList = userFollowService.isFollowOnList(authorIds, userId);
@@ -530,9 +520,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         // 填充作者昵称
         voList.forEach(vo -> vo.setAuthorNickname(author.getNickname()));
         // 签名视频封面url
-        signListCoverUrlsForVideoListVO(voList);
+        signUrls(voList, VideoListVO::getCoverUrl, VideoListVO::setCoverUrl);
         // 签名视频url
-        signListVideoUrlsForVideoListVO(voList);
+        signUrls(voList, VideoListVO::getVideoUrl, VideoListVO::setVideoUrl);
 
         // 填充是否点过赞
         List<Long> likedIds = isLike(getUserId(), videoList.stream().map(Video::getId).toList());
@@ -765,39 +755,15 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video> implements
         }
     }
 
-    private void signListCoverUrlsForVideoListVO(List<VideoListVO> list) {
+    private <T> void signUrls(List<T> list, Function<T, String> getter, BiConsumer<T, String> setter) {
 
         if (list == null || list.isEmpty()) {
 
             return;
         }
-        for (VideoListVO vo : list) {
+        for (T vo : list) {
 
-            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
-        }
-    }
-
-    private void signListCoverUrlsForShortsVO(List<ShortsVO> list) {
-
-        if (list == null || list.isEmpty()) {
-
-            return;
-        }
-        for (ShortsVO vo : list) {
-
-            vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
-        }
-    }
-
-    private void signListVideoUrlForShortsVO(List<ShortsVO> list) {
-
-        if (list == null || list.isEmpty()) {
-
-            return;
-        }
-        for (ShortsVO vo : list) {
-
-            vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), STORAGE_READ_SIGN_EXPIRE_SECONDS));
+            setter.accept(vo, storageUtil.signGetUrl(getter.apply(vo), STORAGE_READ_SIGN_EXPIRE_SECONDS));
         }
     }
 
