@@ -30,7 +30,6 @@ import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -61,7 +60,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, ContentLike> implements IContentLikeService {
 
-    private final IVideoService videoService;
     private final IContentService contentService;
     private final ContentSummaryPort contentSummaryPort;
     private final StringRedisTemplate redisTemplate;

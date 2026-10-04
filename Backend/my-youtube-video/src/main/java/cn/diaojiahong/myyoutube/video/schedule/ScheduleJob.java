@@ -7,7 +7,6 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
@@ -40,7 +39,6 @@ public class ScheduleJob {
             RedisScript.of(new ClassPathResource("lua/claim-play-count.lua"), String.class);
 
     private final StringRedisTemplate redisTemplate;
-    private final IVideoService videoService;
     private final IContentService contentService;
     private final ContentDocPort contentDocPort;
     private final CounterFlushService counterFlushService;

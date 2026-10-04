@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.tx;
 
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.service.IVideoPublishService;
 import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,13 +20,14 @@ import org.springframework.messaging.support.MessageBuilder;
 @RequiredArgsConstructor
 public class VideoPublishTransactionListener implements RocketMQLocalTransactionListener {
 
+    private final IVideoPublishService videoPublishService;
     private final IVideoService videoService;
 
     @Override
     public RocketMQLocalTransactionState executeLocalTransaction(Message msg, Object arg) {
         Video video = (Video) arg;
         try {
-            videoService.persistNewVideo(video);
+            videoPublishService.persistNewVideo(video);
             return RocketMQLocalTransactionState.COMMIT;
         } catch (Exception e) {
             log.error("视频入库失败, 回滚事务消息 videoId={}", video.getId(), e);
