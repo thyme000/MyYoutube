@@ -59,7 +59,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     @Override
     public PageResult<ContentFeedVO> feed(Long userId, PageQuery pageQuery) {
         List<Long> ids = recommendPort.recommend(new RecommendPort.RecommendQuery(
-                userId, null, pageQuery.getPageNo(), pageQuery.getPageSize()));
+                userId, null, null, pageQuery.getPageNo(), pageQuery.getPageSize()));
         List<ContentFeedVO> list = assemble(userId, ids.stream().map(String::valueOf).collect(Collectors.toSet()));
         return approximatePage(list, pageQuery);
     }
@@ -70,7 +70,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         long total;
         if (sort == VideoSortEnum.RECOMMENDED) {
             ids = recommendPort.recommend(new RecommendPort.RecommendQuery(
-                    userId, category, pageQuery.getPageNo(), pageQuery.getPageSize()))
+                    userId, null, category, pageQuery.getPageNo(), pageQuery.getPageSize()))
                     .stream().map(String::valueOf).collect(Collectors.toSet());
             // 推荐流没有真实总数: 满页时提示"还有下一页", 不足一页即到底;
             // 无条件 +1 会让前端在召回为空后仍无限翻页

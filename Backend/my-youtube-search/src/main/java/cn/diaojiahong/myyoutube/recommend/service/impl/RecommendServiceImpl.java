@@ -73,13 +73,14 @@ public class RecommendServiceImpl implements IRecommendService {
     /**
      * 推荐内容: tag 偏好路 + 热度路 + CF 协同过滤路, RRF 排名融合。
      * @param userId 用户ID
+     * @param type 内容类型: null/空=混合流, 非空=独立类型流(三路召回均限定该类型)
      * @param category 分类
      * @param page 页码
      * @param size 每页数量
      * @return 推荐内容ID列表
      */
     @Override
-    public List<Long> recommend(Long userId, String category, int page, int size) {
+    public List<Long> recommend(Long userId, String type, String category, int page, int size) {
         // 客户端分页参数不可信: page<1 会让 PageRequest.of 抛参数异常
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, size);
@@ -91,21 +92,21 @@ public class RecommendServiceImpl implements IRecommendService {
         List<Long> tagRoute = List.of();
         List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
         if (!preferences.isEmpty()) {
-            tagRoute = searchIds(tagRouteQuery(userId, category, preferences, excludeIds, PageRequest.of(0, needed)));
+            tagRoute = searchIds(tagRouteQuery(userId, type, category, preferences, excludeIds, PageRequest.of(0, needed)));
         }
 
         // 热度路: content 互动计数 + 时间衰减, 零标签的动态也天然进池
-        List<Long> hotRoute = searchIds(hotRouteQuery(userId, category, excludeIds, PageRequest.of(0, needed)));
+        List<Long> hotRoute = searchIds(hotRouteQuery(userId, type, category, excludeIds, PageRequest.of(0, needed)));
 
         // CF 路: 协同过滤扩散候选, 回 ES 过滤失效内容; 失败或无行为时退回两路
         List<Long> cfRoute = List.of();
         String cfAlgorithm = "-";
         if (cfEnabled) {
             try {
-                CfRecommendPort.CfCandidates candidates =
-                        cfRecommendPort.candidates(new CfRecommendPort.CfCandidatesQuery(userId, needed));
+                CfRecommendPort.CfCandidates candidates = cfRecommendPort.candidates(
+                        new CfRecommendPort.CfCandidatesQuery(userId, type, needed));
                 cfAlgorithm = candidates.getAlgorithm();
-                cfRoute = filterCfCandidates(candidates.getContentIds(), userId, category, excludeIds);
+                cfRoute = filterCfCandidates(candidates.getContentIds(), userId, type, category, excludeIds);
             } catch (Exception e) {
                 log.warn("CF 召回失败, 本轮退回 tag+热度两路 userId={}", userId, e);
             }
@@ -122,7 +123,7 @@ public class RecommendServiceImpl implements IRecommendService {
                 .sorted(Map.Entry.<Long, Double>comparingByValue().reversed())
                 .map(Map.Entry::getKey)
                 .toList();
-        logFusion(userId, safePage, tagRoute, hotRoute, cfRoute, cfAlgorithm, sources, ordered);
+        logFusion(userId, type, safePage, tagRoute, hotRoute, cfRoute, cfAlgorithm, sources, ordered);
 
         int from = (safePage - 1) * safeSize;
         if (from >= ordered.size()) {
@@ -132,9 +133,9 @@ public class RecommendServiceImpl implements IRecommendService {
     }
 
     /**
-     * CF 候选回 ES 套用统一过滤(published/公开/非已看已踩), 命中者按 CF 原排序保留
+     * CF 候选回 ES 套用统一过滤(published/公开/类型/非已看已踩), 命中者按 CF 原排序保留
      */
-    private List<Long> filterCfCandidates(List<Long> candidateIds, Long userId, String category,
+    private List<Long> filterCfCandidates(List<Long> candidateIds, Long userId, String type, String category,
                                           Set<String> excludeIds) {
         if (candidateIds == null || candidateIds.isEmpty()) {
             return List.of();
@@ -142,7 +143,7 @@ public class RecommendServiceImpl implements IRecommendService {
         List<String> ids = candidateIds.stream().map(String::valueOf).toList();
         NativeQuery query = NativeQuery.builder()
                 .withQuery(q -> q.bool(b -> {
-                    applyCommonFilters(b, userId, category, excludeIds);
+                    applyCommonFilters(b, userId, type, category, excludeIds);
                     b.must(m -> m.ids(i -> i.values(ids)));
                     return b;
                 }))
@@ -164,8 +165,8 @@ public class RecommendServiceImpl implements IRecommendService {
     /**
      * 链路观测: 各路召回条数与融合后列表的来源命中占比
      */
-    private void logFusion(Long userId, int page, List<Long> tagRoute, List<Long> hotRoute, List<Long> cfRoute,
-                           String cfAlgorithm, Map<Long, Integer> sources, List<Long> ordered) {
+    private void logFusion(Long userId, String type, int page, List<Long> tagRoute, List<Long> hotRoute,
+                           List<Long> cfRoute, String cfAlgorithm, Map<Long, Integer> sources, List<Long> ordered) {
         int inTag = 0;
         int inHot = 0;
         int inCf = 0;
@@ -175,15 +176,16 @@ public class RecommendServiceImpl implements IRecommendService {
             inHot += (mask & SOURCE_HOT) > 0 ? 1 : 0;
             inCf += (mask & SOURCE_CF) > 0 ? 1 : 0;
         }
-        log.info("推荐融合 userId={} page={} tag路{}条 热度路{}条 CF路{}条(algo={}) 融合后{}条 来源命中 tag={} hot={} cf={}",
-                userId, page, tagRoute.size(), hotRoute.size(), cfRoute.size(), cfAlgorithm,
+        log.info("推荐融合 userId={} type={} page={} tag路{}条 热度路{}条 CF路{}条(algo={}) 融合后{}条 来源命中 tag={} hot={} cf={}",
+                userId, type == null || type.isBlank() ? "mixed" : type, page,
+                tagRoute.size(), hotRoute.size(), cfRoute.size(), cfAlgorithm,
                 ordered.size(), inTag, inHot, inCf);
     }
 
     /**
      * tag 偏好路: 标签偏好权重 + 关注作者加权
      */
-    private NativeQuery tagRouteQuery(Long userId, String category,
+    private NativeQuery tagRouteQuery(Long userId, String type, String category,
                                       List<PreferencePort.TagPreferenceSummary> preferences,
                                       Set<String> excludeIds, Pageable pageable) {
         List<FunctionScore> functions = new ArrayList<>();
@@ -205,7 +207,7 @@ public class RecommendServiceImpl implements IRecommendService {
         return NativeQuery.builder()
                 .withQuery(q -> q.functionScore(fs -> fs
                         .query(inner -> inner.bool(b -> {
-                            applyCommonFilters(b, userId, category, excludeIds);
+                            applyCommonFilters(b, userId, type, category, excludeIds);
                             return b;
                         }))
                         .functions(functions)
@@ -219,12 +221,12 @@ public class RecommendServiceImpl implements IRecommendService {
     /**
      * 热度路: likeCount/playCount 计分 + 发布时间高斯衰减
      */
-    private NativeQuery hotRouteQuery(Long userId, String category,
+    private NativeQuery hotRouteQuery(Long userId, String type, String category,
                                       Set<String> excludeIds, Pageable pageable) {
         return NativeQuery.builder()
                 .withQuery(q -> q.functionScore(fs -> fs
                         .query(inner -> inner.bool(b -> {
-                            applyCommonFilters(b, userId, category, excludeIds);
+                            applyCommonFilters(b, userId, type, category, excludeIds);
                             return b;
                         }))
                         .functions(List.of(
@@ -260,8 +262,12 @@ public class RecommendServiceImpl implements IRecommendService {
     }
 
     private void applyCommonFilters(co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery.Builder b,
-                                    Long userId, String category, Set<String> excludeIds) {
+                                    Long userId, String type, String category, Set<String> excludeIds) {
         b.must(m -> m.term(t -> t.field("status").value("published")));
+        if (type != null && !type.isBlank()) {
+            // 独立类型流: 三路召回统一限定类型
+            b.must(m -> m.term(t -> t.field("type").value(type)));
+        }
         if (category != null) {
             b.must(m -> m.term(t -> t.field("category").value(category)));
         }

@@ -67,6 +67,7 @@ public class VideoQueryServiceImpl implements IVideoQueryService {
 
             List<Long> ids = recommendPort.recommend(new RecommendPort.RecommendQuery(
                     userId,
+                    null,
                     pageQuery.getCategory() != null ? pageQuery.getCategory().getCode() : null,
                     pageQuery.getPageNo(),
                     pageQuery.getPageSize()
@@ -250,7 +251,7 @@ public class VideoQueryServiceImpl implements IVideoQueryService {
         Long userId = getUserId();
         // 连播池不过滤形态, 全量混排
         List<Long> videoIds = recommendPort.recommend(new RecommendPort.RecommendQuery(
-                userId, null, pageQuery.getPageNo(), pageQuery.getPageSize()));
+                userId, null, null, pageQuery.getPageNo(), pageQuery.getPageSize()));
         if (videoIds.isEmpty()) {
 
             // 直接返回空列表

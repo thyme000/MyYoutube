@@ -15,7 +15,7 @@ public class RecommendPortImpl implements RecommendPort {
 
     @Override
     public List<Long> recommend(RecommendPort.RecommendQuery query) {
-        return recommendService.recommend(query.getUserId(), query.getCategory(),
+        return recommendService.recommend(query.getUserId(), query.getType(), query.getCategory(),
                 query.getPage(), query.getSize());
     }
 
