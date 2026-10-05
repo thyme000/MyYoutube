@@ -69,9 +69,12 @@ public class SearchServiceImpl implements ISearchService {
         NativeQuery query;
         Pageable pageable = PageRequest.of(pageQuery.getPageNo() - 1, pageQuery.getPageSize());
 
+        // 最新排序分支不打分, 关注列表只在综合排序分支查一次
+        List<Long> followIds = List.of();
         if (!pageQuery.isSortByLatest()) {
 
-            List<FunctionScore> allFunctions = getFunction(userId);
+            FunctionBoost boost = getFunction(userId);
+            followIds = boost.followIds();
 
             query = NativeQuery.builder()
                     .withQuery(q -> q.functionScore(fs -> fs
@@ -92,7 +95,7 @@ public class SearchServiceImpl implements ISearchService {
                                         return b;
                                     }
                             )) // 按播放量,获赞数和被关注用户的视频综合排列
-                            .functions(allFunctions)
+                            .functions(boost.functions())
                             .scoreMode(FunctionScoreMode.Sum)
                             .boostMode(FunctionBoostMode.Sum)
                     ))
@@ -124,7 +127,7 @@ public class SearchServiceImpl implements ISearchService {
                     .build();
         }
         // 3. 执行查询
-        PageResult<SearchVideoVO> result = getSearchPageResult(query, pageQuery.getPageSize());
+        PageResult<SearchVideoVO> result = getSearchPageResult(query, pageQuery.getPageSize(), followIds);
         loadForHotSearch(userId, keyword);
         return result;
     }
@@ -302,7 +305,7 @@ public class SearchServiceImpl implements ISearchService {
         NativeQuery query;
         Pageable pageable = PageRequest.of(pageQuery.getPageNo() - 1, pageQuery.getPageSize());
         // 查询用户的关注列表
-        List<FunctionScore> allFunctions = getFunction(userId);
+        FunctionBoost boost = getFunction(userId);
 
         query = NativeQuery.builder()
                 .withQuery(q -> q.functionScore(fs -> fs
@@ -320,7 +323,7 @@ public class SearchServiceImpl implements ISearchService {
                                     return b;
                                 }
                         )) // 按播放量,获赞数和被关注用户的视频综合排列
-                        .functions(allFunctions)
+                        .functions(boost.functions())
                         .scoreMode(FunctionScoreMode.Sum)
                         .boostMode(FunctionBoostMode.Sum)
                 ))
@@ -329,7 +332,7 @@ public class SearchServiceImpl implements ISearchService {
                 .build();
 
         // 3. 执行查询
-        PageResult<SearchVideoVO> result = getSearchPageResult(query, pageQuery.getPageSize());
+        PageResult<SearchVideoVO> result = getSearchPageResult(query, pageQuery.getPageSize(), boost.followIds());
         loadForHotSearch(userId, tagName);
         return result;
     }
@@ -351,7 +354,7 @@ public class SearchServiceImpl implements ISearchService {
         return hotSearches.stream().toList();
     }
 
-    private PageResult<SearchVideoVO> getSearchPageResult(NativeQuery query, int pageSize) {
+    private PageResult<SearchVideoVO> getSearchPageResult(NativeQuery query, int pageSize, List<Long> followIds) {
         SearchHits<ContentDoc> hits = elasticsearchOperations.search(query, ContentDoc.class);
         List<String> list = hits.getSearchHits().stream().map(hit -> {
             ContentDoc doc = hit.getContent();
@@ -387,8 +390,7 @@ public class SearchServiceImpl implements ISearchService {
             });
         }
         // 填充是否关注
-        List<Long> followIds = followPort.getFollowIds(Long.valueOf(getUserId()));
-        if (followIds!=null && !followIds.isEmpty()) {
+        if (followIds != null && !followIds.isEmpty()) {
             Map<Long, Boolean> isFollows = followIds.stream().collect(Collectors.toMap(id -> id, id -> true));
             result.forEach(vo -> {
                 vo.setIsFollow(isFollows.getOrDefault(vo.getAuthorId(), false));
@@ -408,7 +410,11 @@ public class SearchServiceImpl implements ISearchService {
         return likedMap.entrySet().stream().filter(Map.Entry::getValue).map(Map.Entry::getKey).toList();
     }
 
-    private List<FunctionScore> getFunction(Long userId) {
+    /** 一次 getFollowIds 同时喂 ES 打分函数与 isFollow 回填, 避免同一请求查两次关注列表 */
+    private record FunctionBoost(List<FunctionScore> functions, List<Long> followIds) {
+    }
+
+    private FunctionBoost getFunction(Long userId) {
         // 查询用户的关注列表
         List<Long> followIds = followPort.getFollowIds(userId);
         List<FunctionScore> followFunctions = followIds.stream().map(fid -> FunctionScore.of(f -> f
@@ -433,7 +439,7 @@ public class SearchServiceImpl implements ISearchService {
                         .missing(0.0)  // likeCount 不存在时当 0
                 )
         ));
-        return allFunctions;
+        return new FunctionBoost(allFunctions, followIds);
     }
 
     private Long getUserId() {
