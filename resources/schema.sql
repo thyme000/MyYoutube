@@ -252,14 +252,15 @@ CREATE TABLE IF NOT EXISTS `user_video_behavior` (
     KEY `idx_content_id` (`content_id`)
 ) ENGINE=InnoDB COMMENT='用户视频行为流水';
 
--- 物品相似度表(ItemCF/Swing 离线产物, 推荐用; item_a/item_b 双向各存一行)
+-- 物品相似度表(ItemCF/Swing 离线产物, 推荐用; item_a/item_b 双向各存一行, 按内容类型分池)
 CREATE TABLE IF NOT EXISTS `item_similarity` (
-    `id`         BIGINT      NOT NULL AUTO_INCREMENT,
-    `algorithm`  VARCHAR(16) NOT NULL COMMENT 'itemcf/swing',
-    `item_a`     BIGINT      NOT NULL COMMENT '内容ID',
-    `item_b`     BIGINT      NOT NULL COMMENT '邻居内容ID',
-    `score`      DOUBLE      NOT NULL COMMENT '相似度分',
-    `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `id`           BIGINT      NOT NULL AUTO_INCREMENT,
+    `algorithm`    VARCHAR(16) NOT NULL COMMENT 'itemcf/swing',
+    `content_type` VARCHAR(16) NOT NULL COMMENT '内容类型: video/dynamic/...',
+    `item_a`       BIGINT      NOT NULL COMMENT '内容ID',
+    `item_b`       BIGINT      NOT NULL COMMENT '邻居内容ID(与 item_a 同类型)',
+    `score`        DOUBLE      NOT NULL COMMENT '相似度分',
+    `updated_at`   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_algo_pair` (`algorithm`, `item_a`, `item_b`),
     KEY `idx_algo_item` (`algorithm`, `item_a`, `score`)

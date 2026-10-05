@@ -3,18 +3,18 @@
 <mapper namespace="cn.diaojiahong.myyoutube.recommend.mapper.ItemSimilarityMapper">
 
     <insert id="batchInsert">
-        INSERT INTO item_similarity (algorithm, item_a, item_b, score) VALUES
+        INSERT INTO item_similarity (algorithm, content_type, item_a, item_b, score) VALUES
         <foreach collection="list" item="it" separator=",">
-            (#{it.algorithm}, #{it.itemA}, #{it.itemB}, #{it.score})
+            (#{it.algorithm}, #{it.contentType}, #{it.itemA}, #{it.itemB}, #{it.score})
         </foreach>
     </insert>
 
     <insert id="batchUpsert">
-        INSERT INTO item_similarity (algorithm, item_a, item_b, score) VALUES
+        INSERT INTO item_similarity (algorithm, content_type, item_a, item_b, score) VALUES
         <foreach collection="list" item="it" separator=",">
-            (#{it.algorithm}, #{it.itemA}, #{it.itemB}, #{it.score})
+            (#{it.algorithm}, #{it.contentType}, #{it.itemA}, #{it.itemB}, #{it.score})
         </foreach>
-        ON DUPLICATE KEY UPDATE score = VALUES(score)
+        ON DUPLICATE KEY UPDATE score = VALUES(score), content_type = VALUES(content_type)
     </insert>
 
     <delete id="deleteByAlgorithm">

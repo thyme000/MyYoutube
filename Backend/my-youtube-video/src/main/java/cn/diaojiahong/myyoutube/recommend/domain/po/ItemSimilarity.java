@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.recommend.domain.po;
 
 import cn.diaojiahong.myyoutube.recommend.domain.enums.SimAlgorithmEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -28,6 +29,9 @@ public class ItemSimilarity implements Serializable {
     private Long id;
 
     private SimAlgorithmEnum algorithm;
+
+    /** 内容类型池: 邻居只在同类型内计算与截断 */
+    private ContentTypeEnum contentType;
 
     private Long itemA;
 

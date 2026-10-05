@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.recommend.service.impl;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.recommend.cf.SimilarityCalculator;
 import cn.diaojiahong.myyoutube.recommend.domain.enums.EventEnum;
 import cn.diaojiahong.myyoutube.recommend.domain.enums.SimAlgorithmEnum;
@@ -9,6 +11,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.po.UserVideoBehavior;
 import cn.diaojiahong.myyoutube.recommend.mapper.ItemSimilarityMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IItemSimilarityService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserVideoBehaviorService;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +26,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -43,19 +47,21 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
     private static final String WATERMARK_KEY = RedisConstants.SCHEDULE_CF_WATERMARK;
 
     private final IUserVideoBehaviorService behaviorService;
+    private final IContentService contentService;
     private final List<SimilarityCalculator> calculators;
     private final StringRedisTemplate redisTemplate;
 
     @Override
     public void rebuildAll() {
         Map<Long, Map<Long, Double>> matrix = loadPositiveMatrix();
+        Map<Long, ContentTypeEnum> typeMap = loadContentTypes();
         long contentCount = matrix.values().stream().flatMap(m -> m.keySet().stream()).distinct().count();
         for (SimilarityCalculator calculator : calculators) {
-            List<ItemSimilarity> rows = topKPerItem(calculator.compute(matrix));
+            List<ItemSimilarity> rows = computePooledRows(calculator, matrix, typeMap, null);
             removeByAlgorithm(calculator.algorithm());
             insertBatch(rows);
             refreshRedis(calculator.algorithm(), groupByItem(rows));
-            log.info("CF 全量重建完成 algo={} 用户数={} 内容数={} 相似度行数={}",
+            log.info("CF 全量重建完成 algo={} 用户数={} 内容数={} 分池后相似度行数={}",
                     calculator.algorithm(), matrix.size(), contentCount, rows.size());
         }
         saveWatermark(behaviorService.lambdaQuery()
@@ -78,16 +84,49 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         // 只重算新行为涉及的内容; 矩阵仍全量加载(练手规模秒级), 增量省的是重算与写库
         Set<Long> affected = fresh.stream().map(UserVideoBehavior::getContentId).collect(Collectors.toSet());
         Map<Long, Map<Long, Double>> matrix = loadPositiveMatrix();
+        Map<Long, ContentTypeEnum> typeMap = loadContentTypes();
         for (SimilarityCalculator calculator : calculators) {
-            List<ItemSimilarity> rows = calculator.compute(matrix).stream()
-                    .filter(r -> affected.contains(r.getItemA()))
-                    .collect(Collectors.toList());
-            rows = topKPerItem(rows);
+            List<ItemSimilarity> rows = computePooledRows(calculator, matrix, typeMap, affected);
             upsertBatch(rows);
             refreshRedis(calculator.algorithm(), groupByItem(rows));
             log.info("CF 增量刷新完成 algo={} 涉及内容数={} 行数={}", calculator.algorithm(), affected.size(), rows.size());
         }
         saveWatermark(fresh.stream().mapToLong(UserVideoBehavior::getId).max().orElse(watermark));
+    }
+
+    /**
+     * 计算并按内容类型分池: 丢弃跨类型对与类型未知(已删内容)的对, 再按物品截断 Top-K。
+     * 分池后每个物品的邻居全部同类型, Top-K 名额不会被其他类型挤占。
+     * affected 非空时只保留涉及的内容(增量路径)。
+     */
+    private List<ItemSimilarity> computePooledRows(SimilarityCalculator calculator,
+                                                   Map<Long, Map<Long, Double>> matrix,
+                                                   Map<Long, ContentTypeEnum> typeMap,
+                                                   Set<Long> affected) {
+        return calculator.compute(matrix).stream()
+                .map(r -> attachType(r, typeMap))
+                .filter(Objects::nonNull)
+                .filter(r -> affected == null || affected.contains(r.getItemA()))
+                .collect(Collectors.collectingAndThen(Collectors.toList(), this::topKPerItem));
+    }
+
+    private ItemSimilarity attachType(ItemSimilarity row, Map<Long, ContentTypeEnum> typeMap) {
+        ContentTypeEnum type = typeMap.get(row.getItemA());
+        if (type == null || type != typeMap.get(row.getItemB())) {
+            return null;
+        }
+        return row.setContentType(type);
+    }
+
+    /**
+     * 内容 id -> 类型(全量, 练手规模百级)
+     */
+    private Map<Long, ContentTypeEnum> loadContentTypes() {
+        return contentService.lambdaQuery()
+                .select(Content::getId, Content::getType)
+                .list().stream()
+                .filter(c -> c.getType() != null)
+                .collect(Collectors.toMap(Content::getId, Content::getType));
     }
 
     @Override
