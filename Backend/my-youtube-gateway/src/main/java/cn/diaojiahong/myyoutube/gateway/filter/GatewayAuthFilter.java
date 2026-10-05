@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.gateway.filter;
 
+import cn.diaojiahong.myyoutube.security.AuthConstants;
 import cn.diaojiahong.myyoutube.security.JwtPayload;
 import cn.diaojiahong.myyoutube.security.JwtUtil;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,38 +34,40 @@ import java.util.stream.Collectors;
 @Component
 public class GatewayAuthFilter implements GlobalFilter, Ordered {
 
-    private static final String AUTH_HEADER = "Authorization";
-    private static final String BEARER_PREFIX = "Bearer ";
-    private static final String USER_ID_HEADER = "X-User-Id";
-    private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
-    private static final String TOKEN_VER_KEY_PREFIX = "user:token-ver:";
+    // 头名/Redis key 前缀与 common 的 UserIdHeaderFilter、RedisConstants 同源, 单点在 security.AuthConstants
+    private static final String AUTH_HEADER = AuthConstants.AUTH_HEADER;
+    private static final String BEARER_PREFIX = AuthConstants.BEARER_PREFIX;
+    private static final String USER_ID_HEADER = AuthConstants.USER_ID_HEADER;
+    private static final String INTERNAL_TOKEN_HEADER = AuthConstants.INTERNAL_TOKEN_HEADER;
+    private static final String TOKEN_VER_KEY_PREFIX = AuthConstants.TOKEN_VER_KEY_PREFIX;
+    private static final String TICKET_KEY_PREFIX = AuthConstants.PUSH_TICKET_KEY_PREFIX;
     private static final String TICKET_QUERY_PARAM = "ticket";
-    private static final String TICKET_KEY_PREFIX = "push:ticket:";
     /** 长连接转发前必须从 query 剥掉的凭证参数(token 兜底防旧客户端把凭证塞 query) */
     private static final List<String> CONNECTION_CREDENTIAL_PARAMS = List.of("token", TICKET_QUERY_PARAM);
 
-    /** 放行接口, 与各服务的公开接口保持一致 */
-    private static final List<String> WHITELIST = List.of(
-            "/login", "/register", "/forget-password", "/refresh", "/logout");
-
     /** 长连接(聊天 WS / SSE 门铃): token 在 query 上, 验签后剥掉换头转发 */
     private static final List<String> CONNECTION_PREFIXES = List.of("/ws/", "/sse/");
+
+    /** 放行接口由配置驱动(与路由 yml 的公开路径职责不同: 这里管免验签, 路由管转发), 单点见 gateway application.yml */
+    private final List<String> whitelist;
 
     private final ReactiveStringRedisTemplate redisTemplate;
     private final String internalToken;
 
     public GatewayAuthFilter(ReactiveStringRedisTemplate redisTemplate,
                              @Value("${jwt.secret}") String jwtSecret,
-                             @Value("${my-youtube.internal-token:}") String internalToken) {
+                             @Value("${my-youtube.internal-token:}") String internalToken,
+                             @Value("${my-youtube.auth.whitelist}") List<String> whitelist) {
         this.redisTemplate = redisTemplate;
         this.internalToken = internalToken;
+        this.whitelist = whitelist;
         JwtUtil.init(jwtSecret);
     }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = normalizePath(exchange.getRequest().getPath().value());
-        if (WHITELIST.stream().anyMatch(path::equals)) {
+        if (whitelist.stream().anyMatch(path::equals)) {
             return chain.filter(exchange);
         }
         boolean connectionPath = CONNECTION_PREFIXES.stream().anyMatch(path::startsWith);

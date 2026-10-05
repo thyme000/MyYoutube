@@ -1,12 +1,14 @@
 package cn.diaojiahong.myyoutube.common.constants;
 
+import cn.diaojiahong.myyoutube.security.AuthConstants;
+
 public class RedisConstants {
 
     // refresh token: {uuid} -> "{userId}:{签发毫秒}", 每次续签轮换
     public static final String USER_REFRESH_TOKEN = "user:refresh:";
     public static final Long USER_REFRESH_TOKEN_EXPIRE = 7 * 24L;
     // access token 作废时间戳: {userId} -> 毫秒, 签发早于它的 access/refresh 全部拒绝
-    public static final String USER_TOKEN_VER = "user:token-ver:";
+    public static final String USER_TOKEN_VER = AuthConstants.TOKEN_VER_KEY_PREFIX;
 
     // 视频播放量
     public static final String VIDEO_PLAY_COUNT = "video:play:count:";
@@ -85,7 +87,7 @@ public class RedisConstants {
     public static final String PUSH_CHANNEL_SSE = "push:channel:sse";
 
     /** 长连接连接票: value=userId, 短时效一次性, 由网关 GETDEL 原子消费 */
-    public static final String PUSH_CONNECTION_TICKET = "push:ticket:";
+    public static final String PUSH_CONNECTION_TICKET = AuthConstants.PUSH_TICKET_KEY_PREFIX;
 
     /** 动态成片 LRU: zset member=taskKey, score=最近访问毫秒 */
     public static final String TRANSCODE_LRU = "transcode:lru";

@@ -25,6 +25,8 @@ spring:
               order: 5
             - id: user-service
               uri: lb://my-youtube-user-service
+              # /login 等公开路径在鉴权白名单(my-youtube.auth.whitelist)与路由各出现一次:
+              # 白名单管"免验签", 路由管"转发到哪", 职责不同
               predicates: [ "Path=/user/**,/login,/register,/forget-password,/refresh,/logout,/storage/**" ]
               order: 10
             - id: video-service
@@ -64,3 +66,6 @@ server:
 my-youtube:
   # 网关与下游共享的内部密钥, 置空则不启用来源校验; 生产务必通过 INTERNAL_TOKEN 设置
   internal-token: ${INTERNAL_TOKEN:}
+  # 鉴权免验签白名单(精确匹配), 新增公开接口改这里; GatewayAuthFilter 读此配置
+  auth:
+    whitelist: /login,/register,/forget-password,/refresh,/logout

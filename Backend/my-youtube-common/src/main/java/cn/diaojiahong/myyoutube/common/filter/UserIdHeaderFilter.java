@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.common.filter;
 
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.security.AuthConstants;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,8 +19,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class UserIdHeaderFilter extends OncePerRequestFilter {
 
-    public static final String USER_ID_HEADER = "X-User-Id";
-    public static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
+    public static final String USER_ID_HEADER = AuthConstants.USER_ID_HEADER;
+    public static final String INTERNAL_TOKEN_HEADER = AuthConstants.INTERNAL_TOKEN_HEADER;
 
     @Value("${my-youtube.internal-token:}")
     private String internalToken;
