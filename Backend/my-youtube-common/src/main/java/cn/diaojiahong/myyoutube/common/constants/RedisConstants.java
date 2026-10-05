@@ -92,6 +92,14 @@ public class RedisConstants {
     /** 动态成片 LRU: zset member=taskKey, score=最近访问毫秒 */
     public static final String TRANSCODE_LRU = "transcode:lru";
 
+    // ==================== 协同过滤相似度缓存 ====================
+    /** 物品相似度 Top-K: recommend:sim:{算法}:{内容ID} zset member=邻居内容ID score=相似度 */
+    public static final String RECOMMEND_SIM = "recommend:sim:";
+    /** 相似度缓存 TTL(天): 每日全量重算兜底, TTL 略大于重算周期 */
+    public static final Long RECOMMEND_SIM_EXPIRE = 8L;
+    /** CF 增量任务行为流水水位(已处理到的最大行为 id) */
+    public static final String SCHEDULE_CF_WATERMARK = "schedule:cf:behavior:watermark";
+
     // ==================== 计数落库缓冲 ====================
     /** 累积增量 pending:{type}:{id}; 每轮落库后 DEL, 故不设 TTL —— 设了反而会在任务停摆时丢增量 */
     public static final String COUNTER_PENDING = "pending:";

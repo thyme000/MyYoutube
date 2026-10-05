@@ -27,3 +27,7 @@ my-youtube:
     url: ${CHAT_SERVICE_URL:}
   transcode-service:
     url: ${TRANSCODE_SERVICE_URL:}
+  recommend:
+    cf:
+      # 在线相似度表选择: itemcf | swing, 两份都离线算好, 改这里重启即切换
+      algorithm: swing

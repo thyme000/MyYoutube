@@ -252,6 +252,19 @@ CREATE TABLE IF NOT EXISTS `user_video_behavior` (
     KEY `idx_content_id` (`content_id`)
 ) ENGINE=InnoDB COMMENT='用户视频行为流水';
 
+-- 物品相似度表(ItemCF/Swing 离线产物, 推荐用; item_a/item_b 双向各存一行)
+CREATE TABLE IF NOT EXISTS `item_similarity` (
+    `id`         BIGINT      NOT NULL AUTO_INCREMENT,
+    `algorithm`  VARCHAR(16) NOT NULL COMMENT 'itemcf/swing',
+    `item_a`     BIGINT      NOT NULL COMMENT '内容ID',
+    `item_b`     BIGINT      NOT NULL COMMENT '邻居内容ID',
+    `score`      DOUBLE      NOT NULL COMMENT '相似度分',
+    `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_algo_pair` (`algorithm`, `item_a`, `item_b`),
+    KEY `idx_algo_item` (`algorithm`, `item_a`, `score`)
+) ENGINE=InnoDB COMMENT='物品相似度';
+
 -- 音频库(动态/幻灯片合成共用; 用户上传自动入库, 默认公开, 可转私密)
 CREATE TABLE IF NOT EXISTS `audio` (
     `id`           BIGINT       NOT NULL COMMENT '雪花ID',
