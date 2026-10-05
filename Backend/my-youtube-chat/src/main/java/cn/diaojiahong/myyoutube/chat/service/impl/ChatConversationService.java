@@ -17,7 +17,7 @@ import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
-import com.google.gson.GsonBuilder;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -209,7 +209,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         ws.put("type", "ANNOUNCEMENT_UPDATED");
         ws.put("conversationId", conversationId);
         ws.put("version", next);
-        String json = new GsonBuilder().create().toJson(ws);
+        String json = JsonUtil.toJson(ws);
         List<Long> memberIds = doc.getMemberIds();
         if (memberIds != null) {
             for (Long memberId : memberIds) {
@@ -354,7 +354,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         data.put("banned", banned);
         data.put("type", "conversation");
         data.put("conversationId", conversationId);
-        String json = new GsonBuilder().create().toJson(data);
+        String json = JsonUtil.toJson(data);
         for (Long memberId : memberIds) {
             pushFanoutPublisher.pushWs(memberId, json);
         }
@@ -396,7 +396,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         data.put("banned", banned);
         data.put("type", "member");
         data.put("conversationId", conversationId);
-        String json = new GsonBuilder().create().toJson(data);
+        String json = JsonUtil.toJson(data);
         pushFanoutPublisher.pushWs(userId, json);
     }
 }

@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.handler;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.push.PushEnvelope;
-import com.google.gson.GsonBuilder;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.Message;
@@ -29,7 +29,7 @@ public class LocalPushDispatcher implements MessageListener {
         String channel = new String(pattern, StandardCharsets.UTF_8);
         String body = new String(message.getBody(), StandardCharsets.UTF_8);
         try {
-            PushEnvelope envelope = new GsonBuilder().create().fromJson(body, PushEnvelope.class);
+            PushEnvelope envelope = JsonUtil.fromJson(body, PushEnvelope.class);
             if (envelope == null || envelope.getUserId() == null) {
                 return;
             }
@@ -37,7 +37,7 @@ public class LocalPushDispatcher implements MessageListener {
                 Object payload = envelope.getPayload();
                 if (payload != null) {
                     // payload 为 String 时是已序列化的报文本体, 直接下发避免双重 JSON 编码
-                    String json = payload instanceof String s ? s : new GsonBuilder().create().toJson(payload);
+                    String json = payload instanceof String s ? s : JsonUtil.toJson(payload);
                     chatWebSocketHandler.sendToUser(envelope.getUserId(), json);
                 }
             } else if (RedisConstants.PUSH_CHANNEL_SSE.equals(channel)) {
@@ -48,7 +48,7 @@ public class LocalPushDispatcher implements MessageListener {
                         sseBody.put("payload", envelope.getPayload());
                     }
                     sseEmitterRegistry.sendToUser(envelope.getUserId(),
-                            new GsonBuilder().create().toJson(sseBody));
+                            JsonUtil.toJson(sseBody));
                 }
             }
         } catch (Exception e) {

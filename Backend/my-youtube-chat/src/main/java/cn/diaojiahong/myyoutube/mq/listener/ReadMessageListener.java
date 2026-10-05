@@ -4,7 +4,7 @@ import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForReadMessageVO;
-import com.google.gson.GsonBuilder;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -30,6 +30,6 @@ public class ReadMessageListener implements RocketMQListener<ReadMessageMessage>
         NotificationForReadMessageVO json = new NotificationForReadMessageVO();
         json.setConversationId(readMessageMessage.getConversationId());
         json.setLastReadSequence(readMessageMessage.getLastReadSeq());
-        pushFanoutPublisher.pushWs(Long.parseLong(readMessageMessage.getReceiverId()), new GsonBuilder().create().toJson(json));
+        pushFanoutPublisher.pushWs(Long.parseLong(readMessageMessage.getReceiverId()), JsonUtil.toJson(json));
     }
 }

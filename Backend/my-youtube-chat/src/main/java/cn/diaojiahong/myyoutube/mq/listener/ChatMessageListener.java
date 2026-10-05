@@ -13,7 +13,7 @@ import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import com.google.gson.GsonBuilder;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -66,7 +66,7 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
                 // 通知所有成员
                 NotificationForSendMessageVO json = getNotificationForSendVO(chatMessageMessage, user, conversation);
                 json.setAvatarUrl(storageUtil.signGetUrl(conversation.getAvatar(), 300));
-                String jsonVO = new GsonBuilder().create().toJson(json);
+                String jsonVO = JsonUtil.toJson(json);
                 // 通知所有成员(不包括开启免打扰的用户)
                 for (Long memberId : memberIds) {
                     Criteria c = Criteria.where("conversationId").is(conversation.getId()).and("userId").is(memberId);
@@ -84,7 +84,7 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
                 // 通知所有成员
                 NotificationForWithdrawMessageVO json = getNotificationForWithdrawVO(chatMessageMessage, user, conversation);
                 json.setAvatarUrl(storageUtil.signGetUrl(conversation.getAvatar(), 300));
-                String jsonVO = new GsonBuilder().create().toJson(json);
+                String jsonVO = JsonUtil.toJson(json);
                 // 通知所有成员(不包括开启免打扰的用户)
                 for (Long memberId : memberIds) {
                     Criteria c = Criteria.where("conversationId").is(conversation.getId()).and("userId").is(memberId);
@@ -94,6 +94,8 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
                         continue;
                     }
                     pushFanoutPublisher.pushWs(memberId, jsonVO);
+                    // 未在聊天页的用户靠 SSE 门铃刷新红点
+                    pushFanoutPublisher.pushSseSignal(memberId, "CHAT_DIRTY");
                 }
             }
         } else {
@@ -117,14 +119,16 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
                 // 获取发送人头像url
                 NotificationForSendMessageVO json = getNotificationForSendVO(chatMessageMessage, user, conversation);
                 json.setAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), 300));
-                pushFanoutPublisher.pushWs(receiverId, new GsonBuilder().create().toJson(json));
+                pushFanoutPublisher.pushWs(receiverId, JsonUtil.toJson(json));
                 // 未在聊天页的用户靠 SSE 门铃刷新红点
                 pushFanoutPublisher.pushSseSignal(receiverId, "CHAT_DIRTY");
             } else if (chatMessageMessage.getEvent().equals(ChatEventType.WITHDRAW.getCode())){
                 // 撤回消息事件
                 NotificationForWithdrawMessageVO json = getNotificationForWithdrawVO(chatMessageMessage, user, conversation);
                 json.setAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), 300));
-                pushFanoutPublisher.pushWs(receiverId, new GsonBuilder().create().toJson(json));
+                pushFanoutPublisher.pushWs(receiverId, JsonUtil.toJson(json));
+                // 未在聊天页的用户靠 SSE 门铃刷新红点
+                pushFanoutPublisher.pushSseSignal(receiverId, "CHAT_DIRTY");
             }
         }
         // 更新用户会话状态最后同步时间
