@@ -6,18 +6,28 @@ import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort.StatusSync;
 import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
+import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
 public class ContentDocPortImpl implements ContentDocPort {
 
     private final ContentDocRepository contentDocRepository;
+    private final ElasticsearchOperations elasticsearchOperations;
+
+    /** 计数走 scripted update 原子自增, 读-改-写回存在并发下互相覆盖丢更新 */
+    private static final String INC_PLAY_COUNT_SCRIPT =
+            "if (ctx._source.playCount == null) { ctx._source.playCount = params.delta } " +
+            "else { ctx._source.playCount += params.delta }";
 
     @Override
     public void deleteDoc(Long contentId) {
@@ -26,10 +36,13 @@ public class ContentDocPortImpl implements ContentDocPort {
 
     @Override
     public void adjustPlayCount(Long contentId, Long delta) {
-        contentDocRepository.findById(contentId).ifPresent(doc -> {
-            doc.setPlayCount((doc.getPlayCount() != null ? doc.getPlayCount() : 0L) + delta);
-            contentDocRepository.save(doc);
-        });
+        elasticsearchOperations.update(
+                UpdateQuery.builder(String.valueOf(contentId))
+                        .withScript(INC_PLAY_COUNT_SCRIPT)
+                        .withParams(Map.of("delta", delta))
+                        .withRetryOnConflict(3)
+                        .build(),
+                IndexCoordinates.of("content"));
     }
 
     @Override
@@ -74,11 +87,17 @@ public class ContentDocPortImpl implements ContentDocPort {
             if ("private".equals(sync.getVisibility())) {
                 doc.setSuggest(new Completion());
             } else if (sync.isRebuildSuggest()) {
-                List<String> list = new ArrayList<>(List.of(
-                        sync.getTitle(),
-                        sync.getDescription(),
-                        doc.getAuthorName()
-                ));
+                // List.of 不接受 null 元素, 无简介/未取到作者名的视频要跳过
+                List<String> list = new ArrayList<>();
+                if (sync.getTitle() != null) {
+                    list.add(sync.getTitle());
+                }
+                if (sync.getDescription() != null) {
+                    list.add(sync.getDescription());
+                }
+                if (doc.getAuthorName() != null) {
+                    list.add(doc.getAuthorName());
+                }
                 if (sync.getTags() != null) {
                     list.addAll(Arrays.asList(sync.getTags().split(",")));
                 }
