@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.recommend.cf;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.recommend.domain.enums.EventEnum;
 import cn.diaojiahong.myyoutube.recommend.domain.enums.SimAlgorithmEnum;
 import cn.diaojiahong.myyoutube.recommend.domain.po.ItemSimilarity;
@@ -8,6 +10,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.po.UserVideoBehavior;
 import cn.diaojiahong.myyoutube.recommend.service.IItemSimilarityService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserVideoBehaviorService;
 import cn.diaojiahong.myyoutube.video.api.CfRecommendPort;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,20 +52,30 @@ public class CfRecallService {
 
     private final IUserVideoBehaviorService behaviorService;
     private final IItemSimilarityService itemSimilarityService;
+    private final IContentService contentService;
     private final StringRedisTemplate redisTemplate;
 
     /** 在线相似度表选择: itemcf | swing, 两份都离线算好, 改配置重启即切换 */
     @Value("${my-youtube.recommend.cf.algorithm:swing}")
     private String algorithmCode;
 
-    public CfRecommendPort.CfCandidates candidates(Long userId, int limit) {
+    public CfRecommendPort.CfCandidates candidates(Long userId, String type, int limit) {
         SimAlgorithmEnum algorithm = SimAlgorithmEnum.fromCode(algorithmCode);
         if (algorithm == null) {
             algorithm = SimAlgorithmEnum.SWING;
         }
         List<Seed> seeds = recentSeeds(userId);
+        if (!seeds.isEmpty() && type != null && !type.isBlank()) {
+            ContentTypeEnum contentType = ContentTypeEnum.fromCode(type);
+            if (contentType == null) {
+                // 未知类型按空池处理: 独立流宁缺勿错
+                return new CfRecommendPort.CfCandidates(algorithm.getCode(), List.of());
+            }
+            // 独立类型流: 先按类型过滤种子, 剩下的种子照常走时间衰减加权扩散
+            seeds = filterSeedsByType(seeds, contentType);
+        }
         if (seeds.isEmpty()) {
-            // 新用户/无正反馈: CF 路为空, 上游自动退回 tag+热度两路
+            // 新用户/无正反馈/该类型无种子: CF 路为空, 上游自动退回 tag+热度两路
             return new CfRecommendPort.CfCandidates(algorithm.getCode(), List.of());
         }
 
@@ -108,6 +121,19 @@ public class CfRecallService {
                 .limit(MAX_SEEDS)
                 .map(b -> new Seed(b.getContentId(), b.getCreatedAt()))
                 .toList();
+    }
+
+    /**
+     * 主键 IN 点查种子的类型(不加载全表映射), 只保留目标类型的种子
+     */
+    private List<Seed> filterSeedsByType(List<Seed> seeds, ContentTypeEnum contentType) {
+        List<Long> seedIds = seeds.stream().map(Seed::contentId).toList();
+        Set<Long> typedIds = contentService.lambdaQuery()
+                .select(Content::getId)
+                .in(Content::getId, seedIds)
+                .eq(Content::getType, contentType)
+                .list().stream().map(Content::getId).collect(Collectors.toSet());
+        return seeds.stream().filter(s -> typedIds.contains(s.contentId())).toList();
     }
 
     private List<ItemSimilarity> neighbors(SimAlgorithmEnum algorithm, Long contentId) {

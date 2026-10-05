@@ -24,6 +24,8 @@ public interface CfRecommendPort {
     @AllArgsConstructor
     class CfCandidatesQuery {
         private Long userId;
+        /** 内容类型过滤: null/空=混合流全部池, 非空=独立类型流(只扩散该类型的种子) */
+        private String type;
         private int limit;
     }
 

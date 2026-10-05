@@ -22,7 +22,7 @@ public class InternalCfController {
 
     @PostMapping("/candidates")
     public CfRecommendPort.CfCandidates candidates(@RequestBody CfRecommendPort.CfCandidatesQuery query) {
-        return cfRecallService.candidates(query.getUserId(), query.getLimit());
+        return cfRecallService.candidates(query.getUserId(), query.getType(), query.getLimit());
     }
 
     /** 手动触发全量重建(冒烟/运维用), 与定时任务共用整轮锁 */
