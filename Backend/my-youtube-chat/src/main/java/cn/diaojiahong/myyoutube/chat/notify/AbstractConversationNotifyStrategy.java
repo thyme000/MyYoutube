@@ -17,6 +17,8 @@ import org.springframework.data.mongodb.core.query.Update;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 通知策略共享语义: 报文构建/免打扰查询/成员推送/会话状态落库
@@ -48,6 +50,16 @@ public abstract class AbstractConversationNotifyStrategy implements Conversation
         Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(memberId);
         ChatUserConversationDoc doc = mongoTemplate.findOne(Query.query(c), ChatUserConversationDoc.class);
         return doc != null && Boolean.TRUE.equals(doc.getMute());
+    }
+
+    /** 一次查出会话内所有开启免打扰的成员, 群聊推送用 */
+    protected Set<Long> mutedMemberIds(String conversationId, Collection<Long> memberIds) {
+        Criteria c = Criteria.where("conversationId").is(conversationId)
+                .and("userId").in(memberIds)
+                .and("mute").is(true);
+        return mongoTemplate.find(Query.query(c), ChatUserConversationDoc.class).stream()
+                .map(ChatUserConversationDoc::getUserId)
+                .collect(Collectors.toSet());
     }
 
     protected NotificationForSendMessageVO buildSendVO(ChatMessageMessage message, UserSummary sender) {

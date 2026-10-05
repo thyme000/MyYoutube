@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 群聊通知: 通知除发送人外所有成员(免打扰跳过), 头像用群头像
@@ -49,8 +50,9 @@ public class GroupConversationNotifyStrategy extends AbstractConversationNotifyS
                 vo.setAvatarUrl(avatarUrl);
                 json = JsonUtil.toJson(vo);
             }
+            Set<Long> muted = mutedMemberIds(conversation.getId(), memberIds);
             for (Long memberId : memberIds) {
-                if (isMuted(conversation.getId(), memberId)) {
+                if (muted.contains(memberId)) {
                     // 开启免打扰 -> 不通知
                     continue;
                 }
