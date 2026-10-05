@@ -20,11 +20,11 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 协同过滤在线召回: 取用户近期正反馈内容做种子, 逐个扩散相似度表里的邻居,
@@ -68,9 +68,9 @@ public class CfRecallService {
 
         LocalDateTime now = LocalDateTime.now();
         Map<Long, Double> scores = new HashMap<>();
-        Set<Long> seedIds = new HashSet<>();
+        // 先收齐全部种子再扩散, 否则排序靠后的种子会被当作新候选漏进来
+        Set<Long> seedIds = seeds.stream().map(Seed::contentId).collect(Collectors.toSet());
         for (Seed seed : seeds) {
-            seedIds.add(seed.contentId);
             double ageDays = Math.max(0, ChronoUnit.MINUTES.between(seed.createdAt, now) / 1440.0);
             double seedWeight = Math.pow(0.5, ageDays / SEED_HALF_LIFE_DAYS);
             for (ItemSimilarity neighbor : neighbors(algorithm, seed.contentId)) {
