@@ -60,9 +60,15 @@ public class CounterFlushService {
             }
             try {
                 target.applyDelta(id, delta);
-                counterBuffer.ack(type, id);
             } catch (Exception e) {
                 log.warn("计数落库失败, 下轮回补重放, type={}, id={}, delta={}", type, id, delta, e);
+                continue;
+            }
+            counterBuffer.ack(type, id);
+            try {
+                target.afterAck(id, delta);
+            } catch (Exception e) {
+                log.warn("计数旁路同步失败(不影响落库), type={}, id={}, delta={}", type, id, delta, e);
             }
         }
     }

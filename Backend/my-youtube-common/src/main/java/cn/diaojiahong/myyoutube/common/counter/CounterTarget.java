@@ -22,4 +22,11 @@ public interface CounterTarget {
 
     /** 无条件覆盖为权威值。不是累加 —— 所以任意方向的误差都能在下一轮被拉回真值 */
     void overwrite(long id, long value);
+
+    /**
+     * 落库 ack 之后的旁路同步(如把增量推给 ES 文档)。骨架保证只在 ack 成功后调用 ——
+     * 放在 ack 前, 该同步一失败 DB 增量就会被下轮重放双计。抛错由骨架吞掉记日志, 不影响落库。
+     */
+    default void afterAck(long id, long delta) {
+    }
 }
