@@ -26,3 +26,14 @@ my-youtube:
     url: ${USER_SERVICE_URL:}
   video-service:
     url: ${VIDEO_SERVICE_URL:}
+  recommend:
+    cf:
+      # 关闭后退回 tag+热度两路(算法选择在 video 服务的 recommend.cf.algorithm)
+      enabled: true
+    fusion:
+      # RRF 平滑常数与三路权重
+      k: 60
+      weights:
+        tag: 1.0
+        hot: 0.6
+        cf: 1.0

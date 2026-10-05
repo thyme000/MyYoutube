@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.recommend.service.impl;
 
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.video.api.CfRecommendPort;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
@@ -12,6 +13,8 @@ import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreMode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -22,11 +25,13 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RecommendServiceImpl implements IRecommendService {
@@ -38,13 +43,35 @@ public class RecommendServiceImpl implements IRecommendService {
     /** 推荐召回封顶: 深翻页时 from+size 不得越过 ES max_result_window(默认 10000) */
     private static final int RECALL_CAP = 1000;
 
+    /** 融合来源位标记: 一个候选可同时被多路召回 */
+    private static final int SOURCE_TAG = 1;
+    private static final int SOURCE_HOT = 2;
+    private static final int SOURCE_CF = 4;
+
     private final PreferencePort preferencePort;
     private final ElasticsearchOperations elasticsearchOperations;
     private final StringRedisTemplate redisTemplate;
     private final FollowPort followPort;
+    private final CfRecommendPort cfRecommendPort;
+
+    /** CF 路开关: 关闭后退回 tag+热度两路 */
+    @Value("${my-youtube.recommend.cf.enabled:true}")
+    private boolean cfEnabled;
+
+    /** RRF 平滑常数, 越大排名差异越平缓 */
+    @Value("${my-youtube.recommend.fusion.k:60}")
+    private double rrfK;
+
+    /** 三路 RRF 权重 */
+    @Value("${my-youtube.recommend.fusion.weights.tag:1.0}")
+    private double weightTag;
+    @Value("${my-youtube.recommend.fusion.weights.hot:0.6}")
+    private double weightHot;
+    @Value("${my-youtube.recommend.fusion.weights.cf:1.0}")
+    private double weightCf;
 
     /**
-     * 推荐内容: tag 偏好路 + 热度路 合流去重。
+     * 推荐内容: tag 偏好路 + 热度路 + CF 协同过滤路, RRF 排名融合。
      * @param userId 用户ID
      * @param category 分类
      * @param page 页码
@@ -57,29 +84,100 @@ public class RecommendServiceImpl implements IRecommendService {
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, size);
         Set<String> excludeIds = excludedContentIds(userId);
+        // 召回统一从第 0 页取前 min(需求量, 封顶) 条, 由切片负责分页, ES 窗口不随页码增长
+        int needed = Math.min(safePage * safeSize, RECALL_CAP);
 
         // tag 偏好路: 无偏好(新用户)时整路跳过, 由热度路兜底
         List<Long> tagRoute = List.of();
         List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
         if (!preferences.isEmpty()) {
-            // 召回统一从第 0 页取前 min(需求量, 封顶) 条, 由切片负责分页, ES 窗口不随页码增长
-            tagRoute = searchIds(tagRouteQuery(userId, category, preferences, excludeIds,
-                    PageRequest.of(0, Math.min(safeSize * safePage, RECALL_CAP))));
+            tagRoute = searchIds(tagRouteQuery(userId, category, preferences, excludeIds, PageRequest.of(0, needed)));
         }
 
         // 热度路: content 互动计数 + 时间衰减, 零标签的动态也天然进池
-        List<Long> hotRoute = searchIds(hotRouteQuery(userId, category, excludeIds,
-                PageRequest.of(0, Math.min(safeSize * safePage, RECALL_CAP))));
+        List<Long> hotRoute = searchIds(hotRouteQuery(userId, category, excludeIds, PageRequest.of(0, needed)));
 
-        // 合流去重: tag 路优先, 热度路补足, 按窗口切片
-        LinkedHashSet<Long> merged = new LinkedHashSet<>(tagRoute);
-        merged.addAll(hotRoute);
-        List<Long> ordered = new ArrayList<>(merged);
+        // CF 路: 协同过滤扩散候选, 回 ES 过滤失效内容; 失败或无行为时退回两路
+        List<Long> cfRoute = List.of();
+        String cfAlgorithm = "-";
+        if (cfEnabled) {
+            try {
+                CfRecommendPort.CfCandidates candidates =
+                        cfRecommendPort.candidates(new CfRecommendPort.CfCandidatesQuery(userId, needed));
+                cfAlgorithm = candidates.getAlgorithm();
+                cfRoute = filterCfCandidates(candidates.getContentIds(), userId, category, excludeIds);
+            } catch (Exception e) {
+                log.warn("CF 召回失败, 本轮退回 tag+热度两路 userId={}", userId, e);
+            }
+        }
+
+        // RRF 排名融合: score = Σ w_route/(k+rank), 不依赖各路分数可比
+        Map<Long, Double> fused = new HashMap<>();
+        Map<Long, Integer> sources = new HashMap<>();
+        addRoute(fused, sources, tagRoute, weightTag, SOURCE_TAG);
+        addRoute(fused, sources, hotRoute, weightHot, SOURCE_HOT);
+        addRoute(fused, sources, cfRoute, weightCf, SOURCE_CF);
+
+        List<Long> ordered = fused.entrySet().stream()
+                .sorted(Map.Entry.<Long, Double>comparingByValue().reversed())
+                .map(Map.Entry::getKey)
+                .toList();
+        logFusion(userId, safePage, tagRoute, hotRoute, cfRoute, cfAlgorithm, sources, ordered);
+
         int from = (safePage - 1) * safeSize;
         if (from >= ordered.size()) {
             return List.of();
         }
         return ordered.subList(from, Math.min(from + safeSize, ordered.size()));
+    }
+
+    /**
+     * CF 候选回 ES 套用统一过滤(published/公开/非已看已踩), 命中者按 CF 原排序保留
+     */
+    private List<Long> filterCfCandidates(List<Long> candidateIds, Long userId, String category,
+                                          Set<String> excludeIds) {
+        if (candidateIds == null || candidateIds.isEmpty()) {
+            return List.of();
+        }
+        List<String> ids = candidateIds.stream().map(String::valueOf).toList();
+        NativeQuery query = NativeQuery.builder()
+                .withQuery(q -> q.bool(b -> {
+                    applyCommonFilters(b, userId, category, excludeIds);
+                    b.must(m -> m.ids(i -> i.values(ids)));
+                    return b;
+                }))
+                .withPageable(PageRequest.of(0, candidateIds.size()))
+                .build();
+        Set<Long> alive = new HashSet<>(searchIds(query));
+        return candidateIds.stream().filter(alive::contains).toList();
+    }
+
+    private void addRoute(Map<Long, Double> fused, Map<Long, Integer> sources,
+                          List<Long> route, double weight, int sourceBit) {
+        for (int i = 0; i < route.size(); i++) {
+            long id = route.get(i);
+            fused.merge(id, weight / (rrfK + i + 1), Double::sum);
+            sources.merge(id, sourceBit, (a, b) -> a | b);
+        }
+    }
+
+    /**
+     * 链路观测: 各路召回条数与融合后列表的来源命中占比
+     */
+    private void logFusion(Long userId, int page, List<Long> tagRoute, List<Long> hotRoute, List<Long> cfRoute,
+                           String cfAlgorithm, Map<Long, Integer> sources, List<Long> ordered) {
+        int inTag = 0;
+        int inHot = 0;
+        int inCf = 0;
+        for (Long id : ordered) {
+            int mask = sources.getOrDefault(id, 0);
+            inTag += (mask & SOURCE_TAG) > 0 ? 1 : 0;
+            inHot += (mask & SOURCE_HOT) > 0 ? 1 : 0;
+            inCf += (mask & SOURCE_CF) > 0 ? 1 : 0;
+        }
+        log.info("推荐融合 userId={} page={} tag路{}条 热度路{}条 CF路{}条(algo={}) 融合后{}条 来源命中 tag={} hot={} cf={}",
+                userId, page, tagRoute.size(), hotRoute.size(), cfRoute.size(), cfAlgorithm,
+                ordered.size(), inTag, inHot, inCf);
     }
 
     /**
