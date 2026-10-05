@@ -1,9 +1,7 @@
 package cn.diaojiahong.myyoutube.common.push;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.LongSerializationPolicy;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -17,11 +15,6 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class PushFanoutPublisher {
 
-    /** Long 走字符串: 雪花 ID 超出 JS 安全整数, 序列化成数字会被前端 parse 精度丢损 */
-    private static final Gson GSON = new GsonBuilder()
-            .setLongSerializationPolicy(LongSerializationPolicy.STRING)
-            .create();
-
     private final StringRedisTemplate redisTemplate;
 
     /** 聊天 WS 报文: 报文本体原样下发前端 */
@@ -29,7 +22,7 @@ public class PushFanoutPublisher {
         PushEnvelope envelope = new PushEnvelope();
         envelope.setUserId(userId);
         envelope.setPayload(payload);
-        redisTemplate.convertAndSend(RedisConstants.PUSH_CHANNEL_WS, GSON.toJson(envelope));
+        redisTemplate.convertAndSend(RedisConstants.PUSH_CHANNEL_WS, JsonUtil.toJson(envelope));
     }
 
     /** SSE 门铃信号: 只发信号, 前端收到后拉取 */
@@ -43,6 +36,6 @@ public class PushFanoutPublisher {
         envelope.setUserId(userId);
         envelope.setSignal(signal);
         envelope.setPayload(payload);
-        redisTemplate.convertAndSend(RedisConstants.PUSH_CHANNEL_SSE, GSON.toJson(envelope));
+        redisTemplate.convertAndSend(RedisConstants.PUSH_CHANNEL_SSE, JsonUtil.toJson(envelope));
     }
 }
