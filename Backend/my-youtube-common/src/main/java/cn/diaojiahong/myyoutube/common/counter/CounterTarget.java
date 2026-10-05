@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.common.counter;
 
+import java.util.Map;
+
 /**
  * 一种计数的落库目标。各模块按自己持有的表实现并注册成 Bean，
  * {@link CounterFlushService} 只认接口，不关心计数落在哪张表。
@@ -24,9 +26,10 @@ public interface CounterTarget {
     void overwrite(long id, long value);
 
     /**
-     * 落库 ack 之后的旁路同步(如把增量推给 ES 文档)。骨架保证只在 ack 成功后调用 ——
-     * 放在 ack 前, 该同步一失败 DB 增量就会被下轮重放双计。抛错由骨架吞掉记日志, 不影响落库。
+     * 整轮落库结束后的旁路同步(如把增量批量推给 ES 文档)。
+     * key 为 ack 成功的 id, value 为该轮累计增量 —— 旁路按轮聚合一次调用,
+     * 不随单个 id 触发。抛错由骨架吞掉记日志, 不影响落库。
      */
-    default void afterAck(long id, long delta) {
+    default void afterFlush(Map<Long, Long> ackedDeltas) {
     }
 }

@@ -6,8 +6,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -47,6 +49,7 @@ public class CounterFlushService {
         // inflight 排前面：回补属于正确性，不能被本轮 pending 的量顶掉
         Set<Long> ids = new LinkedHashSet<>(counterBuffer.scanIds(CounterKeys.inflightPrefix(type)));
         ids.addAll(counterBuffer.scanIds(CounterKeys.pendingPrefix(type)));
+        Map<Long, Long> ackedDeltas = new LinkedHashMap<>();
         int processed = 0;
         for (Long id : ids) {
             if (processed >= RedisConstants.COUNTER_MAX_KEYS_PER_ROUND) {
@@ -65,10 +68,13 @@ public class CounterFlushService {
                 continue;
             }
             counterBuffer.ack(type, id);
+            ackedDeltas.merge(id, delta, Long::sum);
+        }
+        if (!ackedDeltas.isEmpty()) {
             try {
-                target.afterAck(id, delta);
+                target.afterFlush(ackedDeltas);
             } catch (Exception e) {
-                log.warn("计数旁路同步失败(不影响落库), type={}, id={}, delta={}", type, id, delta, e);
+                log.warn("计数旁路同步失败(不影响落库), type={}, ids={}", type, ackedDeltas.keySet(), e);
             }
         }
     }

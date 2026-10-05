@@ -7,7 +7,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 /**
  * 计数落库目标的通用骨架: 增量与覆盖都落在「单表 + 单计数列」上,
  * 差异只有 Service/id 列/计数列三个点, 权威值来源各模块自理。
- * 子类只负责 type() 与 authoritativeValue(), 需要落库后旁路同步(如推 ES)时覆写 afterAck。
+ * 子类只负责 type() 与 authoritativeValue(), 需要落库后旁路同步(如推 ES)时覆写 afterFlush。
  */
 public abstract class AbstractCounterTarget<T> implements CounterTarget {
 
