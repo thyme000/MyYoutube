@@ -1,14 +1,13 @@
 package cn.diaojiahong.myyoutube.gateway.filter;
 
+import cn.diaojiahong.myyoutube.gateway.auth.AuthContext;
+import cn.diaojiahong.myyoutube.gateway.auth.AuthStep;
+import cn.diaojiahong.myyoutube.gateway.auth.TicketAuthStep;
 import cn.diaojiahong.myyoutube.security.AuthConstants;
-import cn.diaojiahong.myyoutube.security.JwtPayload;
-import cn.diaojiahong.myyoutube.security.JwtUtil;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
@@ -16,111 +15,70 @@ import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.util.UriComponentsBuilder;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 网关统一鉴权: 本地验签 access JWT(不查 token 表), 仅作废时间戳命中时查一次 Redis,
- * 通过后把 userId 透传给下游服务(X-User-Id 头), 下游服务只解析头;
- * 配置了内部密钥时附带 X-Internal-Token, 供下游拒绝绕网关直连的伪造请求。
- * 长连接(聊天 WS / SSE 门铃): 优先消费 ?ticket= 一次性连接票(chat 的 /chat/push/ticket 以 Bearer 换取),
- * 其余凭证只认 Bearer 头; 凭证验完即从 query 剥掉换头转发, 下游链路不出现明文凭证。
+ * 网关统一鉴权的编排器: 只做请求分类与决策落地, 判定逻辑全部在 {@link AuthStep} 责任链上
+ * (白名单 → 连接票 → Bearer 验签 → 作废校验, 按 @Order 依次执行, 见决策即短路)。
+ * 通过后把 userId 透传给下游服务(X-User-Id 头), 配置了内部密钥时附带 X-Internal-Token;
+ * 凭证验完即从 query 剥掉换头转发, 下游链路不出现明文凭证。
  */
 @Component
 public class GatewayAuthFilter implements GlobalFilter, Ordered {
 
-    // 头名/Redis key 前缀与 common 的 UserIdHeaderFilter、RedisConstants 同源, 单点在 security.AuthConstants
-    private static final String AUTH_HEADER = AuthConstants.AUTH_HEADER;
-    private static final String BEARER_PREFIX = AuthConstants.BEARER_PREFIX;
-    private static final String USER_ID_HEADER = AuthConstants.USER_ID_HEADER;
-    private static final String INTERNAL_TOKEN_HEADER = AuthConstants.INTERNAL_TOKEN_HEADER;
-    private static final String TOKEN_VER_KEY_PREFIX = AuthConstants.TOKEN_VER_KEY_PREFIX;
-    private static final String TICKET_KEY_PREFIX = AuthConstants.PUSH_TICKET_KEY_PREFIX;
-    private static final String TICKET_QUERY_PARAM = "ticket";
     /** 长连接转发前必须从 query 剥掉的凭证参数(token 兜底防旧客户端把凭证塞 query) */
-    private static final List<String> CONNECTION_CREDENTIAL_PARAMS = List.of("token", TICKET_QUERY_PARAM);
+    private static final List<String> CONNECTION_CREDENTIAL_PARAMS = List.of("token", "ticket");
 
-    /** 长连接(聊天 WS / SSE 门铃): token 在 query 上, 验签后剥掉换头转发 */
+    /** 长连接(聊天 WS / SSE 门铃)前缀 */
     private static final List<String> CONNECTION_PREFIXES = List.of("/ws/", "/sse/");
 
-    /** 放行接口由配置驱动(与路由 yml 的公开路径职责不同: 这里管免验签, 路由管转发), 单点见 gateway application.yml */
-    private final List<String> whitelist;
-
-    private final ReactiveStringRedisTemplate redisTemplate;
+    private final List<AuthStep> steps;
     private final String internalToken;
 
-    public GatewayAuthFilter(ReactiveStringRedisTemplate redisTemplate,
-                             @Value("${jwt.secret}") String jwtSecret,
-                             @Value("${my-youtube.internal-token:}") String internalToken,
-                             @Value("${my-youtube.auth.whitelist}") List<String> whitelist) {
-        this.redisTemplate = redisTemplate;
+    public GatewayAuthFilter(List<AuthStep> steps,
+                             @org.springframework.beans.factory.annotation.Value("${jwt.secret}") String jwtSecret,
+                             @org.springframework.beans.factory.annotation.Value("${my-youtube.internal-token:}") String internalToken) {
+        this.steps = steps;
         this.internalToken = internalToken;
-        this.whitelist = whitelist;
-        JwtUtil.init(jwtSecret);
+        cn.diaojiahong.myyoutube.security.JwtUtil.init(jwtSecret);
     }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = normalizePath(exchange.getRequest().getPath().value());
-        if (whitelist.stream().anyMatch(path::equals)) {
-            return chain.filter(exchange);
-        }
         boolean connectionPath = CONNECTION_PREFIXES.stream().anyMatch(path::startsWith);
+        AuthContext ctx = AuthContext.initial(exchange, path, connectionPath);
 
-        // 一次性连接票优先: 签发时已过 Bearer 鉴权, 票本身就是凭证, GETDEL 原子消费
-        String ticket = connectionPath ? exchange.getRequest().getQueryParams().getFirst(TICKET_QUERY_PARAM) : null;
-        if (ticket != null && !ticket.isBlank()) {
-            return redisTemplate.opsForValue().getAndDelete(TICKET_KEY_PREFIX + ticket)
-                    .defaultIfEmpty("")
-                    .flatMap(userId -> {
-                        if (userId.isEmpty()) {
-                            return unauthorized(exchange);
-                        }
-                        ServerHttpRequest request = buildDownstreamRequest(exchange, userId, true);
-                        return chain.filter(exchange.mutate().request(request).build());
-                    });
-        }
-
-        String token = extractToken(exchange);
-        if (token == null) {
-            return unauthorized(exchange);
-        }
-        JwtPayload payload = JwtUtil.verify(token);
-        if (payload == null) {
-            return unauthorized(exchange);
-        }
-
-        // 改密码/封号后签发时间早于作废时间戳的 token 立即失效
-        return redisTemplate.opsForValue().get(TOKEN_VER_KEY_PREFIX + payload.userId())
-                .defaultIfEmpty("")
-                .flatMap(ver -> {
-                    if (!ver.isEmpty() && payload.issuedAtMillis() < Long.parseLong(ver)) {
-                        return unauthorized(exchange);
-                    }
-                    ServerHttpRequest request = buildDownstreamRequest(exchange, String.valueOf(payload.userId()), connectionPath);
-                    return chain.filter(exchange.mutate().request(request).build());
-                });
+        return Flux.fromIterable(steps)
+                .concatMap(step -> ctx.decided() ? Mono.empty() : step.apply(ctx))
+                // 决策要等链跑完才成立, 必须 defer: then 的参数会立即求值, 直接调用会在组装期就把 401 写进响应
+                .then(Mono.defer(() -> applyDecision(exchange, chain, ctx)));
     }
 
-    private String extractToken(ServerWebExchange exchange) {
-        String header = exchange.getRequest().getHeaders().getFirst(AUTH_HEADER);
-        if (header != null && header.startsWith(BEARER_PREFIX)) {
-            return header.substring(BEARER_PREFIX.length());
-        }
-        return null;
+    private Mono<Void> applyDecision(ServerWebExchange exchange, GatewayFilterChain chain, AuthContext ctx) {
+        return switch (ctx.getDecision()) {
+            case SKIP -> chain.filter(exchange);
+            case AUTHENTICATED -> {
+                ServerHttpRequest request = buildDownstreamRequest(exchange, String.valueOf(ctx.getPrincipalUserId()), ctx.isConnectionPath());
+                yield chain.filter(exchange.mutate().request(request).build());
+            }
+            // REJECT 与"链走完仍无凭证"统一 401, 不区分原因避免给探测者提供信息
+            default -> unauthorized(exchange);
+        };
     }
 
     private ServerHttpRequest buildDownstreamRequest(ServerWebExchange exchange, String userId, boolean connectionPath) {
         ServerHttpRequest.Builder builder = exchange.getRequest().mutate()
-                .header(USER_ID_HEADER, userId);
+                .header(AuthConstants.USER_ID_HEADER, userId);
         if (!internalToken.isBlank()) {
             // 下游 UserIdHeaderFilter 据此拒绝绕过网关直连时伪造的 X-User-Id
-            builder.header(INTERNAL_TOKEN_HEADER, internalToken);
+            builder.header(AuthConstants.INTERNAL_TOKEN_HEADER, internalToken);
         }
         if (connectionPath) {
             builder.uri(stripConnectionParams(exchange.getRequest().getURI()));
@@ -128,7 +86,7 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
         return builder.build();
     }
 
-    private static URI stripConnectionParams(URI uri) {
+    private static java.net.URI stripConnectionParams(java.net.URI uri) {
         String rawQuery = uri.getRawQuery();
         if (rawQuery == null || rawQuery.isEmpty()) {
             return uri;
