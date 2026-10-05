@@ -31,6 +31,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -326,9 +327,17 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
             throw new IllegalArgumentException("私聊不能查询成员");
         }
+        // 一次批量取摘要, 按成员顺序本地投影
+        List<Long> memberIds = chatConversationDoc.getMemberIds();
+        Map<Long, UserSummary> userById = userPort.listByIds(memberIds).stream()
+                .filter(u -> u.getId() != null)
+                .collect(Collectors.toMap(UserSummary::getId, u -> u, (a, b) -> a));
         List<ConversationMembersVO> conversationMembersVOs = new ArrayList<>();
-        for (Long userId : chatConversationDoc.getMemberIds()) {
-            UserSummary user = userPort.getUser(userId);
+        for (Long userId : memberIds) {
+            UserSummary user = userById.get(userId);
+            if (user == null) {
+                continue;
+            }
             conversationMembersVOs.add(new ConversationMembersVO(user.getId(),
                     user.getNickname(), storageUtil.signGetUrl(user.getAvatarUrl(), 600),
                     userId.equals(chatConversationDoc.getCreatedBy())));
