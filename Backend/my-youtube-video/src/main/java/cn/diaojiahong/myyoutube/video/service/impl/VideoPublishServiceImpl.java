@@ -11,7 +11,8 @@ import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
-import cn.diaojiahong.myyoutube.video.api.message.ContentDocMessage;
+import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
+import cn.diaojiahong.myyoutube.content.support.ContentDocMessages;
 import cn.diaojiahong.myyoutube.video.domain.dto.GenerateCoverDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -41,6 +42,7 @@ import static cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum.REVIEW;
 public class VideoPublishServiceImpl implements IVideoPublishService {
 
     private final RocketMQTemplate rocketMQTemplate;
+    private final EsSyncPublisher esSyncPublisher;
     private final S3StorageUtil storageUtil;
     private final IContentTagService contentTagService;
     private final ContentMapper contentMapper;
@@ -113,18 +115,7 @@ public class VideoPublishServiceImpl implements IVideoPublishService {
         videoMapper.insert(video);
         // 标签入库, 并延迟同步 ES content 文档(短时间多次变更天然合并)
         List<Long> tagIds = contentTagService.saveTags(video.getTags(), video.getId());
-        rocketMQTemplate.syncSendDelayTimeSeconds(
-                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_CONTENT,
-                ContentDocMessage.builder()
-                        .type(ContentTypeEnum.VIDEO.getCode()).contentId(video.getId())
-                        .title(video.getTitle()).description(video.getDescription())
-                        .coverUrl(video.getCoverUrl()).tags(video.getTags())
-                        .categoryCode(video.getCategory() != null ? video.getCategory().getCode() : null)
-                        .statusCode(video.getStatus() != null ? video.getStatus().getCode() : null)
-                        .visibilityCode(video.getVisibility() != null ? video.getVisibility().getCode() : null)
-                        .authorId(video.getAuthorId())
-                        .createTime(video.getCreateTime()).tagIds(tagIds)
-                        .build(), 5);
+        esSyncPublisher.syncContentDoc(ContentDocMessages.of(video, tagIds));
     }
 
     @Override

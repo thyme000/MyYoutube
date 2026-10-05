@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.search.api.message.UserDocSyncMessage;
+import cn.diaojiahong.myyoutube.common.mq.message.UserDocSyncMessage;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;

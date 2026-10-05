@@ -13,7 +13,7 @@ import cn.diaojiahong.myyoutube.auth.domain.dto.RefreshTokenDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
 import cn.diaojiahong.myyoutube.security.JwtUtil;
 import cn.diaojiahong.myyoutube.auth.service.IAuthService;
-import cn.diaojiahong.myyoutube.search.api.message.UserDocSyncMessage;
+import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.hutool.core.bean.BeanUtil;
@@ -39,6 +39,7 @@ public class AuthServiceImpl implements IAuthService {
     private final IUserService userService;
     private final StringRedisTemplate redisTemplate;
     private final RocketMQTemplate rocketMQTemplate;
+    private final EsSyncPublisher esSyncPublisher;
 
     /** 续签轮换原子化: 同一 refresh 并发只有一个请求能成功 */
     private static final RedisScript<String> REFRESH_ROTATE_SCRIPT =
@@ -172,10 +173,8 @@ public class AuthServiceImpl implements IAuthService {
             throw new BizException(BizException.BIZ_ERROR, "用户名或手机号或邮箱已被注册!");
         }
 
-        // 发送消息,用于创建/更新用户ES文档
-        rocketMQTemplate.syncSend(
-                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
-                new UserDocSyncMessage(user.getId()));
+        // 发送消息,用于创建/更新用户ES文档(延迟 5s, 短时间多次变更消费端合并)
+        esSyncPublisher.syncUserDoc(user.getId());
 
         log.info("用户 [{}] 注册成功", registerRequestDTO.getUsername());
         return;

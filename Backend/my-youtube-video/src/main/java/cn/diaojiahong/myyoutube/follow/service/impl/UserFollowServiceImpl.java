@@ -10,7 +10,7 @@ import cn.diaojiahong.myyoutube.follow.domain.po.UserFollow;
 import cn.diaojiahong.myyoutube.follow.domain.vo.UserRelationshipVO;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
-import cn.diaojiahong.myyoutube.search.api.message.UserDocSyncMessage;
+import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
@@ -43,6 +43,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final RocketMQTemplate rocketMQTemplate;
+    private final EsSyncPublisher esSyncPublisher;
 
     private static final long STORAGE_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
@@ -65,9 +66,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                     new CounterAdjust(userId, "attentionCount", 1)));
         }
         // 延迟同步 ES 用户文档, 短时间多次变更天然合并(消费端以 MySQL 为准)
-        rocketMQTemplate.syncSendDelayTimeSeconds(
-                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
-                new UserDocSyncMessage(authorId), 5);
+        esSyncPublisher.syncUserDoc(authorId);
         return;
     }
 
@@ -95,9 +94,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                     new CounterAdjust(userId, "attentionCount", -1)));
         }
         // 延迟同步 ES 用户文档
-        rocketMQTemplate.syncSendDelayTimeSeconds(
-                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
-                new UserDocSyncMessage(authorId), 5);
+        esSyncPublisher.syncUserDoc(authorId);
         return;
     }
 
@@ -215,9 +212,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                     new CounterAdjust(followerId, "attentionCount", -1)));
         }
         // 延迟同步 ES 用户文档
-        rocketMQTemplate.syncSendDelayTimeSeconds(
-                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
-                new UserDocSyncMessage(userId), 5);
+        esSyncPublisher.syncUserDoc(userId);
         return;
     }
 

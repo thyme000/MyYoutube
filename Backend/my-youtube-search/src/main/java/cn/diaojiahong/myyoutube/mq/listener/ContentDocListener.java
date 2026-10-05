@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.video.api.message.ContentDocMessage;
+import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
 import cn.diaojiahong.myyoutube.user.api.UserPort;

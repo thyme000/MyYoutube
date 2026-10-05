@@ -21,7 +21,8 @@ import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
-import cn.diaojiahong.myyoutube.video.api.message.ContentDocMessage;
+import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
+import cn.diaojiahong.myyoutube.content.support.ContentDocMessages;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.dto.DynamicPublishDTO;
@@ -69,6 +70,7 @@ public class DynamicServiceImpl implements IDynamicService {
     private final IContentTagService contentTagService;
     private final IContentService contentService;
     private final RocketMQTemplate rocketMQTemplate;
+    private final EsSyncPublisher esSyncPublisher;
     private final S3StorageUtil storageUtil;
     private final ObjectMapper objectMapper;
     private final UserPort userPort;
@@ -203,18 +205,7 @@ public class DynamicServiceImpl implements IDynamicService {
         dynamicMapper.insert(dynamic);
         // 可选标签入库, 并延迟同步 ES content 文档(首帧作封面)
         List<Long> tagIds = contentTagService.saveTags(dynamic.getTags(), content.getId());
-        rocketMQTemplate.syncSendDelayTimeSeconds(
-                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_CONTENT,
-                ContentDocMessage.builder()
-                        .type(ContentTypeEnum.DYNAMIC.getCode()).contentId(content.getId())
-                        .title(dynamic.getTitle())
-                        .coverUrl(imageKeys.get(0))
-                        .tags(dynamic.getTags())
-                        .statusCode(VideoStatusEnum.PUBLISHED.getCode())
-                        .visibilityCode("public")
-                        .authorId(userId)
-                        .createTime(dynamic.getCreateTime()).tagIds(tagIds)
-                        .build(), 5);
+        esSyncPublisher.syncContentDoc(ContentDocMessages.of(dynamic, imageKeys.get(0), userId, tagIds));
         return String.valueOf(dynamic.getId());
     }
 

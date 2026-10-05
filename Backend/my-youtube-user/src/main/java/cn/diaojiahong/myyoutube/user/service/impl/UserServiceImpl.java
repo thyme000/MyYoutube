@@ -11,7 +11,7 @@ import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.search.api.message.UserDocSyncMessage;
+import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.mapper.UserMapper;
@@ -49,6 +49,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private final StringRedisTemplate redisTemplate;
     private final UserVideoPort userVideoPort;
     private final RocketMQTemplate rocketMQTemplate;
+    private final EsSyncPublisher esSyncPublisher;
 
     @Override
     public UserVO getUserInfo(Long userId) {
@@ -121,8 +122,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             throw new BizException(BizException.BIZ_ERROR, "服务器繁忙,请稍后再试～");
         }
         // 同步 ES 文档: 发消息, 由 search 侧以 MySQL 为准重建
-        rocketMQTemplate.syncSend(MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
-                new UserDocSyncMessage(user.getId()));
+        esSyncPublisher.syncUserDoc(user.getId());
 
         log.info("用户{},更新用户资料成功...", id);
         return "修改成功";
