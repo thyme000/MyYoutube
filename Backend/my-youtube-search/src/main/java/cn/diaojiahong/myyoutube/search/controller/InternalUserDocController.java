@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.search.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
+import org.springframework.data.elasticsearch.core.query.ScriptType;
 import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,6 +35,7 @@ public class InternalUserDocController {
     public void adjustVideoCount(@RequestParam("userId") Long userId, @RequestParam("delta") Integer delta) {
         elasticsearchOperations.update(
                 UpdateQuery.builder(String.valueOf(userId))
+                        .withScriptType(ScriptType.INLINE)
                         .withScript(ADJUST_VIDEO_COUNT_SCRIPT)
                         .withParams(Map.of("delta", delta))
                         .withRetryOnConflict(3)
@@ -45,6 +47,7 @@ public class InternalUserDocController {
     public void adjustLikeCount(@RequestParam("userId") Long userId, @RequestParam("delta") Long delta) {
         elasticsearchOperations.update(
                 UpdateQuery.builder(String.valueOf(userId))
+                        .withScriptType(ScriptType.INLINE)
                         .withScript(ADJUST_LIKE_COUNT_SCRIPT)
                         .withParams(Map.of("delta", delta))
                         .withRetryOnConflict(3)

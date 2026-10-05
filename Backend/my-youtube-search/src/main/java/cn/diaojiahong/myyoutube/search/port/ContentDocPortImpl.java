@@ -8,6 +8,7 @@ import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
+import org.springframework.data.elasticsearch.core.query.ScriptType;
 import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.stereotype.Component;
@@ -38,6 +39,7 @@ public class ContentDocPortImpl implements ContentDocPort {
     public void adjustPlayCount(Long contentId, Long delta) {
         elasticsearchOperations.update(
                 UpdateQuery.builder(String.valueOf(contentId))
+                        .withScriptType(ScriptType.INLINE)
                         .withScript(INC_PLAY_COUNT_SCRIPT)
                         .withParams(Map.of("delta", delta))
                         .withRetryOnConflict(3)
