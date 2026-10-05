@@ -5,6 +5,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.util.List;
+
 /**
  * search 服务对外契约: 内容池 ES 文档操作。
  * 拆部署前由 search 模块的 ContentDocPortImpl 提供本地实现;
@@ -36,6 +38,10 @@ public interface ContentDocPort {
                       @RequestParam("playCount") Long playCount,
                       @RequestParam("likeCount") Long likeCount);
 
+    /** MySQL 为准批量同步播放量/点赞量(定时任务用), 一次请求整页 */
+    @PostMapping("/play-like/sync-batch")
+    void syncPlayLikeBatch(@RequestBody List<CountSync> counts);
+
     /** 审核状态同步(pass 重建补全词, ban 清空) */
     @PostMapping("/status")
     void syncStatus(@RequestParam("contentId") Long contentId,
@@ -43,5 +49,8 @@ public interface ContentDocPort {
 
     public static record StatusSync(String statusCode, String title, String description, String tags,
                                     boolean rebuildSuggest) {
+    }
+
+    public static record CountSync(Long contentId, Long playCount, Long likeCount) {
     }
 }

@@ -138,14 +138,16 @@ public class ScheduleJob {
             redisTemplate.opsForValue().set(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR, "0");
             return;
         }
-        for (Content c : list) {
-            try {
-                contentDocPort.syncPlayLike(c.getId(),
+        // 整页一次批量请求, 不再逐条打 search 服务
+        List<ContentDocPort.CountSync> counts = list.stream()
+                .map(c -> new ContentDocPort.CountSync(c.getId(),
                         c.getPlayCount() != null ? c.getPlayCount() : 0L,
-                        c.getLikeCount() != null ? c.getLikeCount() : 0L);
-            } catch (Exception e) {
-                log.warn("同步 ES 播放量/点赞量失败, contentId={}", c.getId(), e);
-            }
+                        c.getLikeCount() != null ? c.getLikeCount() : 0L))
+                .toList();
+        try {
+            contentDocPort.syncPlayLikeBatch(counts);
+        } catch (Exception e) {
+            log.warn("批量同步 ES 播放量/点赞量失败, 本页 size={}", counts.size(), e);
         }
         long maxId = list.get(list.size() - 1).getId();
         if (list.size() < ES_COUNT_SYNC_PAGE_SIZE) {

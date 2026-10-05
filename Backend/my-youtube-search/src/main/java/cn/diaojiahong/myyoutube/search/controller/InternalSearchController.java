@@ -47,6 +47,11 @@ public class InternalSearchController {
         contentDocPort.syncPlayLike(contentId, playCount, likeCount);
     }
 
+    @PostMapping("/content-doc/play-like/sync-batch")
+    public void syncPlayLikeBatch(@RequestBody List<ContentDocPort.CountSync> counts) {
+        contentDocPort.syncPlayLikeBatch(counts);
+    }
+
     @PostMapping("/content-doc/status")
     public void syncStatus(@RequestParam("contentId") Long contentId, @RequestBody ContentDocPort.StatusSync sync) {
         contentDocPort.syncStatus(contentId, sync);

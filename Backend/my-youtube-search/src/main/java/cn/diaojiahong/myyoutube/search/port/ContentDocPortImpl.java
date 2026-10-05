@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 @Component
 @RequiredArgsConstructor
@@ -54,6 +56,28 @@ public class ContentDocPortImpl implements ContentDocPort {
             doc.setLikeCount(likeCount);
             contentDocRepository.save(doc);
         });
+    }
+
+    @Override
+    public void syncPlayLikeBatch(List<CountSync> counts) {
+        if (counts == null || counts.isEmpty()) {
+            return;
+        }
+        List<Long> ids = counts.stream().map(CountSync::contentId).toList();
+        Map<Long, ContentDoc> docById = StreamSupport
+                .stream(contentDocRepository.findAllById(ids).spliterator(), false)
+                .collect(Collectors.toMap(ContentDoc::getId, d -> d, (a, b) -> a));
+        List<ContentDoc> updated = new ArrayList<>();
+        for (CountSync c : counts) {
+            ContentDoc doc = docById.get(c.contentId());
+            if (doc == null) {
+                continue;
+            }
+            doc.setPlayCount(c.playCount());
+            doc.setLikeCount(c.likeCount());
+            updated.add(doc);
+        }
+        contentDocRepository.saveAll(updated);
     }
 
     @Override
