@@ -1,12 +1,12 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.RefTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
+import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -24,18 +24,13 @@ import org.springframework.stereotype.Component;
         maxReconsumeTimes = 3)
 public class PublishCommentListener implements RocketMQListener<CommentMessage> {
 
-    private final IUserNotificationService userNotificationService;
-    private final PushFanoutPublisher pushFanoutPublisher;
+    private final NotificationPublisher notificationPublisher;
 
     @Override
     public void onMessage(CommentMessage message) {
         log.info("收到发布评论消息: {}", message);
-        // 保存到数据库
-        UserNotification userNotification = getUserNotification(message);
-        userNotificationService.save(userNotification);
-
-        // 通知已落库, 实时侧只发门铃信号, 前端拉取后弹 toast
-        pushFanoutPublisher.pushSseSignal(message.getReceiverId(), "NOTIFY_DIRTY");
+        // 落库 + 门铃由门面收口, 失败降级不影响消息消费
+        notificationPublisher.publish(getUserNotification(message));
     }
 
     private static @NonNull UserNotification getUserNotification(CommentMessage message) {

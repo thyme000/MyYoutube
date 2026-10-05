@@ -14,6 +14,7 @@ import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
+import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
@@ -57,6 +58,7 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
     private final S3StorageUtil storageUtil;
     private final CounterBuffer counterBuffer;
     private final IUserNotificationService userNotificationService;
+    private final NotificationPublisher notificationPublisher;
     private final PushFanoutPublisher pushFanoutPublisher;
 
     @Override
@@ -89,20 +91,15 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
 
             return;
         }
-        try {
-            UserNotification notification = new UserNotification();
-            notification.setReceiverId(authorId);
-            notification.setSenderId(userId);
-            notification.setType(NotificationTypeEnum.CONTENT_COLLECT.getCode());
-            notification.setRefType(content.getType() == ContentTypeEnum.DYNAMIC
-                    ? RefTypeEnum.DYNAMIC.getCode() : RefTypeEnum.VIDEO.getCode());
-            notification.setRefId(content.getId());
-            userNotificationService.save(notification);
-            pushFanoutPublisher.pushSseSignal(authorId, "NOTIFY_DIRTY");
-        } catch (Exception e) {
-
-            // 通知失败不影响收藏主流程
-        }
+        // 落库 + 门铃与降级语义都在门面里, 这里不再自包 try/catch
+        UserNotification notification = new UserNotification();
+        notification.setReceiverId(authorId);
+        notification.setSenderId(userId);
+        notification.setType(NotificationTypeEnum.CONTENT_COLLECT.getCode());
+        notification.setRefType(content.getType() == ContentTypeEnum.DYNAMIC
+                ? RefTypeEnum.DYNAMIC.getCode() : RefTypeEnum.VIDEO.getCode());
+        notification.setRefId(content.getId());
+        notificationPublisher.publish(notification);
     }
 
     @Override

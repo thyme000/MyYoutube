@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
+import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.video.api.NotificationPort;
 import cn.diaojiahong.myyoutube.video.api.VideoInternalPort;
@@ -47,7 +48,7 @@ public class InternalVideoController {
     private final CounterBuffer counterBuffer;
     private final ObjectMapper objectMapper;
     private final IUserFollowService userFollowService;
-    private final IUserNotificationService userNotificationService;
+    private final NotificationPublisher notificationPublisher;
     private final IUserTagPreferenceService userTagPreferenceService;
 
     @GetMapping("/video/forward-info/{videoId}")
@@ -135,6 +136,7 @@ public class InternalVideoController {
         n.setRefType(create.getRefType());
         n.setRefId(create.getRefId());
         n.setExtraJson(create.getExtraJson());
-        userNotificationService.save(n);
+        // chat 经 Feign 进来的通知同样补门铃(原先只落库, chat 侧自行补发, 现统一收口)
+        notificationPublisher.publish(n);
     }
 }

@@ -4,10 +4,10 @@ import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
-import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
+import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,8 +26,7 @@ import org.springframework.stereotype.Component;
 public class LikeCommentListener implements RocketMQListener<LikeCommentMessage> {
 
     private final IContentCommentService videoCommentService;
-    private final IUserNotificationService userNotificationService;
-    private final PushFanoutPublisher pushFanoutPublisher;
+    private final NotificationPublisher notificationPublisher;
 
     /**
      * 推送点赞评论通知
@@ -45,14 +44,12 @@ public class LikeCommentListener implements RocketMQListener<LikeCommentMessage>
         // 获取发布被赞评论的用户id
         Long likedUserId = one.getUserId();
 
-        // 保存点赞评论通知
+        // 落库 + 门铃由门面收口
         UserNotification userNotification = new UserNotification();
         userNotification.setSenderId(lc.getSenderId());
         userNotification.setType(NotificationTypeEnum.COMMENT_LIKE.getCode());
         userNotification.setReceiverId(likedUserId);
         userNotification.setRefId(lc.getCommentId());
-        userNotificationService.save(userNotification);
-        // 通知已落库, 实时侧只发门铃信号, 前端拉取后弹 toast
-        pushFanoutPublisher.pushSseSignal(likedUserId, "NOTIFY_DIRTY");
+        notificationPublisher.publish(userNotification);
     }
 }

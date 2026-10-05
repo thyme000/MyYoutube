@@ -3,7 +3,6 @@ package cn.diaojiahong.myyoutube.mq.listener;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
 import cn.diaojiahong.myyoutube.video.api.NotificationPort;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
@@ -28,7 +27,6 @@ public class ChatConversationListener implements RocketMQListener<GroupDeletedMe
 
     private final ChatConversationService chatConversationService;
     private final NotificationPort notificationPort;
-    private final PushFanoutPublisher pushFanoutPublisher;
 
     @Override
     public void onMessage(GroupDeletedMessage message) {
@@ -49,8 +47,7 @@ public class ChatConversationListener implements RocketMQListener<GroupDeletedMe
                     memberId, null, NotificationTypeEnum.CHAT_NOTICE.getCode(),
                     "群:" + conversation.getName() + "已解散",
                     RefTypeEnum.CHAT.getCode(), null, conversationId));
-            // 通知已落库, 实时侧只发门铃信号, 前端拉取后弹 toast
-            pushFanoutPublisher.pushSseSignal(memberId, "NOTIFY_DIRTY");
+            // 门铃由 video 端 NotificationPublisher 统一发, 这里不再自补
         }
     }
 }
