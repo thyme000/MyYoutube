@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.mybatis.OwnershipUpdate;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.transcode.api.TranscodePort;
@@ -313,15 +314,8 @@ public class DynamicServiceImpl implements IDynamicService {
     @Transactional
     public void deleteDynamic(Long id) {
         Long userId = getUserId();
-        boolean success = dynamicMapper.update(null,
-                new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Dynamic>()
-                        .eq(Dynamic::getId, id)
-                        .eq(Dynamic::getUserId, userId)
-                        .set(Dynamic::getIsDelete, 1)) > 0;
-        if (!success) {
-
-            throw new BizException(BizException.BIZ_ERROR, "删除失败,请稍后再试");
-        }
+        OwnershipUpdate.updateOrFail(dynamicMapper, Dynamic::getId, id, Dynamic::getUserId, userId,
+                w -> w.set(Dynamic::getIsDelete, 1), "删除失败,请稍后再试");
         // content 池无删除标记, 不同步摘除的话池分发与创作中心会把已删动态查回来
         contentService.removeById(id);
         // ES 尽力删除, 失败不影响 DB 删除
@@ -352,15 +346,8 @@ public class DynamicServiceImpl implements IDynamicService {
 
             throw new BizException(BizException.BIZ_ERROR, "动态不存在");
         }
-        boolean success = dynamicMapper.update(null,
-                new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Dynamic>()
-                        .eq(Dynamic::getId, id)
-                        .eq(Dynamic::getUserId, userId)
-                        .set(Dynamic::getVisibility, visibility)) > 0;
-        if (!success) {
-
-            throw new BizException(BizException.BIZ_ERROR, "修改失败");
-        }
+        OwnershipUpdate.updateOrFail(dynamicMapper, Dynamic::getId, id, Dynamic::getUserId, userId,
+                w -> w.set(Dynamic::getVisibility, visibility), "修改失败");
         // content 池随领域状态机同步
         contentService.lambdaUpdate()
                 .eq(Content::getId, id)
@@ -397,16 +384,8 @@ public class DynamicServiceImpl implements IDynamicService {
     private void switchComment(Long id, int allow) {
 
         Long userId = getUserId();
-        boolean success = dynamicMapper.update(null,
-                new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Dynamic>()
-                        .eq(Dynamic::getId, id)
-                        .eq(Dynamic::getUserId, userId)
-                        .set(Dynamic::getAllowComment, allow)) > 0;
-        if (!success) {
-
-            throw new BizException(BizException.BIZ_ERROR, "修改失败");
-        }
-        return;
+        OwnershipUpdate.updateOrFail(dynamicMapper, Dynamic::getId, id, Dynamic::getUserId, userId,
+                w -> w.set(Dynamic::getAllowComment, allow), "修改失败");
     }
 
     private DynamicDownloadVO toDownloadVO(TranscodeTaskVO task) {
