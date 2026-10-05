@@ -66,5 +66,17 @@
 			<groupId>org.redisson</groupId>
 			<artifactId>redisson</artifactId>
 		</dependency>
+		<!--EsSyncPublisher 等 MQ 生产门面在 common 收口拓扑, 生产者随 common 全局可用-->
+		<dependency>
+			<groupId>org.apache.rocketmq</groupId>
+			<artifactId>rocketmq-spring-boot-starter</artifactId>
+			<version>2.3.6</version>
+		</dependency>
+		<!--鉴权常量单点(头名/Redis key 前缀), 网关与 common 各自引用同一份-->
+		<dependency>
+			<groupId>cn.diaojiahong</groupId>
+			<artifactId>my-youtube-security</artifactId>
+			<version>${project.version}</version>
+		</dependency>
 	</dependencies>
 </project>
