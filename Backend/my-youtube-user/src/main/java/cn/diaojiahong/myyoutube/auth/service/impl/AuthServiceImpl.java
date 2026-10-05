@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
@@ -107,8 +108,9 @@ public class AuthServiceImpl implements IAuthService {
 
     private void saveRefreshToken(String refreshToken, Long userId) {
         String key = RedisConstants.USER_REFRESH_TOKEN + refreshToken;
-        redisTemplate.opsForValue().set(key, userId + ":" + System.currentTimeMillis());
-        redisTemplate.expire(key, RedisConstants.USER_REFRESH_TOKEN_EXPIRE, TimeUnit.HOURS);
+        // set 带 TTL 一步到位, 先 set 后 expire 中间崩溃会留下永不过期的凭证
+        redisTemplate.opsForValue().set(key, userId + ":" + System.currentTimeMillis(),
+                RedisConstants.USER_REFRESH_TOKEN_EXPIRE, TimeUnit.HOURS);
     }
 
     @Override
@@ -136,17 +138,18 @@ public class AuthServiceImpl implements IAuthService {
         String phone = registerRequestDTO.getPhone().trim();
         String email = registerRequestDTO.getEmail().trim();
 
-        // 用户名唯一性校验
-        if (userService.lambdaQuery().eq(User::getUsername, username).exists()) {
-            throw new BizException(BizException.BIZ_ERROR, "用户名已存在!");
-        }
-        // 手机号唯一性校验
-        if (userService.lambdaQuery().eq(User::getPhone, phone).exists()) {
-            throw new BizException(BizException.BIZ_ERROR, "手机号已被注册!");
-        }
-        // 邮箱唯一性校验
-        if (userService.lambdaQuery().eq(User::getEmail, email).exists()) {
-            throw new BizException(BizException.BIZ_ERROR, "邮箱已被注册!");
+        // 唯一性校验: 一次查询覆盖三列; check-then-insert 的并发窗口由 DB 唯一索引兜底
+        User conflict = userService.lambdaQuery()
+                .eq(User::getUsername, username)
+                .or().eq(User::getPhone, phone)
+                .or().eq(User::getEmail, email)
+                .last("LIMIT 1")
+                .one();
+        if (conflict != null) {
+            String reason = username.equals(conflict.getUsername()) ? "用户名已存在!"
+                    : phone.equals(conflict.getPhone()) ? "手机号已被注册!"
+                    : "邮箱已被注册!";
+            throw new BizException(BizException.BIZ_ERROR, reason);
         }
 
         registerRequestDTO.setUsername(username);
@@ -162,7 +165,12 @@ public class AuthServiceImpl implements IAuthService {
         user.setVideoCount(0L);
         user.setLikeCount(0L);
         user.setIntroduction("");
-        userService.save(user);
+        try {
+            userService.save(user);
+        } catch (DuplicateKeyException e) {
+            // 并发注册撞 uk_username/uk_phone/uk_email
+            throw new BizException(BizException.BIZ_ERROR, "用户名或手机号或邮箱已被注册!");
+        }
 
         // 发送消息,用于创建/更新用户ES文档
         rocketMQTemplate.syncSend(
@@ -195,9 +203,11 @@ public class AuthServiceImpl implements IAuthService {
         userService.updateById(user);
 
         // 作废该用户改密码前签发的所有 access/refresh
+        // TTL 取 refresh 的 7d: 改密前签发的 token 最长活 7d, 过后 token-ver 本身也没有存在意义
         redisTemplate.opsForValue().set(
                 RedisConstants.USER_TOKEN_VER + user.getId(),
-                String.valueOf(System.currentTimeMillis()));
+                String.valueOf(System.currentTimeMillis()),
+                RedisConstants.USER_REFRESH_TOKEN_EXPIRE, TimeUnit.HOURS);
 
         log.info("用户 [{}] 重置密码成功", forgetPasswordDTO.getUsername());
         return;

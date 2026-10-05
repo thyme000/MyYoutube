@@ -26,7 +26,10 @@ CREATE TABLE IF NOT EXISTS `user` (
     `update_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `is_delete`       TINYINT      NOT NULL DEFAULT 0 COMMENT '0正常 1已删除',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_username` (`username`)
+    UNIQUE KEY `uk_username` (`username`),
+    -- 注册并发下 check-then-insert 的竞态由 DB 兜底; phone/email 可空, MySQL 唯一索引放行多个 NULL
+    UNIQUE KEY `uk_phone` (`phone`),
+    UNIQUE KEY `uk_email` (`email`)
 ) ENGINE=InnoDB COMMENT='用户';
 
 -- 初始用户, 密码明文: password (BCrypt)
