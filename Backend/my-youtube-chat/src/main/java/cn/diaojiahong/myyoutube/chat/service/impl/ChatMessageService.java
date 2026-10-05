@@ -4,7 +4,6 @@ import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageWithdrawDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.MessageListPageQuery;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ack.ChatMessageAckDTO;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.MessageStatusEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
@@ -13,6 +12,8 @@ import cn.diaojiahong.myyoutube.chat.mongo.vo.FindRecordVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePage;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePageVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
+import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategy;
+import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -61,6 +62,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private final StringRedisTemplate redisTemplate;
     private final FollowPort followPort;
     private final VideoInternalPort videoInternalPort;
+    private final ChatContentTypeStrategyRegistry contentTypeStrategies;
     public ChatMessageService(MongoTemplate mongoTemplate,
                               ChatConversationService chatConversationService,
                               RocketMQTemplate rocketMQTemplate,
@@ -68,7 +70,8 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                               S3StorageUtil storageUtil,
                               StringRedisTemplate redisTemplate,
                               FollowPort followPort,
-                              VideoInternalPort videoInternalPort) {
+                              VideoInternalPort videoInternalPort,
+                              ChatContentTypeStrategyRegistry contentTypeStrategies) {
         super(mongoTemplate, ChatMessageDoc.class);
         this.chatConversationService = chatConversationService;
         this.rocketMQTemplate = rocketMQTemplate;
@@ -77,6 +80,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         this.redisTemplate = redisTemplate;
         this.followPort = followPort;
         this.videoInternalPort = videoInternalPort;
+        this.contentTypeStrategies = contentTypeStrategies;
     }
 
     public Optional<ChatMessageDoc> findByIdempotent(Long senderId, String clientMsgId) {
@@ -173,32 +177,9 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         ChatMessageDoc chatMessageDoc = BeanUtil.toBean(chatMessageDTO, ChatMessageDoc.class);
         chatMessageDoc.setCreatedAt(LocalDateTime.now());
         chatMessageDoc.setStatus(MessageStatusEnum.SENT);
-        if (chatMessageDoc.getContentType() == ChatContentTypeEnum.FORWARD_VIDEO) {
-            Long forwardVideoId = chatMessageDoc.getContent().getForwardVideoId();
-            VideoInternalPort.ForwardVideoInfo video = videoInternalPort.getForwardVideo(forwardVideoId);
-            if (video == null) {
-                throw new BizException(BizException.MESSAGE_ERROR, "视频不存在");
-            }
-            ChatContent chatContent = new ChatContent();
-            chatContent.setForwardVideoCoverObjectKey(video.getCoverUrl());
-            chatContent.setForwardVideoId(forwardVideoId);
-            chatContent.setForwardVideoTitle(video.getTitle());
-            chatMessageDoc.setContent(chatContent);
-        } else if (chatMessageDoc.getContentType() == ChatContentTypeEnum.FORWARD_DYNAMIC) {
-            Long forwardDynamicId = chatMessageDoc.getContent().getForwardDynamicId();
-            VideoInternalPort.ForwardDynamicInfo dynamic = videoInternalPort.getForwardDynamic(forwardDynamicId);
-            if (dynamic == null) {
-                throw new BizException(BizException.MESSAGE_ERROR, "动态不存在");
-            }
-            // 快照标题与首帧, 与转发视频同一套不可变卡片语义
-            ChatContent chatContent = new ChatContent();
-            chatContent.setForwardDynamicCoverObjectKey(dynamic.getCoverObjectKey());
-            chatContent.setForwardDynamicId(forwardDynamicId);
-            chatContent.setForwardDynamicTitle(dynamic.getTitle());
-            chatMessageDoc.setContent(chatContent);
-        } else {
-            chatMessageDoc.setContent(chatMessageDTO.getContent());
-        }
+        // 转发类由策略查远端固化快照, 其余类型原样透传
+        chatMessageDoc.setContent(contentTypeStrategies.get(chatMessageDoc.getContentType())
+                .snapshot(chatMessageDTO.getContent()));
         chatMessageDoc.setSeq(nextSeq(conversationId));
         mongoTemplate.save(chatMessageDoc, "chat_messages");
         if (chatConversationDoc.getType().equals(ConversationTypeEnum.SINGLE)) {
@@ -223,14 +204,10 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         chatConversationDoc.setLastMessageAt(chatMessageDoc.getCreatedAt());
         chatConversationDoc.setLastMessageId(chatMessageDoc.getId());
         chatConversationDoc.setIsLastMessageRecall(false);
-        if (chatMessageDoc.getContentType().isMedia()) {
-            chatConversationDoc.setLastMessagePreview("[媒体文件]");
-        } else if (chatMessageDoc.getContentType().isText()) {
-            chatConversationDoc.setLastMessagePreview(chatMessageDoc.getContent().getText());
-        } else if (chatMessageDoc.getContentType() == ChatContentTypeEnum.FORWARD_VIDEO) {
-            chatConversationDoc.setLastMessagePreview("[转发视频]");
-        } else if (chatMessageDoc.getContentType() == ChatContentTypeEnum.FORWARD_DYNAMIC) {
-            chatConversationDoc.setLastMessagePreview("[转发动态]");
+        // 系统消息等无预览类型不动 lastMessagePreview, 保留上一条媒体消息的预览
+        String preview = contentTypeStrategies.get(chatMessageDoc.getContentType()).previewLabel(chatMessageDoc.getContent());
+        if (preview != null) {
+            chatConversationDoc.setLastMessagePreview(preview);
         }
         if (chatConversationDoc.getType().equals(ConversationTypeEnum.GROUP)) {
             chatConversationDoc.setLastMessageSenderNickname(userPort.getUser(Long.valueOf(userId)).getNickname());
@@ -333,39 +310,11 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     }
 
     private void validateByType(ChatMessageDTO dto) {
-        ChatContent c = dto.getContent();
-        switch (dto.getContentType()) {
-            case TEXT -> {
-                if (c.getText() == null || c.getText().isBlank()) {
-                    throw new BizException(BizException.MESSAGE_ERROR, "文本消息text不能为空");
-                }
-            }
-            case IMAGE, FILE -> {
-                if (c.getObjectKey() == null || c.getObjectKey().isBlank()
-                        || c.getMimeType() == null || c.getMimeType().isBlank()
-                        || c.getSize() == null || c.getSize() <= 0) {
-                    throw new BizException(BizException.MESSAGE_ERROR, "媒体消息字段不完整");
-                }
-            }
-            case SYSTEM -> {
-                if (c.getSystemText() == null || c.getSystemText().isBlank()) {
-                    throw new BizException(BizException.MESSAGE_ERROR, "系统消息内容不能为空");
-                }
-            }
-            case FORWARD_VIDEO -> {
-                if (c.getForwardVideoId() == null) {
-                    throw new BizException(BizException.MESSAGE_ERROR, "转发视频id不能为空");
-                }
-            }
-            case FORWARD_DYNAMIC -> {
-                if (c.getForwardDynamicId() == null) {
-                    throw new BizException(BizException.MESSAGE_ERROR, "转发动态id不能为空");
-                }
-            }
-            default -> {
-                throw new BizException(BizException.MESSAGE_ERROR, "消息类型错误");
-            }
+        ChatContentTypeStrategy strategy = contentTypeStrategies.get(dto.getContentType());
+        if (strategy == null) {
+            throw new BizException(BizException.MESSAGE_ERROR, "消息类型错误");
         }
+        strategy.validate(dto.getContent());
     }
 
     public MessagePageVO getMessageList(String conversationId, MessageListPageQuery messageListPageQuery) {
@@ -394,18 +343,9 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             vo.setSenderNickName(authorNicknames.get(doc.getSenderId()));
             vo.setSenderAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(doc.getSenderId()), STORAGE_EXPIRE));
             vo.setContentType(doc.getContentType());
-            if (vo.getContentType() == ChatContentTypeEnum.FILE || vo.getContentType() == ChatContentTypeEnum.IMAGE) {
-                if (doc.getContent().getObjectKey() != null && !doc.getContent().getObjectKey().isBlank()) {
-                    doc.getContent().setObjectKey(storageUtil.signGetUrl(doc.getContent().getObjectKey(), STORAGE_EXPIRE));
-                }
-            } else if (vo.getContentType() == ChatContentTypeEnum.FORWARD_VIDEO) {
-                if (doc.getContent().getForwardVideoCoverObjectKey() != null && !doc.getContent().getForwardVideoCoverObjectKey().isBlank()) {
-                    doc.getContent().setForwardVideoCoverObjectKey(storageUtil.signGetUrl(doc.getContent().getForwardVideoCoverObjectKey(), STORAGE_EXPIRE));
-                }
-            } else if (vo.getContentType() == ChatContentTypeEnum.FORWARD_DYNAMIC) {
-                if (doc.getContent().getForwardDynamicCoverObjectKey() != null && !doc.getContent().getForwardDynamicCoverObjectKey().isBlank()) {
-                    doc.getContent().setForwardDynamicCoverObjectKey(storageUtil.signGetUrl(doc.getContent().getForwardDynamicCoverObjectKey(), STORAGE_EXPIRE));
-                }
+            ChatContentTypeStrategy contentTypeStrategy = contentTypeStrategies.get(doc.getContentType());
+            if (contentTypeStrategy != null) {
+                contentTypeStrategy.signUrls(doc.getContent(), STORAGE_EXPIRE);
             }
             vo.setContent(doc.getContent());
             vo.setMessageId(doc.getId());
@@ -548,24 +488,11 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             vo.setSenderNickname(nickMap.get(doc.getSenderId()));
             vo.setSenderAvatarUrl(storageUtil.signGetUrl(avMap.get(doc.getSenderId()), STORAGE_EXPIRE));
             ChatContent content = doc.getContent();
-            if (content != null
-                    && (doc.getContentType() == ChatContentTypeEnum.FILE || doc.getContentType() == ChatContentTypeEnum.IMAGE)
-                    && content.getObjectKey() != null) {
-                content.setObjectKey(storageUtil.signGetUrl(content.getObjectKey(), STORAGE_EXPIRE));
-                vo.setContent(content);
-            } else if (content != null && doc.getContentType() == ChatContentTypeEnum.FORWARD_VIDEO) {
-                if (content.getForwardVideoCoverObjectKey() != null && !content.getForwardVideoCoverObjectKey().isBlank()) {
-                    content.setForwardVideoCoverObjectKey(storageUtil.signGetUrl(content.getForwardVideoCoverObjectKey(), STORAGE_EXPIRE));
-                }
-                vo.setContent(content);
-            } else if (content != null && doc.getContentType() == ChatContentTypeEnum.FORWARD_DYNAMIC) {
-                if (content.getForwardDynamicCoverObjectKey() != null && !content.getForwardDynamicCoverObjectKey().isBlank()) {
-                    content.setForwardDynamicCoverObjectKey(storageUtil.signGetUrl(content.getForwardDynamicCoverObjectKey(), STORAGE_EXPIRE));
-                }
-                vo.setContent(content);
-            } else {
-                vo.setContent(content);
+            ChatContentTypeStrategy contentTypeStrategy = contentTypeStrategies.get(doc.getContentType());
+            if (content != null && contentTypeStrategy != null) {
+                contentTypeStrategy.signUrls(content, STORAGE_EXPIRE);
             }
+            vo.setContent(content);
             list.add(vo);
         }
         return PageResult.of(total, pages, list);
