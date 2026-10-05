@@ -1,9 +1,9 @@
 package cn.diaojiahong.myyoutube.gateway.filter;
 
 import cn.diaojiahong.myyoutube.gateway.auth.AuthContext;
-import cn.diaojiahong.myyoutube.gateway.auth.AuthStep;
-import cn.diaojiahong.myyoutube.gateway.auth.TicketAuthStep;
+import cn.diaojiahong.myyoutube.gateway.auth.GatewayAuthChain;
 import cn.diaojiahong.myyoutube.security.AuthConstants;
+import cn.diaojiahong.myyoutube.security.chain.ChainStepRegistry;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -15,7 +15,6 @@ import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.util.UriComponentsBuilder;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
@@ -24,8 +23,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 网关统一鉴权的编排器: 只做请求分类与决策落地, 判定逻辑全部在 {@link AuthStep} 责任链上
- * (白名单 → 连接票 → Bearer 验签 → 作废校验, 按 @Order 依次执行, 见决策即短路)。
+ * 网关统一鉴权的编排器: 只做请求分类与决策落地, 判定逻辑全部在鉴权步骤链上
+ * (白名单 → 连接票 → Bearer 验签 → 作废校验, 通用链见 security.chain.ChainStepRegistry, 见决策即短路)。
  * 通过后把 userId 透传给下游服务(X-User-Id 头), 配置了内部密钥时附带 X-Internal-Token;
  * 凭证验完即从 query 剥掉换头转发, 下游链路不出现明文凭证。
  */
@@ -38,13 +37,13 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
     /** 长连接(聊天 WS / SSE 门铃)前缀 */
     private static final List<String> CONNECTION_PREFIXES = List.of("/ws/", "/sse/");
 
-    private final List<AuthStep> steps;
+    private final ChainStepRegistry chainRegistry;
     private final String internalToken;
 
-    public GatewayAuthFilter(List<AuthStep> steps,
+    public GatewayAuthFilter(ChainStepRegistry chainRegistry,
                              @org.springframework.beans.factory.annotation.Value("${jwt.secret}") String jwtSecret,
                              @org.springframework.beans.factory.annotation.Value("${my-youtube.internal-token:}") String internalToken) {
-        this.steps = steps;
+        this.chainRegistry = chainRegistry;
         this.internalToken = internalToken;
         cn.diaojiahong.myyoutube.security.JwtUtil.init(jwtSecret);
     }
@@ -55,8 +54,7 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
         boolean connectionPath = CONNECTION_PREFIXES.stream().anyMatch(path::startsWith);
         AuthContext ctx = AuthContext.initial(exchange, path, connectionPath);
 
-        return Flux.fromIterable(steps)
-                .concatMap(step -> ctx.decided() ? Mono.empty() : step.apply(ctx))
+        return chainRegistry.execute(GatewayAuthChain.GROUP, ctx, AuthContext::decided)
                 // 决策要等链跑完才成立, 必须 defer: then 的参数会立即求值, 直接调用会在组装期就把 401 写进响应
                 .then(Mono.defer(() -> applyDecision(exchange, chain, ctx)));
     }

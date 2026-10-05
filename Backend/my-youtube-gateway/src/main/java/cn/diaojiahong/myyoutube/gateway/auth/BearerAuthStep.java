@@ -1,9 +1,10 @@
 package cn.diaojiahong.myyoutube.gateway.auth;
 
+import cn.diaojiahong.myyoutube.security.chain.ChainStep;
+
 import cn.diaojiahong.myyoutube.security.AuthConstants;
 import cn.diaojiahong.myyoutube.security.JwtPayload;
 import cn.diaojiahong.myyoutube.security.JwtUtil;
-import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -11,9 +12,18 @@ import reactor.core.publisher.Mono;
  * Bearer 验签步: 本地验签 access JWT(不查 token 表), 通过后载荷暂存上下文,
  * 作废校验交给 TokenVerAuthStep。无 Bearer 头则交给下一步(最终无凭证统一 401)。
  */
-@Order(20)
 @Component
-public class BearerAuthStep implements AuthStep {
+public class BearerAuthStep implements ChainStep<AuthContext> {
+
+    @Override
+    public String group() {
+        return GatewayAuthChain.GROUP;
+    }
+
+    @Override
+    public int order() {
+        return 20;
+    }
 
     @Override
     public Mono<Void> apply(AuthContext ctx) {

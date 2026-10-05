@@ -1,7 +1,8 @@
 package cn.diaojiahong.myyoutube.gateway.auth;
 
+import cn.diaojiahong.myyoutube.security.chain.ChainStep;
+
 import cn.diaojiahong.myyoutube.security.AuthConstants;
-import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
@@ -11,9 +12,8 @@ import reactor.core.publisher.Mono;
  * (chat 的 /chat/push/ticket 端点以 Bearer 换取, 票签发时已过 Bearer 鉴权)。
  * GETDEL 原子消费保证一票一用; 票不存在/已被消费按拒绝处理。
  */
-@Order(10)
 @Component
-public class TicketAuthStep implements AuthStep {
+public class TicketAuthStep implements ChainStep<AuthContext> {
 
     private static final String TICKET_QUERY_PARAM = "ticket";
 
@@ -21,6 +21,16 @@ public class TicketAuthStep implements AuthStep {
 
     public TicketAuthStep(ReactiveStringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
+    }
+
+    @Override
+    public String group() {
+        return GatewayAuthChain.GROUP;
+    }
+
+    @Override
+    public int order() {
+        return 10;
     }
 
     @Override

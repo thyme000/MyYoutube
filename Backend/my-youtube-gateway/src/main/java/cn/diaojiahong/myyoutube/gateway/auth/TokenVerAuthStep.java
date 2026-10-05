@@ -1,7 +1,8 @@
 package cn.diaojiahong.myyoutube.gateway.auth;
 
+import cn.diaojiahong.myyoutube.security.chain.ChainStep;
+
 import cn.diaojiahong.myyoutube.security.AuthConstants;
-import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
@@ -10,14 +11,23 @@ import reactor.core.publisher.Mono;
  * 作废校验步: 签发时间早于 token-ver 时间戳的 access token 立即失效(改密/封号)。
  * 只在 Bearer 步验签通过后执行; 时间戳脏数据按拒绝处理(fail-closed), 不许 500。
  */
-@Order(30)
 @Component
-public class TokenVerAuthStep implements AuthStep {
+public class TokenVerAuthStep implements ChainStep<AuthContext> {
 
     private final ReactiveStringRedisTemplate redisTemplate;
 
     public TokenVerAuthStep(ReactiveStringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
+    }
+
+    @Override
+    public String group() {
+        return GatewayAuthChain.GROUP;
+    }
+
+    @Override
+    public int order() {
+        return 30;
     }
 
     @Override
