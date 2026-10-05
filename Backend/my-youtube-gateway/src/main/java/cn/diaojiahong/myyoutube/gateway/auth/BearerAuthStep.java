@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.gateway.auth;
 
-import cn.diaojiahong.myyoutube.security.chain.ChainStep;
+import cn.diaojiahong.myyoutube.common.chain.ChainStep;
 
 import cn.diaojiahong.myyoutube.security.AuthConstants;
 import cn.diaojiahong.myyoutube.security.JwtPayload;

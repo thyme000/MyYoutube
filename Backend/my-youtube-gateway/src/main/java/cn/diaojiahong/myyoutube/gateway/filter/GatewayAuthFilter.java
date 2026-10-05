@@ -3,7 +3,7 @@ package cn.diaojiahong.myyoutube.gateway.filter;
 import cn.diaojiahong.myyoutube.gateway.auth.AuthContext;
 import cn.diaojiahong.myyoutube.gateway.auth.GatewayAuthChain;
 import cn.diaojiahong.myyoutube.security.AuthConstants;
-import cn.diaojiahong.myyoutube.security.chain.ChainStepRegistry;
+import cn.diaojiahong.myyoutube.common.chain.ChainStepRegistry;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;

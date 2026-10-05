@@ -72,6 +72,11 @@
 			<artifactId>rocketmq-spring-boot-starter</artifactId>
 			<version>2.3.6</version>
 		</dependency>
+		<!--通用责任链步骤签名是响应式的(网关 WebFlux 是首个使用方), 版本由 spring-boot parent 托管-->
+		<dependency>
+			<groupId>io.projectreactor</groupId>
+			<artifactId>reactor-core</artifactId>
+		</dependency>
 		<!--鉴权常量单点(头名/Redis key 前缀), 网关与 common 各自引用同一份-->
 		<dependency>
 			<groupId>cn.diaojiahong</groupId>

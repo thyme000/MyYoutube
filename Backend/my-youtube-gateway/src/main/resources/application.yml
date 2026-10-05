@@ -1,5 +1,15 @@
 # 网关不依赖 common 模块(servlet 栈), 共享配置无法 import, 自带以下键
 spring:
+  main:
+    # common 依赖带 starter-web(servlet 栈), 不显式声明 Boot 会把网关起成 Servlet 应用, GlobalFilter 全失效
+    web-application-type: reactive
+  autoconfigure:
+    # common 传递进来的 JDBC/MyBatis/RocketMQ 自动装配与网关无关, 显式排除防误启
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+      - com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration
+      - org.apache.rocketmq.spring.autoconfigure.RocketMQAutoConfiguration
   config:
     import: optional:classpath:application-local.yml
   application:

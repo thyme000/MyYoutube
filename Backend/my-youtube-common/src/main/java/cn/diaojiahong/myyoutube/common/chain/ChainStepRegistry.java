@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.security.chain;
+package cn.diaojiahong.myyoutube.common.chain;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;

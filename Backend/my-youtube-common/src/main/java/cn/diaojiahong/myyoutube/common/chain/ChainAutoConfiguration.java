@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.security.chain;
+package cn.diaojiahong.myyoutube.common.chain;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.context.annotation.Bean;
