@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.user.port;
 
+import cn.diaojiahong.myyoutube.common.counter.AbstractCounterTarget;
 import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
 import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
@@ -8,7 +9,6 @@ import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
-import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -54,17 +54,9 @@ public class UserPortAdapter implements UserPort {
         }
     }
 
-    /** 低频计数(发布数等)不值得缓冲, 直接落库 */
+    /** 低频计数(发布数等)不值得缓冲, 直接落库(负值护底规则与计数目标共用一份) */
     private void adjustOne(CounterAdjust a, SFunction<User, ?> column) {
-        LambdaUpdateChainWrapper<User> w = new LambdaUpdateChainWrapper<>(userService.getBaseMapper())
-                .eq(User::getId, a.getUserId());
-        int delta = Math.abs(a.getDelta());
-        if (a.getDelta() < 0) {
-            w.ge(column, delta).setDecrBy(column, delta);
-        } else {
-            w.setIncrBy(column, delta);
-        }
-        w.update();
+        AbstractCounterTarget.guardedDelta(userService, User::getId, a.getUserId(), column, a.getDelta());
     }
 
     private static UserSummary toSummary(User user) {
