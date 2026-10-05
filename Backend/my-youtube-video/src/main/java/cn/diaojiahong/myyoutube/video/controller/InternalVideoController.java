@@ -59,7 +59,8 @@ public class InternalVideoController {
         return new VideoInternalPort.ForwardVideoInfo(video.getId(), video.getTitle(), video.getCoverUrl());
     }
 
-    @GetMapping("/dynamic/forward-info/{dynamicId}")
+    // Feign 基路径是 /internal/video, 这里必须拼全 /video/dynamic/... 否则 chat 转发动态 404
+    @GetMapping("/video/dynamic/forward-info/{dynamicId}")
     public VideoInternalPort.ForwardDynamicInfo getForwardDynamic(@PathVariable Long dynamicId) {
         Dynamic dynamic = dynamicMapper.selectById(dynamicId);
         if (dynamic == null || Integer.valueOf(1).equals(dynamic.getIsDelete())) {
