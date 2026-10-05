@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service;
 
-import cn.diaojiahong.myyoutube.common.mq.message.VideoCoverMessage;
+import cn.diaojiahong.myyoutube.video.domain.dto.GenerateCoverDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 
@@ -16,5 +16,5 @@ public interface IVideoPublishService {
      */
     void persistNewVideo(Video video);
 
-    String generateVideoCover(VideoCoverMessage videoCoverMessage);
+    String generateVideoCover(GenerateCoverDTO generateCoverDTO);
 }

@@ -3,7 +3,6 @@ package cn.diaojiahong.myyoutube.video.controller;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.mq.message.VideoCoverMessage;
 import cn.diaojiahong.myyoutube.video.domain.dto.*;
 import cn.diaojiahong.myyoutube.video.domain.vo.*;
 import cn.diaojiahong.myyoutube.video.service.IPlaybackService;
@@ -96,7 +95,7 @@ public class VideoController {
      */
     @Operation(summary = "自动生成视频封面")
     @PostMapping("/generate-cover")
-    public Result<String> generateCover(@RequestBody VideoCoverMessage request) {
+    public Result<String> generateCover(@RequestBody GenerateCoverDTO request) {
         return Result.success(videoPublishService.generateVideoCover(request));
     }
 

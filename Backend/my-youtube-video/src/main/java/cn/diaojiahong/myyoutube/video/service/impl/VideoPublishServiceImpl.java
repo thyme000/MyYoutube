@@ -12,6 +12,7 @@ import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.api.message.ContentDocMessage;
+import cn.diaojiahong.myyoutube.video.domain.dto.GenerateCoverDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
@@ -127,10 +128,15 @@ public class VideoPublishServiceImpl implements IVideoPublishService {
     }
 
     @Override
-    public String generateVideoCover(VideoCoverMessage videoCoverMessage) {
-        // 异步生成视频封面
-        rocketMQTemplate.syncSend(MqConstants.TOPIC_VIDEO_COVER, videoCoverMessage);
-        log.info("发送视频封面消息, 视频id: {}", videoCoverMessage.getVideoId());
+    public String generateVideoCover(GenerateCoverDTO generateCoverDTO) {
+        // userId 从登录态取, 不信客户端入参
+        VideoCoverMessage coverMsg = VideoCoverMessage.builder()
+                .videoId(generateCoverDTO.getVideoId())
+                .userId(getUserId())
+                .videoObjectKey(generateCoverDTO.getVideoObjectKey())
+                .build();
+        rocketMQTemplate.syncSend(MqConstants.TOPIC_VIDEO_COVER, coverMsg);
+        log.info("发送视频封面消息, 视频id: {}", coverMsg.getVideoId());
         return "发布成功";
     }
 
