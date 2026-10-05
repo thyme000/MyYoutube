@@ -14,15 +14,12 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategy;
+import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
-import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
-import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
-import cn.diaojiahong.myyoutube.video.service.IVideoService;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -56,9 +53,8 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
 
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
-    private final IVideoService videoService;
     private final IContentService contentService;
-    private final DynamicMapper dynamicMapper;
+    private final ContentTypeStrategyRegistry contentTypeStrategies;
     private final StringRedisTemplate redisTemplate;
     private final RocketMQTemplate rocketMQTemplate;
     private final static int STORAGE_EXPIRE = 60 * 20;
@@ -75,21 +71,12 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         if (content == null) {
 
             throw new IllegalArgumentException("内容不存在");
-        } else if (content.getType() == ContentTypeEnum.VIDEO) {
+        }
+        // 评论开关随内容类型走各自策略: 视频有开关, 动态默认可评论
+        ContentTypeStrategy contentTypeStrategy = contentTypeStrategies.get(content.getType());
+        if (contentTypeStrategy != null) {
 
-            // 评论开关是视频域的; 动态默认可评论
-            Video video = videoService.getById(content.getId());
-            if (video != null && video.getAllowComment() == 0) {
-
-                throw new IllegalArgumentException("视频不允许评论");
-            }
-        } else if (content.getType() == ContentTypeEnum.DYNAMIC) {
-
-            Dynamic dynamic = dynamicMapper.selectById(content.getId());
-            if (dynamic != null && dynamic.getAllowComment() != null && dynamic.getAllowComment() == 0) {
-
-                throw new IllegalArgumentException("动态不允许评论");
-            }
+            contentTypeStrategy.assertCommentAllowed(content.getId());
         }
         Long userId = getUserId();
         ContentComment videoComment = new ContentComment();

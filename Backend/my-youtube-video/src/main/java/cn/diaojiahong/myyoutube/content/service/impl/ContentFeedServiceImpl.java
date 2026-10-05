@@ -5,6 +5,8 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
+import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategy;
+import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.content.service.IContentFeedService;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
@@ -17,10 +19,7 @@ import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
-import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
-import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -31,6 +30,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -53,8 +54,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     private final S3StorageUtil storageUtil;
     private final RecommendPort recommendPort;
     private final VideoMapper videoMapper;
-    private final DynamicMapper dynamicMapper;
-    private final ObjectMapper objectMapper;
+    private final ContentTypeStrategyRegistry strategyRegistry;
 
     @Override
     public PageResult<ContentFeedVO> feed(Long userId, PageQuery pageQuery) {
@@ -120,28 +120,25 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         Map<Long, Content> contents = page.getRecords().stream()
                 .collect(Collectors.toMap(Content::getId, Function.identity()));
 
-        Map<Long, Video> videos = videoMapper.selectList(
-                        new LambdaQueryWrapper<Video>().in(Video::getId, ids).eq(Video::getIsDelete, 0))
-                .stream().collect(Collectors.toMap(Video::getId, Function.identity()));
-        Map<Long, Dynamic> dynamics = dynamicMapper.selectList(
-                        new LambdaQueryWrapper<Dynamic>().in(Dynamic::getId, ids).eq(Dynamic::getIsDelete, 0))
-                .stream().collect(Collectors.toMap(Dynamic::getId, Function.identity()));
-
         UserSummary author = userPort.getUser(userId);
         String nickname = author != null ? author.getNickname() : null;
         String avatarUrl = author != null ? author.getAvatarUrl() : null;
 
+        Map<Long, Object> rows = loadRowsByContent(page.getRecords());
         List<ContentFeedVO> list = new ArrayList<>(ids.size());
         for (Long id : ids) {
             Content c = contents.get(id);
-            Video v = videos.get(id);
-            Dynamic d = dynamics.get(id);
-            if (v == null && d == null) {
+            Object row = rows.get(id);
+            if (c == null || row == null) {
+                continue;
+            }
+            ContentTypeStrategy strategy = strategyRegistry.get(c.getType());
+            if (strategy == null) {
                 continue;
             }
             ContentFeedVO vo = new ContentFeedVO();
             vo.setId(String.valueOf(id));
-            vo.setType(c.getType() != null ? c.getType().getCode() : null);
+            vo.setType(strategy.type().getCode());
             vo.setLikeCount(c.getLikeCount());
             vo.setPlayCount(c.getPlayCount());
             vo.setCommentCount(c.getCommentCount());
@@ -150,25 +147,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
             vo.setAuthorId(userId);
             vo.setAuthorNickname(nickname);
             vo.setAuthorAvatarUrl(storageUtil.signGetUrl(avatarUrl, URL_SIGN_EXPIRE_SECONDS));
-            if (v != null) {
-                vo.setType("video");
-                vo.setTitle(v.getTitle());
-                vo.setDescription(v.getDescription());
-                vo.setCoverUrl(storageUtil.signGetUrl(v.getCoverUrl(), URL_SIGN_EXPIRE_SECONDS));
-                vo.setVideoUrl(storageUtil.signGetUrl(v.getVideoUrl(), URL_SIGN_EXPIRE_SECONDS));
-                vo.setDuration(v.getDuration());
-                vo.setAllowComment(v.getAllowComment());
-                vo.setStatus(v.getStatus() != null ? v.getStatus().getCode() : null);
-                vo.setVisibility(v.getVisibility() != null ? v.getVisibility().getCode() : null);
-            } else {
-                vo.setType("dynamic");
-                vo.setTitle(d.getTitle());
-                vo.setCoverUrl(storageUtil.signGetUrl(firstFrameKey(d.getTimelineJson()), URL_SIGN_EXPIRE_SECONDS));
-                vo.setTotalDurationMs(d.getTotalDurationMs());
-                vo.setAllowComment(d.getAllowComment() != null ? d.getAllowComment() : 1);
-                vo.setStatus(c.getStatus());
-                vo.setVisibility(d.getVisibility() != null ? d.getVisibility() : "public");
-            }
+            strategy.fillFeedVO(vo, c, row, true, URL_SIGN_EXPIRE_SECONDS);
             list.add(vo);
         }
         return PageResult.of(page.getTotal(), page.getPages(), list);
@@ -221,12 +200,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
      */
     private List<ContentFeedVO> buildContentFeedRows(List<Content> rows, Long viewerId, Map<Long, Boolean> followByAuthor) {
         List<Long> ids = rows.stream().map(Content::getId).toList();
-        Map<Long, Video> videos = videoMapper.selectList(
-                        new LambdaQueryWrapper<Video>().in(Video::getId, ids).eq(Video::getIsDelete, 0))
-                .stream().collect(Collectors.toMap(Video::getId, Function.identity()));
-        Map<Long, Dynamic> dynamics = dynamicMapper.selectList(
-                        new LambdaQueryWrapper<Dynamic>().in(Dynamic::getId, ids).eq(Dynamic::getIsDelete, 0))
-                .stream().collect(Collectors.toMap(Dynamic::getId, Function.identity()));
+        Map<Long, Object> rowMap = loadRowsByContent(rows);
         List<Long> authorIds = rows.stream().map(Content::getAuthorId).distinct().toList();
         List<UserSummary> authors = userPort.listByIds(authorIds);
         Map<Long, String> nicknames = UserSummaries.toNicknameMap(authors);
@@ -241,14 +215,17 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         List<ContentFeedVO> list = new ArrayList<>(rows.size());
         for (Content c : rows) {
             Long id = c.getId();
-            Video v = videos.get(id);
-            Dynamic d = dynamics.get(id);
-            if (v == null && d == null) {
+            Object row = rowMap.get(id);
+            if (row == null) {
+                continue;
+            }
+            ContentTypeStrategy strategy = strategyRegistry.get(c.getType());
+            if (strategy == null) {
                 continue;
             }
             ContentFeedVO vo = new ContentFeedVO();
             vo.setId(String.valueOf(id));
-            vo.setType(v != null ? "video" : "dynamic");
+            vo.setType(strategy.type().getCode());
             vo.setLikeCount(c.getLikeCount());
             vo.setPlayCount(c.getPlayCount());
             vo.setCommentCount(c.getCommentCount());
@@ -259,38 +236,27 @@ public class ContentFeedServiceImpl implements IContentFeedService {
             vo.setAuthorAvatarUrl(storageUtil.signGetUrl(avatars.get(c.getAuthorId()), URL_SIGN_EXPIRE_SECONDS));
             vo.setIsLike(likedIds.contains(id));
             vo.setIsFollow(Boolean.TRUE.equals(followByAuthor.get(c.getAuthorId())));
-            if (v != null) {
-                vo.setTitle(v.getTitle());
-                vo.setDescription(v.getDescription());
-                vo.setCoverUrl(storageUtil.signGetUrl(v.getCoverUrl(), URL_SIGN_EXPIRE_SECONDS));
-                vo.setVideoUrl(storageUtil.signGetUrl(v.getVideoUrl(), URL_SIGN_EXPIRE_SECONDS));
-                vo.setDuration(v.getDuration());
-                vo.setVisibility(v.getVisibility() != null ? v.getVisibility().getCode() : null);
-            } else {
-                vo.setTitle(d.getTitle());
-                vo.setCoverUrl(storageUtil.signGetUrl(firstFrameKey(d.getTimelineJson()), URL_SIGN_EXPIRE_SECONDS));
-                vo.setTotalDurationMs(d.getTotalDurationMs());
-                vo.setVisibility(d.getVisibility() != null ? d.getVisibility() : "public");
-            }
+            strategy.fillFeedVO(vo, c, row, false, URL_SIGN_EXPIRE_SECONDS);
             list.add(vo);
         }
         return list;
     }
 
-    /** 从时间轴 JSON 里取首帧图片 objectKey 作封面 */
-    private String firstFrameKey(String timelineJson) {        if (timelineJson == null) {
-            return null;
+    /** 按内容行的类型分派各策略批量取领域实体, key=contentId */
+    private Map<Long, Object> loadRowsByContent(List<Content> rows) {
+        Map<ContentTypeEnum, Set<Long>> idsByType = new EnumMap<>(ContentTypeEnum.class);
+        for (Content c : rows) {
+            idsByType.computeIfAbsent(c.getType(), k -> new HashSet<>()).add(c.getId());
         }
-        try {
-            List<Map<String, Object>> timeline = objectMapper.readValue(timelineJson,
-                    new TypeReference<List<Map<String, Object>>>() {});
-            if (!timeline.isEmpty() && timeline.get(0).get("imageObjectKey") != null) {
-                return String.valueOf(timeline.get(0).get("imageObjectKey"));
+        Map<Long, Object> rowMap = new HashMap<>();
+        for (Map.Entry<ContentTypeEnum, Set<Long>> entry : idsByType.entrySet()) {
+            ContentTypeStrategy strategy = strategyRegistry.get(entry.getKey());
+            if (strategy == null) {
+                continue;
             }
-        } catch (Exception ignored) {
-            // 时间轴解析失败时封面留空
+            rowMap.putAll(strategy.loadRows(entry.getValue()));
         }
-        return null;
+        return rowMap;
     }
 
     private void applyContentSort(LambdaQueryWrapper<Content> q, VideoSortEnum sort) {
