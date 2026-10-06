@@ -14,7 +14,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum.*;
 
@@ -29,15 +29,18 @@ public class VideoStatusServiceImpl implements IVideoStatusService {
     private final VideoMapper videoMapper;
     private final IContentService contentService;
     private final ContentDocPort contentDocPort;
+    private final TransactionTemplate transactionTemplate;
 
-    @Transactional
     @Override
     public void deleteVideo(Long videoId) {
         Long userId = getUserId();
-        OwnershipUpdate.updateOrFail(videoMapper, Video::getId, videoId, Video::getAuthorId, userId,
-                w -> w.set(Video::getIsDelete, true), "删除失败,请稍后再试");
-        // content 池无删除标记, 不同步摘除的话池分发与创作中心会把已删视频查回来
-        contentService.removeById(videoId);
+        // 事务只圈 DB 写(领域表 + content 池), ES 是慢 IO 留在提交后
+        transactionTemplate.executeWithoutResult(tx -> {
+            OwnershipUpdate.updateOrFail(videoMapper, Video::getId, videoId, Video::getAuthorId, userId,
+                    w -> w.set(Video::getIsDelete, true), "删除失败,请稍后再试");
+            // content 池无删除标记, 不同步摘除的话池分发与创作中心会把已删视频查回来
+            contentService.removeById(videoId);
+        });
         // ES 尽力删除, 失败不影响 DB 删除, 列表查询以 DB is_delete 为准
         try {
             contentDocPort.deleteDoc(videoId);

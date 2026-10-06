@@ -40,6 +40,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.time.ZoneId;
@@ -68,6 +69,7 @@ public class DynamicServiceImpl implements IDynamicService {
     private final TranscodePort transcodePort;
     private final ContentDocPort contentDocPort;
     private final SyncChainStepRegistry chainRegistry;
+    private final TransactionTemplate transactionTemplate;
 
     @Override
     @Transactional
@@ -241,13 +243,15 @@ public class DynamicServiceImpl implements IDynamicService {
     }
 
     @Override
-    @Transactional
     public void deleteDynamic(Long id) {
         Long userId = getUserId();
-        OwnershipUpdate.updateOrFail(dynamicMapper, Dynamic::getId, id, Dynamic::getUserId, userId,
-                w -> w.set(Dynamic::getIsDelete, 1), "删除失败,请稍后再试");
-        // content 池无删除标记, 不同步摘除的话池分发与创作中心会把已删动态查回来
-        contentService.removeById(id);
+        // 事务只圈 DB 写(领域表 + content 池), ES 是慢 IO 留在提交后
+        transactionTemplate.executeWithoutResult(tx -> {
+            OwnershipUpdate.updateOrFail(dynamicMapper, Dynamic::getId, id, Dynamic::getUserId, userId,
+                    w -> w.set(Dynamic::getIsDelete, 1), "删除失败,请稍后再试");
+            // content 池无删除标记, 不同步摘除的话池分发与创作中心会把已删动态查回来
+            contentService.removeById(id);
+        });
         // ES 尽力删除, 失败不影响 DB 删除
         try {
             contentDocPort.deleteDoc(id);

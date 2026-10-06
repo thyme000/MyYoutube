@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -40,8 +40,8 @@ public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorM
     private final IUserTagPreferenceService userTagPreferenceService;
     private final IContentTagService contentTagService;
     private final StringRedisTemplate redisTemplate;
+    private final TransactionTemplate transactionTemplate;
 
-    @Transactional
     @Override
     public void report(BehaviorDTO behaviorDTO) {
         Long userId = Long.valueOf(UserContext.getUserId());
@@ -53,15 +53,19 @@ public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorM
         userVideoBehavior.setCreatedAt(behaviorDTO.getWatchTime());
         userVideoBehavior.setDurationMs(behaviorDTO.getWatchDuration());
         userVideoBehavior.setEventType(behaviorDTO.getEvent());
-        save(userVideoBehavior);
 
-        // 获得这个内容的所有标签
-        List<Long> list = contentTagService.lambdaQuery()
-                .eq(ContentTag::getContentId, contentId)
-                .list().stream().map(ContentTag::getTagId).toList();
+        // 事务只圈 DB 写(行为流水 + 标签偏好), Redis 是网络 IO 留在提交后
+        transactionTemplate.executeWithoutResult(tx -> {
+            save(userVideoBehavior);
 
-        // 更新用户喜好表
-        userTagPreferenceService.saveUserTagPreference(list, userId, behaviorDTO.getEvent());
+            // 获得这个内容的所有标签
+            List<Long> list = contentTagService.lambdaQuery()
+                    .eq(ContentTag::getContentId, contentId)
+                    .list().stream().map(ContentTag::getTagId).toList();
+
+            // 更新用户喜好表
+            userTagPreferenceService.saveUserTagPreference(list, userId, behaviorDTO.getEvent());
+        });
 
         // 更新用户看过的内容id
         if (behaviorDTO.getEvent() == EventEnum.DISLIKE) {

@@ -32,6 +32,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -57,9 +58,9 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
     private final ContentTypeStrategyRegistry contentTypeStrategies;
     private final StringRedisTemplate redisTemplate;
     private final RocketMQTemplate rocketMQTemplate;
+    private final TransactionTemplate transactionTemplate;
     private final static int STORAGE_EXPIRE = 60 * 20;
 
-    @Transactional
     @Override
     public void publishComment(CommentDTO commentDTO) {
         Long parentId = commentDTO.getParentId();
@@ -104,16 +105,21 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
             // 找根评论id
             Long rootId = parent.getRootId() == null ? parent.getId() : parent.getRootId();
             videoComment.setRootId(rootId);
-            // 回复数改自增
-            lambdaUpdate().eq(ContentComment::getId, rootId)
-                    .setIncrBy(ContentComment::getReplyCount, 1).update();
         }
-        // 更新内容的评论数
-        contentService.lambdaUpdate().eq(Content::getId, commentDTO.getVideoId())
-                .setIncrBy(Content::getCommentCount, 1).update();
-        saveOrUpdate(videoComment);
+        // 事务只圈 DB 写(回复数/评论数/评论本体)
+        transactionTemplate.executeWithoutResult(tx -> {
+            if (parentId != 0) {
+                // 回复数改自增
+                lambdaUpdate().eq(ContentComment::getId, videoComment.getRootId())
+                        .setIncrBy(ContentComment::getReplyCount, 1).update();
+            }
+            // 更新内容的评论数
+            contentService.lambdaUpdate().eq(Content::getId, commentDTO.getVideoId())
+                    .setIncrBy(Content::getCommentCount, 1).update();
+            saveOrUpdate(videoComment);
+        });
 
-        // 发送Mq通知, 自己回复自己不通知
+        // 发送Mq通知, 自己回复自己不通知; 提交后发, MQ 失败不回滚评论
         CommentMessage message = null;
         boolean isSend = false;
         if (parentId == 0) {
