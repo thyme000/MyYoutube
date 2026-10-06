@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.po.ItemSimilarity;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -28,52 +29,73 @@ public class SwingCalculator implements SimilarityCalculator {
      */
     private static final int MAX_USERS_PER_ITEM = 300;
 
+    private final SimComputePool pool;
+
+    public SwingCalculator(SimComputePool pool) {
+        this.pool = pool;
+    }
+
     @Override
     public SimAlgorithmEnum algorithm() {
         return SimAlgorithmEnum.SWING;
     }
 
+    /**
+     * 任务 = 单个 target 的用户对展开, 不同 target 写不同 key, 各 worker 无冲突;
+     * 按 target 用户数降序, 让最重的任务先被领走。
+     */
+    private record TargetTask(long target, List<Long> users) {
+    }
+
     @Override
     public List<ItemSimilarity> compute(Map<Long, Map<Long, Double>> userItemWeights) {
-        // Swing 只关心"有没有", 不看分值: 构建用户 -> 内容集合 与 内容 -> 用户列表
-        Map<Long, Set<Long>> userItems = new HashMap<>();
+        // Swing 只关心"有没有", 不看分值: 构建 内容 -> 用户列表
         Map<Long, List<Long>> itemUsers = new HashMap<>();
-        userItemWeights.forEach((userId, items) -> {
-            userItems.put(userId, items.keySet());
-            items.keySet().forEach(contentId ->
-                    itemUsers.computeIfAbsent(contentId, k -> new ArrayList<>()).add(userId));
-        });
+        userItemWeights.forEach((userId, items) -> items.keySet().forEach(contentId ->
+                itemUsers.computeIfAbsent(contentId, k -> new ArrayList<>()).add(userId)));
 
-        // swing 加权和: i -> (j -> 分), 用户对无序, 只处理 u < v
-        Map<Long, Map<Long, Double>> swing = new HashMap<>();
-        for (Map.Entry<Long, List<Long>> entry : itemUsers.entrySet()) {
-            List<Long> users = entry.getValue();
-            if (users.size() > MAX_USERS_PER_ITEM) {
-                users = users.subList(0, MAX_USERS_PER_ITEM);
-            }
-            long target = entry.getKey();
-            for (int a = 0; a < users.size(); a++) {
-                for (int b = a + 1; b < users.size(); b++) {
-                    Set<Long> itemsA = userItems.get(users.get(a));
-                    Set<Long> itemsB = userItems.get(users.get(b));
-                    Set<Long> common = new HashSet<>(itemsA);
-                    common.retainAll(itemsB);
-                    if (common.size() < 2) {
-                        // 至少要同时含 target 和某个邻居 j, 共现才成立
+        List<TargetTask> tasks = new ArrayList<>(itemUsers.size());
+        itemUsers.forEach((target, users) -> tasks.add(new TargetTask(target,
+                users.size() > MAX_USERS_PER_ITEM ? users.subList(0, MAX_USERS_PER_ITEM) : users)));
+        tasks.sort(Comparator.comparingInt((TargetTask t) -> t.users().size()).reversed());
+
+        Map<Long, Map<Long, Double>> swing = pool.collectAndMerge(
+                tasks,
+                HashMap::new,
+                (local, task) -> accumulate(task, userItemWeights, local),
+                (a, b) -> {
+                    // target 互不重叠, 整体换入即可
+                    a.putAll(b);
+                    return a;
+                });
+
+        return toRows(swing);
+    }
+
+    private void accumulate(TargetTask task, Map<Long, Map<Long, Double>> userItemWeights,
+                            Map<Long, Map<Long, Double>> local) {
+        List<Long> users = task.users();
+        long target = task.target();
+        for (int a = 0; a < users.size(); a++) {
+            Set<Long> itemsA = userItemWeights.get(users.get(a)).keySet();
+            for (int b = a + 1; b < users.size(); b++) {
+                Set<Long> itemsB = userItemWeights.get(users.get(b)).keySet();
+                // 拷贝较小一方做交集, 省一次大集合拷贝
+                Set<Long> common = new HashSet<>(itemsA.size() <= itemsB.size() ? itemsA : itemsB);
+                common.retainAll(itemsA.size() <= itemsB.size() ? itemsB : itemsA);
+                if (common.size() < 2) {
+                    // 至少要同时含 target 和某个邻居 j, 共现才成立
+                    continue;
+                }
+                double contribution = 1.0 / (ALPHA + common.size());
+                for (Long j : common) {
+                    if (j == target) {
                         continue;
                     }
-                    double contribution = 1.0 / (ALPHA + common.size());
-                    for (Long j : common) {
-                        if (j.equals(target)) {
-                            continue;
-                        }
-                        swing.computeIfAbsent(target, k -> new HashMap<>()).merge(j, contribution, Double::sum);
-                    }
+                    local.computeIfAbsent(target, k -> new HashMap<>()).merge(j, contribution, Double::sum);
                 }
             }
         }
-
-        return toRows(swing);
     }
 
     private List<ItemSimilarity> toRows(Map<Long, Map<Long, Double>> swing) {

@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.po.ItemSimilarity;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,32 +17,59 @@ import java.util.Map;
 @Component
 public class ItemCfCalculator implements SimilarityCalculator {
 
+    private final SimComputePool pool;
+
+    public ItemCfCalculator(SimComputePool pool) {
+        this.pool = pool;
+    }
+
     @Override
     public SimAlgorithmEnum algorithm() {
         return SimAlgorithmEnum.ITEMCF;
     }
 
+    /**
+     * worker 局部累积: 共现加权和 + 各内容正反馈用户数
+     */
+    private static final class LocalAcc {
+        final Map<Long, Map<Long, Double>> coOccurrence = new HashMap<>();
+        final Map<Long, Integer> itemCount = new HashMap<>();
+    }
+
     @Override
     public List<ItemSimilarity> compute(Map<Long, Map<Long, Double>> userItemWeights) {
-        // 共现加权和: i -> (j -> Σ w(u,i)*w(u,j)), 对称矩阵只算上三角
-        Map<Long, Map<Long, Double>> coOccurrence = new HashMap<>();
-        // |U(i)|: 各内容的正反馈去重用户数
-        Map<Long, Integer> itemCount = new HashMap<>();
+        // 任务 = 单个用户的行为展开, 不同用户会写重叠的 (i,j) 对, 靠末尾求和归约;
+        // 按用户物品数降序, 重用户先被领走。
+        List<Map.Entry<Long, Map<Long, Double>>> tasks = new ArrayList<>(userItemWeights.entrySet());
+        tasks.sort(Comparator.comparingInt((Map.Entry<Long, Map<Long, Double>> e) -> e.getValue().size()).reversed());
 
-        for (Map<Long, Double> items : userItemWeights.values()) {
-            for (Map.Entry<Long, Double> e1 : items.entrySet()) {
-                itemCount.merge(e1.getKey(), 1, Integer::sum);
-                for (Map.Entry<Long, Double> e2 : items.entrySet()) {
-                    if (e1.getKey().equals(e2.getKey())) {
-                        continue;
-                    }
-                    coOccurrence.computeIfAbsent(e1.getKey(), k -> new HashMap<>())
-                            .merge(e2.getKey(), e1.getValue() * e2.getValue(), Double::sum);
+        LocalAcc merged = pool.collectAndMerge(
+                tasks,
+                LocalAcc::new,
+                (local, task) -> accumulate(task.getValue(), local),
+                (a, b) -> {
+                    b.itemCount.forEach((k, v) -> a.itemCount.merge(k, v, Integer::sum));
+                    b.coOccurrence.forEach((i, inner) -> {
+                        Map<Long, Double> target = a.coOccurrence.computeIfAbsent(i, k -> new HashMap<>());
+                        inner.forEach((j, w) -> target.merge(j, w, Double::sum));
+                    });
+                    return a;
+                });
+
+        return toRows(merged.coOccurrence, merged.itemCount);
+    }
+
+    private void accumulate(Map<Long, Double> items, LocalAcc local) {
+        for (Map.Entry<Long, Double> e1 : items.entrySet()) {
+            local.itemCount.merge(e1.getKey(), 1, Integer::sum);
+            for (Map.Entry<Long, Double> e2 : items.entrySet()) {
+                if (e1.getKey().equals(e2.getKey())) {
+                    continue;
                 }
+                local.coOccurrence.computeIfAbsent(e1.getKey(), k -> new HashMap<>())
+                        .merge(e2.getKey(), e1.getValue() * e2.getValue(), Double::sum);
             }
         }
-
-        return toRows(coOccurrence, itemCount);
     }
 
     private List<ItemSimilarity> toRows(Map<Long, Map<Long, Double>> coOccurrence,

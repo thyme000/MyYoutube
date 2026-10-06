@@ -57,12 +57,14 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         Map<Long, ContentTypeEnum> typeMap = loadContentTypes();
         long contentCount = matrix.values().stream().flatMap(m -> m.keySet().stream()).distinct().count();
         for (SimilarityCalculator calculator : calculators) {
+            long start = System.nanoTime();
             List<ItemSimilarity> rows = computePooledRows(calculator, matrix, typeMap, null);
+            long computeMs = (System.nanoTime() - start) / 1_000_000;
             removeByAlgorithm(calculator.algorithm());
             insertBatch(rows);
             refreshRedis(calculator.algorithm(), groupByItem(rows));
-            log.info("CF 全量重建完成 algo={} 用户数={} 内容数={} 分池后相似度行数={}",
-                    calculator.algorithm(), matrix.size(), contentCount, rows.size());
+            log.info("CF 全量重建完成 algo={} 用户数={} 内容数={} 分池后相似度行数={} 计算耗时={}ms",
+                    calculator.algorithm(), matrix.size(), contentCount, rows.size(), computeMs);
         }
         saveWatermark(behaviorService.lambdaQuery()
                 .in(UserVideoBehavior::getEventType, POSITIVE_EVENTS)
@@ -86,10 +88,13 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         Map<Long, Map<Long, Double>> matrix = loadPositiveMatrix();
         Map<Long, ContentTypeEnum> typeMap = loadContentTypes();
         for (SimilarityCalculator calculator : calculators) {
+            long start = System.nanoTime();
             List<ItemSimilarity> rows = computePooledRows(calculator, matrix, typeMap, affected);
+            long computeMs = (System.nanoTime() - start) / 1_000_000;
             upsertBatch(rows);
             refreshRedis(calculator.algorithm(), groupByItem(rows));
-            log.info("CF 增量刷新完成 algo={} 涉及内容数={} 行数={}", calculator.algorithm(), affected.size(), rows.size());
+            log.info("CF 增量刷新完成 algo={} 涉及内容数={} 行数={} 计算耗时={}ms",
+                    calculator.algorithm(), affected.size(), rows.size(), computeMs);
         }
         saveWatermark(fresh.stream().mapToLong(UserVideoBehavior::getId).max().orElse(watermark));
     }
