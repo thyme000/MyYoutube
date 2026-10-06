@@ -23,7 +23,7 @@ public class VideoTaggingStrategy implements ContentTaggingStrategy {
     }
 
     @Override
-    public TagSignal loadSignal(Long contentId) {
+    public UserInput buildUserInput(Long contentId) {
         Video video = videoMapper.selectById(contentId);
         if (video == null || (video.getIsDelete() != null && video.getIsDelete() == 1)) {
             return null;
@@ -33,7 +33,8 @@ public class VideoTaggingStrategy implements ContentTaggingStrategy {
         if (title.isEmpty() && description.isEmpty()) {
             return null;
         }
-        return new TagSignal(title, description);
+        // v2: 此处补视频截帧(FFmpeg 抽关键帧转 base64), 与文本一起走多模态
+        return UserInput.ofText("【标题】" + title + "\n【简介】" + description);
     }
 
     @Override

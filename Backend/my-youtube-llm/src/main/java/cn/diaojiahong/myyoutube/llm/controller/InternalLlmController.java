@@ -29,12 +29,28 @@ public class InternalLlmController {
         }
         List<LlmClient.Message> messages = request.getMessages().stream()
                 .filter(m -> m != null && StringUtils.hasText(m.getRole()))
-                .map(m -> new LlmClient.Message(m.getRole(), m.getContent() == null ? "" : m.getContent()))
+                .map(this::toClientMessage)
                 .toList();
         if (messages.isEmpty()) {
             throw new BizException(BizException.BIZ_ERROR, "messages 不能为空");
         }
-        String content = llmClient.chat(messages, request.getTemperature(), request.getMaxTokens());
+        String content = llmClient.chat(messages, request.getModel(), request.getTemperature(), request.getMaxTokens());
         return new LlmPort.ChatResponse(content);
+    }
+
+    private LlmClient.Message toClientMessage(LlmPort.Message m) {
+        boolean hasParts = m.getParts() != null && !m.getParts().isEmpty();
+        if (!hasParts) {
+            return LlmClient.Message.text(m.getRole(), m.getContent() == null ? "" : m.getContent());
+        }
+        List<LlmClient.Message.Part> parts = m.getParts().stream()
+                .filter(p -> p != null && StringUtils.hasText(p.getType()))
+                .map(p -> new LlmClient.Message.Part(p.getType(), p.getText(),
+                        p.getImageUrl() == null ? null : p.getImageUrl().getUrl()))
+                .toList();
+        if (!StringUtils.hasText(m.getContent()) && parts.isEmpty()) {
+            throw new BizException(BizException.BIZ_ERROR, "消息缺少内容");
+        }
+        return new LlmClient.Message(m.getRole(), m.getContent(), parts);
     }
 }

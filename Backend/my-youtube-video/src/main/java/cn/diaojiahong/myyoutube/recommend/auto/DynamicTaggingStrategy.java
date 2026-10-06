@@ -27,7 +27,7 @@ public class DynamicTaggingStrategy implements ContentTaggingStrategy {
     }
 
     @Override
-    public TagSignal loadSignal(Long contentId) {
+    public UserInput buildUserInput(Long contentId) {
         Dynamic dynamic = dynamicMapper.selectById(contentId);
         if (dynamic == null || (dynamic.getIsDelete() != null && dynamic.getIsDelete() == 1)) {
             return null;
@@ -37,7 +37,8 @@ public class DynamicTaggingStrategy implements ContentTaggingStrategy {
         if (title.isEmpty() && description.isEmpty()) {
             return null;
         }
-        return new TagSignal(title, description);
+        // v2: 此处补图集选图(RustFS 拉首图/指定图转 base64), 与文本一起走多模态
+        return UserInput.ofText("【标题】" + title + "\n【简介】" + description);
     }
 
     @Override

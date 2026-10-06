@@ -25,6 +25,8 @@ public interface LlmPort {
     @AllArgsConstructor
     class ChatRequest {
         private List<Message> messages;
+        /** 可选覆盖模型(vision 等场景), 不传用服务端配置 */
+        private String model;
         /** 可选, 不传用服务端配置 */
         private Double temperature;
         /** 可选, 不传用服务端配置 */
@@ -37,7 +39,32 @@ public interface LlmPort {
     class Message {
         /** system/user/assistant */
         private String role;
+        /** 纯文本消息 */
         private String content;
+        /** 多模态消息(与 content 二选一) */
+        private List<ContentPart> parts;
+
+        public static Message asText(String role, String content) {
+            return new Message(role, content, null);
+        }
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class ContentPart {
+        /** text | image_url */
+        private String type;
+        private String text;
+        private ImageUrl imageUrl;
+
+        @Data
+        @NoArgsConstructor
+        @AllArgsConstructor
+        public static class ImageUrl {
+            /** http(s) URL 或 data:image/jpeg;base64,... 内嵌 */
+            private String url;
+        }
     }
 
     @Data

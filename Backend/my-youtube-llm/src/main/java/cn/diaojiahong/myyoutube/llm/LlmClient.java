@@ -16,7 +16,7 @@ import java.util.List;
 
 /**
  * 通用 LLM chat 客户端: OpenAI 兼容 /chat/completions, JDK HttpClient 实现;
- * 厂商/模型/温度默认来自 LlmProperties, 调用方可按次覆盖
+ * 厂商/模型/温度默认来自 LlmProperties, 调用方可按次覆盖(含 vision 模型与多模态 parts)
  */
 @Slf4j
 @Component
@@ -34,25 +34,43 @@ public class LlmClient {
     }
 
     /**
-     * @param messages    角色/内容对, role 为 system/user/assistant
+     * @param messages    角色/内容对; 纯文本用 content, 多模态用 parts(text/image_url)
+     * @param model       可选覆盖, null 用配置值
      * @param temperature 可选覆盖, null 用配置值
      * @param maxTokens   可选覆盖, null 用配置值
      * @return assistant 回复文本
      */
-    public String chat(List<Message> messages, Double temperature, Integer maxTokens) {
+    public String chat(List<Message> messages, String model, Double temperature, Integer maxTokens) {
         if (!isConfigured()) {
             throw new IllegalStateException("LLM api-key 未配置");
         }
 
         JsonObject body = new JsonObject();
-        body.addProperty("model", properties.effectiveModel());
+        body.addProperty("model", model != null && !model.isBlank() ? model : properties.effectiveModel());
         body.addProperty("temperature", temperature != null ? temperature : properties.getTemperature());
         body.addProperty("max_tokens", maxTokens != null ? maxTokens : properties.getMaxTokens());
         JsonArray arr = new JsonArray();
         for (Message m : messages) {
             JsonObject o = new JsonObject();
             o.addProperty("role", m.role());
-            o.addProperty("content", m.content());
+            if (m.parts() == null || m.parts().isEmpty()) {
+                o.addProperty("content", m.content() == null ? "" : m.content());
+            } else {
+                JsonArray content = new JsonArray();
+                for (Message.Part p : m.parts()) {
+                    JsonObject part = new JsonObject();
+                    part.addProperty("type", p.type());
+                    if ("image_url".equals(p.type())) {
+                        JsonObject url = new JsonObject();
+                        url.addProperty("url", p.imageDataUrl() == null ? "" : p.imageDataUrl());
+                        part.add("image_url", url);
+                    } else {
+                        part.addProperty("text", p.text() == null ? "" : p.text());
+                    }
+                    content.add(part);
+                }
+                o.add("content", content);
+            }
             arr.add(o);
         }
         body.add("messages", arr);
@@ -81,6 +99,14 @@ public class LlmClient {
         }
     }
 
-    public record Message(String role, String content) {
+    public record Message(String role, String content, List<Part> parts) {
+
+        public static Message text(String role, String content) {
+            return new Message(role, content, null);
+        }
+
+        /** @param type text | image_url; imageDataUrl 为 data:image/jpeg;base64,... */
+        public record Part(String type, String text, String imageDataUrl) {
+        }
     }
 }

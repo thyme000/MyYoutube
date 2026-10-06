@@ -64,14 +64,14 @@ public class AutoTagService {
             log.warn("无打标策略, type={}", type);
             return false;
         }
-        ContentTaggingStrategy.TagSignal signal = strategy.loadSignal(contentId);
-        if (signal == null) {
-            log.info("内容不存在或无打标信号, contentId={}", contentId);
+        ContentTaggingStrategy.UserInput input = strategy.buildUserInput(contentId);
+        if (input == null) {
+            log.info("内容不存在或无打标素材, contentId={}", contentId);
             return false;
         }
 
         // key 状态归 llm-svc 管: 未配置时远端快速失败, 这里捕获后走无标签兜底文档
-        TaggingResult result = tagWithRetry(signal);
+        TaggingResult result = tagWithRetry(input);
 
         if (result != null && !result.tagWeights().isEmpty()) {
             persistResult(strategy, contentId, result);
@@ -81,9 +81,8 @@ public class AutoTagService {
         return result != null && !result.tagWeights().isEmpty();
     }
 
-    private TaggingResult tagWithRetry(ContentTaggingStrategy.TagSignal signal) {
-        List<LlmPort.Message> prompt = buildPrompt(signal);
-        LlmPort.ChatRequest request = new LlmPort.ChatRequest(prompt, null, null);
+    private TaggingResult tagWithRetry(ContentTaggingStrategy.UserInput input) {
+        LlmPort.ChatRequest request = new LlmPort.ChatRequest(buildMessages(input), null, null, null);
         for (int i = 1; i <= 2; i++) {
             try {
                 LlmPort.ChatResponse resp = llmPort.chat(request);
@@ -98,27 +97,45 @@ public class AutoTagService {
         return null;
     }
 
-    private List<LlmPort.Message> buildPrompt(ContentTaggingStrategy.TagSignal signal) {
+    /** system 承载规则+类目表+词库, user 承载策略组装的内容素材(文本/图片) */
+    private List<LlmPort.Message> buildMessages(ContentTaggingStrategy.UserInput input) {
+        return List.of(
+                LlmPort.Message.asText("system", buildSystemPrompt()),
+                toUserMessage(input));
+    }
+
+    private LlmPort.Message toUserMessage(ContentTaggingStrategy.UserInput input) {
+        if (input.images() == null || input.images().isEmpty()) {
+            return LlmPort.Message.asText("user", input.text());
+        }
+        List<LlmPort.ContentPart> parts = new ArrayList<>();
+        if (input.text() != null && !input.text().isBlank()) {
+            parts.add(new LlmPort.ContentPart("text", input.text(), null));
+        }
+        for (ContentTaggingStrategy.Image image : input.images()) {
+            String dataUrl = "data:" + image.mimeType() + ";base64," + image.base64Data();
+            parts.add(new LlmPort.ContentPart("image_url", null, new LlmPort.ContentPart.ImageUrl(dataUrl)));
+        }
+        return new LlmPort.Message("user", null, parts);
+    }
+
+    private String buildSystemPrompt() {
         StringBuilder pool = new StringBuilder();
         Map<String, List<Tag>> grouped = tagPoolHolder.grouped();
         for (VideoCategoryEnum c : VideoCategoryEnum.values()) {
             appendPoolLine(pool, c.getLabel(), grouped.get(c.getCode()));
         }
         appendPoolLine(pool, "通用", grouped.get(""));
-        String system = """
+        return """
                 你是内容平台的自动打标器。任务: 判断内容所属类目, 并挑选标签。
                 规则:
                 1. 类目只能从【类目表】中选一个, 用括号外的 CODE 返回;
                 2. 标签优先从【候选标签】中选择, 每个标签给出 0~1 的置信度;
                 3. 候选确实都不贴切时可自创新标签, 最多 2 个, 每个 2~6 个字, 是规范名词, 禁止摘抄标题片段;
                 4. 标签总数控制在 3~5 个;
-                5. 只输出 JSON, 不要任何解释, 格式: {"category":"CODE","tags":[{"name":"标签名","confidence":0.9}]}""";
-
-        String user = "【类目表】" + PROMPT_CATEGORIES
-                + "\n【候选标签】\n" + pool
-                + "\n【标题】" + signal.title()
-                + "\n【简介】" + signal.description();
-        return List.of(new LlmPort.Message("system", system), new LlmPort.Message("user", user));
+                5. 只输出 JSON, 不要任何解释, 格式: {"category":"CODE","tags":[{"name":"标签名","confidence":0.9}]}
+                【类目表】""" + PROMPT_CATEGORIES
+                + "\n【候选标签】\n" + pool;
     }
 
     private void appendPoolLine(StringBuilder pool, String label, List<Tag> tags) {
