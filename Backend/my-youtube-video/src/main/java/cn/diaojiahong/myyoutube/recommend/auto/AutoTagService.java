@@ -54,7 +54,8 @@ public class AutoTagService {
     private final EsSyncPublisher esSyncPublisher;
     private final StringRedisTemplate redisTemplate;
 
-    @Value("${my-youtube.llm.min-confidence:0.5}")
+    /** 必填, 无默认: 打标防线阈值, 低于该置信度的标签丢弃 */
+    @Value("${my-youtube.llm.min-confidence}")
     private double minConfidence;
 
     /**
