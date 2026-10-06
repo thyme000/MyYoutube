@@ -31,3 +31,10 @@ my-youtube:
     cf:
       # 在线相似度表选择: itemcf | swing, 两份都离线算好, 改这里重启即切换
       algorithm: swing
+  llm:
+    # OpenAI 兼容接口, 换厂商只改 base-url/model/api-key
+    base-url: ${LLM_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
+    api-key: ${LLM_API_KEY:}
+    model: ${LLM_MODEL:glm-4-flash}
+    timeout-seconds: 20
+    max-tokens: 512
