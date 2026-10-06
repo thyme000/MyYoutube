@@ -15,7 +15,8 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * 通用 LLM chat 客户端: OpenAI 兼容 /chat/completions, JDK HttpClient 实现
+ * 通用 LLM chat 客户端: OpenAI 兼容 /chat/completions, JDK HttpClient 实现;
+ * 厂商/模型/温度都来自 LlmProperties
  */
 @Slf4j
 @Component
@@ -33,18 +34,17 @@ public class LlmClient {
     }
 
     /**
-     * @param messages    角色/内容对, role 为 system/user/assistant
-     * @param temperature 采样温度, 抽取类任务建议 0.2
+     * @param messages 角色/内容对, role 为 system/user/assistant
      * @return assistant 回复文本
      */
-    public String chat(List<Message> messages, double temperature) {
+    public String chat(List<Message> messages) {
         if (!isConfigured()) {
             throw new IllegalStateException("LLM api-key 未配置");
         }
 
         JsonObject body = new JsonObject();
-        body.addProperty("model", properties.getModel());
-        body.addProperty("temperature", temperature);
+        body.addProperty("model", properties.effectiveModel());
+        body.addProperty("temperature", properties.getTemperature());
         body.addProperty("max_tokens", properties.getMaxTokens());
         JsonArray arr = new JsonArray();
         for (Message m : messages) {
@@ -56,7 +56,7 @@ public class LlmClient {
         body.add("messages", arr);
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(properties.getBaseUrl() + "/chat/completions"))
+                .uri(URI.create(properties.effectiveBaseUrl() + "/chat/completions"))
                 .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + properties.getApiKey())

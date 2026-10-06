@@ -32,10 +32,12 @@ my-youtube:
       # 在线相似度表选择: itemcf | swing, 两份都离线算好, 改这里重启即切换
       algorithm: swing
   llm:
-    # OpenAI 兼容接口, 换厂商只改 base-url/model/api-key
-    base-url: ${LLM_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
+    # OpenAI 兼容接口; provider: zhipu|deepseek|qwen|openai, base-url/model 不填用厂商默认, 填了覆盖
+    provider: ${LLM_PROVIDER:zhipu}
+    base-url: ${LLM_BASE_URL:}
     api-key: ${LLM_API_KEY:}
-    model: ${LLM_MODEL:glm-4-flash}
+    model: ${LLM_MODEL:}
+    temperature: 0.2
     timeout-seconds: 20
     max-tokens: 512
     # 低于该置信度的标签丢弃

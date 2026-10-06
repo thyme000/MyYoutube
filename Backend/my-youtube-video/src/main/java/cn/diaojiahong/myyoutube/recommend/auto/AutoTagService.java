@@ -43,7 +43,6 @@ public class AutoTagService {
     private static final int MAX_NEW_TAGS = 2;
     private static final int NEW_TAG_MIN_LEN = 2;
     private static final int NEW_TAG_MAX_LEN = 6;
-    private static final double LLM_TEMPERATURE = 0.2;
     private static final String PROMPT_CATEGORIES =
             "GAME(游戏) MOVIE(影视) MUSIC(音乐) KNOWLEDGE(知识) LIFE(生活) TECH(科技) ENTERTAINMENT(娱乐) OTHER(其他)";
 
@@ -92,7 +91,7 @@ public class AutoTagService {
         List<LlmClient.Message> prompt = buildPrompt(signal);
         for (int i = 1; i <= 2; i++) {
             try {
-                return parse(llmClient.chat(prompt, LLM_TEMPERATURE));
+                return parse(llmClient.chat(prompt));
             } catch (Exception e) {
                 log.warn("LLM 打标解析失败(第{}次): {}", i, e.getMessage());
             }

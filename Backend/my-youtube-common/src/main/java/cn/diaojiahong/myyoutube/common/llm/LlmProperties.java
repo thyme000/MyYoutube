@@ -5,17 +5,29 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * OpenAI 兼容 LLM 配置: 换厂商只改 base-url/model/api-key 三个值
+ * LLM 配置: provider 选预置厂商, base-url/model 不填用厂商默认, 填了即覆盖(自定义网关/微调模型)
  */
-@Component
-@ConfigurationProperties(prefix = "my-youtube.llm")
 @Data
+@ConfigurationProperties(prefix = "my-youtube.llm")
+@Component
 public class LlmProperties {
 
-    private String baseUrl = "https://open.bigmodel.cn/api/paas/v4";
+    /** zhipu | deepseek | qwen | openai */
+    private String provider = "zhipu";
+    private String baseUrl;
     private String apiKey;
-    private String model = "glm-4-flash";
+    private String model;
+    private double temperature = 0.2;
     private int timeoutSeconds = 20;
     private int maxTokens = 512;
 
+    public String effectiveBaseUrl() {
+        return baseUrl != null && !baseUrl.isBlank()
+                ? baseUrl : LlmProvider.fromCode(provider).getDefaultBaseUrl();
+    }
+
+    public String effectiveModel() {
+        return model != null && !model.isBlank()
+                ? model : LlmProvider.fromCode(provider).getDefaultModel();
+    }
 }
