@@ -44,11 +44,11 @@ public class VideoPublishServiceImpl implements IVideoPublishService {
     private final ContentMapper contentMapper;
     private final VideoMapper videoMapper;
 
-    @Transactional
     @Override
     public String publishVideo(VideoDTO videoDTO) {
 
         // fail-fast: 校验全部前置, 通过后才进入半消息/本地事务
+        // 本方法自身不写库也不能开事务: 监听器的 persistNewVideo 会以外层事务为准, 导致 COMMIT 消息发出时本地事务尚未提交
         if (StrUtils.isEmpty(videoDTO.getVideoUrl())) {
 
             throw new BizException(BizException.BIZ_ERROR, "视频地址不能为空～");
