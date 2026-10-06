@@ -39,6 +39,11 @@ public class RedisConstants {
     // 标签被内容引用的次数 ZSET, member=tagId; 打标链路维护, 热门标签榜数据源
     public static final String CONTENT_TAG_REF = "content:tag:ref";
 
+    // 标签词库池, 按类目分 ZSET(member=slug, score=引用数热度), 通用池后缀 common; 打标链路维护
+    public static final String TAG_POOL = "content:tag:pool:";
+    // 词库元数据 Hash: slug → id|name|categoryCode
+    public static final String TAG_POOL_META = "content:tag:pool:meta";
+
 
     // 用户看过的长视频时长记录 ->  {userid} : videoId , 当前时间戳
     public static final String USER_PLAYBACK_RESUME_TIMESTAMP = "user:playback:resume:timestamp:";

@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.recommend.auto;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
@@ -19,7 +18,6 @@ import com.google.gson.JsonObject;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -52,7 +50,6 @@ public class AutoTagService {
     private final ITagService tagService;
     private final IContentTagService contentTagService;
     private final EsSyncPublisher esSyncPublisher;
-    private final StringRedisTemplate redisTemplate;
 
     /** 必填, 无默认: 打标防线阈值, 低于该置信度的标签丢弃 */
     @Value("${my-youtube.autotag.min-confidence}")
@@ -175,6 +172,8 @@ public class AutoTagService {
                     tag = new Tag().setName(c.name()).setSlug(slug)
                             .setCategoryCode(categoryCode).setStatus(1).setSortOrder(0);
                     tagService.save(tag);
+                    // 立即入池, 否则窗口期内同词会被重复建
+                    tagPoolHolder.register(tag, 0);
                     newCount++;
                 }
                 weights.put(tag.getId(), c.confidence());
@@ -206,17 +205,24 @@ public class AutoTagService {
         adjustRefCount(old, result.tagWeights().keySet());
     }
 
-    /** 引用计数只活在 Redis(ZSET), 打标是 content_tag 唯一写入方, 增减即守恒 */
+    /** 引用计数不入库: 全局 ZSET + 类目池 ZSET 事件式增减, 打标是 content_tag 唯一写入方, 增减即守恒 */
     private void adjustRefCount(List<ContentTag> old, Set<Long> now) {
         Set<Long> oldIds = old.stream().map(ContentTag::getTagId).collect(java.util.stream.Collectors.toSet());
+        Set<Long> changed = new HashSet<>(oldIds);
+        changed.addAll(now);
+        if (changed.isEmpty()) {
+            return;
+        }
+        Map<Long, Tag> tags = tagService.listByIds(changed).stream()
+                .collect(java.util.stream.Collectors.toMap(Tag::getId, t -> t));
         for (Long tagId : now) {
-            if (!oldIds.contains(tagId)) {
-                redisTemplate.opsForZSet().incrementScore(RedisConstants.CONTENT_TAG_REF, tagId.toString(), 1);
+            if (!oldIds.contains(tagId) && tags.containsKey(tagId)) {
+                tagPoolHolder.incrRefCount(tags.get(tagId), 1);
             }
         }
         for (Long tagId : oldIds) {
-            if (!now.contains(tagId)) {
-                redisTemplate.opsForZSet().incrementScore(RedisConstants.CONTENT_TAG_REF, tagId.toString(), -1);
+            if (!now.contains(tagId) && tags.containsKey(tagId)) {
+                tagPoolHolder.incrRefCount(tags.get(tagId), -1);
             }
         }
     }

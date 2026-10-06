@@ -9,6 +9,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.po.UserTagPreference;
 import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.recommend.service.ITagService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
+import cn.diaojiahong.myyoutube.recommend.tag.TagPoolHolder;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -44,6 +45,7 @@ public class AutoTagMaintenanceService {
     private final ITagService tagService;
     private final IContentTagService contentTagService;
     private final IUserTagPreferenceService userTagPreferenceService;
+    private final TagPoolHolder tagPoolHolder;
     private final StringRedisTemplate redisTemplate;
 
     /**
@@ -118,10 +120,9 @@ public class AutoTagMaintenanceService {
         log.info("打标夜巡完成: 待补 video={} dynamic={}, 补打成功={}", videos.size(), dynamics.size(), tagged);
     }
 
-    /** 无引用且非种子的标签下线(标题切词时代与 LLM 弃词), 行保留可追溯 */
+    /** 无引用且非种子的标签下线(标题切词时代与 LLM 弃词), 行保留可追溯, 词库池同步摘除 */
     private int deactivateGarbageTags() {
         List<Tag> garbage = tagService.lambdaQuery()
-                .select(Tag::getId)
                 .eq(Tag::getStatus, 1)
                 .lt(Tag::getSortOrder, SEED_SORT_ORDER)
                 .notExists("SELECT 1 FROM content_tag ct WHERE ct.tag_id = tag.id")
@@ -133,6 +134,7 @@ public class AutoTagMaintenanceService {
                 .in(Tag::getId, garbage.stream().map(Tag::getId).toList())
                 .set(Tag::getStatus, 0)
                 .update();
+        garbage.forEach(tagPoolHolder::removeFromPool);
         return garbage.size();
     }
 
@@ -151,20 +153,23 @@ public class AutoTagMaintenanceService {
         return deadTagIds.size();
     }
 
-    /** 引用计数 ZSET 以 content_tag 全表实况重建 */
+    /** 全局引用计数 + 词库池以 content_tag/tag 实况重建, 顺带校正事件式增减的热度漂移 */
     private void rebuildRefCounter() {
         redisTemplate.delete(RedisConstants.CONTENT_TAG_REF);
         List<Map<String, Object>> rows = contentTagService.getBaseMapper()
                 .selectMaps(new QueryWrapper<ContentTag>()
                         .select("tag_id", "COUNT(*) AS cnt")
                         .groupBy("tag_id"));
+        Map<Long, Long> refCounts = new LinkedHashMap<>();
         for (Map<String, Object> row : rows) {
             Object tagId = row.get("tag_id");
             Object cnt = row.get("cnt");
             if (tagId != null && cnt != null) {
+                refCounts.put(Long.parseLong(tagId.toString()), Long.parseLong(cnt.toString()));
                 redisTemplate.opsForZSet().add(RedisConstants.CONTENT_TAG_REF,
                         tagId.toString(), Double.parseDouble(cnt.toString()));
             }
         }
+        tagPoolHolder.rebuildAll(tagService.lambdaQuery().eq(Tag::getStatus, 1).list(), refCounts);
     }
 }
