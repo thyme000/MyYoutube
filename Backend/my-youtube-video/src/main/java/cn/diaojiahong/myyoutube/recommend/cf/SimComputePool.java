@@ -5,11 +5,13 @@ import org.springframework.stereotype.Component;
 import jakarta.annotation.PreDestroy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.BinaryOperator;
@@ -29,11 +31,19 @@ public class SimComputePool {
     private final ExecutorService executor;
 
     public SimComputePool() {
-        executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(), r -> {
-            Thread t = new Thread(r, "cf-sim");
-            t.setDaemon(true);
-            return t;
-        });
+        // 不用 Executors 工厂: 其默认无界队列有 OOM 风险, 显式七参数 + 有界队列 + CallerRuns 兜底
+        int cores = Runtime.getRuntime().availableProcessors();
+        AtomicInteger seq = new AtomicInteger();
+        executor = new ThreadPoolExecutor(
+                cores, cores,
+                60L, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(128),
+                r -> {
+                    Thread t = new Thread(r, "cf-sim-" + seq.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy());
     }
 
     /**
