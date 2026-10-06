@@ -22,9 +22,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 打标维护: 存量回刷 / 夜巡补打 / 垃圾标签下线 / 偏好死行清理 / 引用计数重建
@@ -50,11 +52,14 @@ public class AutoTagMaintenanceService {
 
     /**
      * 全量重打(先成功后写: LLM 产出齐备才覆盖, 失败内容原样保留)。
+     * 默认跳过「已有关联且类目已回写」的内容, 中断重跑可续、不重复烧 LLM;
+     * force=true 强制逐条重打, 词库/提示词升级后刷新存量标签用。
      * 收尾: 无引用且非种子的历史标签下线, 偏好表死标签行清理, 引用计数 ZSET 重建。
      */
-    public Map<String, Integer> rebuildAll() {
+    public Map<String, Integer> rebuildAll(boolean force) {
         int total = 0;
         int tagged = 0;
+        int skippedTagged = 0;
         Long cursor = 0L;
         while (true) {
             List<Content> batch = contentMapper.selectList(new LambdaQueryWrapper<Content>()
@@ -65,9 +70,15 @@ public class AutoTagMaintenanceService {
             if (batch.isEmpty()) {
                 break;
             }
+            Set<Long> taggedIds = force ? Set.of() : loadIdsWithTag(batch);
+            Set<Long> categorizedIds = force ? Set.of() : loadIdsWithCategory(batch);
             for (Content content : batch) {
                 cursor = content.getId();
                 total++;
+                if (taggedIds.contains(content.getId()) && categorizedIds.contains(content.getId())) {
+                    skippedTagged++;
+                    continue;
+                }
                 if (autoTagService.tagContent(content.getId(), content.getType())) {
                     tagged++;
                 } else {
@@ -83,11 +94,51 @@ public class AutoTagMaintenanceService {
         Map<String, Integer> stats = new LinkedHashMap<>();
         stats.put("total", total);
         stats.put("tagged", tagged);
-        stats.put("skipped", total - tagged);
+        stats.put("skippedTagged", skippedTagged);
+        stats.put("skipped", total - tagged - skippedTagged);
         stats.put("deactivatedTags", deactivated);
         stats.put("cleanedPreferences", cleanedPrefs);
-        log.info("打标全量回刷完成: {}", stats);
+        log.info("打标全量回刷完成: force={}, {}", force, stats);
         return stats;
+    }
+
+    /** 批内已有关联的内容 id: 已打过的判定一半 */
+    private Set<Long> loadIdsWithTag(List<Content> batch) {
+        List<Long> ids = batch.stream().map(Content::getId).toList();
+        return contentTagService.lambdaQuery()
+                .select(ContentTag::getContentId)
+                .in(ContentTag::getContentId, ids)
+                .list().stream()
+                .map(ContentTag::getContentId)
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    /** 批内类目已回写的内容 id(类目在领域表, 不在 content): 已打过的判定另一半 */
+    private Set<Long> loadIdsWithCategory(List<Content> batch) {
+        Set<Long> result = new HashSet<>();
+        List<Long> videoIds = batch.stream()
+                .filter(c -> c.getType() == ContentTypeEnum.VIDEO).map(Content::getId).toList();
+        List<Long> dynamicIds = batch.stream()
+                .filter(c -> c.getType() == ContentTypeEnum.DYNAMIC).map(Content::getId).toList();
+        if (!videoIds.isEmpty()) {
+            for (Video v : videoMapper.selectList(new LambdaQueryWrapper<Video>()
+                    .select(Video::getId, Video::getCategory)
+                    .in(Video::getId, videoIds))) {
+                if (v.getCategory() != null) {
+                    result.add(v.getId());
+                }
+            }
+        }
+        if (!dynamicIds.isEmpty()) {
+            for (Dynamic d : dynamicMapper.selectList(new LambdaQueryWrapper<Dynamic>()
+                    .select(Dynamic::getId, Dynamic::getCategoryCode)
+                    .in(Dynamic::getId, dynamicIds))) {
+                if (d.getCategoryCode() != null) {
+                    result.add(d.getId());
+                }
+            }
+        }
+        return result;
     }
 
     /**

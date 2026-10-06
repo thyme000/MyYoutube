@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service.impl;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
+import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -22,13 +23,14 @@ import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
+import cn.diaojiahong.myyoutube.video.chain.dynamic.DynamicPublishChain;
+import cn.diaojiahong.myyoutube.video.chain.dynamic.DynamicPublishContext;
+import cn.diaojiahong.myyoutube.video.chain.dynamic.DynamicPublishRules;
 import cn.diaojiahong.myyoutube.video.domain.dto.DynamicPublishDTO;
-import cn.diaojiahong.myyoutube.video.domain.po.Audio;
 import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
 import cn.diaojiahong.myyoutube.video.domain.vo.DynamicDownloadVO;
 import cn.diaojiahong.myyoutube.video.domain.vo.DynamicVO;
 import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
-import cn.diaojiahong.myyoutube.video.service.IAudioService;
 import cn.diaojiahong.myyoutube.video.service.IDynamicService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
@@ -53,14 +55,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DynamicServiceImpl implements IDynamicService {
 
-    private static final int MAX_IMAGES = 18;
-    private static final int MIN_IMAGES = 1;
-    private static final long DEFAULT_ITEM_DURATION_MS = 3000L;
-    private static final long FADE_DURATION_MS = 800L;
-    private static final long MIN_ITEM_DURATION_MS = FADE_DURATION_MS + 300L;
     private static final long MEDIA_SIGN_SECONDS = 3600L * 2;
     private static final long DOWNLOAD_SIGN_SECONDS = 3600L;
-    private static final long AUDIO_MAX_DURATION_MS = 60_000L;
 
     private final DynamicMapper dynamicMapper;
     private final ContentMapper contentMapper;
@@ -70,72 +66,21 @@ public class DynamicServiceImpl implements IDynamicService {
     private final ObjectMapper objectMapper;
     private final UserPort userPort;
     private final TranscodePort transcodePort;
-    private final IAudioService audioService;
     private final ContentDocPort contentDocPort;
+    private final SyncChainStepRegistry chainRegistry;
 
     @Override
     @Transactional
     public String publish(DynamicPublishDTO dto) {
-        if (dto == null || dto.getItems() == null || dto.getItems().isEmpty()) {
+        // 条目/音频引用/图片归属校验与派生全部在链上, 步骤见 video.chain.dynamic
+        DynamicPublishContext ctx = DynamicPublishContext.of(dto, getUserId());
+        chainRegistry.execute(DynamicPublishChain.GROUP, ctx);
 
-            throw new BizException(BizException.BIZ_ERROR, "图片列表不能为空");
-        }
-        if (dto.getItems().isEmpty() || dto.getItems().size() > MAX_IMAGES) {
-
-            throw new BizException(BizException.BIZ_ERROR, "图片数量需在 " + MIN_IMAGES + "~" + MAX_IMAGES + " 张之间");
-        }
-        Long userId = getUserId();
-
-        String canvasType = "horizontal".equals(dto.getCanvasType()) ? "horizontal" : "vertical";
-        int canvasW = "horizontal".equals(canvasType) ? 1920 : 1080;
-        int canvasH = "horizontal".equals(canvasType) ? 1080 : 1920;
-        boolean isFade = !"cut".equals(dto.getTransition());
-        String transition = isFade ? "fade" : "cut";
-        long fade = isFade ? FADE_DURATION_MS : 0L;
-
-        long audioMs = 0L;
-        String audioKey = "";
-        String audioTitle = "";
-        Long audioId = null;
-        if (dto.getAudioId() == null) {
-
-            throw new BizException(BizException.BIZ_ERROR, "请选择背景音乐");
-        }
-        // 音频库引用校验: 公开或本人私有才可用; objectKey/时长/标题作为快照落库,
-        // 之后音频转私密/删除/改名均不影响已发布动态(在先使用权)
-        Audio audio = audioService.getReferenceable(dto.getAudioId(), userId);
-        audioId = audio.getId();
-        audioKey = audio.getObjectKey();
-        audioTitle = audio.getTitle();
-        if (audio.getDurationMs() != null && audio.getDurationMs() > 0) {
-
-            audioMs = Math.min(audio.getDurationMs(), AUDIO_MAX_DURATION_MS);
-        }
-
-        int n = dto.getItems().size();
-        long uniform = uniformDurationMs(n, audioMs, fade);
-        long[] durations = new long[n];
-        List<String> imageKeys = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) {
-
-            DynamicPublishDTO.DynamicItemDTO item = dto.getItems().get(i);
-            if (item == null || !StringUtils.hasText(item.getImageObjectKey())) {
-
-                throw new BizException(BizException.BIZ_ERROR, "图片列表存在空项");
-            }
-            String key = storageUtil.normalizeToObjectKey(item.getImageObjectKey().trim());
-            if (!objectKeyBelongsToUser(userId, key)) {
-
-                throw new BizException(BizException.BIZ_ERROR, "存在无权使用的图片资源");
-            }
-            imageKeys.add(key);
-            if (item.getDurationMs() != null && item.getDurationMs() > 0) {
-
-                durations[i] = Math.max(item.getDurationMs(), MIN_ITEM_DURATION_MS);
-            } else {
-                durations[i] = uniform;
-            }
-        }
+        List<String> imageKeys = ctx.getImageKeys();
+        long[] durations = ctx.getDurations();
+        long fade = ctx.getFadeMs();
+        long audioMs = ctx.getAudioMs();
+        int n = imageKeys.size();
 
         // 切换点与总时长: 第 k 次切换发生在 sum(d_0..d_{k-1}) - k*fade, 预览端按同一公式换算
         List<Map<String, Object>> timeline = new ArrayList<>(n);
@@ -151,8 +96,8 @@ public class DynamicServiceImpl implements IDynamicService {
             entry.put("imageObjectKey", imageKeys.get(i));
             entry.put("startMs", startMs);
             entry.put("durationMs", durations[i]);
-            entry.put("focusX", clampRatio(dto.getItems().get(i).getFocusX()));
-            entry.put("focusY", clampRatio(dto.getItems().get(i).getFocusY()));
+            entry.put("focusX", DynamicPublishRules.clampRatio(dto.getItems().get(i).getFocusX()));
+            entry.put("focusY", DynamicPublishRules.clampRatio(dto.getItems().get(i).getFocusY()));
             timeline.add(entry);
             sumDurations += durations[i];
         }
@@ -163,16 +108,16 @@ public class DynamicServiceImpl implements IDynamicService {
         }
 
         Dynamic dynamic = new Dynamic();
-        dynamic.setUserId(userId);
+        dynamic.setUserId(ctx.getUserId());
         dynamic.setTitle(StringUtils.hasText(dto.getTitle()) ? dto.getTitle().trim() : "");
-        dynamic.setCanvasType(canvasType);
-        dynamic.setCanvasW(canvasW);
-        dynamic.setCanvasH(canvasH);
-        dynamic.setTransition(transition);
+        dynamic.setCanvasType(ctx.getCanvasType());
+        dynamic.setCanvasW(ctx.getCanvasW());
+        dynamic.setCanvasH(ctx.getCanvasH());
+        dynamic.setTransition(ctx.getTransition());
         dynamic.setFadeMs((int) fade);
-        dynamic.setAudioId(audioId);
-        dynamic.setAudioObjectKey(audioKey);
-        dynamic.setAudioTitle(audioTitle);
+        dynamic.setAudioId(ctx.getAudioId());
+        dynamic.setAudioObjectKey(ctx.getAudioObjectKey());
+        dynamic.setAudioTitle(ctx.getAudioTitle());
         dynamic.setAudioDurationMs((int) audioMs);
         dynamic.setTotalDurationMs((int) total);
         try {
@@ -191,7 +136,7 @@ public class DynamicServiceImpl implements IDynamicService {
         Content content = new Content()
                 .setId(IdWorker.getId())
                 .setType(ContentTypeEnum.DYNAMIC)
-                .setAuthorId(userId)
+                .setAuthorId(ctx.getUserId())
                 .setStatus(VideoStatusEnum.PUBLISHED.getCode())
                 .setVisibility("public")
                 .setCreateTime(dynamic.getCreateTime());
@@ -508,37 +453,6 @@ public class DynamicServiceImpl implements IDynamicService {
             vos.add(vo);
         }
         return vos;
-    }
-
-    /**
-     * 均分时长: 成片填满音频时 D = (T + (n-1)*fade) / n, 无音频给固定 3s。
-     */
-    private static long uniformDurationMs(int n, long audioMs, long fade) {
-
-        if (audioMs > 0) {
-
-            return Math.max((audioMs + (long) (n - 1) * fade) / n, MIN_ITEM_DURATION_MS);
-        }
-        return DEFAULT_ITEM_DURATION_MS;
-    }
-
-    private static double clampRatio(Double v) {
-
-        if (v == null || v.isNaN()) {
-
-            return 0.5;
-        }
-        return Math.max(0.0, Math.min(1.0, v));
-    }
-
-    private boolean objectKeyBelongsToUser(Long userId, String objectKey) {
-
-        if (!StringUtils.hasText(objectKey)) {
-
-            return false;
-        }
-        String k = objectKey.startsWith("uploads/") ? objectKey.trim() : storageUtil.normalizeToObjectKey(objectKey);
-        return k.startsWith("uploads/") && k.contains("/" + userId + "/");
     }
 
     private static Long getUserId() {

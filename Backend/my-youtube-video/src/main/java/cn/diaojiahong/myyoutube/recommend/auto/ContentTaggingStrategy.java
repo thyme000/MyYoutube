@@ -37,7 +37,7 @@ public interface ContentTaggingStrategy {
         }
     }
 
-    /** 图片素材: base64 内嵌(云端 LLM 拉不到内网 URL) */
-    record Image(String mimeType, String base64Data) {
+    /** 图片素材: 内网可访问 URL, 是否转 base64 由 llm-svc 的 cloud 标志决定 */
+    record Image(String url) {
     }
 }

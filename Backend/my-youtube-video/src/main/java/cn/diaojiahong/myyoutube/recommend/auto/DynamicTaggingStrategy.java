@@ -37,7 +37,7 @@ public class DynamicTaggingStrategy implements ContentTaggingStrategy {
         if (title.isEmpty() && description.isEmpty()) {
             return null;
         }
-        // v2: 此处补图集选图(RustFS 拉首图/指定图转 base64), 与文本一起走多模态
+        // v2: 此处补图集选图(RustFS 预签名 GET URL 作图片素材), 与文本一起走多模态
         return UserInput.ofText("【标题】" + title + "\n【简介】" + description);
     }
 

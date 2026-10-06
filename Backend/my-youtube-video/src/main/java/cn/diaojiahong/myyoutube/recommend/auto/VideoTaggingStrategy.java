@@ -33,7 +33,7 @@ public class VideoTaggingStrategy implements ContentTaggingStrategy {
         if (title.isEmpty() && description.isEmpty()) {
             return null;
         }
-        // v2: 此处补视频截帧(FFmpeg 抽关键帧转 base64), 与文本一起走多模态
+        // v2: 此处补视频截帧(FFmpeg 抽关键帧上传对象存储, 签名 GET URL 作图片素材), 与文本一起走多模态
         return UserInput.ofText("【标题】" + title + "\n【简介】" + description);
     }
 

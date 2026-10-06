@@ -19,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -50,6 +51,7 @@ public class AutoTagService {
     private final ITagService tagService;
     private final IContentTagService contentTagService;
     private final EsSyncPublisher esSyncPublisher;
+    private final TransactionTemplate transactionTemplate;
 
     /** 必填, 无默认: 打标防线阈值, 低于该置信度的标签丢弃 */
     @Value("${my-youtube.autotag.min-confidence}")
@@ -113,8 +115,7 @@ public class AutoTagService {
             parts.add(new LlmPort.ContentPart("text", input.text(), null));
         }
         for (ContentTaggingStrategy.Image image : input.images()) {
-            String dataUrl = "data:" + image.mimeType() + ";base64," + image.base64Data();
-            parts.add(new LlmPort.ContentPart("image_url", null, new LlmPort.ContentPart.ImageUrl(dataUrl)));
+            parts.add(new LlmPort.ContentPart("image_url", null, new LlmPort.ContentPart.ImageUrl(image.url())));
         }
         return new LlmPort.Message("user", null, parts);
     }
@@ -214,11 +215,16 @@ public class AutoTagService {
 
     /** 先成功后写: LLM 产出齐备才动库; 失败路径不触碰任何表 */
     private void persistResult(ContentTaggingStrategy strategy, Long contentId, TaggingResult result) {
-        List<ContentTag> old = contentTagService.lambdaQuery()
-                .eq(ContentTag::getContentId, contentId)
-                .list();
-        contentTagService.saveAutoTags(contentId, result.tagWeights());
-        strategy.persistResult(contentId, result.categoryCode(), String.join(",", result.names()));
+        // 编程式事务只圈 DB 写(查旧关联 → content_tag 覆盖 → 类目/缓存回写), 任一失败整体回滚;
+        // LLM 调用在事务外, 不占长连接; Redis 计数与 ES 同步留在提交后, 失败不回滚打标
+        List<ContentTag> old = transactionTemplate.execute(tx -> {
+            List<ContentTag> prev = contentTagService.lambdaQuery()
+                    .eq(ContentTag::getContentId, contentId)
+                    .list();
+            contentTagService.saveAutoTags(contentId, result.tagWeights());
+            strategy.persistResult(contentId, result.categoryCode(), String.join(",", result.names()));
+            return prev;
+        });
         adjustRefCount(old, result.tagWeights().keySet());
     }
 
