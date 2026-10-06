@@ -30,13 +30,14 @@ public final class ContentDocMessages {
                 .build();
     }
 
-    /** 动态无简介/分类字段, 首图 objectKey 作封面, 发布态恒为 public+published */
+    /** 动态首图 objectKey 作封面, 发布态恒为 public+published; 类目由 LLM 打标回写 */
     public static ContentDocMessage of(Dynamic dynamic, String firstImageKey, Long authorId, List<Long> tagIds) {
         return ContentDocMessage.builder()
                 .type(ContentTypeEnum.DYNAMIC.getCode()).contentId(dynamic.getId())
-                .title(dynamic.getTitle())
+                .title(dynamic.getTitle()).description(dynamic.getDescription())
                 .coverUrl(firstImageKey)
                 .tags(dynamic.getTags())
+                .categoryCode(dynamic.getCategoryCode())
                 .statusCode(VideoStatusEnum.PUBLISHED.getCode())
                 .visibilityCode("public")
                 .authorId(authorId)

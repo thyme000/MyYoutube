@@ -11,6 +11,7 @@ import cn.diaojiahong.myyoutube.transcode.api.TranscodePort;
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeItemDTO;
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeSubmitDTO;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
+import cn.diaojiahong.myyoutube.mq.publisher.AutoTagPublisher;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
@@ -63,6 +64,7 @@ public class DynamicServiceImpl implements IDynamicService {
 
     private final DynamicMapper dynamicMapper;
     private final ContentMapper contentMapper;
+    private final AutoTagPublisher autoTagPublisher;
     private final IContentService contentService;
     private final S3StorageUtil storageUtil;
     private final ObjectMapper objectMapper;
@@ -196,6 +198,8 @@ public class DynamicServiceImpl implements IDynamicService {
         dynamic.setId(content.getId());
         contentMapper.insert(content);
         dynamicMapper.insert(dynamic);
+        // ES 全量文档由打标链路单写: 延迟任务里 LLM 打标后整档同步(失败也发兜底文档保可搜)
+        autoTagPublisher.sendAutoTagTask(content.getId(), ContentTypeEnum.DYNAMIC);
         return String.valueOf(dynamic.getId());
     }
 

@@ -38,3 +38,5 @@ my-youtube:
     model: ${LLM_MODEL:glm-4-flash}
     timeout-seconds: 20
     max-tokens: 512
+    # 低于该置信度的标签丢弃
+    min-confidence: 0.5

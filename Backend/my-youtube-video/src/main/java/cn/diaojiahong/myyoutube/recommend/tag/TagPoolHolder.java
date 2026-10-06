@@ -52,6 +52,11 @@ public class TagPoolHolder {
         return tagBySlug.get(slug);
     }
 
+    /** category_code → 词库视图, key 为空串表示通用池 */
+    public Map<String, List<Tag>> grouped() {
+        return poolByCategory;
+    }
+
     public Collection<Tag> all() {
         return tagBySlug.values();
     }

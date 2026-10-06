@@ -36,6 +36,9 @@ public class RedisConstants {
     // 60天后过期
     public static final Long USER_DISLIKE_EXPIRE = 60L;
 
+    // 标签被内容引用的次数 ZSET, member=tagId; 打标链路维护, 热门标签榜数据源
+    public static final String CONTENT_TAG_REF = "content:tag:ref";
+
 
     // 用户看过的长视频时长记录 ->  {userid} : videoId , 当前时间戳
     public static final String USER_PLAYBACK_RESUME_TIMESTAMP = "user:playback:resume:timestamp:";

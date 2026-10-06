@@ -8,6 +8,7 @@ import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.mq.publisher.AutoTagPublisher;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.dto.GenerateCoverDTO;
@@ -38,6 +39,7 @@ import static cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum.REVIEW;
 public class VideoPublishServiceImpl implements IVideoPublishService {
 
     private final RocketMQTemplate rocketMQTemplate;
+    private final AutoTagPublisher autoTagPublisher;
     private final S3StorageUtil storageUtil;
     private final ContentMapper contentMapper;
     private final VideoMapper videoMapper;
@@ -100,6 +102,8 @@ public class VideoPublishServiceImpl implements IVideoPublishService {
                 .setCreateTime(video.getCreateTime());
         contentMapper.insert(content);
         videoMapper.insert(video);
+        // ES 全量文档由打标链路单写: 延迟任务里 LLM 打标后整档同步(失败也发兜底文档保可搜)
+        autoTagPublisher.sendAutoTagTask(video.getId(), ContentTypeEnum.VIDEO);
     }
 
     @Override

@@ -18,6 +18,8 @@ public class MqConstants {
     public static final String TOPIC_CHAT_GROUP_DELETED = "chat_group_deleted_topic";
     // 动态成片懒转码, 消息体只带 taskId
     public static final String TOPIC_DYNAMIC_TRANSCODE = "dynamic_transcode_topic";
+    // 机器打标任务, video 服务自产自销
+    public static final String TOPIC_AUTO_TAG = "auto_tag_topic";
 
     public static final String TAG_LIKE = "like";
     public static final String TAG_UNLIKE = "unlike";
