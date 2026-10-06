@@ -16,4 +16,10 @@ public class ChainAutoConfiguration {
     public ChainStepRegistry chainStepRegistry(List<ChainStep<?>> steps) {
         return new ChainStepRegistry(steps);
     }
+
+    /** 同步版注册表, 供 servlet 栈业务服务使用; 无步骤时也装配, 免得各服务判空 */
+    @Bean
+    public SyncChainStepRegistry syncChainStepRegistry(List<SyncChainStep<?>> steps) {
+        return new SyncChainStepRegistry(steps);
+    }
 }
