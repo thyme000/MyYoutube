@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
+import cn.diaojiahong.myyoutube.chat.chain.message.MessageSendChain;
+import cn.diaojiahong.myyoutube.chat.chain.message.MessageSendContext;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageWithdrawDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.MessageListPageQuery;
@@ -14,13 +16,13 @@ import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePageVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategy;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategyRegistry;
+import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
@@ -60,27 +62,27 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final StringRedisTemplate redisTemplate;
-    private final FollowPort followPort;
     private final VideoInternalPort videoInternalPort;
     private final ChatContentTypeStrategyRegistry contentTypeStrategies;
+    private final SyncChainStepRegistry chainRegistry;
     public ChatMessageService(MongoTemplate mongoTemplate,
                               ChatConversationService chatConversationService,
                               RocketMQTemplate rocketMQTemplate,
                               UserPort userPort,
                               S3StorageUtil storageUtil,
                               StringRedisTemplate redisTemplate,
-                              FollowPort followPort,
                               VideoInternalPort videoInternalPort,
-                              ChatContentTypeStrategyRegistry contentTypeStrategies) {
+                              ChatContentTypeStrategyRegistry contentTypeStrategies,
+                              SyncChainStepRegistry chainRegistry) {
         super(mongoTemplate, ChatMessageDoc.class);
         this.chatConversationService = chatConversationService;
         this.rocketMQTemplate = rocketMQTemplate;
         this.userPort = userPort;
         this.storageUtil = storageUtil;
         this.redisTemplate = redisTemplate;
-        this.followPort = followPort;
         this.videoInternalPort = videoInternalPort;
         this.contentTypeStrategies = contentTypeStrategies;
+        this.chainRegistry = chainRegistry;
     }
 
     public Optional<ChatMessageDoc> findByIdempotent(Long senderId, String clientMsgId) {
@@ -117,63 +119,17 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
 
     @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public ChatMessageAckDTO send(ChatMessageDTO chatMessageDTO) {
-        validateByType(chatMessageDTO);
-        String userId = getUserId();
-        String conversationId = chatMessageDTO.getConversationId();
-        Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(Long.valueOf(userId));
-        Query q = Query.query(c);
-        ChatUserConversationDoc userConversationDoc = mongoTemplate.findOne(q, ChatUserConversationDoc.class);
-        if (userConversationDoc == null || Boolean.TRUE.equals(userConversationDoc.getDeleted())) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "不合法的会话状态");
+        // 类型校验/会话与成员守卫/禁言/幂等/互关频控全部在链上, 步骤见 chat.chain.message
+        MessageSendContext ctx = MessageSendContext.of(chatMessageDTO, getUserId());
+        chainRegistry.execute(MessageSendChain.GROUP, ctx, MessageSendContext::hasAck);
+        if (ctx.hasAck()) {
+            // 该消息此前已发送过, 幂等命中直接返回旧 ack, 不再写入
+            return ctx.getAck();
         }
-        // 判断是否被禁言
-        if (Boolean.TRUE.equals(userConversationDoc.getBanned())) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "您已被禁言");
-        }
-        if (chatMessageDTO.getClientMsgId() == null) {
-            throw new BizException(BizException.MESSAGE_ERROR, "客户端幂等id不能为空");
-        }
-        Optional<ChatMessageDoc> existed =
-                findByIdempotent(Long.valueOf(userId), chatMessageDTO.getClientMsgId());
-        if (existed.isPresent()) {
-            // 说明该消息在此之前已经发送过,直接返回ack
-            ChatMessageDoc old = existed.get();
-            if (!old.getConversationId().equals(conversationId)) {
-                throw new BizException(BizException.MESSAGE_ERROR, "会话id不一致");
-            }
-            return getAck(old, old.getStatus());
-        }
-        // 判断是否是发送人
-        if (!chatMessageDTO.getSenderId().toString().equals(userId)) {
-            throw new BizException(BizException.MESSAGE_ERROR, "不是发送人");
-        }
-        // 判断是否是该会话的成员
-        ChatConversationDoc chatConversationDoc = chatConversationService.getById(conversationId).orElse(null);
-        if (chatConversationDoc == null) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "会话不存在");
-        }
-        if (!chatConversationDoc.getMemberIds().contains(chatMessageDTO.getSenderId())) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "不是该会话的成员");
-        }
-        // 判断是否开启了全员禁言 且 发送人不是创建人
-        if (Boolean.TRUE.equals(chatConversationDoc.getBanned()) &&
-                !chatConversationDoc.getCreatedBy().equals(Long.valueOf(userId))) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "全员禁言开启中");
-        }
-        boolean isInterrelated = false;
-        if (chatConversationDoc.getType().equals(ConversationTypeEnum.SINGLE)) {
-            chatConversationDoc.getMemberIds().remove(chatMessageDTO.getSenderId());
-            isInterrelated = followPort.interrelated(new FollowPort.InterrelatedQuery(Long.valueOf(userId), chatConversationDoc.getMemberIds()));
-            // 私聊,判断是否是互关关系
-            if (!isInterrelated) {
-                // 不是互关关系的私聊,每天只能给对方发送10条消息
-                Double times = redisTemplate.opsForZSet().score(RedisConstants.USER_CONVERSATION + userId, conversationId);
-                if (times != null && times > 10) {
-                    throw new BizException(BizException.MESSAGE_ERROR, "你们暂时还不是互关关系哦,每天只能给对方发送10条消息");
-                }
-            }
-            chatConversationDoc.getMemberIds().add(Long.valueOf(userId));
-        }
+        String userId = ctx.getUserId();
+        String conversationId = ctx.getConversationId();
+        ChatConversationDoc chatConversationDoc = ctx.getConversationDoc();
+        boolean isInterrelated = ctx.isInterrelated();
         ChatMessageDoc chatMessageDoc = BeanUtil.toBean(chatMessageDTO, ChatMessageDoc.class);
         chatMessageDoc.setCreatedAt(LocalDateTime.now());
         chatMessageDoc.setStatus(MessageStatusEnum.SENT);
@@ -218,14 +174,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     }
 
     private ChatMessageAckDTO getAck(ChatMessageDoc chatMessageDoc, MessageStatusEnum status) {
-        ChatMessageAckDTO chatMessageAckDTO = new ChatMessageAckDTO();
-        chatMessageAckDTO.setMessageId(chatMessageDoc.getId());
-        chatMessageAckDTO.setConversationId(chatMessageDoc.getConversationId());
-        chatMessageAckDTO.setSeq(chatMessageDoc.getSeq());
-        chatMessageAckDTO.setServerTime(System.currentTimeMillis());
-        chatMessageAckDTO.setClientMsgId(chatMessageDoc.getClientMsgId());
-        chatMessageAckDTO.setStatus(status);
-        return chatMessageAckDTO;
+        return MessageSendContext.ackOf(chatMessageDoc, status);
     }
 
     public long nextSeq(String conversationId) {
@@ -307,14 +256,6 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                 .serviceTime(recallTime).event("withdraw").build();
         rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
         return chatMessageAckDTO;
-    }
-
-    private void validateByType(ChatMessageDTO dto) {
-        ChatContentTypeStrategy strategy = contentTypeStrategies.get(dto.getContentType());
-        if (strategy == null) {
-            throw new BizException(BizException.MESSAGE_ERROR, "消息类型错误");
-        }
-        strategy.validate(dto.getContent());
     }
 
     public MessagePageVO getMessageList(String conversationId, MessageListPageQuery messageListPageQuery) {
