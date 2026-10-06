@@ -1,0 +1,26 @@
+spring:
+  config:
+    import:
+      - classpath:application-common.yml
+      - optional:classpath:application-local.yml
+  application:
+    name: my-youtube-llm-service
+
+rocketmq:
+  producer:
+    group: myyoutube_llm_producer
+
+server:
+  port: ${SERVER_PORT:8087}
+
+# 无 DB 服务: DataSource/MyBatis 自动装配已在启动类排除, application-common 的 datasource 键不生效
+my-youtube:
+  llm:
+    # OpenAI 兼容接口; provider: zhipu|deepseek|qwen|openai, base-url/model 不填用厂商默认, 填了覆盖
+    provider: ${LLM_PROVIDER:zhipu}
+    base-url: ${LLM_BASE_URL:}
+    api-key: ${LLM_API_KEY:}
+    model: ${LLM_MODEL:}
+    temperature: 0.2
+    timeout-seconds: 20
+    max-tokens: 512

@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.common.llm;
+package cn.diaojiahong.myyoutube.llm;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

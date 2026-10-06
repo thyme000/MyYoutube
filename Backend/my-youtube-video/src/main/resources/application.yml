@@ -27,18 +27,12 @@ my-youtube:
     url: ${CHAT_SERVICE_URL:}
   transcode-service:
     url: ${TRANSCODE_SERVICE_URL:}
+  llm-service:
+    url: ${LLM_SERVICE_URL:}
   recommend:
     cf:
       # 在线相似度表选择: itemcf | swing, 两份都离线算好, 改这里重启即切换
       algorithm: swing
-  llm:
-    # OpenAI 兼容接口; provider: zhipu|deepseek|qwen|openai, base-url/model 不填用厂商默认, 填了覆盖
-    provider: ${LLM_PROVIDER:zhipu}
-    base-url: ${LLM_BASE_URL:}
-    api-key: ${LLM_API_KEY:}
-    model: ${LLM_MODEL:}
-    temperature: 0.2
-    timeout-seconds: 20
-    max-tokens: 512
-    # 必填无默认(0~1), 缺失服务拒绝启动; 真实值填 application-local.yml
+  autotag:
+    # 打标防线阈值, 必填无默认(0~1), 缺失服务拒绝启动; 真实值填 application-local.yml
     # min-confidence: 0.5

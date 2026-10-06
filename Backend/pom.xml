@@ -29,6 +29,8 @@
 		<module>my-youtube-transcode-api</module>
 		<module>my-youtube-transcode</module>
 		<module>my-youtube-admin</module>
+		<module>my-youtube-llm-api</module>
+		<module>my-youtube-llm</module>
 	</modules>
 
 	<properties>

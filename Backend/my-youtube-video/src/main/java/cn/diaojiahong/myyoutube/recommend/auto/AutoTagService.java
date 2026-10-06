@@ -1,11 +1,11 @@
 package cn.diaojiahong.myyoutube.recommend.auto;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
-import cn.diaojiahong.myyoutube.common.llm.LlmClient;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.utils.StrUtils;
+import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag;
 import cn.diaojiahong.myyoutube.recommend.domain.po.Tag;
 import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
@@ -47,7 +47,7 @@ public class AutoTagService {
             "GAME(游戏) MOVIE(影视) MUSIC(音乐) KNOWLEDGE(知识) LIFE(生活) TECH(科技) ENTERTAINMENT(娱乐) OTHER(其他)";
 
     private final TaggingStrategyRegistry registry;
-    private final LlmClient llmClient;
+    private final LlmPort llmPort;
     private final TagPoolHolder tagPoolHolder;
     private final ITagService tagService;
     private final IContentTagService contentTagService;
@@ -55,7 +55,7 @@ public class AutoTagService {
     private final StringRedisTemplate redisTemplate;
 
     /** 必填, 无默认: 打标防线阈值, 低于该置信度的标签丢弃 */
-    @Value("${my-youtube.llm.min-confidence}")
+    @Value("${my-youtube.autotag.min-confidence}")
     private double minConfidence;
 
     /**
@@ -73,12 +73,8 @@ public class AutoTagService {
             return false;
         }
 
-        TaggingResult result = null;
-        if (llmClient.isConfigured()) {
-            result = tagWithRetry(signal);
-        } else {
-            log.warn("LLM api-key 未配置, 跳过打标, contentId={}", contentId);
-        }
+        // key 状态归 llm-svc 管: 未配置时远端快速失败, 这里捕获后走无标签兜底文档
+        TaggingResult result = tagWithRetry(signal);
 
         if (result != null && !result.tagWeights().isEmpty()) {
             persistResult(strategy, contentId, result);
@@ -89,25 +85,29 @@ public class AutoTagService {
     }
 
     private TaggingResult tagWithRetry(ContentTaggingStrategy.TagSignal signal) {
-        List<LlmClient.Message> prompt = buildPrompt(signal);
+        List<LlmPort.Message> prompt = buildPrompt(signal);
+        LlmPort.ChatRequest request = new LlmPort.ChatRequest(prompt, null, null);
         for (int i = 1; i <= 2; i++) {
             try {
-                return parse(llmClient.chat(prompt));
+                LlmPort.ChatResponse resp = llmPort.chat(request);
+                if (resp == null || resp.getContent() == null || resp.getContent().isBlank()) {
+                    throw new IllegalStateException("LLM 空回复");
+                }
+                return parse(resp.getContent());
             } catch (Exception e) {
-                log.warn("LLM 打标解析失败(第{}次): {}", i, e.getMessage());
+                log.warn("LLM 打标失败(第{}次): {}", i, e.getMessage());
             }
         }
         return null;
     }
 
-    private List<LlmClient.Message> buildPrompt(ContentTaggingStrategy.TagSignal signal) {
+    private List<LlmPort.Message> buildPrompt(ContentTaggingStrategy.TagSignal signal) {
         StringBuilder pool = new StringBuilder();
         Map<String, List<Tag>> grouped = tagPoolHolder.grouped();
         for (VideoCategoryEnum c : VideoCategoryEnum.values()) {
             appendPoolLine(pool, c.getLabel(), grouped.get(c.getCode()));
         }
         appendPoolLine(pool, "通用", grouped.get(""));
-
         String system = """
                 你是内容平台的自动打标器。任务: 判断内容所属类目, 并挑选标签。
                 规则:
@@ -121,7 +121,7 @@ public class AutoTagService {
                 + "\n【候选标签】\n" + pool
                 + "\n【标题】" + signal.title()
                 + "\n【简介】" + signal.description();
-        return List.of(new LlmClient.Message("system", system), new LlmClient.Message("user", user));
+        return List.of(new LlmPort.Message("system", system), new LlmPort.Message("user", user));
     }
 
     private void appendPoolLine(StringBuilder pool, String label, List<Tag> tags) {

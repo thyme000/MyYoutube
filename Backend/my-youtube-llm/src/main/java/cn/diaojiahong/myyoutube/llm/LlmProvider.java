@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.common.llm;
+package cn.diaojiahong.myyoutube.llm;
 
 /**
  * 预置厂商: OpenAI 兼容默认端点与默认模型; 显式配置的 base-url/model 优先于这里

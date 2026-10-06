@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.common.llm;
+package cn.diaojiahong.myyoutube.llm;
 
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import com.google.gson.JsonArray;
@@ -16,7 +16,7 @@ import java.util.List;
 
 /**
  * 通用 LLM chat 客户端: OpenAI 兼容 /chat/completions, JDK HttpClient 实现;
- * 厂商/模型/温度都来自 LlmProperties
+ * 厂商/模型/温度默认来自 LlmProperties, 调用方可按次覆盖
  */
 @Slf4j
 @Component
@@ -34,18 +34,20 @@ public class LlmClient {
     }
 
     /**
-     * @param messages 角色/内容对, role 为 system/user/assistant
+     * @param messages    角色/内容对, role 为 system/user/assistant
+     * @param temperature 可选覆盖, null 用配置值
+     * @param maxTokens   可选覆盖, null 用配置值
      * @return assistant 回复文本
      */
-    public String chat(List<Message> messages) {
+    public String chat(List<Message> messages, Double temperature, Integer maxTokens) {
         if (!isConfigured()) {
             throw new IllegalStateException("LLM api-key 未配置");
         }
 
         JsonObject body = new JsonObject();
         body.addProperty("model", properties.effectiveModel());
-        body.addProperty("temperature", properties.getTemperature());
-        body.addProperty("max_tokens", properties.getMaxTokens());
+        body.addProperty("temperature", temperature != null ? temperature : properties.getTemperature());
+        body.addProperty("max_tokens", maxTokens != null ? maxTokens : properties.getMaxTokens());
         JsonArray arr = new JsonArray();
         for (Message m : messages) {
             JsonObject o = new JsonObject();
