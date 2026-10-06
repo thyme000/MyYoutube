@@ -26,6 +26,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -44,25 +45,27 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     private final S3StorageUtil storageUtil;
     private final RocketMQTemplate rocketMQTemplate;
     private final PushFanoutPublisher pushFanoutPublisher;
+    private final TransactionTemplate mongoTransactionTemplate;
 
     public ChatConversationService(MongoTemplate mongoTemplate,
                                    FollowPort followPort,
                                    UserPort userPort,
                                    S3StorageUtil storageUtil,
                                    RocketMQTemplate rocketMQTemplate,
-                                   PushFanoutPublisher pushFanoutPublisher) {
+                                   PushFanoutPublisher pushFanoutPublisher,
+                                   TransactionTemplate mongoTransactionTemplate) {
         super(mongoTemplate, ChatConversationDoc.class);
         this.followPort = followPort;
         this.userPort = userPort;
         this.storageUtil = storageUtil;
         this.rocketMQTemplate = rocketMQTemplate;
         this.pushFanoutPublisher = pushFanoutPublisher;
+        this.mongoTransactionTemplate = mongoTransactionTemplate;
     }
 
-    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public ConversationVO createConversation(CreateConversationDTO createConversationDTO) {
         Long userId = getUserId();
-        // 判断是否是互关用户 -> 不是互关用户则返回错误
+        // 判断是否是互关用户 -> 不是互关用户则返回错误; Feign 守卫在事务外, 事务里只做纯写
         List<Long> memberIds = createConversationDTO.getMemberIds();
         if (createConversationDTO.getType() == ConversationTypeEnum.GROUP) {
             if (!followPort.interrelated(new FollowPort.InterrelatedQuery(userId, memberIds))) {
@@ -107,7 +110,6 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         chatConversationDoc.setLastMessagePreview(null);
         chatConversationDoc.setLastMessageSenderNickname(null);
         chatConversationDoc.setLastMessageAt(null);
-        save(chatConversationDoc);
         // 创建用户会话状态表
         LocalDateTime now = LocalDateTime.now();
         List<ChatUserConversationDoc> chatUserConversationDocs = new ArrayList<>();
@@ -126,7 +128,11 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             chatUserConversationDoc.setUpdatedAt(now);
             chatUserConversationDocs.add(chatUserConversationDoc);
         }
-        mongoTemplate.insert(chatUserConversationDocs, "chat_user_conversation");
+        // 会话与成员会话状态要么都在要么都不在
+        mongoTransactionTemplate.executeWithoutResult(tx -> {
+            save(chatConversationDoc);
+            mongoTemplate.insert(chatUserConversationDocs, "chat_user_conversation");
+        });
         // 构建VO
         ConversationVO conversationVO = new ConversationVO();
         conversationVO.setId(chatConversationDoc.getId());
@@ -282,10 +288,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         return opt.get();
     }
 
-    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public void inviteConversationMember(String conversationId, Long invitedUserId) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         Long userId = getUserId();
+        // Feign 守卫提前到事务外: 用户存在性 + 互关关系
         UserSummary user = userPort.getUser(invitedUserId);
         if (user == null) {
             throw new IllegalArgumentException("用户不存在");
@@ -304,7 +310,6 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         // 邀请会话成员
         memberIds.add(invitedUserId);
         chatConversationDoc.setMemberIds(memberIds);
-        save(chatConversationDoc);
         // 新增被邀请用户的会话状态信息
         ChatUserConversationDoc userConversationDoc = new ChatUserConversationDoc();
         userConversationDoc.setUserId(invitedUserId);
@@ -319,7 +324,11 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         userConversationDoc.setLastPullAt(now);
         userConversationDoc.setCreatedAt(now);
         userConversationDoc.setUpdatedAt(now);
-        mongoTemplate.insert(userConversationDoc, "chat_user_conversation");
+        // 成员表与会话状态要么都在要么都不在
+        mongoTransactionTemplate.executeWithoutResult(tx -> {
+            save(chatConversationDoc);
+            mongoTemplate.insert(userConversationDoc, "chat_user_conversation");
+        });
     }
 
     public List<ConversationMembersVO> getConversationMembers(String conversationId) {

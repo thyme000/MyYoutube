@@ -21,7 +21,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
@@ -36,6 +35,7 @@ import java.util.stream.Collectors;
  * @author thyme
  * @since 2026-04-01
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFollow> implements IUserFollowService {
@@ -48,26 +48,35 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     private static final long STORAGE_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
     @Override
-    @Transactional
     public void follow(Long authorId) {
         Long userId = getUserId();
         if (userId.equals(authorId)) {
 
             throw new BizException(BizException.USER_ERROR, "不能关注自己");
         }
-        // 存在就修改,不存在就新增
+        // 存在就修改,不存在就新增; 单条 UPDATE 走自动提交, 不开事务圈住下面的远程调用
         long id = IdWorker.getId();
         int row = baseMapper.followOrRestore(id, userId, authorId);
         // 关注成功后，更新用户信息 -> 被关注者粉丝数加一,关注者关注数量加一
         if (row > 0) {
 
-            userPort.adjustCounters(List.of(
+            adjustCountersQuietly(List.of(
                     new CounterAdjust(authorId, "fans", 1),
                     new CounterAdjust(userId, "attentionCount", 1)));
         }
         // 延迟同步 ES 用户文档, 短时间多次变更天然合并(消费端以 MySQL 为准)
         esSyncPublisher.syncUserDoc(authorId);
         return;
+    }
+
+    /** 计数器尽力而为: 关注关系已落库, 远程计数失败只记日志, 不把 HTTP 调用拖进 DB 连接持有期 */
+    private void adjustCountersQuietly(List<CounterAdjust> adjustments) {
+
+        try {
+            userPort.adjustCounters(adjustments);
+        } catch (Exception e) {
+            log.error("关注计数同步失败: {}", adjustments, e);
+        }
     }
 
     private Long getUserId() {
@@ -80,7 +89,6 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         return Long.valueOf(userId);
     }
 
-    @Transactional
     @Override
     public void cancelFollow(Long authorId) {
         Long userId = getUserId();
@@ -89,7 +97,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一
         if (row > 0) {
 
-            userPort.adjustCounters(List.of(
+            adjustCountersQuietly(List.of(
                     new CounterAdjust(authorId, "fans", -1),
                     new CounterAdjust(userId, "attentionCount", -1)));
         }
@@ -207,7 +215,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一
         if (row > 0) {
 
-            userPort.adjustCounters(List.of(
+            adjustCountersQuietly(List.of(
                     new CounterAdjust(userId, "fans", -1),
                     new CounterAdjust(followerId, "attentionCount", -1)));
         }

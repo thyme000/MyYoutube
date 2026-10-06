@@ -44,7 +44,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.data.mongodb.core.query.Update;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -65,6 +65,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private final VideoInternalPort videoInternalPort;
     private final ChatContentTypeStrategyRegistry contentTypeStrategies;
     private final SyncChainStepRegistry chainRegistry;
+    private final TransactionTemplate mongoTransactionTemplate;
     public ChatMessageService(MongoTemplate mongoTemplate,
                               ChatConversationService chatConversationService,
                               RocketMQTemplate rocketMQTemplate,
@@ -73,7 +74,8 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                               StringRedisTemplate redisTemplate,
                               VideoInternalPort videoInternalPort,
                               ChatContentTypeStrategyRegistry contentTypeStrategies,
-                              SyncChainStepRegistry chainRegistry) {
+                              SyncChainStepRegistry chainRegistry,
+                              TransactionTemplate mongoTransactionTemplate) {
         super(mongoTemplate, ChatMessageDoc.class);
         this.chatConversationService = chatConversationService;
         this.rocketMQTemplate = rocketMQTemplate;
@@ -83,6 +85,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         this.videoInternalPort = videoInternalPort;
         this.contentTypeStrategies = contentTypeStrategies;
         this.chainRegistry = chainRegistry;
+        this.mongoTransactionTemplate = mongoTransactionTemplate;
     }
 
     public Optional<ChatMessageDoc> findByIdempotent(Long senderId, String clientMsgId) {
@@ -117,7 +120,6 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return page(q, PageRequest.of(0, size));
     }
 
-    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public ChatMessageAckDTO send(ChatMessageDTO chatMessageDTO) {
         // 类型校验/会话与成员守卫/禁言/幂等/互关频控全部在链上, 步骤见 chat.chain.message
         MessageSendContext ctx = MessageSendContext.of(chatMessageDTO, getUserId());
@@ -133,22 +135,31 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         ChatMessageDoc chatMessageDoc = BeanUtil.toBean(chatMessageDTO, ChatMessageDoc.class);
         chatMessageDoc.setCreatedAt(LocalDateTime.now());
         chatMessageDoc.setStatus(MessageStatusEnum.SENT);
-        // 转发类由策略查远端固化快照, 其余类型原样透传
+        // 转发类由策略查远端固化快照, 其余类型原样透传; 远程调用在事务外完成
         chatMessageDoc.setContent(contentTypeStrategies.get(chatMessageDoc.getContentType())
                 .snapshot(chatMessageDTO.getContent()));
-        chatMessageDoc.setSeq(nextSeq(conversationId));
-        mongoTemplate.save(chatMessageDoc, "chat_messages");
-        if (chatConversationDoc.getType().equals(ConversationTypeEnum.SINGLE)) {
-            // 私聊并且不是互关,增加消息次数
-            if (!isInterrelated) {
-                redisTemplate.opsForZSet().incrementScore(RedisConstants.USER_CONVERSATION + userId, conversationId, 1);
-                redisTemplate.expire(RedisConstants.USER_CONVERSATION + userId,
-                        RedisConstants.USER_CONVERSATION_EXPIRE, TimeUnit.DAYS);
+        // 群聊最后一条消息发送人昵称: Feign 提前到事务外查好, 事务里只做纯写
+        boolean isGroup = chatConversationDoc.getType().equals(ConversationTypeEnum.GROUP);
+        String senderNickname = isGroup ? userPort.getUser(Long.valueOf(userId)).getNickname() : null;
+        mongoTransactionTemplate.executeWithoutResult(tx -> {
+            chatMessageDoc.setSeq(nextSeq(conversationId));
+            mongoTemplate.save(chatMessageDoc, "chat_messages");
+            // 设置会话最后消息
+            chatConversationDoc.setLastMessageAt(chatMessageDoc.getCreatedAt());
+            chatConversationDoc.setLastMessageId(chatMessageDoc.getId());
+            chatConversationDoc.setIsLastMessageRecall(false);
+            // 系统消息等无预览类型不动 lastMessagePreview, 保留上一条媒体消息的预览
+            String preview = contentTypeStrategies.get(chatMessageDoc.getContentType()).previewLabel(chatMessageDoc.getContent());
+            if (preview != null) {
+                chatConversationDoc.setLastMessagePreview(preview);
             }
-        }
-        // 构建ack
+            if (isGroup) {
+                chatConversationDoc.setLastMessageSenderNickname(senderNickname);
+            }
+            mongoTemplate.save(chatConversationDoc, "chat_conversations");
+        });
+        // ack 与推送报文依赖 save 后的 messageId/seq, 必须在提交后构建
         ChatMessageAckDTO chatMessageAckDTO = getAck(chatMessageDoc, MessageStatusEnum.SENT);
-        // 推送消息到所有成员
         ChatMessageMessage ch = ChatMessageMessage.builder().senderId(chatMessageDoc.getSenderId())
                 .seq(chatMessageDoc.getSeq()).conversationId(conversationId)
                 .messageId(chatMessageDoc.getId()).contentType(chatMessageDTO.getContentType())
@@ -156,19 +167,14 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         if (chatMessageDTO.getContentType().isText()) {
             ch.setContent(chatMessageDTO.getContent().getText());
         }
-        // 设置会话最后消息
-        chatConversationDoc.setLastMessageAt(chatMessageDoc.getCreatedAt());
-        chatConversationDoc.setLastMessageId(chatMessageDoc.getId());
-        chatConversationDoc.setIsLastMessageRecall(false);
-        // 系统消息等无预览类型不动 lastMessagePreview, 保留上一条媒体消息的预览
-        String preview = contentTypeStrategies.get(chatMessageDoc.getContentType()).previewLabel(chatMessageDoc.getContent());
-        if (preview != null) {
-            chatConversationDoc.setLastMessagePreview(preview);
+        if (chatConversationDoc.getType().equals(ConversationTypeEnum.SINGLE)) {
+            // 私聊并且不是互关,增加消息次数; 提交后再计, 回滚的消息不计数
+            if (!isInterrelated) {
+                redisTemplate.opsForZSet().incrementScore(RedisConstants.USER_CONVERSATION + userId, conversationId, 1);
+                redisTemplate.expire(RedisConstants.USER_CONVERSATION + userId,
+                        RedisConstants.USER_CONVERSATION_EXPIRE, TimeUnit.DAYS);
+            }
         }
-        if (chatConversationDoc.getType().equals(ConversationTypeEnum.GROUP)) {
-            chatConversationDoc.setLastMessageSenderNickname(userPort.getUser(Long.valueOf(userId)).getNickname());
-        }
-        mongoTemplate.save(chatConversationDoc, "chat_conversations");
         rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
         return chatMessageAckDTO;
     }
@@ -195,7 +201,6 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return userId;
     }
 
-    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public ChatMessageAckDTO withdraw(ChatMessageWithdrawDTO chatMessageWithdrawDTO) {
         String userId = getUserId();
         if (chatMessageWithdrawDTO.getClientMsgId() == null) {
@@ -242,20 +247,20 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         } else {
             throw new BizException(BizException.MESSAGE_ERROR, "无法确定撤回类型");
         }
-        mongoTemplate.updateFirst(Query.query(c), up, ChatMessageDoc.class);
-        // 构建ack
-        ChatMessageAckDTO chatMessageAckDTO = getAck(chatMessageDoc, MessageStatusEnum.WITHDRAWN);
-        // 设置会话最后消息撤回
-        chatConversationDoc.setIsLastMessageRecall(true);
-        mongoTemplate.save(chatConversationDoc, "chat_conversations");
-        // 推送消息到所有成员
+        mongoTransactionTemplate.executeWithoutResult(tx -> {
+            mongoTemplate.updateFirst(Query.query(c), up, ChatMessageDoc.class);
+            // 设置会话最后消息撤回
+            chatConversationDoc.setIsLastMessageRecall(true);
+            mongoTemplate.save(chatConversationDoc, "chat_conversations");
+        });
+        // 推送消息到所有成员: 提交后发, MQ 失败不回滚撤回
         ChatMessageMessage ch = ChatMessageMessage.builder().senderId(chatMessageDoc.getSenderId())
                 .seq(chatMessageDoc.getSeq()).conversationId(chatMessageDoc.getConversationId())
                 .messageId(chatMessageDoc.getId()).contentType(chatMessageDoc.getContentType())
                 .recallType(recallTypeForMq)
                 .serviceTime(recallTime).event("withdraw").build();
         rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
-        return chatMessageAckDTO;
+        return getAck(chatMessageDoc, MessageStatusEnum.WITHDRAWN);
     }
 
     public MessagePageVO getMessageList(String conversationId, MessageListPageQuery messageListPageQuery) {
@@ -317,7 +322,6 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return vo;
     }
 
-    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public void read(String conversationId, Long lastReadSeq) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         // 判断是否是会话成员
@@ -351,7 +355,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             // 已读状态不用改变
             return;
         }
-        // 更新用户会话状态
+        // 更新用户会话状态; 单文档 updateFirst 自带原子性, 不开事务
         Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(Long.parseLong(getUserId()));
         int prevUnread = chatUserConversationDoc.getUnreadCount() != null ? chatUserConversationDoc.getUnreadCount() : 0;
         long seqDelta = lastReadSeq - oldLastReadSeq;
@@ -439,7 +443,6 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return PageResult.of(total, pages, list);
     }
 
-    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public ChatMessageAckDTO forwardVideo(@Valid ChatMessageDTO chatMessageDTO) {
         // 用户转发视频,需要更新视频的分享数
         ChatContent content = chatMessageDTO.getContent();
@@ -448,15 +451,10 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             throw new BizException(BizException.MESSAGE_ERROR, "转发视频id不能为空");
         }
         ChatMessageAckDTO ack = send(chatMessageDTO);
-        // 分享计数尽力而为: 远端计数不在 Mongo 事务里, 失败只记日志, 消息照发
-        boolean success = videoInternalPort.incrementShareCount(forwardVideoId);
-        if (!success) {
-            log.error("更新视频分享数失败,视频id:{}", forwardVideoId);
-        }
+        incrementShareCountQuietly(forwardVideoId, "视频");
         return ack;
     }
 
-    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
     public ChatMessageAckDTO forwardDynamic(@Valid ChatMessageDTO chatMessageDTO) {
         // 用户转发动态, 需要更新内容的分享数(动态与视频同池, share_count 在 content 上)
         ChatContent content = chatMessageDTO.getContent();
@@ -465,10 +463,20 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             throw new BizException(BizException.MESSAGE_ERROR, "转发动态id不能为空");
         }
         ChatMessageAckDTO ack = send(chatMessageDTO);
-        boolean success = videoInternalPort.incrementShareCount(forwardDynamicId);
-        if (!success) {
-            log.error("更新动态分享数失败,动态id:{}", forwardDynamicId);
-        }
+        incrementShareCountQuietly(forwardDynamicId, "动态");
         return ack;
+    }
+
+    /** 分享计数尽力而为: 消息已发出, 远端计数失败只记日志, 不把 Feign 异常抛给用户 */
+    private void incrementShareCountQuietly(Long contentId, String label) {
+
+        try {
+            boolean success = videoInternalPort.incrementShareCount(contentId);
+            if (!success) {
+                log.error("更新{}分享数失败,内容id:{}", label, contentId);
+            }
+        } catch (Exception e) {
+            log.error("更新{}分享数异常,内容id:{}", label, contentId, e);
+        }
     }
 }
