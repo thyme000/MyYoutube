@@ -27,6 +27,12 @@ public class Dynamic implements Serializable {
 
     private String title;
 
+    /** 简介 */
+    private String description;
+
+    /** LLM 判定类目 */
+    private String categoryCode;
+
     /** vertical/horizontal */
     private String canvasType;
 
@@ -55,7 +61,7 @@ public class Dynamic implements Serializable {
     private String timelineJson;
 
     /**
-     * 标签, 逗号分隔(可选)
+     * 标签展示缓存, 机器打标回写, 逗号分隔
      */
     private String tags;
 

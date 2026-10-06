@@ -16,5 +16,5 @@ import java.util.List;
  */
 public interface IUserTagPreferenceService extends IService<UserTagPreference> {
 
-    void saveUserTagPreferenceAsync(List<Long> list, Long userId, EventEnum eventEnum);
+    void saveUserTagPreference(List<Long> list, Long userId, EventEnum eventEnum);
 }

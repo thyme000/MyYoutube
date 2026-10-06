@@ -43,8 +43,11 @@ public class DynamicVO {
     private String authorAvatarUrl;
     /** 作者粉丝数(详情层展示) */
     private Long authorFanCount;
-    /** 标签, 逗号分隔(复用 tag 体系) */
+    /** 标签, 逗号分隔(机器打标缓存) */
     private String tags;
+
+    /** 简介 */
+    private String description;
 
     private Long createTime;
 

@@ -61,7 +61,7 @@ public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorM
                 .list().stream().map(ContentTag::getTagId).toList();
 
         // 更新用户喜好表
-        userTagPreferenceService.saveUserTagPreferenceAsync(list, userId, behaviorDTO.getEvent());
+        userTagPreferenceService.saveUserTagPreference(list, userId, behaviorDTO.getEvent());
 
         // 更新用户看过的内容id
         if (behaviorDTO.getEvent() == EventEnum.DISLIKE) {

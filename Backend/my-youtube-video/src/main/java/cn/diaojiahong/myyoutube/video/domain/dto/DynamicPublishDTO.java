@@ -9,6 +9,9 @@ public class DynamicPublishDTO {
 
     private String title;
 
+    /** 可选简介 */
+    private String description;
+
     /** vertical / horizontal */
     private String canvasType;
 
@@ -17,9 +20,6 @@ public class DynamicPublishDTO {
 
     /** 音频库条目ID(必填): 后端校验可见性并把 objectKey/时长/标题作为快照落库 */
     private Long audioId;
-
-    /** 可选标签, 逗号分隔 */
-    private String tags;
 
     /** 0不允许 1允许评论, 默认允许 */
     private Integer allowComment;

@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.video.domain.dto;
 
-import cn.diaojiahong.myyoutube.video.api.enums.VideoCategoryEnum;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -28,16 +27,6 @@ public class VideoDTO {
      * 视频时长（单位：秒）
      */
     private Integer duration;
-
-    /**
-     * 视频分类（如：游戏、生活）
-     */
-    private VideoCategoryEnum category;
-
-    /**
-     * 标签（JSON数组或逗号分隔字符串）
-     */
-    private String tags;
 
     /**
      * 是否允许评论（0-不允许，1-允许）

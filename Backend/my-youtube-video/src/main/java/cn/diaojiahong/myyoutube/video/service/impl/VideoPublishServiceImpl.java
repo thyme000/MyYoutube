@@ -8,11 +8,8 @@ import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
-import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
-import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
-import cn.diaojiahong.myyoutube.content.support.ContentDocMessages;
 import cn.diaojiahong.myyoutube.video.domain.dto.GenerateCoverDTO;
 import cn.diaojiahong.myyoutube.video.domain.dto.VideoDTO;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
@@ -29,7 +26,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 import static cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum.REVIEW;
 
@@ -42,9 +38,7 @@ import static cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum.REVIEW;
 public class VideoPublishServiceImpl implements IVideoPublishService {
 
     private final RocketMQTemplate rocketMQTemplate;
-    private final EsSyncPublisher esSyncPublisher;
     private final S3StorageUtil storageUtil;
-    private final IContentTagService contentTagService;
     private final ContentMapper contentMapper;
     private final VideoMapper videoMapper;
 
@@ -74,13 +68,6 @@ public class VideoPublishServiceImpl implements IVideoPublishService {
         video.setAuthorId(userId);
         // 上传即公开, 不接受客户端指定可见性; 私密走发布后的设为私密入口
         video.setVisibility(VideoVisibilityEnum.PUBLIC);
-
-        // 判断用户有没有输入标签
-        if (StrUtils.isEmpty(videoDTO.getTags())) {
-
-            // 使用标题填充
-            video.setTags(videoDTO.getTitle().replaceAll("\\s+", ","));
-        }
         video.setCreateTime(LocalDateTime.now());
         video.setStatus(REVIEW);
         // 预分配雪花id, content 池与领域表共用; 事务消息回查时按它判断入库结果
@@ -113,9 +100,6 @@ public class VideoPublishServiceImpl implements IVideoPublishService {
                 .setCreateTime(video.getCreateTime());
         contentMapper.insert(content);
         videoMapper.insert(video);
-        // 标签入库, 并延迟同步 ES content 文档(短时间多次变更天然合并)
-        List<Long> tagIds = contentTagService.saveTags(video.getTags(), video.getId());
-        esSyncPublisher.syncContentDoc(ContentDocMessages.of(video, tagIds));
     }
 
     @Override

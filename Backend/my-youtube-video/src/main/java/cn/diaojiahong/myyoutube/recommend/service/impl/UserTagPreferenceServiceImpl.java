@@ -6,7 +6,6 @@ import cn.diaojiahong.myyoutube.recommend.domain.po.UserTagPreference;
 import cn.diaojiahong.myyoutube.recommend.mapper.UserTagPreferenceMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,10 +29,9 @@ public class UserTagPreferenceServiceImpl extends ServiceImpl<UserTagPreferenceM
     public UserTagPreferenceServiceImpl() {
     }
 
-    @Async
     @Override
     @Transactional
-    public void saveUserTagPreferenceAsync(List<Long> list, Long userId, EventEnum eventEnum) {
+    public void saveUserTagPreference(List<Long> list, Long userId, EventEnum eventEnum) {
         if (list == null || list.isEmpty()) {
             return;
         }

@@ -44,6 +44,11 @@ public class Tag implements Serializable {
     private String slug;
 
     /**
+     * 所属类目, null=通用
+     */
+    private String categoryCode;
+
+    /**
      * 1=启用 0=停用
      */
     private Integer status;

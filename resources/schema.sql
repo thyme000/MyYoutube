@@ -207,12 +207,14 @@ CREATE TABLE IF NOT EXISTS `tag` (
     `id`         BIGINT      NOT NULL AUTO_INCREMENT,
     `name`       VARCHAR(64) NOT NULL COMMENT '展示名',
     `slug`       VARCHAR(64) NOT NULL COMMENT '唯一键, URL用',
+    `category_code` VARCHAR(32)       DEFAULT NULL COMMENT '所属类目, null=通用',
     `status`     TINYINT     NOT NULL DEFAULT 1 COMMENT '1启用 0停用',
     `sort_order` INT         NOT NULL DEFAULT 0 COMMENT '越大越靠前',
     `created_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_slug` (`slug`)
+    UNIQUE KEY `uk_slug` (`slug`),
+    KEY `idx_category` (`category_code`)
 ) ENGINE=InnoDB COMMENT='标签';
 
 -- 内容-标签关联表
@@ -287,6 +289,8 @@ CREATE TABLE IF NOT EXISTS `dynamic` (
     `id`               BIGINT       NOT NULL COMMENT '雪花ID',
     `user_id`          BIGINT       NOT NULL COMMENT '作者ID',
     `title`            VARCHAR(100)          DEFAULT '' COMMENT '标题',
+    `description`      VARCHAR(512)          DEFAULT NULL COMMENT '简介',
+    `category_code`    VARCHAR(32)           DEFAULT NULL COMMENT 'LLM判定类目',
     `canvas_type`      VARCHAR(16)  NOT NULL DEFAULT 'vertical' COMMENT 'vertical/horizontal',
     `canvas_w`         INT          NOT NULL COMMENT '画布宽',
     `canvas_h`         INT          NOT NULL COMMENT '画布高',

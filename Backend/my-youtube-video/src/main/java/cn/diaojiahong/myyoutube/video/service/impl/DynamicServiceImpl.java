@@ -17,13 +17,9 @@ import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
-import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
-import cn.diaojiahong.myyoutube.content.support.ContentDocMessages;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.dto.DynamicPublishDTO;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
@@ -67,10 +63,7 @@ public class DynamicServiceImpl implements IDynamicService {
 
     private final DynamicMapper dynamicMapper;
     private final ContentMapper contentMapper;
-    private final IContentTagService contentTagService;
     private final IContentService contentService;
-    private final RocketMQTemplate rocketMQTemplate;
-    private final EsSyncPublisher esSyncPublisher;
     private final S3StorageUtil storageUtil;
     private final ObjectMapper objectMapper;
     private final UserPort userPort;
@@ -189,7 +182,7 @@ public class DynamicServiceImpl implements IDynamicService {
         }
         dynamic.setIsDelete(0);
         dynamic.setCreateTime(java.time.LocalDateTime.now());
-        dynamic.setTags(StringUtils.hasText(dto.getTags()) ? dto.getTags().trim() : null);
+        dynamic.setDescription(StringUtils.hasText(dto.getDescription()) ? dto.getDescription().trim() : null);
         dynamic.setVisibility("public");
         dynamic.setAllowComment(dto.getAllowComment() != null && dto.getAllowComment() == 0 ? 0 : 1);
         // content 池先行: 预分配雪花id, 动态表主键与之相同
@@ -203,9 +196,6 @@ public class DynamicServiceImpl implements IDynamicService {
         dynamic.setId(content.getId());
         contentMapper.insert(content);
         dynamicMapper.insert(dynamic);
-        // 可选标签入库, 并延迟同步 ES content 文档(首帧作封面)
-        List<Long> tagIds = contentTagService.saveTags(dynamic.getTags(), content.getId());
-        esSyncPublisher.syncContentDoc(ContentDocMessages.of(dynamic, imageKeys.get(0), userId, tagIds));
         return String.valueOf(dynamic.getId());
     }
 
@@ -483,6 +473,7 @@ public class DynamicServiceImpl implements IDynamicService {
             vo.setAuthorId(String.valueOf(d.getUserId()));
             vo.setTitle(d.getTitle());
             vo.setTags(d.getTags());
+            vo.setDescription(d.getDescription());
             vo.setCanvasType(d.getCanvasType());
             vo.setCanvasW(d.getCanvasW());
             vo.setCanvasH(d.getCanvasH());
