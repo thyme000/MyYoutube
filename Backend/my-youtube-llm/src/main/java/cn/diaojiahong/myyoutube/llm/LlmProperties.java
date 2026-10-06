@@ -14,6 +14,8 @@ public class LlmProperties {
 
     /** zhipu | deepseek | qwen | openai */
     private String provider = "zhipu";
+    /** 云端厂商(默认 true); 内网自建模型(vLLM/Ollama 等)设 false, 图片走内网 URL 不转 base64 */
+    private boolean cloud = true;
     private String baseUrl;
     private String apiKey;
     private String model;

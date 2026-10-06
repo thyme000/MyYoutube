@@ -62,7 +62,7 @@ public interface LlmPort {
         @NoArgsConstructor
         @AllArgsConstructor
         public static class ImageUrl {
-            /** http(s) URL 或 data:image/jpeg;base64,... 内嵌 */
+            /** http(s) URL 或 data:base64 内嵌; 云端厂商由 llm-svc 按 cloud 标志代拉 URL 转 base64 */
             private String url;
         }
     }

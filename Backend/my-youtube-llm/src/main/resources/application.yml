@@ -18,6 +18,8 @@ my-youtube:
   llm:
     # OpenAI 兼容接口; provider: zhipu|deepseek|qwen|openai, base-url/model 不填用厂商默认, 填了覆盖
     provider: ${LLM_PROVIDER:zhipu}
+    # 云端厂商 true(图片由 llm-svc 代拉转 base64); 内网自建模型设 false, 图片内网 URL 直传
+    cloud: ${LLM_CLOUD:true}
     base-url: ${LLM_BASE_URL:}
     api-key: ${LLM_API_KEY:}
     model: ${LLM_MODEL:}

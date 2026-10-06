@@ -12,6 +12,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 
 /**
@@ -62,7 +63,7 @@ public class LlmClient {
                     part.addProperty("type", p.type());
                     if ("image_url".equals(p.type())) {
                         JsonObject url = new JsonObject();
-                        url.addProperty("url", p.imageDataUrl() == null ? "" : p.imageDataUrl());
+                        url.addProperty("url", resolveImageUrl(p.imageDataUrl()));
                         part.add("image_url", url);
                     } else {
                         part.addProperty("text", p.text() == null ? "" : p.text());
@@ -99,13 +100,41 @@ public class LlmClient {
         }
     }
 
+    /**
+     * 云端厂商拉不到内网 URL: 代拉图片转 base64 data URL;
+     * 非云端(内网自建模型)直传 URL, data: 内嵌原样透传
+     */
+    private String resolveImageUrl(String url) {
+        if (url == null || url.isBlank() || url.startsWith("data:") || !properties.isCloud()) {
+            return url;
+        }
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofSeconds(10))
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> resp = HTTP.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (resp.statusCode() != 200) {
+                throw new IllegalStateException("图片拉取响应 " + resp.statusCode());
+            }
+            String mime = resp.headers().firstValue("Content-Type")
+                    .filter(v -> v.startsWith("image/"))
+                    .orElse("image/jpeg");
+            return "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(resp.body());
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("图片代拉失败: " + e.getMessage(), e);
+        }
+    }
+
     public record Message(String role, String content, List<Part> parts) {
 
         public static Message text(String role, String content) {
             return new Message(role, content, null);
         }
 
-        /** @param type text | image_url; imageDataUrl 为 data:image/jpeg;base64,... */
+        /** @param type text | image_url; imageDataUrl 为 http(s) URL 或 data:base64 内嵌 */
         public record Part(String type, String text, String imageDataUrl) {
         }
     }
