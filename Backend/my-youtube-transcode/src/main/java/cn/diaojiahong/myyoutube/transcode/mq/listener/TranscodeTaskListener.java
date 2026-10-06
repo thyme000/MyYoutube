@@ -1,33 +1,25 @@
 package cn.diaojiahong.myyoutube.transcode.mq.listener;
 
+import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
-import cn.diaojiahong.myyoutube.common.utils.DownLoadMP4ToTemp;
-import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
-import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeSubmitDTO;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
+import cn.diaojiahong.myyoutube.transcode.chain.dynamic.DynamicTranscodeChain;
+import cn.diaojiahong.myyoutube.transcode.chain.dynamic.TranscodeContext;
+import cn.diaojiahong.myyoutube.transcode.chain.dynamic.TranscodeNotifier;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
-import cn.diaojiahong.myyoutube.transcode.ffmpeg.DynamicFfmpegComposer;
 import cn.diaojiahong.myyoutube.transcode.mq.message.TranscodeTaskMessage;
 import cn.diaojiahong.myyoutube.transcode.service.TranscodeTaskService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
 
 @Slf4j
 @Component
@@ -39,12 +31,9 @@ import java.util.Set;
         maxReconsumeTimes = 2)
 public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMessage> {
 
-    private static final long STORAGE_SIGN_SECONDS = 3600L * 2;
-
     private final TranscodeTaskService taskService;
-    private final S3StorageUtil storageUtil;
-    private final ObjectMapper objectMapper;
-    private final PushFanoutPublisher pushFanoutPublisher;
+    private final TranscodeNotifier notifier;
+    private final SyncChainStepRegistry chainRegistry;
 
     @Override
     public void onMessage(TranscodeTaskMessage msg) {
@@ -66,78 +55,19 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
             return;
         }
 
-        Path workRoot = null;
+        // 准备/下载/合成/上传/完成全在链上, 步骤见 transcode.chain.dynamic;
+        // 任一步失败统一落失败终态 + SSE, finally 兜底清理临时目录
+        TranscodeContext ctx = TranscodeContext.of(task);
         try {
-            TranscodeSubmitDTO params = objectMapper.readValue(task.getRequestJson(), TranscodeSubmitDTO.class);
-            workRoot = Files.createTempDirectory("dynamic-" + task.getId() + "-");
-            Path workDir = workRoot.resolve("work");
-            Files.createDirectories(workDir);
-
-            List<Path> imagePaths = new ArrayList<>();
-            for (var item : params.getItems()) {
-                imagePaths.add(downloadTo(item.getImageObjectKey(), workDir));
-            }
-            Path audioPath = StringUtils.hasText(params.getAudioObjectKey())
-                    ? downloadTo(params.getAudioObjectKey(), workDir) : null;
-
-            Path output = workDir.resolve("dynamic-out.mp4");
-            DynamicFfmpegComposer.compose(params, imagePaths, audioPath, workDir, output, "ffmpeg");
-
-            byte[] mp4 = Files.readAllBytes(output);
-            String objectKey = storageUtil.uploadForObjectKey(
-                    mp4,
-                    "dynamic-" + task.getTaskKey().substring(0, 16) + ".mp4",
-                    task.getUserId(),
-                    "transcode"
-            );
-
-            List<TranscodeTask> affected = taskService.listInflightByKey(task.getTaskKey());
-            taskService.completeByKey(task.getTaskKey(), objectKey);
-            notifyAffected(affected, "TRANSCODE_DONE");
-            log.info("动态成片生成完成 taskId={} objectKey={} size={}", task.getId(), objectKey, mp4.length);
+            chainRegistry.execute(DynamicTranscodeChain.GROUP, ctx);
         } catch (Exception e) {
             log.error("动态成片生成失败 taskId={}", task.getId(), e);
             List<TranscodeTask> affected = taskService.listInflightByKey(task.getTaskKey());
             taskService.failByKey(task.getTaskKey(), e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
-            notifyAffected(affected, "TRANSCODE_FAILED");
+            notifier.notifyAffected(affected, "TRANSCODE_FAILED");
         } finally {
-            if (workRoot != null) {
-                deleteTreeQuietly(workRoot);
-            }
+            deleteTreeQuietly(ctx.getWorkRoot());
         }
-    }
-
-    private Path downloadTo(String objectKey, Path workDir) throws IOException, InterruptedException {
-        String url = storageUtil.signGetUrl(objectKey, STORAGE_SIGN_SECONDS);
-        return DownLoadMP4ToTemp.downloadToFixedDir(url, workDir, suffixFromObjectKey(objectKey));
-    }
-
-    /** 同 task_key 的所有在途行一起落终态, 逐用户发 SSE(载荷带 taskIds 供前端对号) */
-    private void notifyAffected(List<TranscodeTask> affected, String signal) {
-        Set<Long> userIds = new LinkedHashSet<>();
-        Set<Long> taskIds = new LinkedHashSet<>();
-        for (TranscodeTask t : affected) {
-            userIds.add(t.getUserId());
-            taskIds.add(t.getId());
-        }
-        for (Long userId : userIds) {
-            pushFanoutPublisher.pushSseSignal(userId, signal, Map.of("taskIds", taskIds));
-        }
-    }
-
-    private static String suffixFromObjectKey(String key) {
-        if (!StringUtils.hasText(key)) {
-            return ".bin";
-        }
-        int dot = key.lastIndexOf('.');
-        if (dot < 0 || dot >= key.length() - 1) {
-            return ".img";
-        }
-        String ext = key.substring(dot).toLowerCase(Locale.ROOT);
-        if (ext.matches("\\.(jpg|jpeg|png|webp|gif|bmp|mp3|m4a|aac|wav|flac|ogg)")) {
-            return ext;
-        }
-        return ".bin";
     }
 
     private static void deleteTreeQuietly(Path root) {
