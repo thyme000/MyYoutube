@@ -1,8 +1,10 @@
 package cn.diaojiahong.myyoutube.auth.service.impl;
 
+import cn.diaojiahong.myyoutube.auth.chain.register.RegisterChain;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.PasswordEncoder;
 import cn.diaojiahong.myyoutube.common.utils.RegexUtils;
@@ -40,6 +42,7 @@ public class AuthServiceImpl implements IAuthService {
     private final StringRedisTemplate redisTemplate;
     private final RocketMQTemplate rocketMQTemplate;
     private final EsSyncPublisher esSyncPublisher;
+    private final SyncChainStepRegistry chainRegistry;
 
     /** 续签轮换原子化: 同一 refresh 并发只有一个请求能成功 */
     private static final RedisScript<String> REFRESH_ROTATE_SCRIPT =
@@ -116,46 +119,8 @@ public class AuthServiceImpl implements IAuthService {
 
     @Override
     public void register(RegisterRequestDTO registerRequestDTO) {
-        // 两次密码一致性校验
-        if (!registerRequestDTO.getPassword().equals(registerRequestDTO.getConfirmPassword())) {
-            throw new BizException(BizException.BIZ_ERROR, "两次密码不一致!");
-        }
-
-
-        // 密码格式校验
-        if (RegexUtils.isPasswordInvalid(registerRequestDTO.getPassword())) {
-            throw new BizException(BizException.BIZ_ERROR, "密码格式错误，需10~32位字母/数字/下划线!");
-        }
-        // 邮箱格式校验
-        if (RegexUtils.isEmailInvalid(registerRequestDTO.getEmail())) {
-            throw new BizException(BizException.BIZ_ERROR, "邮箱格式错误!");
-        }
-        // 手机号格式校验
-        if (RegexUtils.isPhoneInvalid(registerRequestDTO.getPhone())) {
-            throw new BizException(BizException.BIZ_ERROR, "手机号格式错误!");
-        }
-
-        String username = registerRequestDTO.getUsername().trim();
-        String phone = registerRequestDTO.getPhone().trim();
-        String email = registerRequestDTO.getEmail().trim();
-
-        // 唯一性校验: 一次查询覆盖三列; check-then-insert 的并发窗口由 DB 唯一索引兜底
-        User conflict = userService.lambdaQuery()
-                .eq(User::getUsername, username)
-                .or().eq(User::getPhone, phone)
-                .or().eq(User::getEmail, email)
-                .last("LIMIT 1")
-                .one();
-        if (conflict != null) {
-            String reason = username.equals(conflict.getUsername()) ? "用户名已存在!"
-                    : phone.equals(conflict.getPhone()) ? "手机号已被注册!"
-                    : "邮箱已被注册!";
-            throw new BizException(BizException.BIZ_ERROR, reason);
-        }
-
-        registerRequestDTO.setUsername(username);
-        registerRequestDTO.setPhone(phone);
-        registerRequestDTO.setEmail(email);
+        // 格式/规范化/唯一性校验全部在链上, 步骤见 auth.chain.register
+        chainRegistry.execute(RegisterChain.GROUP, registerRequestDTO);
 
         // 构建用户对象并加密密码
         User user = BeanUtil.toBean(registerRequestDTO, User.class);
