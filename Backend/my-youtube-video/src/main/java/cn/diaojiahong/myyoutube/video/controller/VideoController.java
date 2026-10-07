@@ -44,6 +44,24 @@ public class VideoController {
     }
 
     /**
+     * 草稿发布: 管线处理完成的草稿转正, 秒级
+     */
+    @PutMapping("/publish/draft")
+    @Operation(summary = "发布草稿")
+    public Result<String> publishDraft(@RequestBody DraftPublishDTO dto) {
+        return Result.success(videoPublishService.publishDraft(dto));
+    }
+
+    /**
+     * 草稿处理状态: 上传页轮询管线任务进度
+     */
+    @GetMapping("/draft/{draftId}/status")
+    @Operation(summary = "查询草稿处理状态")
+    public Result<DraftStatusVO> getDraftStatus(@PathVariable Long draftId) {
+        return Result.success(videoPublishService.getDraftStatus(draftId));
+    }
+
+    /**
      * 根据条件分页查询视频列表
      * @param pageQuery
      * @return
