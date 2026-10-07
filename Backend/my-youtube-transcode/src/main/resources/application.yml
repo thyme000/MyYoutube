@@ -18,3 +18,8 @@ server:
 
 my-youtube:
   db-name: transcode_db
+  llm-service:
+    url: ${LLM_SERVICE_URL:}
+  cover:
+    # 封面选帧视觉模型; 留空回落 llm-svc 默认模型, 真实值填 application-local.yml
+    vision-model: ${LLM_VISION_MODEL:}
