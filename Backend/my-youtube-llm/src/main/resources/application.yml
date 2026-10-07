@@ -16,23 +16,20 @@ server:
 # 无 DB 服务: DataSource/MyBatis 自动装配已在启动类排除, application-common 的 datasource 键不生效
 my-youtube:
   llm:
-    # OpenAI 兼容接口; provider: zhipu|deepseek|qwen|openai, base-url/model 不填用厂商默认, 填了覆盖
-    provider: ${LLM_PROVIDER:zhipu}
-    # 云端厂商 true(图片由 llm-svc 代拉转 base64); 内网自建模型设 false, 图片内网 URL 直传
+    # OpenAI 兼容接口, 厂商不进代码: base-url/model/api-key 显式配置, 换厂商只改这里
+    # 云端厂商 cloud: true(图片由 llm-svc 代拉转 base64); 内网自建模型设 false, 图片内网 URL 直传
     cloud: ${LLM_CLOUD:true}
-    base-url: ${LLM_BASE_URL:}
+    base-url: ${LLM_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
     api-key: ${LLM_API_KEY:}
-    model: ${LLM_MODEL:}
+    model: ${LLM_MODEL:glm-4-flash}
     temperature: 0.2
     timeout-seconds: 20
     max-tokens: 512
     # 向量化: 模型/维度/版本一组配置, 切换即换向量空间, 需触发 search 服务 rebuild 重算存量
     embedding:
-      # 预置厂商: ollama|zhipu|qwen(百炼)|siliconflow|openai, base-url/model 不填用厂商默认, 填了覆盖
-      provider: ${EMBEDDING_PROVIDER:ollama}
       api-key: ${EMBEDDING_API_KEY:}
-      base-url: ${EMBEDDING_BASE_URL:}
-      model: ${EMBEDDING_MODEL:}
+      base-url: ${EMBEDDING_BASE_URL:http://localhost:11434/v1}
+      model: ${EMBEDDING_MODEL:qwen3-embedding:8b}
       # 必须与 content 索引 dense_vector 映射一致(qwen3-embedding:8b 原生 4096)
       dims: ${EMBEDDING_DIMS:4096}
       # 不填按 model:dims 自动派生

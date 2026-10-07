@@ -35,13 +35,13 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
         LlmProperties.Embedding conf = properties.getEmbedding();
 
         JsonObject body = new JsonObject();
-        body.addProperty("model", conf.effectiveModel());
+        body.addProperty("model", conf.getModel());
         com.google.gson.JsonArray input = new com.google.gson.JsonArray();
         texts.forEach(input::add);
         body.add("input", input);
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(conf.effectiveBaseUrl() + "/embeddings"))
+                .uri(URI.create(conf.getBaseUrl() + "/embeddings"))
                 .timeout(Duration.ofSeconds(conf.getTimeoutSeconds()))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + (conf.getApiKey() == null ? "" : conf.getApiKey()))

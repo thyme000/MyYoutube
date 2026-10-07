@@ -47,7 +47,7 @@ public class LlmClient {
         }
 
         JsonObject body = new JsonObject();
-        body.addProperty("model", model != null && !model.isBlank() ? model : properties.effectiveModel());
+        body.addProperty("model", model != null && !model.isBlank() ? model : properties.getModel());
         body.addProperty("temperature", temperature != null ? temperature : properties.getTemperature());
         body.addProperty("max_tokens", maxTokens != null ? maxTokens : properties.getMaxTokens());
         JsonArray arr = new JsonArray();
@@ -77,7 +77,7 @@ public class LlmClient {
         body.add("messages", arr);
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(properties.effectiveBaseUrl() + "/chat/completions"))
+                .uri(URI.create(properties.getBaseUrl() + "/chat/completions"))
                 .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + properties.getApiKey())
