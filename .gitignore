@@ -46,4 +46,8 @@ README.md
 # workbuddy-ai 工作区数据
 .workbuddy-ai/
 
+# ===== Python (ocr-svc) =====
+.venv/
+__pycache__/
+
 docs
