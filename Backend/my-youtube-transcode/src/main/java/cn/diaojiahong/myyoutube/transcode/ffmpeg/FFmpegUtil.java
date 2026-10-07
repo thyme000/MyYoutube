@@ -72,6 +72,64 @@ public final class FFmpegUtil {
     }
 
     /**
+     * 探测视频元数据: 时长/宽/高, 探测失败抛异常(调用方按任务失败处理)
+     */
+    public record VideoProbe(long durationMs, int width, int height) {
+    }
+
+    public static VideoProbe probeVideo(String source, Options options) {
+        Double seconds = probeDurationSeconds(source, options);
+        if (seconds == null || seconds <= 0) {
+            throw new IllegalStateException("ffprobe 无法探测到有效时长");
+        }
+        List<String> dimsCmd = List.of(
+                options.ffprobeCommand,
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=p=0",
+                source
+        );
+        CommandResult result = runCommand(dimsCmd, options.commandTimeout);
+        int width = 0;
+        int height = 0;
+        if (result.exitCode == 0 && result.output != null) {
+            String[] parts = result.output.trim().split("[,xX\\s]+");
+            if (parts.length >= 2) {
+                try {
+                    width = Integer.parseInt(parts[0].trim());
+                    height = Integer.parseInt(parts[1].trim());
+                } catch (NumberFormatException e) {
+                    log.warn("ffprobe 尺寸输出不可解析: {}", result.output);
+                }
+            }
+        }
+        return new VideoProbe(Math.round(seconds * 1000), width, height);
+    }
+
+    /**
+     * 标准化转码: 长边钳制 H.264/AAC mp4, faststart 便于流式播放。源更小不放大。
+     */
+    public static void transcodeStandard(String source, Path output, int maxLongEdge, Options options, Duration timeout) {
+        List<String> cmd = List.of(
+                options.ffmpegCommand, "-y",
+                "-i", source,
+                "-vf", longEdgeScaleExpr(maxLongEdge),
+                "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-crf", "23",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-movflags", "+faststart",
+                output.toString()
+        );
+        CommandResult result = runCommand(cmd, timeout);
+        if (result.exitCode != 0) {
+            throw new IllegalStateException("转码失败: " + tail(result.output));
+        }
+    }
+
+    /**
      * 按 options.sampleCount 个时间点抽取候选帧并评分。
      * 多路输入单进程一次抽取, 缺帧的点单点重试 1 次; 返回成功评分的候选(可能为空, 调用方据实兜底)。
      */

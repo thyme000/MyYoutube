@@ -1,0 +1,76 @@
+package cn.diaojiahong.myyoutube.transcode.task;
+
+import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
+import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
+import cn.diaojiahong.myyoutube.transcode.ffmpeg.FFmpegUtil;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.tika.Tika;
+import org.springframework.stereotype.Component;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * 转码任务: tika 真身校验 + ffprobe 探测 + 标准化转码(长边720 H.264/AAC faststart)
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class TranscodeTaskExecutor implements MediaTaskExecutor {
+
+    private static final Path WORK_DIR = Path.of(System.getProperty("java.io.tmpdir"), "my-youtube", "media-transcode");
+    private static final int TARGET_LONG_EDGE = 720;
+
+    private final S3StorageUtil storageUtil;
+
+    @Override
+    public MediaTaskType type() {
+        return MediaTaskType.TRANSCODE;
+    }
+
+    @Override
+    public String execute(MediaTaskMessage msg) throws Exception {
+        // 先验真身再下全量: Magic Number 不符直接判废
+        byte[] head = storageUtil.readHeadBytes(msg.getObjectKey(), 64);
+        String mime = new Tika().detect(head, msg.getObjectKey());
+        if (!mime.startsWith("video/")) {
+            throw new IllegalStateException("Magic Number 校验失败, 非视频文件: " + mime);
+        }
+
+        String source = storageUtil.signGetUrl(msg.getObjectKey(), 3600 * 2);
+        FFmpegUtil.Options opt = new FFmpegUtil.Options();
+        opt.commandTimeout = Duration.ofSeconds(60);
+        FFmpegUtil.VideoProbe probe = FFmpegUtil.probeVideo(source, opt);
+
+        String taskId = UUID.randomUUID().toString().replace("-", "");
+        Path work = WORK_DIR.resolve(LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)).resolve(taskId);
+        Files.createDirectories(work);
+        try {
+            Path out = work.resolve("processed-" + msg.getDraftId() + ".mp4");
+            // 单任务耗时与视频时长/机器相关, 控制在 MQ 消费超时(15min)内; 超长视频一期不支持
+            FFmpegUtil.transcodeStandard(source, out, TARGET_LONG_EDGE, opt, Duration.ofMinutes(14));
+            String processedKey = "video-processed/" + msg.getUserId() + "/" + msg.getDraftId() + "/"
+                    + taskId + ".mp4";
+            storageUtil.uploadWithKey(Files.readAllBytes(out), processedKey);
+            return JsonUtil.toJson(Map.of(
+                    "processedObjectKey", processedKey,
+                    "durationMs", probe.durationMs(),
+                    "width", probe.width(),
+                    "height", probe.height(),
+                    "mime", mime));
+        } finally {
+            try (var s = Files.walk(work)) {
+                s.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                    try { Files.deleteIfExists(p); } catch (Exception ignore) {}
+                });
+            } catch (Exception ignore) {}
+        }
+    }
+}
