@@ -75,7 +75,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 .set(User::getAvatarUrl, upload)
                 .eq(User::getId, UserContext.getUserId())
                 .update();
-        return upload;
+        return storageUtil.signGetUrl(upload, STORAGE_EXPIRE);
     }
 
     private String getUpdatedUrl(MultipartFile file, String bizPrefix) {
@@ -100,7 +100,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 .set(User::getBgImage, upload)
                 .eq(User::getId, UserContext.getUserId())
                 .update();
-        return upload;
+        return storageUtil.signGetUrl(upload, STORAGE_EXPIRE);
     }
 
     @Override
