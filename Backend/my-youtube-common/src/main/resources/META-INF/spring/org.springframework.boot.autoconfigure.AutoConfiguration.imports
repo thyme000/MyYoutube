@@ -1,1 +1,2 @@
 cn.diaojiahong.myyoutube.common.chain.ChainAutoConfiguration
+cn.diaojiahong.myyoutube.common.idempotent.IdempotentAutoConfiguration

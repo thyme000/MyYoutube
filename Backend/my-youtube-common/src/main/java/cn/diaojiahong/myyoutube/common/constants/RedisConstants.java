@@ -123,4 +123,7 @@ public class RedisConstants {
     public static final int COUNTER_MAX_KEYS_PER_ROUND = 1000;
     /** 整轮锁租期(秒): 显式设租期而不依赖看门狗 —— 长 STW 时看门狗线程同样会停 */
     public static final long SCHEDULE_LOCK_LEASE_SECONDS = 300L;
+
+    /** 方法级幂等占位 idempotent:{业务key}, value=RUNNING/DONE/结果JSON */
+    public static final String IDEMPOTENT = "idempotent:";
 }

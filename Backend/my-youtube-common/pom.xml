@@ -77,6 +77,11 @@
 			<groupId>io.projectreactor</groupId>
 			<artifactId>reactor-core</artifactId>
 		</dependency>
+		<!--幂等切面; 网关会连带拿到 aspectjweaver, 无 @Aspect 方法属空载无害-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-aop</artifactId>
+		</dependency>
 		<!--鉴权常量单点(头名/Redis key 前缀), 网关与 common 各自引用同一份-->
 		<dependency>
 			<groupId>cn.diaojiahong</groupId>

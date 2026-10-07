@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.idempotent.Idempotent;
 import cn.diaojiahong.myyoutube.common.mybatis.OwnershipUpdate;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -73,6 +74,7 @@ public class DynamicServiceImpl implements IDynamicService {
 
     @Override
     @Transactional
+    @Idempotent(key = "'dynamic:publish:' + #userId + ':' + #dto.hashCode()", ttl = 60)
     public String publish(DynamicPublishDTO dto) {
         // 条目/音频引用/图片归属校验与派生全部在链上, 步骤见 video.chain.dynamic
         DynamicPublishContext ctx = DynamicPublishContext.of(dto, getUserId());
