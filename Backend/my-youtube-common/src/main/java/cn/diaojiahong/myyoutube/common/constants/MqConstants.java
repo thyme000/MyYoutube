@@ -20,6 +20,12 @@ public class MqConstants {
     public static final String TOPIC_DYNAMIC_TRANSCODE = "dynamic_transcode_topic";
     // 机器打标任务, video 服务自产自销
     public static final String TOPIC_AUTO_TAG = "auto_tag_topic";
+    // 上传事件(对象存储 webhook 桥接后拆任务), transcode 自产自销
+    public static final String TOPIC_MEDIA_UPLOAD_EVENT = "media_upload_event_topic";
+    // 媒体处理任务分发, 编排器 -> worker
+    public static final String TOPIC_MEDIA_TASK = "media_task_topic";
+    // 任务完成回报, worker -> 编排器
+    public static final String TOPIC_MEDIA_TASK_DONE = "media_task_done_topic";
 
     public static final String TAG_LIKE = "like";
     public static final String TAG_UNLIKE = "unlike";

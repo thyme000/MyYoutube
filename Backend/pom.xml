@@ -39,6 +39,8 @@
 		<spring-cloud-alibaba.version>2023.0.3.3</spring-cloud-alibaba.version>
 		<!-- 3.52.0 的 starter 依赖 redisson-spring-data-35, 对应 Spring Data Redis 3.5 (Boot 3.5) -->
 		<redisson.version>3.52.0</redisson.version>
+		<!-- Magic Number 真身校验, 仅 transcode 使用 -->
+		<tika.version>2.9.2</tika.version>
 	</properties>
 
 	<dependencyManagement>
@@ -63,6 +65,11 @@
 				<groupId>org.redisson</groupId>
 				<artifactId>redisson</artifactId>
 				<version>${redisson.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.apache.tika</groupId>
+				<artifactId>tika-core</artifactId>
+				<version>${tika.version}</version>
 			</dependency>
 			<dependency>
 				<groupId>org.redisson</groupId>
