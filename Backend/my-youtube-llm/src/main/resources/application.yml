@@ -26,3 +26,16 @@ my-youtube:
     temperature: 0.2
     timeout-seconds: 20
     max-tokens: 512
+    # 向量化: 模型/维度/版本一组配置, 切换即换向量空间, 需触发 search 服务 rebuild 重算存量
+    embedding:
+      # 预置厂商: ollama|zhipu|qwen(百炼)|siliconflow|openai, base-url/model 不填用厂商默认, 填了覆盖
+      provider: ${EMBEDDING_PROVIDER:ollama}
+      api-key: ${EMBEDDING_API_KEY:}
+      base-url: ${EMBEDDING_BASE_URL:}
+      model: ${EMBEDDING_MODEL:}
+      # 必须与 content 索引 dense_vector 映射一致(qwen3-embedding:8b 原生 4096)
+      dims: ${EMBEDDING_DIMS:4096}
+      # 不填按 model:dims 自动派生
+      version: ${EMBEDDING_VERSION:}
+      batch-size: ${EMBEDDING_BATCH_SIZE:16}
+      timeout-seconds: ${EMBEDDING_TIMEOUT_SECONDS:60}

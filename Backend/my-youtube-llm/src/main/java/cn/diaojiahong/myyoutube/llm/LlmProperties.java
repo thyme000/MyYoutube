@@ -32,4 +32,41 @@ public class LlmProperties {
         return model != null && !model.isBlank()
                 ? model : LlmProvider.fromCode(provider).getDefaultModel();
     }
+
+    /**
+     * 向量化配置: 模型/维度/向量版本为一组, 切任何一项即切换向量空间,
+     * 所有存量文档向量必须按新版本全量重算(见 search 服务 rebuild 接口)
+     */
+    @Data
+    public static class Embedding {
+        /** 预置厂商, 见 EmbeddingVendor */
+        private String provider = "ollama";
+        /** 内网自建(ollama/vLLM)不填 api-key */
+        private String apiKey;
+        private String baseUrl;
+        private String model;
+        /** 向量维度, 必须与 content 索引 dense_vector 映射一致 */
+        private int dims = 4096;
+        /** 向量空间版本标识; 不填按 model:dims 自动派生 */
+        private String version;
+        private int batchSize = 16;
+        private int timeoutSeconds = 60;
+
+        public String effectiveBaseUrl() {
+            return baseUrl != null && !baseUrl.isBlank()
+                    ? baseUrl : EmbeddingVendor.fromCode(provider).getDefaultBaseUrl();
+        }
+
+        public String effectiveModel() {
+            return model != null && !model.isBlank()
+                    ? model : EmbeddingVendor.fromCode(provider).getDefaultModel();
+        }
+
+        public String effectiveVersion() {
+            return version != null && !version.isBlank()
+                    ? version : effectiveModel() + ":" + dims;
+        }
+    }
+
+    private Embedding embedding = new Embedding();
 }

@@ -20,6 +20,9 @@ public interface LlmPort {
     @PostMapping("/chat")
     ChatResponse chat(@RequestBody ChatRequest request);
 
+    @PostMapping("/embeddings")
+    EmbeddingsResponse embeddings(@RequestBody EmbeddingsRequest request);
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
@@ -72,5 +75,24 @@ public interface LlmPort {
     @AllArgsConstructor
     class ChatResponse {
         private String content;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class EmbeddingsRequest {
+        /** 批量文本, 顺序与返回向量一一对应 */
+        private List<String> texts;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class EmbeddingsResponse {
+        private List<List<Float>> vectors;
+        /** 向量维度, 与服务端 embedding 配置一致 */
+        private Integer dims;
+        /** 向量空间版本: 模型/维度/版本为一组配置, 文档向量与查询向量必须同 version 才可比较 */
+        private String version;
     }
 }
