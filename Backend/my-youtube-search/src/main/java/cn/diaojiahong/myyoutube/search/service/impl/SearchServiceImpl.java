@@ -23,13 +23,12 @@ import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import cn.hutool.core.bean.BeanUtil;
-import co.elastic.clients.elasticsearch._types.KnnSearch;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreMode;
-import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
-import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
+import cn.diaojiahong.myyoutube.search.recall.RecallPipeline;
+import cn.diaojiahong.myyoutube.search.recall.SearchContext;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -60,133 +59,20 @@ public class SearchServiceImpl implements ISearchService {
     private final S3StorageUtil storageUtil;
     private final StringRedisTemplate redisTemplate;
     private final ElasticsearchClient elasticsearchClient;
-    private final ContentVectorService contentVectorService;
-    private final VectorProperties vectorProperties;
+    private final RecallPipeline recallPipeline;
     private static final int STORAGE_EXPIRE_SECONDS = 3600 * 10;
 
     @Override
     public PageResult<SearchVideoVO> searchVideo(SearchVideoPageQuery pageQuery) {
         Long userId = getUserId();
-        // 用户搜索的关键词
-        String keyword = pageQuery.getKeyword() == null ? "" : pageQuery.getKeyword().trim();
-        Pageable pageable = PageRequest.of(pageQuery.getPageNo() - 1, pageQuery.getPageSize());
-
-        // 最新排序分支不打分, 关注列表只在综合排序分支查一次
-        List<Long> followIds = List.of();
-        // 查询向量一次生成两分支共用; 开关关闭/无关键词/llm-svc 不可用都返回 null, 整链路降级纯关键词
-        boolean wantVector = vectorProperties.isEnabled() && !keyword.isEmpty();
-        ContentVectorService.QueryVector queryVector = wantVector ? contentVectorService.embedQuery(keyword) : null;
-
-        if (!pageQuery.isSortByLatest()) {
-            FunctionBoost boost = getFunction(userId);
-            followIds = boost.followIds();
-
-            if (queryVector == null) {
-                // 纯关键词单路
-                NativeQuery query = comprehensiveQuery(pageQuery, keyword, pageable, boost);
-                PageResult<SearchVideoVO> result = getSearchPageResult(query, pageQuery.getPageNo(), pageQuery.getPageSize(), followIds);
-                loadForHotSearch(userId, keyword);
-                return result;
-            }
-            // 双路召回 RRF 融合: 关键词路取满召回深度, 分页窗口在融合结果上切
-            NativeQuery keywordQuery = comprehensiveQuery(pageQuery, keyword,
-                    PageRequest.of(0, vectorProperties.getRecallSize()), boost);
-            SearchHits<ContentDoc> kwHits = elasticsearchOperations.search(keywordQuery, ContentDoc.class);
-            List<String> keywordIds = kwHits.getSearchHits().stream()
-                    .map(hit -> hit.getContent().getId().toString()).toList();
-            List<String> vectorIds = contentVectorService.knnSearch(queryVector, pageQuery.getCategory(),
-                    vectorProperties.getRecallSize());
-            List<String> fused = contentVectorService.rrfFuse(keywordIds, vectorIds);
-            // total 用融合结果真实长度: 语义模式的召回以 recall-size 封顶, 深分页不可达就不虚报
-            PageResult<SearchVideoVO> result = buildPageResult(fused, fused.size(),
-                    pageQuery.getPageNo(), pageQuery.getPageSize(), followIds);
-            loadForHotSearch(userId, keyword);
-            return result;
-        } else {
-            // 按能匹配关键字的基础上，按最新时间排视频; 向量只当召回过滤(kNN 命中并入结果集, 排序仍按 createTime)
-            NativeQuery query = latestQuery(pageQuery, keyword, userId, pageable, queryVector);
-            PageResult<SearchVideoVO> result = getSearchPageResult(query, pageQuery.getPageNo(), pageQuery.getPageSize(), followIds);
-            loadForHotSearch(userId, keyword);
-            return result;
-        }
-    }
-
-    private NativeQuery comprehensiveQuery(SearchVideoPageQuery pageQuery, String keyword,
-                                           Pageable pageable, FunctionBoost boost) {
-        return NativeQuery.builder()
-                .withQuery(q -> q.functionScore(fs -> fs
-                        .query(inner -> inner.bool(b -> {
-                                    b.must(m -> m.term(t -> t.field("status").value("published")));
-                                    b.must(m -> m.term(t -> t.field("visibility").value("public")));
-                                    if (pageQuery.getCategory() != null) {
-                                        b.must(m -> m.term(t -> t.field("category").value(pageQuery.getCategory())));
-                                    }
-                                    if (!keyword.isEmpty()) {
-                                        b.must(m -> m.multiMatch(mm -> mm
-                                                .query(keyword)
-                                                .fields("title^5", "tagNames^4", "authorName^2", "description^3")
-                                                .fuzziness("AUTO")
-                                                .minimumShouldMatch("40%")
-                                        ));
-                                    }
-                                    return b;
-                                }
-                        )) // 按播放量,获赞数和被关注用户的视频综合排列
-                        .functions(boost.functions())
-                        .scoreMode(FunctionScoreMode.Sum)
-                        .boostMode(FunctionBoostMode.Sum)
-                ))
-                .withSort(Sort.by(Sort.Order.desc("_score"), Sort.Order.desc("createTime")))
-                .withPageable(pageable)
-                .build();
-    }
-
-    private NativeQuery latestQuery(SearchVideoPageQuery pageQuery, String keyword, Long userId,
-                                    Pageable pageable, ContentVectorService.QueryVector queryVector) {
-        var builder = NativeQuery.builder()
-                .withQuery(q -> q.bool(b -> {
-                    b.must(m -> m.term(t -> t.field("status").value("published")));
-                    b.mustNot(m -> m.term(t -> t.field("authorId").value(userId)));
-                    b.must(m -> m.term(t -> t.field("visibility").value("public")));
-                    if (pageQuery.getCategory() != null) {
-                        b.must(m -> m.term(t -> t.field("category").value(pageQuery.getCategory())));
-                    }
-                    if (!keyword.isEmpty()) {
-                        b.must(m -> m.multiMatch(mm -> mm
-                                .query(keyword)
-                                .fields("title^5", "tagNames^4", "authorName^2", "description^3")
-                                .fuzziness("AUTO")
-                                .minimumShouldMatch("40%")
-                        ));
-                    }
-                    return b;
-                }))
-                .withSort(Sort.by(Sort.Order.desc("createTime"), Sort.Order.desc("id")))
-                .withPageable(pageable);
-        if (queryVector != null) {
-            builder.withKnnSearches(knnRecall(queryVector, pageQuery.getCategory()));
-        }
-        return builder.build();
-    }
-
-    /** kNN 召回子句: 只召回与查询向量同版本、已发布的公开内容 */
-    private KnnSearch knnRecall(ContentVectorService.QueryVector queryVector, String category) {
-        int size = vectorProperties.getRecallSize();
-        return KnnSearch.of(k -> k
-                .field("vector")
-                .queryVector(queryVector.vector())
-                .k(size)
-                .numCandidates(Math.max(size * 3, 100))
-                .filter(f -> f.bool(b -> {
-                    b.must(m -> m.term(t -> t.field("status").value("published")));
-                    b.must(m -> m.term(t -> t.field("visibility").value("public")));
-                    if (category != null) {
-                        b.must(m -> m.term(t -> t.field("category").value(category)));
-                    }
-                    b.must(m -> m.term(t -> t.field("vectorVersion").value(queryVector.version())));
-                    return b;
-                }))
-        );
+        SearchContext ctx = SearchContext.of(pageQuery, userId);
+        // 策略并行召回 + 按排序模式融合, 策略数无关; 共享输入(关注列表/查询向量)在 pipeline prep 里只算一次
+        List<String> fused = recallPipeline.execute(ctx);
+        // total 用融合结果真实长度: 召回以 recall-size 封顶, 深分页不可达就不虚报
+        PageResult<SearchVideoVO> result = buildPageResult(fused, fused.size(),
+                pageQuery.getPageNo(), pageQuery.getPageSize(), ctx.getFollowIds());
+        loadForHotSearch(userId, ctx.getKeyword());
+        return result;
     }
 
     @Override
@@ -430,7 +316,7 @@ public class SearchServiceImpl implements ISearchService {
             return PageResult.of(total, pages, Collections.emptyList());
         }
         List<String> pageIds = orderedIds.subList(from, Math.min(from + pageSize, orderedIds.size()));
-        List<ContentSummary> videos = contentSummaryPort.listByIdsOrdered(new LinkedHashSet<>(pageIds));
+        List<ContentSummary> videos = contentSummaryPort.listByIdsOrdered(new ArrayList<>(pageIds));
         List<SearchVideoVO> result = BeanUtil.copyToList(videos, SearchVideoVO.class);
         // 填充用户昵称和头像url(一次批量取摘要, 本地投影)
         List<UserSummary> authors = userPort.listByIds(videos.stream().map(ContentSummary::getAuthorId).collect(Collectors.toList()));

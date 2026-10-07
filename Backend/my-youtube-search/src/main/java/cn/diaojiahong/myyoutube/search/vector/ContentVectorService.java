@@ -14,7 +14,6 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -106,32 +105,6 @@ public class ContentVectorService {
             log.warn("向量召回失败, 该路降级: {}", e.getMessage());
             return List.of();
         }
-    }
-
-    /**
-     * 双路召回 RRF 融合: 分数 = Σ 1/(k + rank), 只用名次不用原始分, BM25 与余弦相似度量纲差异天然免疫
-     */
-    public List<String> rrfFuse(List<String> keywordIds, List<String> vectorIds) {
-        int k = Math.max(vectorProperties.getRrfK(), 1);
-        Map<String, Double> scores = new HashMap<>();
-        Map<String, Integer> firstSeen = new HashMap<>();
-        int rank = 0;
-        for (String id : keywordIds) {
-            scores.merge(id, 1.0 / (k + ++rank), Double::sum);
-            firstSeen.putIfAbsent(id, rank);
-        }
-        rank = 0;
-        for (String id : vectorIds) {
-            scores.merge(id, 1.0 / (k + ++rank), Double::sum);
-            firstSeen.putIfAbsent(id, 1_000_000 + rank);
-        }
-        return scores.entrySet().stream()
-                .sorted((a, b) -> {
-                    int c = Double.compare(b.getValue(), a.getValue());
-                    return c != 0 ? c : Integer.compare(firstSeen.get(a.getKey()), firstSeen.get(b.getKey()));
-                })
-                .map(Map.Entry::getKey)
-                .toList();
     }
 
     /** 存量重建: 扫描版本不等于当前配置的文档, 分批补算; 游标存 Redis, 挂了重跑自动续 */
