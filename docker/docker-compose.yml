@@ -154,6 +154,12 @@ services:
       RUSTFS_CONSOLE_ENABLE: "true"
       # 浏览器直传预签名 URL 需要 CORS; 上服务器后建议改成具体域名
       RUSTFS_CORS_ALLOWED_ORIGINS: "*"
+      # 事件通知: ObjectCreated webhook -> transcode 桥接口(启动时注册目标, 桶订阅用 S3 API 配置)
+      RUSTFS_NOTIFY_ENABLE: "true"
+      RUSTFS_NOTIFY_WEBHOOK_ENABLE_PRIMARY: "on"
+      RUSTFS_NOTIFY_WEBHOOK_ENDPOINT_PRIMARY: "http://host.docker.internal:8086/internal/media/storage-event"
+      RUSTFS_NOTIFY_WEBHOOK_QUEUE_DIR_PRIMARY: "/data/notify-primary"
+      RUSTFS_OUTBOUND_ALLOW_ORIGINS: "*"
     ports:
       - "9000:9000"   # S3 API, 后端与预签名 URL 都用这个
       - "9001:9001"   # 控制台
