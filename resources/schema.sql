@@ -348,3 +348,43 @@ CREATE TABLE IF NOT EXISTS `transcode_task` (
     KEY `idx_key_status` (`task_key`, `status`),
     KEY `idx_create_time` (`create_time`)
 ) ENGINE=InnoDB COMMENT='动态成片转码任务';
+
+-- ==================== video_db: 视频上传草稿 ====================
+USE video_db;
+
+-- presign 时创建, 事件驱动管线处理完成后置 READY, 发布时转正为 video/content 记录
+CREATE TABLE IF NOT EXISTS `media_draft` (
+    `id`                BIGINT       NOT NULL COMMENT '雪花ID, 与后续video/content共用',
+    `user_id`           BIGINT       NOT NULL COMMENT '属主',
+    `object_key`        VARCHAR(512) NOT NULL COMMENT '原始视频对象键',
+    `original_filename` VARCHAR(256)          DEFAULT NULL,
+    `status`            VARCHAR(16)  NOT NULL DEFAULT 'UPLOADING' COMMENT 'UPLOADING/PROCESSING/READY/FAILED/EXPIRED',
+    `duration_ms`       BIGINT                DEFAULT NULL COMMENT 'FFprobe 探测时长',
+    `error_message`     VARCHAR(500)          DEFAULT NULL,
+    `create_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_object_key` (`object_key`),
+    KEY `idx_user_status` (`user_id`, `status`)
+) ENGINE=InnoDB COMMENT='视频上传草稿';
+
+-- ==================== transcode_db: 媒体处理任务(DAG节点) ====================
+USE transcode_db;
+
+-- 入口事件拆任务落库, 编排器按 required_for_ready 驱动 DAG/READY/重试
+CREATE TABLE IF NOT EXISTS `media_task` (
+    `id`                 BIGINT       NOT NULL COMMENT '雪花ID',
+    `draft_id`           BIGINT       NOT NULL COMMENT 'media_draft.id',
+    `task_type`          VARCHAR(16)  NOT NULL COMMENT 'TRANSCODE/COVER/TAG/EMBEDDING',
+    `required_for_ready` TINYINT      NOT NULL DEFAULT 0 COMMENT '成功是否为 READY 必要条件(定义源=任务类型注册处)',
+    `status`             VARCHAR(16)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/RUNNING/SUCCESS/FAILED/DEAD',
+    `attempt`            INT          NOT NULL DEFAULT 0 COMMENT '已执行轮次, 完成消息CAS带attempt防僵尸覆盖',
+    `retry_count`        INT          NOT NULL DEFAULT 0,
+    `result_json`        TEXT                  DEFAULT NULL COMMENT '任务结果(元数据/封面key/标签/向量)',
+    `error_message`      VARCHAR(500)          DEFAULT NULL,
+    `create_time`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_draft_type` (`draft_id`, `task_type`),
+    KEY `idx_status` (`status`)
+) ENGINE=InnoDB COMMENT='媒体处理任务';

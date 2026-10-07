@@ -8,6 +8,8 @@ import org.springframework.util.StringUtils;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -17,10 +19,20 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * S3 兼容对象存储工具（RustFS/MinIO 通用），配置来自 {@link S3Properties}（my-youtube.s3）
@@ -30,6 +42,9 @@ import java.util.UUID;
 public class S3StorageUtil {
 
     private static final DateTimeFormatter DATE_FOLDER = DateTimeFormatter.ofPattern("yyyyMMdd");
+    /** SigV4 scope 日期必须纯 8 位, BASIC_ISO_DATE 对 UTC 零偏移会追加 Z */
+    private static final DateTimeFormatter AMZ_DATE_DAY = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final DateTimeFormatter AMZ_DATE = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'");
 
     private final S3Properties properties;
     private final S3Client s3Client;
@@ -193,6 +208,91 @@ public class S3StorageUtil {
                 .putObjectRequest(b -> b.bucket(properties.getBucketName()).key(objectKey))
                 .build();
         return s3Presigner.presignPutObject(request).url().toString();
+    }
+
+    /**
+     * 生成 presigned POST 表单（SDK v2 不支持, 手签 SigV4 POST policy）。
+     * 签名时锁定 objectKey/大小上下限/Content-Type 前缀, 存储层直接拒绝越界上传。
+     */
+    public PresignPostForm presignPostForm(String objectKey, String contentTypePrefix,
+                                           long minBytes, long maxBytes, long expireSeconds) {
+        String bucket = properties.getBucketName();
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        String date = now.format(AMZ_DATE_DAY);
+        String dateTime = now.format(AMZ_DATE);
+        String credential = properties.getAccessKey() + "/" + date + "/" + properties.getRegion() + "/s3/aws4_request";
+        String expiration = now.plusSeconds(Math.max(1, expireSeconds))
+                .format(DateTimeFormatter.ISO_INSTANT);
+
+        String policy;
+        try {
+            Map<String, Object> policyMap = Map.of(
+                    "expiration", expiration,
+                    "conditions", List.of(
+                            Map.of("bucket", bucket),
+                            Map.of("key", objectKey),
+                            List.of("content-length-range", minBytes, maxBytes),
+                            List.of("starts-with", "$Content-Type", contentTypePrefix),
+                            Map.of("x-amz-credential", credential),
+                            Map.of("x-amz-algorithm", "AWS4-HMAC-SHA256"),
+                            Map.of("x-amz-date", dateTime)
+                    ));
+            policy = Base64.getEncoder().encodeToString(
+                    objectMapperValue(policyMap).getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new BizException(BizException.STORAGE_ERROR, "生成上传策略失败: " + e.getMessage());
+        }
+
+        byte[] kDate = hmac(("AWS4" + properties.getSecretKey()).getBytes(StandardCharsets.UTF_8),
+                date.getBytes(StandardCharsets.UTF_8));
+        byte[] kRegion = hmac(kDate, properties.getRegion().getBytes(StandardCharsets.UTF_8));
+        byte[] kService = hmac(kRegion, "s3".getBytes(StandardCharsets.UTF_8));
+        byte[] kSigning = hmac(kService, "aws4_request".getBytes(StandardCharsets.UTF_8));
+        String signature = HexFormat.of().formatHex(hmac(kSigning, policy.getBytes(StandardCharsets.UTF_8)));
+
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("key", objectKey);
+        fields.put("policy", policy);
+        fields.put("x-amz-algorithm", "AWS4-HMAC-SHA256");
+        fields.put("x-amz-credential", credential);
+        fields.put("x-amz-date", dateTime);
+        fields.put("x-amz-signature", signature);
+        String url = properties.getEndpoint().replaceAll("/+$", "") + "/" + bucket;
+        return new PresignPostForm(url, fields, expireSeconds);
+    }
+
+    private String objectMapperValue(Map<String, Object> map) throws Exception {
+        // JSON 字段序无关紧要, 但要保证无空格差异问题——用 jackson 紧凑输出
+        return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(map);
+    }
+
+    private static byte[] hmac(byte[] key, byte[] data) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(key, "HmacSHA256"));
+            return mac.doFinal(data);
+        } catch (Exception e) {
+            throw new IllegalStateException("HMAC 计算失败", e);
+        }
+    }
+
+    /** presigned POST 表单: 前端以 multipart/form-data 提交到 url, fields 全部原样携带 */
+    public record PresignPostForm(String url, Map<String, String> fields, Long expireSeconds) {
+    }
+
+    /** 读对象头部字节(Range 请求), 供 Magic Number 等真身校验, 不拉全量 */
+    public byte[] readHeadBytes(String objectKey, int length) {
+        try {
+            return s3Client.getObjectAsBytes(GetObjectRequest.builder()
+                    .bucket(properties.getBucketName())
+                    .key(objectKey)
+                    .range("bytes=0-" + (Math.max(1, length) - 1))
+                    .build()).asByteArray();
+        } catch (NoSuchKeyException e) {
+            throw new BizException(BizException.STORAGE_ERROR, "对象不存在: " + objectKey);
+        } catch (S3Exception e) {
+            throw new BizException(BizException.STORAGE_ERROR, "读取对象失败: " + e.getMessage());
+        }
     }
 
     private void putObject(byte[] bytes, String objectKey) {

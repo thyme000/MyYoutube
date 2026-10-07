@@ -13,5 +13,7 @@ public class S3Properties {
     private String accessKey;
     private String secretKey;
     private String bucketName;
+    /** SigV4 签名域, 仅参与签名自洽, RustFS/MinIO 不校验具体值 */
+    private String region = "us-east-1";
 
 }
