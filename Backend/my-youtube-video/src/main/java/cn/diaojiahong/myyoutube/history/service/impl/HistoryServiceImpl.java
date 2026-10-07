@@ -68,9 +68,9 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
             return PageResult.of(0, 0, List.of());
         }
 
-        // LinkedHashSet 保序: 摘要装配按入参迭代序返回, 即 view_time 倒序
+        // toList 保序: 摘要装配按入参顺序返回, 即 view_time 倒序
         List<ContentSummary> summaries = contentSummaryPort.listByIdsOrdered(
-                contentIds.stream().map(String::valueOf).collect(Collectors.toCollection(LinkedHashSet::new)));
+                contentIds.stream().map(String::valueOf).toList());
         // 内容被删的条目不再回显, 以摘要装配结果为准
         if (summaries.isEmpty()) {
 

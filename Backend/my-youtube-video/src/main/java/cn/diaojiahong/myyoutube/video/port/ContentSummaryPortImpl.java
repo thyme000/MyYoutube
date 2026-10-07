@@ -27,7 +27,7 @@ public class ContentSummaryPortImpl implements ContentSummaryPort {
     private final ContentTypeStrategyRegistry strategyRegistry;
 
     @Override
-    public List<ContentSummary> listByIdsOrdered(Set<String> ids) {
+    public List<ContentSummary> listByIdsOrdered(List<String> ids) {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }

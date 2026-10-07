@@ -19,8 +19,9 @@ import java.util.Set;
         url = "${my-youtube.video-service.url:}")
 public interface UserVideoPort {
 
+    /** 入参必须是 List: Set 过 Feign 反序列化成 HashSet 会丢序 */
     @PostMapping("/list-ordered")
-    List<VideoSummary> listByIdsOrdered(@RequestBody Set<String> ids);
+    List<VideoSummary> listByIdsOrdered(@RequestBody List<String> ids);
 
     @PostMapping("/liked-map")
     Map<Long, Boolean> likedMap(@RequestParam("userId") Long userId, @RequestBody Set<String> videoIds);

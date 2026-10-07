@@ -30,8 +30,8 @@ public class UserVideoPortImpl implements UserVideoPort {
     private final UserFollowMapper userFollowMapper;
 
     @Override
-    public List<VideoSummary> listByIdsOrdered(Set<String> ids) {
-        List<Video> videos = videoMapper.selectOrderedList(ids);
+    public List<VideoSummary> listByIdsOrdered(List<String> ids) {
+        List<Video> videos = videoMapper.selectOrderedListByList(ids);
         if (videos.isEmpty()) {
             return List.of();
         }

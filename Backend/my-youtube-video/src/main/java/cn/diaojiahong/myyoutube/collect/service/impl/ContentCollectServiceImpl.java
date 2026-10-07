@@ -127,9 +127,9 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
             return PageResult.of(0, 0, List.of());
         }
 
-        // LinkedHashSet 保序: 摘要装配按入参迭代序返回, 即收藏时间倒序
+        // toList 保序: 摘要装配按入参顺序返回, 即收藏时间倒序
         List<ContentSummary> summaries = contentSummaryPort.listByIdsOrdered(
-                contentIds.stream().map(String::valueOf).collect(Collectors.toCollection(LinkedHashSet::new)));
+                contentIds.stream().map(String::valueOf).toList());
         if (summaries.isEmpty()) {
 
             return PageResult.of(0, 0, List.of());

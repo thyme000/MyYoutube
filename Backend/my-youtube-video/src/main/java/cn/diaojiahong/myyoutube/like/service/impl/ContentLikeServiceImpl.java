@@ -187,7 +187,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
         // 统一内容摘要装配(视频+动态跨类型), 返回顺序与入参一致
         List<ContentSummary> summaries = contentSummaryPort.listByIdsOrdered(
-                contentIds.stream().map(String::valueOf).collect(Collectors.toSet()));
+                contentIds.stream().map(String::valueOf).toList());
 
         List<LikeVideoVO> voList = summaries.stream()
                 .map(s -> {

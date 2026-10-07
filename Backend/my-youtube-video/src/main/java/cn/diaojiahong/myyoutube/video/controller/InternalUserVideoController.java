@@ -24,7 +24,7 @@ public class InternalUserVideoController {
     private final UserVideoPortImpl userVideoPort;
 
     @PostMapping("/list-ordered")
-    public List<VideoSummary> listByIdsOrdered(@RequestBody Set<String> ids) {
+    public List<VideoSummary> listByIdsOrdered(@RequestBody List<String> ids) {
         return userVideoPort.listByIdsOrdered(ids);
     }
 

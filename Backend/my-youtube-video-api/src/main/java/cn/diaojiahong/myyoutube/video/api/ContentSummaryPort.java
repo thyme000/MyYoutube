@@ -6,7 +6,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * video 服务对外契约: 统一内容摘要查询(视频+动态跨类型装配)。
@@ -17,7 +16,7 @@ import java.util.Set;
         url = "${my-youtube.video-service.url:}")
 public interface ContentSummaryPort {
 
-    /** 按 id 批量取统一内容摘要, 返回顺序与入参一致, 不存在的 id 被剔除 */
+    /** 按 id 批量取统一内容摘要, 返回顺序与入参一致, 不存在的 id 被剔除; 入参必须是 List, Set 过 Feign 反序列化会丢序 */
     @PostMapping("/list-ordered")
-    List<ContentSummary> listByIdsOrdered(@RequestBody Set<String> ids);
+    List<ContentSummary> listByIdsOrdered(@RequestBody List<String> ids);
 }

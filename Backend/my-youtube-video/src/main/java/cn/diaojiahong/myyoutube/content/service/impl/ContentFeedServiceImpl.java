@@ -60,18 +60,18 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     public PageResult<ContentFeedVO> feed(Long userId, PageQuery pageQuery) {
         List<Long> ids = recommendPort.recommend(new RecommendPort.RecommendQuery(
                 userId, null, null, pageQuery.getPageNo(), pageQuery.getPageSize()));
-        List<ContentFeedVO> list = assemble(userId, ids.stream().map(String::valueOf).collect(Collectors.toSet()));
+        List<ContentFeedVO> list = assemble(userId, ids.stream().map(String::valueOf).toList());
         return approximatePage(list, pageQuery);
     }
 
     @Override
     public PageResult<ContentFeedVO> list(Long userId, VideoSortEnum sort, String category, PageQuery pageQuery) {
-        Set<String> ids;
+        List<String> ids;
         long total;
         if (sort == VideoSortEnum.RECOMMENDED) {
             ids = recommendPort.recommend(new RecommendPort.RecommendQuery(
                     userId, null, category, pageQuery.getPageNo(), pageQuery.getPageSize()))
-                    .stream().map(String::valueOf).collect(Collectors.toSet());
+                    .stream().map(String::valueOf).toList();
             // 推荐流没有真实总数: 满页时提示"还有下一页", 不足一页即到底;
             // 无条件 +1 会让前端在召回为空后仍无限翻页
             total = ids.size() < pageQuery.getPageSize()
@@ -88,7 +88,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
                             .eq(Video::getCategory, category)
                             .ne(Video::getAuthorId, userId)
                             .orderByDesc(Video::getCreateTime));
-            ids = page.getRecords().stream().map(v -> String.valueOf(v.getId())).collect(Collectors.toSet());
+            ids = page.getRecords().stream().map(v -> String.valueOf(v.getId())).toList();
             total = page.getTotal();
         } else {
             LambdaQueryWrapper<Content> q = new LambdaQueryWrapper<Content>()
@@ -97,7 +97,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
                     .ne(Content::getAuthorId, userId);
             applyContentSort(q, sort);
             Page<Content> page = contentService.page(pageQuery.toPage(), q);
-            ids = page.getRecords().stream().map(c -> String.valueOf(c.getId())).collect(Collectors.toSet());
+            ids = page.getRecords().stream().map(c -> String.valueOf(c.getId())).toList();
             total = page.getTotal();
         }
         List<ContentFeedVO> list = assemble(userId, ids);
@@ -274,7 +274,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     /**
      * ids → 摘要 → 卡片 VO: 签名媒体地址, 填作者昵称/头像/点赞/关注状态
      */
-    private List<ContentFeedVO> assemble(Long userId, Set<String> ids) {
+    private List<ContentFeedVO> assemble(Long userId, List<String> ids) {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
