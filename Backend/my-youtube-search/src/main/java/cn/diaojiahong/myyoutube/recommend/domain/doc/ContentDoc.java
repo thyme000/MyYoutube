@@ -64,4 +64,12 @@ public class ContentDoc {
 
     @CompletionField(maxInputLength = 100, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
     private Completion suggest;
+
+    /** 标题+简介语义向量; dims 与 llm-svc embedding 配置绑定, 换模型需全量重算 */
+    @Field(type = FieldType.Dense_Vector, dims = 4096)
+    private List<Float> vector;
+
+    /** 向量空间版本, 由 llm-svc 盖戳; 查询端 kNN 只召回与当前配置同版本的文档 */
+    @Field(type = FieldType.Keyword)
+    private String vectorVersion;
 }

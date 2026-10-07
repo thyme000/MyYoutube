@@ -26,6 +26,16 @@ my-youtube:
     url: ${USER_SERVICE_URL:}
   video-service:
     url: ${VIDEO_SERVICE_URL:}
+  llm-service:
+    url: ${LLM_SERVICE_URL:http://localhost:8087}
+  search:
+    vector:
+      # 总开关, 关闭即回退纯关键词搜索
+      enabled: true
+      # RRF 平滑常数
+      rrf-k: 60
+      # 每路召回深度
+      recall-size: 50
   recommend:
     cf:
       # 关闭后退回 tag+热度两路(算法选择在 video 服务的 recommend.cf.algorithm)

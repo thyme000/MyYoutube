@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
+import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ public class ContentDocListener implements RocketMQListener<ContentDocMessage> {
 
     private final ContentDocRepository contentDocRepository;
     private final UserPort userPort;
+    private final ContentVectorService contentVectorService;
 
     @Override
     public void onMessage(ContentDocMessage message) {
@@ -63,5 +65,7 @@ public class ContentDocListener implements RocketMQListener<ContentDocMessage> {
         }
         doc.setSuggest(new Completion(suggest));
         contentDocRepository.save(doc);
+        // 文档已入库(关键词立即可搜), 向量异步补算, 失败由 rebuild 兜底
+        contentVectorService.embedAsync(message.getContentId(), message.getTitle(), message.getDescription());
     }
 }
