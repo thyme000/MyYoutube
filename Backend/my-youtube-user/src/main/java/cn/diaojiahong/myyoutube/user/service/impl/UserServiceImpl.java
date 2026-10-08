@@ -9,6 +9,7 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
+import cn.diaojiahong.myyoutube.user.cache.UserSummaryCache;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
@@ -50,6 +51,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private final UserVideoPort userVideoPort;
     private final RocketMQTemplate rocketMQTemplate;
     private final EsSyncPublisher esSyncPublisher;
+    private final UserSummaryCache summaryCache;
 
     @Override
     public UserVO getUserInfo(Long userId) {
@@ -75,6 +77,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 .set(User::getAvatarUrl, upload)
                 .eq(User::getId, UserContext.getUserId())
                 .update();
+        summaryCache.evict(Long.valueOf(UserContext.getUserId()));
         return storageUtil.signGetUrl(upload, STORAGE_EXPIRE);
     }
 
@@ -121,6 +124,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (!success) {
             throw new BizException(BizException.BIZ_ERROR, "服务器繁忙,请稍后再试～");
         }
+        summaryCache.evict(user.getId());
         // 同步 ES 文档: 发消息, 由 search 侧以 MySQL 为准重建
         esSyncPublisher.syncUserDoc(user.getId());
 

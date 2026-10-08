@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
+import cn.diaojiahong.myyoutube.user.cache.UserSummaryCache;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
@@ -25,11 +26,14 @@ public class UserPortAdapter implements UserPort {
 
     private final cn.diaojiahong.myyoutube.user.service.IUserService userService;
     private final CounterBuffer counterBuffer;
+    private final UserSummaryCache summaryCache;
 
     @Override
     public UserSummary getUser(Long id) {
-        User user = userService.getById(id);
-        return user == null ? null : toSummary(user);
+        return summaryCache.get(id, uid -> {
+            User user = userService.getById(uid);
+            return user == null ? null : toSummary(user);
+        });
     }
 
     @Override
@@ -37,7 +41,8 @@ public class UserPortAdapter implements UserPort {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        return userService.listByIds(ids).stream().map(UserPortAdapter::toSummary).collect(Collectors.toList());
+        return summaryCache.listByIds(ids, missIds -> userService.listByIds(missIds).stream()
+                .map(UserPortAdapter::toSummary).collect(Collectors.toList()));
     }
 
     @Override
