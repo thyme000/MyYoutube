@@ -1,10 +1,11 @@
 package cn.diaojiahong.myyoutube.comment.controller;
 
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentDTO;
-import cn.diaojiahong.myyoutube.comment.domain.dto.CommentPageQuery;
+import cn.diaojiahong.myyoutube.comment.domain.dto.CommentListQuery;
+import cn.diaojiahong.myyoutube.comment.domain.dto.CommentReplyQuery;
+import cn.diaojiahong.myyoutube.comment.domain.vo.CommentPageVO;
 import cn.diaojiahong.myyoutube.comment.domain.vo.CommentVO;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
-import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -52,13 +53,20 @@ public class ContentCommentController {
     }
 
     /**
-     * 用户查询评论列表
-     * @param commentPageQuery
-     * @return
+     * 根评论列表: tab=hot(最热, Top N) / latest(最新), 游标分页
      */
-    @Operation(summary = "用户查询评论列表")
+    @Operation(summary = "查询评论列表")
     @GetMapping("/list")
-    public Result<PageResult<CommentVO>> getCommentList(@ModelAttribute CommentPageQuery commentPageQuery) {
-        return Result.success(videoCommentService.getCommentList(commentPageQuery));
+    public Result<CommentPageVO> getRootComments(@ModelAttribute CommentListQuery query) {
+        return Result.success(videoCommentService.getRootComments(query));
+    }
+
+    /**
+     * 楼中楼展开: 按时间升序, 游标分页
+     */
+    @Operation(summary = "查询楼中楼回复")
+    @GetMapping("/replies")
+    public Result<CommentPageVO> getReplies(@ModelAttribute CommentReplyQuery query) {
+        return Result.success(videoCommentService.getReplies(query));
     }
 }

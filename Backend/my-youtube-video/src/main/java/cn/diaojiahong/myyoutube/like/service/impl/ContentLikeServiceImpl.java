@@ -291,14 +291,15 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
             return;
         }
 
+        ContentComment comment = contentCommentService.lambdaQuery()
+            .eq(ContentComment::getId, commentId).select(ContentComment::getUserId).one();
+
         counterBuffer.add(CounterType.COMMENT_LIKE, commentId, -1);
         like.setIsLiked(ContentLikeConstants.CANCEL_LIKE);
         contentCommentLikeMapper.updateById(like);
         redisTemplate.opsForZSet().remove(RedisConstants.USER_LIKE_COMMENT + userId, commentId.toString());
 
         // 发送取消点赞通知(MQ)
-        ContentComment comment = contentCommentService.lambdaQuery()
-            .eq(ContentComment::getId, commentId).select(ContentComment::getUserId).one();
         if (comment != null && !Objects.equals(comment.getUserId(), userId)) {
 
             LikeCommentMessage lc = LikeCommentMessage

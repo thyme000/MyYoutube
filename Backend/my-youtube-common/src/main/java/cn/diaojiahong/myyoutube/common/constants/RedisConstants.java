@@ -126,4 +126,9 @@ public class RedisConstants {
 
     /** 方法级幂等占位 idempotent:{业务key}, value=RUNNING/DONE/结果JSON */
     public static final String IDEMPOTENT = "idempotent:";
+
+    /** 评论有序名单: comment:list:{tab}:{contentId} string, 值=「排序值.评论id」按榜序逗号相连 */
+    public static final String COMMENT_LIST = "comment:list:";
+    /** 名单重建单飞锁: comment:list:lock:{tab}:{contentId} */
+    public static final String COMMENT_LIST_LOCK = "comment:list:lock:";
 }

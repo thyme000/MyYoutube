@@ -1,10 +1,10 @@
 package cn.diaojiahong.myyoutube.comment.service;
 
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentDTO;
-import cn.diaojiahong.myyoutube.comment.domain.dto.CommentPageQuery;
+import cn.diaojiahong.myyoutube.comment.domain.dto.CommentListQuery;
+import cn.diaojiahong.myyoutube.comment.domain.dto.CommentReplyQuery;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
-import cn.diaojiahong.myyoutube.comment.domain.vo.CommentVO;
-import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.comment.domain.vo.CommentPageVO;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 /**
@@ -19,5 +19,8 @@ public interface IContentCommentService extends IService<ContentComment> {
 
     void publishComment(CommentDTO commentDTO);
     void deleteComment(Long commentId);
-    PageResult<CommentVO> getCommentList(CommentPageQuery commentPageQuery);
+    /** 根评论列表, hot/latest 双 tab 游标分页 */
+    CommentPageVO getRootComments(CommentListQuery query);
+    /** 楼中楼展开, 时间升序游标分页 */
+    CommentPageVO getReplies(CommentReplyQuery query);
 }

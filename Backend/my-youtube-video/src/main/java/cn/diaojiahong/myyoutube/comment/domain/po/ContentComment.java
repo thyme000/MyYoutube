@@ -44,14 +44,14 @@ public class ContentComment implements Serializable {
     private Long userId;
 
     /**
-     * 父评论ID；0表示一级评论（直接评论视频）；非0表示回复对应id的评论
+     * 物化路径，含自己：根评论=自己id；回复=父评论path.自己id
      */
-    private Long parentId;
+    private String path;
 
     /**
-     * 根评论ID；为null表示一级评论
+     * 层级：1=根评论，大于1为楼中楼回复
      */
-    private Long rootId;
+    private Integer level;
 
     /**
      * 回复用户的Id

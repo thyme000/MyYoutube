@@ -23,8 +23,6 @@ public class CommentVO {
     private Long likeCount;
     // 评论回复数
     private Long replyCount;
-    // 父评论id
-    private Long parentId;
     // 回复用户的昵称
     private String replyNickname;
     // 回复用户的id

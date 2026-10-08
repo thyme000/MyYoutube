@@ -36,3 +36,12 @@ my-youtube:
   autotag:
     # 打标防线阈值, 必填无默认(0~1), 缺失服务拒绝启动; 真实值填 application-local.yml
     # min-confidence: 0.5
+  comment:
+    # 评论数达到该值才建名单缓存, 未达标直查 DB
+    cache-threshold: ${COMMENT_CACHE_THRESHOLD:50}
+    # 名单封顶条数; latest 超出的部分继续走 DB keyset, hot 到此为止(排序值会变, 不能跨界续)
+    latest-cap: ${COMMENT_LATEST_CAP:200}
+    hot-cap: ${COMMENT_HOT_CAP:100}
+    # 名单固定 TTL(秒)不续期: latest 排序值无缓冲滞后故取短, hot 对齐点赞缓冲落库周期
+    latest-ttl-seconds: ${COMMENT_LATEST_TTL_SECONDS:5}
+    hot-ttl-seconds: ${COMMENT_HOT_TTL_SECONDS:30}

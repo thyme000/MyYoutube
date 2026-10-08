@@ -124,21 +124,22 @@ CREATE TABLE IF NOT EXISTS `user_view_history` (
 
 -- 内容评论表
 CREATE TABLE IF NOT EXISTS `content_comment` (
-    `id`            BIGINT        NOT NULL AUTO_INCREMENT,
-    `content_id`    BIGINT        NOT NULL,
-    `user_id`       BIGINT        NOT NULL COMMENT '评论人',
-    `parent_id`     BIGINT        NOT NULL DEFAULT 0 COMMENT '0=一级评论',
-    `root_id`       BIGINT                 DEFAULT NULL COMMENT '根评论ID, 一级评论为NULL',
-    `reply_user_id` BIGINT                 DEFAULT NULL COMMENT '被回复用户',
-    `content`       TEXT          NOT NULL,
-    `like_count`    INT           NOT NULL DEFAULT 0,
-    `reply_count`   INT           NOT NULL DEFAULT 0,
-    `status`        VARCHAR(16)   NOT NULL DEFAULT 'visible' COMMENT 'visible/hidden/deleted/blocked',
-    `create_time`   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `update_time`   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
+    `content_id`    BIGINT       NOT NULL,
+    `user_id`       BIGINT       NOT NULL COMMENT '评论人',
+    `path`          VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '物化路径, 含自己: 根评论=自己id, 回复=父path.自己id',
+    `level`         TINYINT      NOT NULL DEFAULT 1 COMMENT '1=根评论, >1为楼中楼回复',
+    `reply_user_id` BIGINT                DEFAULT NULL COMMENT '被回复用户',
+    `content`       TEXT         NOT NULL,
+    `like_count`    INT          NOT NULL DEFAULT 0,
+    `reply_count`   INT          NOT NULL DEFAULT 0,
+    `status`        VARCHAR(16)  NOT NULL DEFAULT 'visible' COMMENT 'visible/hidden/deleted/blocked',
+    `create_time`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    KEY `idx_content_status` (`content_id`, `status`),
-    KEY `idx_root_id` (`root_id`)
+    KEY `idx_content_level_time` (`content_id`, `level`, `create_time`),
+    KEY `idx_content_level_hot` (`content_id`, `level`, `like_count`),
+    KEY `idx_path` (`path`)
 ) ENGINE=InnoDB COMMENT='内容评论';
 
 -- 评论点赞表(评论点赞关系的权威来源, 对账与幂等判重都靠它)
