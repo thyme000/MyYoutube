@@ -28,15 +28,7 @@ public enum ChatContentTypeEnum {
      */
     SYSTEM("system", "系统消息"),
 
-    /**
-     * 转发视频消息
-     */
-    FORWARD_VIDEO("forward_video", "转发视频消息"),
-
-    /**
-     * 转发动态消息
-     */
-    FORWARD_DYNAMIC("forward_dynamic", "转发动态消息");
+    FORWARD_CONTENT("forward_content", "转发内容消息");
 
     /**
      * 类型值
@@ -76,10 +68,10 @@ public enum ChatContentTypeEnum {
     }
 
     /**
-     * 判断是否为转发消息(视频/动态)
+     * 判断是否为转发内容消息
      * @return
      */
     public boolean isForward() {
-        return this == FORWARD_VIDEO || this == FORWARD_DYNAMIC;
+        return this == FORWARD_CONTENT;
     }
 }

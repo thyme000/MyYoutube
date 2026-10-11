@@ -96,21 +96,4 @@ public class ChatMessageController {
         return Result.success(chatMessageService.findRecord(conversationId, keyword, pageNum, pageSize));
     }
 
-    /**
-     * 用户转发视频
-     * @param chatMessageDTO
-     * @return
-     */
-    @Operation(summary = "用户转发视频")
-    @PutMapping("/forward/video")
-    public Result<ChatMessageAckDTO> forwardVideo(@Valid @RequestBody ChatMessageDTO chatMessageDTO) {
-        return Result.success(chatMessageService.forwardVideo(chatMessageDTO));
-    }
-
-    @Operation(summary = "用户转发动态")
-    @PutMapping("/forward/dynamic")
-    public Result<ChatMessageAckDTO> forwardDynamic(@Valid @RequestBody ChatMessageDTO chatMessageDTO) {
-        return Result.success(chatMessageService.forwardDynamic(chatMessageDTO));
-    }
 }
-

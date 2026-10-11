@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.chat.mongo.po;
 
 import lombok.Data;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import org.springframework.data.annotation.Transient;
 
 /**
  * 统一消息内容
@@ -27,12 +29,11 @@ public class ChatContent {
     // 系统消息可选
     private String systemText;
 
-    // 转发视频所用字段
-    private Long forwardVideoId;
-    private String forwardVideoTitle;
-    private String forwardVideoCoverObjectKey;
-
-    private Long forwardDynamicId;
-    private String forwardDynamicTitle;
-    private String forwardDynamicCoverObjectKey;
+    private Long contentId;
+    private String mediaType;
+    private String title;
+    @JsonIgnore
+    private String coverObjectKey;
+    @Transient
+    private String coverUrl;
 }

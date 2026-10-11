@@ -7,6 +7,9 @@ import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatMessageDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
 import lombok.Getter;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 
 /**
  * 发消息守卫链上下文: 各守卫步骤查到的会话文档与互关判定沉淀在此,
@@ -64,5 +67,12 @@ public class MessageSendContext {
         ack.setClientMsgId(doc.getClientMsgId());
         ack.setStatus(status);
         return ack;
+    }
+
+    public static String messageId(Long senderId, String clientMsgId) {
+        try {
+            byte[] key = (senderId + "\n" + clientMsgId).getBytes(StandardCharsets.UTF_8);
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(key));
+        } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
 }

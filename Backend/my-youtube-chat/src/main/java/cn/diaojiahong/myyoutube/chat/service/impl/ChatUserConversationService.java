@@ -202,6 +202,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                 .collect(Collectors.toMap(ChatConversationDoc::getId, Function.identity()));
         // 转vo
         List<ValidUserConversationVO> voList = content.stream()
+                .filter(v -> collect.containsKey(v.getConversationId()))
                 .map(v -> {
                     ValidUserConversationVO vo = new ValidUserConversationVO();
                     vo.setConversationId(v.getConversationId());

@@ -115,7 +115,6 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         List<ChatUserConversationDoc> chatUserConversationDocs = new ArrayList<>();
         for (Long memberId : memberIds) {
             ChatUserConversationDoc chatUserConversationDoc = new ChatUserConversationDoc();
-            chatUserConversationDoc.setConversationId(chatConversationDoc.getId());
             chatUserConversationDoc.setUserId(memberId);
             chatUserConversationDoc.setUnreadCount(0);
             chatUserConversationDoc.setLastReadSeq(0L);
@@ -131,6 +130,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         // 会话与成员会话状态要么都在要么都不在
         mongoTransactionTemplate.executeWithoutResult(tx -> {
             save(chatConversationDoc);
+            chatUserConversationDocs.forEach(member -> member.setConversationId(chatConversationDoc.getId()));
             mongoTemplate.insert(chatUserConversationDocs, "chat_user_conversation");
         });
         // 构建VO

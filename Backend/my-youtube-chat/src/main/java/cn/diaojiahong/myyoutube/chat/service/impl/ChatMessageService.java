@@ -28,7 +28,7 @@ import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import cn.diaojiahong.myyoutube.video.api.VideoInternalPort;
+import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import jakarta.validation.Valid;
@@ -45,6 +45,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -62,7 +63,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final StringRedisTemplate redisTemplate;
-    private final VideoInternalPort videoInternalPort;
+    private final ContentInternalPort contentInternalPort;
     private final ChatContentTypeStrategyRegistry contentTypeStrategies;
     private final SyncChainStepRegistry chainRegistry;
     private final TransactionTemplate mongoTransactionTemplate;
@@ -72,7 +73,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                               UserPort userPort,
                               S3StorageUtil storageUtil,
                               StringRedisTemplate redisTemplate,
-                              VideoInternalPort videoInternalPort,
+                              ContentInternalPort contentInternalPort,
                               ChatContentTypeStrategyRegistry contentTypeStrategies,
                               SyncChainStepRegistry chainRegistry,
                               TransactionTemplate mongoTransactionTemplate) {
@@ -82,18 +83,14 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         this.userPort = userPort;
         this.storageUtil = storageUtil;
         this.redisTemplate = redisTemplate;
-        this.videoInternalPort = videoInternalPort;
+        this.contentInternalPort = contentInternalPort;
         this.contentTypeStrategies = contentTypeStrategies;
         this.chainRegistry = chainRegistry;
         this.mongoTransactionTemplate = mongoTransactionTemplate;
     }
 
     public Optional<ChatMessageDoc> findByIdempotent(Long senderId, String clientMsgId) {
-        Query q = Query.query(
-                Criteria.where("senderId").is(senderId)
-                        .and("clientMsgId").is(clientMsgId)
-        );
-        return Optional.ofNullable(mongoTemplate.findOne(q, ChatMessageDoc.class));
+        return Optional.ofNullable(mongoTemplate.findById(MessageSendContext.messageId(senderId, clientMsgId), ChatMessageDoc.class));
     }
 
     public Page<ChatMessageDoc> pageByConversation(String conversationId, Long beforeSeq, int size) {
@@ -133,6 +130,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         ChatConversationDoc chatConversationDoc = ctx.getConversationDoc();
         boolean isInterrelated = ctx.isInterrelated();
         ChatMessageDoc chatMessageDoc = BeanUtil.toBean(chatMessageDTO, ChatMessageDoc.class);
+        chatMessageDoc.setId(MessageSendContext.messageId(chatMessageDTO.getSenderId(), chatMessageDTO.getClientMsgId()));
         chatMessageDoc.setCreatedAt(LocalDateTime.now());
         chatMessageDoc.setStatus(MessageStatusEnum.SENT);
         // 转发类由策略查远端固化快照, 其余类型原样透传; 远程调用在事务外完成
@@ -141,23 +139,39 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         // 群聊最后一条消息发送人昵称: Feign 提前到事务外查好, 事务里只做纯写
         boolean isGroup = chatConversationDoc.getType().equals(ConversationTypeEnum.GROUP);
         String senderNickname = isGroup ? userPort.getUser(Long.valueOf(userId)).getNickname() : null;
-        mongoTransactionTemplate.executeWithoutResult(tx -> {
-            chatMessageDoc.setSeq(nextSeq(conversationId));
-            mongoTemplate.save(chatMessageDoc, "chat_messages");
-            // 设置会话最后消息
-            chatConversationDoc.setLastMessageAt(chatMessageDoc.getCreatedAt());
-            chatConversationDoc.setLastMessageId(chatMessageDoc.getId());
-            chatConversationDoc.setIsLastMessageRecall(false);
-            // 系统消息等无预览类型不动 lastMessagePreview, 保留上一条媒体消息的预览
-            String preview = contentTypeStrategies.get(chatMessageDoc.getContentType()).previewLabel(chatMessageDoc.getContent());
-            if (preview != null) {
-                chatConversationDoc.setLastMessagePreview(preview);
-            }
-            if (isGroup) {
-                chatConversationDoc.setLastMessageSenderNickname(senderNickname);
-            }
-            mongoTemplate.save(chatConversationDoc, "chat_conversations");
-        });
+        ChatMessageDoc existing;
+        try {
+            existing = mongoTransactionTemplate.execute(tx -> {
+                var old = findByIdempotent(chatMessageDoc.getSenderId(), chatMessageDoc.getClientMsgId()).orElse(null);
+                if (old != null) return old;
+                chatMessageDoc.setSeq(nextSeq(conversationId));
+                mongoTemplate.insert(chatMessageDoc, "chat_messages");
+                // 设置会话最后消息
+                chatConversationDoc.setLastMessageAt(chatMessageDoc.getCreatedAt());
+                chatConversationDoc.setLastMessageId(chatMessageDoc.getId());
+                chatConversationDoc.setIsLastMessageRecall(false);
+                // 系统消息等无预览类型不动 lastMessagePreview, 保留上一条媒体消息的预览
+                String preview = contentTypeStrategies.get(chatMessageDoc.getContentType()).previewLabel(chatMessageDoc.getContent());
+                if (preview != null) {
+                    chatConversationDoc.setLastMessagePreview(preview);
+                }
+                if (isGroup) {
+                    chatConversationDoc.setLastMessageSenderNickname(senderNickname);
+                }
+                mongoTemplate.save(chatConversationDoc, "chat_conversations");
+                return null;
+            });
+        } catch (DuplicateKeyException duplicate) {
+            existing = findByIdempotent(chatMessageDoc.getSenderId(), chatMessageDoc.getClientMsgId()).orElse(null);
+            if (existing == null) throw duplicate;
+        }
+        if (existing != null) {
+            if (!conversationId.equals(existing.getConversationId()))
+                throw new BizException(BizException.MESSAGE_ERROR, "会话id不一致");
+            return getAck(existing, existing.getStatus());
+        }
+        if (chatMessageDoc.getContentType().isForward())
+            incrementShareCountQuietly(chatMessageDoc.getContent().getContentId(), Long.valueOf(userId));
         // ack 与推送报文依赖 save 后的 messageId/seq, 必须在提交后构建
         ChatMessageAckDTO chatMessageAckDTO = getAck(chatMessageDoc, MessageStatusEnum.SENT);
         ChatMessageMessage ch = ChatMessageMessage.builder().senderId(chatMessageDoc.getSenderId())
@@ -443,40 +457,13 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return PageResult.of(total, pages, list);
     }
 
-    public ChatMessageAckDTO forwardVideo(@Valid ChatMessageDTO chatMessageDTO) {
-        // 用户转发视频,需要更新视频的分享数
-        ChatContent content = chatMessageDTO.getContent();
-        Long forwardVideoId = content.getForwardVideoId();
-        if (forwardVideoId == null) {
-            throw new BizException(BizException.MESSAGE_ERROR, "转发视频id不能为空");
-        }
-        ChatMessageAckDTO ack = send(chatMessageDTO);
-        incrementShareCountQuietly(forwardVideoId, "视频");
-        return ack;
-    }
-
-    public ChatMessageAckDTO forwardDynamic(@Valid ChatMessageDTO chatMessageDTO) {
-        // 用户转发动态, 需要更新内容的分享数(动态与视频同池, share_count 在 content 上)
-        ChatContent content = chatMessageDTO.getContent();
-        Long forwardDynamicId = content.getForwardDynamicId();
-        if (forwardDynamicId == null) {
-            throw new BizException(BizException.MESSAGE_ERROR, "转发动态id不能为空");
-        }
-        ChatMessageAckDTO ack = send(chatMessageDTO);
-        incrementShareCountQuietly(forwardDynamicId, "动态");
-        return ack;
-    }
-
-    /** 分享计数尽力而为: 消息已发出, 远端计数失败只记日志, 不把 Feign 异常抛给用户 */
-    private void incrementShareCountQuietly(Long contentId, String label) {
-
+    // 消息已提交后计数；幂等命中在 send 入口返回，不重复执行此副作用。
+    private void incrementShareCountQuietly(Long contentId, Long viewerId) {
         try {
-            boolean success = videoInternalPort.incrementShareCount(contentId);
-            if (!success) {
-                log.error("更新{}分享数失败,内容id:{}", label, contentId);
-            }
+            if (!contentInternalPort.incrementShareCount(contentId, viewerId))
+                log.error("更新内容分享数失败,内容id:{}", contentId);
         } catch (Exception e) {
-            log.error("更新{}分享数异常,内容id:{}", label, contentId, e);
+            log.error("更新内容分享数异常,内容id:{}", contentId, e);
         }
     }
 }

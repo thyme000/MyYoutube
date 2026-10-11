@@ -3,8 +3,6 @@ package cn.diaojiahong.myyoutube.chat.chain.message;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatMessageDoc;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -23,9 +21,7 @@ public class IdempotentStep extends MessageSendStep {
      */
     @Override
     public void apply(MessageSendContext ctx) {
-        Query q = Query.query(Criteria.where("senderId").is(Long.valueOf(ctx.getUserId()))
-                .and("clientMsgId").is(ctx.getDto().getClientMsgId()));
-        ChatMessageDoc old = mongoTemplate.findOne(q, ChatMessageDoc.class);
+        ChatMessageDoc old = mongoTemplate.findById(MessageSendContext.messageId(Long.valueOf(ctx.getUserId()), ctx.getDto().getClientMsgId()), ChatMessageDoc.class);
         if (old == null) {
             return;
         }
