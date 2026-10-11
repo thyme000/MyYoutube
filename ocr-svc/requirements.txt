@@ -3,3 +3,6 @@ paddleocr
 fastapi
 uvicorn[standard]
 httpx
+
+prometheus-client>=0.21,<1
+nacos-sdk-python==2.0.11

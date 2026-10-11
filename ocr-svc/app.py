@@ -1,55 +1,54 @@
-import io
-
-import httpx
-import numpy as np
+import multiprocessing
+import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from PIL import Image
-from paddleocr import PaddleOCR
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl, Field
+from prometheus_client import make_asgi_app
+from engine import Worker
+from model_runtime.pool import BoundedPool
+from model_runtime.discovery import registration
 
-app = FastAPI(title="ocr-svc")
-ocr = PaddleOCR(lang="ch")
-
-MAX_BATCH = 50
+CONCURRENCY = max(1, int(os.getenv("OCR_CONCURRENCY", "1")))
+QUEUE_SIZE = max(0, int(os.getenv("OCR_QUEUE_SIZE", "4")))
 
 
-def fetch_image(url: str) -> np.ndarray:
+@asynccontextmanager
+async def lifespan(app):
+    pool = BoundedPool("ocr", lambda: Worker(multiprocessing.get_context("spawn"),
+                       {"timeout": int(os.getenv("OCR_EXECUTION_TIMEOUT", "120"))}),
+                       CONCURRENCY, QUEUE_SIZE, int(os.getenv("OCR_QUEUE_TIMEOUT", "60")))
+    app.state.pool = pool
+    await pool.start()
     try:
-        resp = httpx.get(url, timeout=10)
-        resp.raise_for_status()
-    except httpx.HTTPError as e:
-        raise ValueError(f"拉取图片失败: {e}")
-    return np.asarray(Image.open(io.BytesIO(resp.content)).convert("RGB"))
+        async with registration("ocr-svc", 8088):
+            yield
+    finally:
+        await pool.close()
 
 
-def recognize(img: np.ndarray) -> str:
-    result = ocr.predict(img)
-    return "\n".join(t for page in result for t in page["rec_texts"])
-
-
-@app.post("/ocr")
-def ocr_url(url: str):
-    try:
-        return {"text": recognize(fetch_image(url))}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+app = FastAPI(title="ocr-svc", lifespan=lifespan)
+app.mount("/metrics", make_asgi_app())
 
 
 class BatchRequest(BaseModel):
-    urls: list[str]
+    urls: list[HttpUrl] = Field(min_length=1, max_length=50)
+
+
+@app.get("/health")
+async def health():
+    pool = app.state.pool
+    return {"ready": pool.accepting, "concurrency": CONCURRENCY, "admitted": pool.admitted}
+
+
+@app.post("/ocr")
+async def ocr_url(url: HttpUrl):
+    response = await app.state.pool.run({"urls": [str(url)]})
+    item = response["results"][0]
+    if "error" in item:
+        raise HTTPException(502, item["error"])
+    return {"text": item["text"]}
 
 
 @app.post("/ocr/batch")
-def ocr_batch(req: BatchRequest):
-    if not req.urls:
-        raise HTTPException(status_code=400, detail="urls 不能为空")
-    if len(req.urls) > MAX_BATCH:
-        raise HTTPException(status_code=400, detail=f"单批最多 {MAX_BATCH} 张")
-
-    results = []
-    for url in req.urls:
-        try:
-            results.append({"url": url, "text": recognize(fetch_image(url))})
-        except ValueError as e:
-            results.append({"url": url, "error": str(e)})
-    return {"results": results}
+async def ocr_batch(request: BatchRequest):
+    return await app.state.pool.run({"urls": [str(url) for url in request.urls]})

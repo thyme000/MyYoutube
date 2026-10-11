@@ -1,3 +1,5 @@
-#!/bin/bash
+#!/bin/sh
+set -eu
 cd "$(dirname "$0")"
-exec .venv/bin/uvicorn app:app --host 0.0.0.0 --port 8088
+export PYTHONPATH="..${PYTHONPATH:+:$PYTHONPATH}"
+exec .venv/bin/python -m model_runtime.server --default-port 8088
