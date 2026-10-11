@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS `user` (
     `bg_image`        VARCHAR(512)          DEFAULT '' COMMENT '主页背景图URL',
     `fans`            BIGINT       NOT NULL DEFAULT 0 COMMENT '粉丝数',
     `attention_count` BIGINT       NOT NULL DEFAULT 0 COMMENT '关注数',
-    `video_count`     BIGINT       NOT NULL DEFAULT 0 COMMENT '视频发布数',
+    `content_count`     BIGINT       NOT NULL DEFAULT 0 COMMENT '已发布内容数',
     `like_count`      BIGINT       NOT NULL DEFAULT 0 COMMENT '获赞数',
     `create_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `update_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -48,7 +48,15 @@ CREATE TABLE IF NOT EXISTS `content` (
     `id`            BIGINT      NOT NULL COMMENT '雪花ID, 与领域表主键相同',
     `type`          VARCHAR(16) NOT NULL COMMENT 'video/dynamic',
     `author_id`     BIGINT      NOT NULL COMMENT '作者ID',
-    `status`        VARCHAR(16) NOT NULL DEFAULT 'published' COMMENT 'published/review/banned, 随领域状态机',
+    `title` VARCHAR(100) NOT NULL,
+    `description` VARCHAR(512),
+    `cover_object_key` VARCHAR(512),
+    `category_code` VARCHAR(32),
+    `tags` VARCHAR(512),
+    `allow_comment` TINYINT NOT NULL DEFAULT 1,
+    `region` VARCHAR(32),
+    `is_delete` TINYINT NOT NULL DEFAULT 0,
+    `status` VARCHAR(16) NOT NULL DEFAULT 'review' COMMENT 'review/published/banned',
     `visibility`    VARCHAR(16) NOT NULL DEFAULT 'public' COMMENT 'public/private, 随领域状态机',
     `play_count`    BIGINT      NOT NULL DEFAULT 0,
     `like_count`    BIGINT      NOT NULL DEFAULT 0,
@@ -64,26 +72,10 @@ CREATE TABLE IF NOT EXISTS `content` (
 
 -- 视频信息表
 CREATE TABLE IF NOT EXISTS `video` (
-    `id`            BIGINT       NOT NULL COMMENT '雪花ID, 与 content 表相同',
-    `title`         VARCHAR(200) NOT NULL,
-    `description`   TEXT COMMENT '简介',
-    `cover_url`     VARCHAR(512)          DEFAULT '' COMMENT '封面',
-    `video_url`     VARCHAR(512)          DEFAULT '' COMMENT '视频文件objectKey/URL',
-    `duration`      INT                   DEFAULT 0 COMMENT '时长(秒)',
-    `category`      VARCHAR(32)           DEFAULT NULL COMMENT '分类code',
-    `tags`          VARCHAR(512)          DEFAULT NULL COMMENT '标签, 逗号分隔',
-    `author_id`     BIGINT       NOT NULL COMMENT '作者ID',
-    `status`        VARCHAR(16)           DEFAULT NULL COMMENT 'draft/review/published/banned',
-    `visibility`    VARCHAR(16)           DEFAULT NULL COMMENT 'public/private/unlisted',
-    `allow_comment` TINYINT               DEFAULT 1 COMMENT '0不允许 1允许评论',
-    `region`        VARCHAR(32)           DEFAULT NULL COMMENT '发布地区',
-    `create_time`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `update_time`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `is_delete`     TINYINT      NOT NULL DEFAULT 0 COMMENT '0正常 1已删除',
-    PRIMARY KEY (`id`),
-    KEY `idx_author_id` (`author_id`),
-    KEY `idx_status_create` (`status`, `create_time`)
-) ENGINE=InnoDB COMMENT='视频';
+    `id` BIGINT NOT NULL PRIMARY KEY COMMENT '与 content 相同',
+    `object_key` VARCHAR(512) NOT NULL,
+    `duration_ms` BIGINT NOT NULL
+) ENGINE=InnoDB COMMENT='视频媒体';
 
 -- 内容点赞表
 CREATE TABLE IF NOT EXISTS `content_like` (
@@ -121,6 +113,21 @@ CREATE TABLE IF NOT EXISTS `user_view_history` (
     UNIQUE KEY `uk_user_content` (`user_id`, `content_id`),
     KEY `idx_user_view_time` (`user_id`, `view_time`)
 ) ENGINE=InnoDB COMMENT='用户浏览历史';
+
+-- 统一内容续播状态
+CREATE TABLE IF NOT EXISTS `content_playback` (
+    `user_id` BIGINT NOT NULL,
+    `content_id` BIGINT NOT NULL,
+    `session_id` VARCHAR(64) NOT NULL,
+    `session_started_at` BIGINT NOT NULL,
+    `sequence` BIGINT NOT NULL,
+    `watched_ms` BIGINT NOT NULL COMMENT '当前播放会话实际观看时长，不含拖动、翻图及后台时间',
+    `video_position_ms` BIGINT DEFAULT NULL,
+    `image_index` INT DEFAULT NULL,
+    `image_elapsed_ms` BIGINT DEFAULT NULL,
+    `audio_position_ms` BIGINT DEFAULT NULL,
+    PRIMARY KEY (`user_id`, `content_id`)
+) ENGINE=InnoDB COMMENT='统一内容续播状态';
 
 -- 内容评论表
 CREATE TABLE IF NOT EXISTS `content_comment` (
@@ -177,10 +184,10 @@ CREATE TABLE IF NOT EXISTS `user_notification` (
     `id`          BIGINT       NOT NULL AUTO_INCREMENT,
     `receiver_id` BIGINT       NOT NULL COMMENT '接收人',
     `sender_id`   BIGINT                DEFAULT NULL COMMENT '触发人, 系统通知为NULL',
-    `type`        VARCHAR(32)  NOT NULL COMMENT 'COMMENT_LIKE/COMMENT_REPLY/VIDEO_COMMENT等',
+    `type`        VARCHAR(32)  NOT NULL COMMENT 'COMMENT_LIKE/COMMENT_REPLY/CONTENT_COMMENT等',
     `title`       VARCHAR(128)          DEFAULT '',
     `content`     VARCHAR(500)          DEFAULT '' COMMENT '摘要文案',
-    `ref_type`    VARCHAR(16)           DEFAULT NULL COMMENT 'VIDEO/DYNAMIC/COMMENT',
+    `ref_type`    VARCHAR(16)           DEFAULT NULL COMMENT 'CONTENT/COMMENT/SYSTEM/CHAT',
     `ref_id`      BIGINT                DEFAULT NULL COMMENT '关联ID',
     `extra_json`  TEXT COMMENT '扩展字段JSON',
     `is_read`     TINYINT      NOT NULL DEFAULT 0,
@@ -287,32 +294,9 @@ CREATE TABLE IF NOT EXISTS `audio` (
 
 -- 图集配乐动态(主体表; 时间轴/焦点等嵌套结构存 JSON 列)
 CREATE TABLE IF NOT EXISTS `dynamic` (
-    `id`               BIGINT       NOT NULL COMMENT '雪花ID',
-    `user_id`          BIGINT       NOT NULL COMMENT '作者ID',
-    `title`            VARCHAR(100)          DEFAULT '' COMMENT '标题',
-    `description`      VARCHAR(512)          DEFAULT NULL COMMENT '简介',
-    `category_code`    VARCHAR(32)           DEFAULT NULL COMMENT 'LLM判定类目',
-    `canvas_type`      VARCHAR(16)  NOT NULL DEFAULT 'vertical' COMMENT 'vertical/horizontal',
-    `canvas_w`         INT          NOT NULL COMMENT '画布宽',
-    `canvas_h`         INT          NOT NULL COMMENT '画布高',
-    `transition`       VARCHAR(16)  NOT NULL DEFAULT 'fade' COMMENT '切换方式: cut/fade',
-    `fade_ms`          INT          NOT NULL DEFAULT 800 COMMENT '叠化时长(毫秒), cut 时无效',
-    `audio_id`         BIGINT                DEFAULT NULL COMMENT '音频库条目ID',
-    `audio_object_key` VARCHAR(512)          DEFAULT '' COMMENT '背景音乐objectKey(快照)',
-    `audio_title`      VARCHAR(100)          DEFAULT '' COMMENT '音频标题(快照)',
-    `audio_duration_ms` INT         NOT NULL DEFAULT 0 COMMENT '音频时长(毫秒,快照)',
-    `total_duration_ms` INT        NOT NULL DEFAULT 0 COMMENT '成片总时长(毫秒)',
-    `tags`             VARCHAR(512)          DEFAULT NULL COMMENT '标签, 逗号分隔(可选, 复用 tag 体系)',
-    `visibility`       VARCHAR(16)           DEFAULT 'public' COMMENT 'public/private',
-    `allow_comment`    TINYINT               DEFAULT 1 COMMENT '0不允许 1允许评论',
-    `timeline_json`    TEXT         NOT NULL COMMENT '时间轴: [{imageObjectKey,startMs,durationMs,focusX,focusY}]',
-    `create_time`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `update_time`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `is_delete`        TINYINT      NOT NULL DEFAULT 0 COMMENT '0正常 1已删除',
-    PRIMARY KEY (`id`),
-    KEY `idx_user_create` (`user_id`, `create_time`),
-    KEY `idx_create_time` (`create_time`)
-) ENGINE=InnoDB COMMENT='图集配乐动态';
+    `id` BIGINT NOT NULL PRIMARY KEY COMMENT '与 content 相同',
+    `media_json` JSON NOT NULL COMMENT '有序图片、画布、转场和可选原始音频快照，无签名URL'
+) ENGINE=InnoDB COMMENT='原生图集媒体';
 
 -- ==================== chat_db: 聊天库 ====================
 CREATE DATABASE IF NOT EXISTS chat_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -337,29 +321,39 @@ USE transcode_db;
 CREATE TABLE IF NOT EXISTS `transcode_task` (
     `id`                BIGINT       NOT NULL COMMENT '雪花ID',
     `task_key`          VARCHAR(64)  NOT NULL COMMENT '请求内容SHA-256, 兼作成片缓存key',
-    `dynamic_id`        BIGINT       NOT NULL COMMENT '来源动态ID',
+    `content_id`        BIGINT       NOT NULL COMMENT '来源内容ID',
     `user_id`           BIGINT       NOT NULL COMMENT '触发下载的用户ID',
-    `status`            VARCHAR(16)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/PROCESSING/DONE/FAILED',
+    `status`            VARCHAR(16)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/PROCESSING/DONE/FAILED/EXPIRED',
     `request_json`      TEXT         NOT NULL COMMENT '转码参数快照(canvas/transition/timeline/audio)',
     `result_object_key` VARCHAR(512)          DEFAULT '' COMMENT '成片objectKey, LRU清理后置空',
     `error_message`     VARCHAR(500)          DEFAULT NULL,
+    `next_dispatch_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `create_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `update_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_key_status` (`task_key`, `status`),
+    KEY `idx_dispatch` (`status`, `next_dispatch_at`, `id`),
     KEY `idx_create_time` (`create_time`)
 ) ENGINE=InnoDB COMMENT='动态成片转码任务';
 
 -- ==================== video_db: 视频上传草稿 ====================
 USE video_db;
 
--- presign 时创建, 事件驱动管线处理完成后置 READY, 发布时转正为 video/content 记录
+-- 视频上传后转码 READY；图集原生素材校验后 READY；提交冻结为 submitted。
 CREATE TABLE IF NOT EXISTS `media_draft` (
     `id`                BIGINT       NOT NULL COMMENT '雪花ID, 与后续video/content共用',
     `user_id`           BIGINT       NOT NULL COMMENT '属主',
-    `object_key`        VARCHAR(512) NOT NULL COMMENT '原始视频对象键',
+    `type`              VARCHAR(16)  NOT NULL COMMENT 'video/dynamic',
+    `title`             VARCHAR(100)          DEFAULT NULL,
+    `description`       VARCHAR(512)          DEFAULT NULL,
+    `visibility`        VARCHAR(16)  NOT NULL DEFAULT 'public' COMMENT 'public/private',
+    `allow_comment`     TINYINT      NOT NULL DEFAULT 1,
+    `cover_object_key` VARCHAR(512),
+    `revision` INT NOT NULL DEFAULT 0,
+    `media_json`        JSON                 DEFAULT NULL COMMENT '原生图集媒体快照，无签名URL',
+    `object_key`        VARCHAR(512)          DEFAULT NULL COMMENT '视频原件；图集为空',
     `original_filename` VARCHAR(256)          DEFAULT NULL,
-    `status`            VARCHAR(16)  NOT NULL DEFAULT 'UPLOADING' COMMENT 'UPLOADING/PROCESSING/READY/FAILED/EXPIRED',
+    `status`            VARCHAR(16)  NOT NULL DEFAULT 'uploading' COMMENT 'uploading/processing/ready/failed/expired/submitted',
     `duration_ms`       BIGINT                DEFAULT NULL COMMENT 'FFprobe 探测时长',
     `error_message`     VARCHAR(500)          DEFAULT NULL,
     `create_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -367,25 +361,115 @@ CREATE TABLE IF NOT EXISTS `media_draft` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_object_key` (`object_key`),
     KEY `idx_user_status` (`user_id`, `status`)
-) ENGINE=InnoDB COMMENT='视频上传草稿';
+) ENGINE=InnoDB COMMENT='内容草稿';
 
 -- ==================== transcode_db: 媒体处理任务(DAG节点) ====================
 USE transcode_db;
 
--- 入口事件拆任务落库, 编排器按 required_for_ready 驱动 DAG/READY/重试
-CREATE TABLE IF NOT EXISTS `media_task` (
-    `id`                 BIGINT       NOT NULL COMMENT '雪花ID',
-    `draft_id`           BIGINT       NOT NULL COMMENT 'media_draft.id',
-    `task_type`          VARCHAR(16)  NOT NULL COMMENT 'TRANSCODE/COVER/TAG/EMBEDDING',
-    `required_for_ready` TINYINT      NOT NULL DEFAULT 0 COMMENT '成功是否为 READY 必要条件(定义源=任务类型注册处)',
-    `status`             VARCHAR(16)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/RUNNING/SUCCESS/FAILED/DEAD',
-    `attempt`            INT          NOT NULL DEFAULT 0 COMMENT '已执行轮次, 完成消息CAS带attempt防僵尸覆盖',
-    `retry_count`        INT          NOT NULL DEFAULT 0,
-    `result_json`        TEXT                  DEFAULT NULL COMMENT '任务结果(元数据/封面key/标签/向量)',
-    `error_message`      VARCHAR(500)          DEFAULT NULL,
-    `create_time`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `update_time`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_draft_type` (`draft_id`, `task_type`),
-    KEY `idx_status` (`status`)
-) ENGINE=InnoDB COMMENT='媒体处理任务';
+CREATE TABLE IF NOT EXISTS media_pipeline (
+    id BIGINT NOT NULL PRIMARY KEY,
+    content_id BIGINT NOT NULL,
+    input_json JSON NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    received TINYINT NOT NULL DEFAULT 0,
+    manifest_json JSON,
+    submitted_at DATETIME NOT NULL,
+    completed_at DATETIME,
+    notify_after DATETIME,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_pipeline_content(content_id),
+    KEY idx_pipeline_delivery(status, received, notify_after, id),
+    KEY idx_pipeline_status(status, id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS media_task (
+    id BIGINT NOT NULL PRIMARY KEY,
+    owner_id BIGINT NOT NULL,
+    pipeline_id BIGINT,
+    phase VARCHAR(16) NOT NULL,
+    task_type VARCHAR(16) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    completion_ack TINYINT NOT NULL DEFAULT 0,
+    attempt INT NOT NULL DEFAULT 0,
+    retry_count INT NOT NULL DEFAULT 0,
+    draft_input_json JSON,
+    dependencies_json JSON NOT NULL,
+    result_json JSON,
+    error_message VARCHAR(500),
+    ready_at DATETIME,
+    started_at DATETIME,
+    next_retry_at DATETIME,
+    dispatch_after DATETIME,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_owner_phase_type(owner_id, phase, task_type),
+    UNIQUE KEY uk_pipeline_phase_type(pipeline_id, phase, task_type),
+    KEY idx_task_dispatch(status, dispatch_after, id),
+    KEY idx_task_retry(status, next_retry_at, id),
+    KEY idx_task_lease(status, update_time, id),
+    KEY idx_task_delivery(phase, completion_ack, status, id)
+) ENGINE=InnoDB;
+
+USE video_db;
+CREATE TABLE IF NOT EXISTS content_understanding (
+    content_id BIGINT NOT NULL PRIMARY KEY,
+    pipeline_id BIGINT NOT NULL,
+    state VARCHAR(32) NOT NULL DEFAULT 'WAITING_PIPELINE',
+    input_json JSON NOT NULL,
+    submission_ack TINYINT NOT NULL DEFAULT 0,
+    received TINYINT NOT NULL DEFAULT 0,
+    retry_requested TINYINT NOT NULL DEFAULT 0,
+    subtitle_key VARCHAR(512),
+    segments_key VARCHAR(512),
+    ocr_key VARCHAR(512),
+    summary_key VARCHAR(512),
+    tag_key VARCHAR(512),
+    summary TEXT,
+    chapters_json JSON,
+    review_attempt INT NOT NULL DEFAULT 0,
+    submitted_at DATETIME NOT NULL,
+    received_at DATETIME,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_understanding_pipeline(pipeline_id),
+    KEY idx_understanding_state(state, content_id),
+    KEY idx_understanding_submission(submission_ack, content_id),
+    KEY idx_understanding_retry(retry_requested, content_id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS content_review_record (
+    id BIGINT NOT NULL PRIMARY KEY,
+    content_id BIGINT NOT NULL,
+    pipeline_id BIGINT,
+    attempt INT NOT NULL,
+    source VARCHAR(16) NOT NULL,
+    decision VARCHAR(16) NOT NULL,
+    risk_score DOUBLE DEFAULT NULL,
+    confidence DOUBLE DEFAULT NULL,
+    reason TEXT NOT NULL,
+    evidence_json JSON,
+    model VARCHAR(128),
+    rules_version VARCHAR(64),
+    actor_id BIGINT DEFAULT NULL,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_review_content (content_id, create_time),
+    UNIQUE KEY uk_review_attempt(pipeline_id, attempt, source, decision)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS content_publication_event (
+    id BIGINT NOT NULL PRIMARY KEY,
+    content_id BIGINT NOT NULL,
+    author_id BIGINT NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    delta INT NOT NULL,
+    reason TEXT,
+    user_count_done TINYINT NOT NULL DEFAULT 0,
+    search_done TINYINT NOT NULL DEFAULT 0,
+    notice_done TINYINT NOT NULL DEFAULT 0,
+    completed TINYINT NOT NULL DEFAULT 0,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_publication_pending (completed, id),
+    KEY idx_author_count(author_id, user_count_done, id)
+) ENGINE=InnoDB;
+USE user_db;
+CREATE TABLE IF NOT EXISTS user_counter_event (
+    event_id VARCHAR(80) NOT NULL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;

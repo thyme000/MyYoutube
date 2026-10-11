@@ -16,40 +16,15 @@ import java.util.List;
         url = "${my-youtube.search-service.url:}")
 public interface ContentDocPort {
 
+    @PostMapping("/rebuild")
+    void rebuildContent(@RequestParam("contentId") Long contentId);
+
     @PostMapping("/delete")
     void deleteDoc(@RequestParam("contentId") Long contentId);
-
-    /**
-     * 同步内容可见性到 ES 文档
-     *
-     * @param rebuildSuggest public 且为 true 时按 title/description/tags 重建搜索补全词
-     */
-    @PostMapping("/visibility")
-    void syncVisibility(@RequestParam("contentId") Long contentId,
-                        @RequestBody VisibilitySync sync);
-
-    /** 播放量增量同步(定时任务用) */
-    @PostMapping("/play-count/adjust")
-    void adjustPlayCount(@RequestParam("contentId") Long contentId, @RequestParam("delta") Long delta);
-
-    /** MySQL 为准同步播放量/点赞量(定时任务用) */
-    @PostMapping("/play-like/sync")
-    void syncPlayLike(@RequestParam("contentId") Long contentId,
-                      @RequestParam("playCount") Long playCount,
-                      @RequestParam("likeCount") Long likeCount);
 
     /** MySQL 为准批量同步播放量/点赞量(定时任务用), 一次请求整页 */
     @PostMapping("/play-like/sync-batch")
     void syncPlayLikeBatch(@RequestBody List<CountSync> counts);
-
-    /** 审核状态同步(pass 重建补全词, ban 清空) */
-    @PostMapping("/status")
-    void syncStatus(@RequestParam("contentId") Long contentId,
-                    @RequestBody StatusSync sync);
-
-    public static record StatusSync(String statusCode, String title, String description, String tags,
-                                    boolean rebuildSuggest) {
-    }
 
     public static record CountSync(Long contentId, Long playCount, Long likeCount) {
     }

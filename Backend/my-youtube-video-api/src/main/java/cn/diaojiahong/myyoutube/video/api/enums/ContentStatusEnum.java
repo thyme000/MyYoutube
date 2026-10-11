@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.annotation.EnumValue;
  * 视频状态枚举
  * 对应数据库 status 字段：review(待审核)/published(已发布)/banned(已封禁)
  */
-public enum VideoStatusEnum {
+public enum ContentStatusEnum {
 
     /**
      * 待审核
@@ -34,7 +34,7 @@ public enum VideoStatusEnum {
      */
     private final String desc;
 
-    VideoStatusEnum(String code, String desc) {
+    ContentStatusEnum(String code, String desc) {
         this.code = code;
         this.desc = desc;
     }
@@ -50,8 +50,8 @@ public enum VideoStatusEnum {
     /**
      * 根据 code 获取对应的枚举（用于后端参数转换/校验）
      */
-    public static VideoStatusEnum fromCode(String code) {
-        for (VideoStatusEnum status : values()) {
+    public static ContentStatusEnum fromCode(String code) {
+        for (ContentStatusEnum status : values()) {
             if (status.getCode().equals(code)) {
                 return status;
             }

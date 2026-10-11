@@ -20,6 +20,9 @@ import java.util.List;
 @FeignClient(name = "my-youtube-user-service", contextId = "userPort", path = "/internal/user",
         url = "${my-youtube.user-service.url:}")
 public interface UserPort {
+    @org.springframework.web.bind.annotation.PostMapping("/counters/content-event")
+    void applyContentCountEvent(@org.springframework.web.bind.annotation.RequestBody cn.diaojiahong.myyoutube.user.api.dto.ContentCountEvent event);
+
 
     @GetMapping("/{id}")
     UserSummary getUser(@PathVariable("id") Long id);
@@ -27,7 +30,7 @@ public interface UserPort {
     @PostMapping("/list-by-ids")
     List<UserSummary> listByIds(@RequestBody Collection<Long> ids);
 
-    /** 计数增减(fans/attentionCount/likeCount/videoCount), 减到 0 为止 */
+    /** 关注计数增减(fans/attentionCount) */
     @PostMapping("/counters/adjust")
     void adjustCounters(@RequestBody List<CounterAdjust> adjustments);
 }

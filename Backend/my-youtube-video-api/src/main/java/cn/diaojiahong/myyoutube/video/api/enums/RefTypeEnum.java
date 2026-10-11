@@ -9,15 +9,7 @@ import lombok.Getter;
 @Getter
 public enum RefTypeEnum {
 
-    /**
-     * 视频
-     */
-    VIDEO("VIDEO", "视频"),
-
-    /**
-     * 动态
-     */
-    DYNAMIC("DYNAMIC", "动态"),
+    CONTENT("CONTENT", "内容"),
 
     /**
      * 评论

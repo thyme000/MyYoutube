@@ -10,12 +10,7 @@ import lombok.Getter;
 public enum ContentTypeEnum {
 
     VIDEO("video"),
-    DYNAMIC("dynamic"),
-
-    /**
-     * 笔记(图文帖), 内容生产/展示链路待接入, 推荐侧已按类型参数化
-     */
-    NOTE("note");
+    DYNAMIC("dynamic");
 
     @EnumValue
     private final String code;

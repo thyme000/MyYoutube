@@ -295,6 +295,21 @@ public class S3StorageUtil {
         }
     }
 
+    public boolean objectExists(String objectKey) {
+        try {
+            return s3Client.headObject(software.amazon.awssdk.services.s3.model.HeadObjectRequest.builder()
+                    .bucket(properties.getBucketName()).key(normalizeToObjectKey(objectKey)).build()).contentLength() > 0;
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) return false;
+            throw e;
+        }
+    }
+
+    public byte[] readObject(String objectKey) {
+        return s3Client.getObjectAsBytes(GetObjectRequest.builder()
+                .bucket(properties.getBucketName()).key(normalizeToObjectKey(objectKey)).build()).asByteArray();
+    }
+
     private void putObject(byte[] bytes, String objectKey) {
         try {
             s3Client.putObject(

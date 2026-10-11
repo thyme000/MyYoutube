@@ -3,8 +3,13 @@
 spring:
   cloud:
     nacos:
+      username: ${NACOS_USERNAME:}
+      password: ${NACOS_PASSWORD:}
       discovery:
         server-addr: ${NACOS_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:DEFAULT_GROUP}
+        cluster-name: ${NACOS_CLUSTER:DEFAULT}
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver

@@ -75,6 +75,8 @@ public interface LlmPort {
     @AllArgsConstructor
     class ChatResponse {
         private String content;
+        private String model;
+        public ChatResponse(String content) { this(content, null); }
     }
 
     @Data

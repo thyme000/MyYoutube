@@ -18,5 +18,8 @@ public interface ContentSummaryPort {
 
     /** 按 id 批量取统一内容摘要, 返回顺序与入参一致, 不存在的 id 被剔除; 入参必须是 List, Set 过 Feign 反序列化会丢序 */
     @PostMapping("/list-ordered")
-    List<ContentSummary> listByIdsOrdered(@RequestBody List<String> ids);
+    List<ContentSummary> listByIdsOrdered(@RequestBody SummaryQuery query);
+
+    /** viewerId 为空时只返回公开内容；身份由调用服务从登录上下文取得。 */
+    record SummaryQuery(List<String> ids, Long viewerId) {}
 }

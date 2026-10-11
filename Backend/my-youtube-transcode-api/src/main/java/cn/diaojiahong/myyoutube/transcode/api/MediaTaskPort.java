@@ -1,30 +1,26 @@
 package cn.diaojiahong.myyoutube.transcode.api;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import org.springframework.cloud.openfeign.FeignClient;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-
+import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
-/**
- * transcode 服务对外契约: 草稿媒体任务结果查询, 供 video 服务发布时读取
- */
 @FeignClient(name = "my-youtube-transcode-service", contextId = "mediaTaskPort",
         path = "/internal/media", url = "${my-youtube.transcode-service.url:}")
 public interface MediaTaskPort {
-
-    @GetMapping("/tasks/{draftId}")
-    List<TaskResult> getTaskResults(@PathVariable("draftId") Long draftId);
-
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    class TaskResult {
-        private String taskType;
-        private String status;
-        private String resultJson;
-    }
+    @GetMapping("/tasks/{ownerId}")
+    List<TaskResult> getTaskResults(@PathVariable("ownerId") Long ownerId);
+    @GetMapping("/pipelines/{pipelineId}")
+    PipelineView pipeline(@PathVariable("pipelineId") Long pipelineId);
+    @GetMapping("/pipelines/waiting")
+    List<PipelineView> waiting(@RequestParam("page") int page, @RequestParam("size") int size);
+    @PostMapping("/pipelines/{pipelineId}/retry")
+    boolean retry(@PathVariable("pipelineId") Long pipelineId);
+    @PostMapping("/pipelines/{pipelineId}/received")
+    void received(@PathVariable("pipelineId") Long pipelineId);
+    @PostMapping("/tasks/{taskId}/received/{attempt}")
+    void resultReceived(@PathVariable("taskId") Long taskId, @PathVariable("attempt") int attempt);
+    record TaskResult(String taskType, String status, String resultJson) {}
+    record Node(Long taskId, String taskType, String phase, String status, int attempt, int retryCount,
+                String resultJson, String errorMessage) {}
+    record PipelineView(Long pipelineId, Long contentId, String status, List<Node> tasks) {}
 }

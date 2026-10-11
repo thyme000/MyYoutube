@@ -19,14 +19,14 @@ public enum NotificationTypeEnum {
     COMMENT_REPLY("COMMENT_REPLY", "评论回复"),
 
     /**
-     * 视频评论
+     * 内容评论
      */
-    VIDEO_COMMENT("VIDEO_COMMENT", "视频评论"),
+    CONTENT_COMMENT("CONTENT_COMMENT", "内容评论"),
 
     /**
-     * 视频点赞
+     * 内容点赞
      */
-    VIDEO_LIKE("VIDEO_LIKE", "视频点赞"),
+    CONTENT_LIKE("CONTENT_LIKE", "内容点赞"),
 
     /**
      * 内容收藏(视频/动态同池)

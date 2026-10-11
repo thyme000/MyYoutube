@@ -13,7 +13,7 @@ public class TranscodeSubmitDTO implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private Long userId;
-    private Long dynamicId;
+    private Long contentId;
     private Integer canvasW;
     private Integer canvasH;
     /** cut / fade */
