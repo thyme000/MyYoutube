@@ -37,7 +37,7 @@ public class TranscodeTaskExecutor implements MediaTaskExecutor {
 
     @Override
     public String execute(MediaTaskMessage msg) throws Exception {
-        // 先验真身再下全量: Magic Number 不符直接判废
+        // 先校验文件签名再交给 FFmpeg 直读 URL
         byte[] head = storageUtil.readHeadBytes(msg.getObjectKey(), 64);
         String mime = new Tika().detect(head, msg.getObjectKey());
         if (!mime.startsWith("video/")) {
@@ -53,10 +53,10 @@ public class TranscodeTaskExecutor implements MediaTaskExecutor {
         Path work = WORK_DIR.resolve(LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)).resolve(taskId);
         Files.createDirectories(work);
         try {
-            Path out = work.resolve("processed-" + msg.getDraftId() + ".mp4");
-            // 单任务耗时与视频时长/机器相关, 控制在 MQ 消费超时(15min)内; 超长视频一期不支持
+            Path out = work.resolve("processed-" + msg.getOwnerId() + ".mp4");
+            // 外部进程限制 14 分钟，任务租约由 worker 独立续期
             FFmpegUtil.transcodeStandard(source, out, TARGET_LONG_EDGE, opt, Duration.ofMinutes(14));
-            String processedKey = "video-processed/" + msg.getUserId() + "/" + msg.getDraftId() + "/"
+            String processedKey = "video-processed/" + msg.getUserId() + "/" + msg.getOwnerId() + "/"
                     + taskId + ".mp4";
             storageUtil.uploadWithKey(Files.readAllBytes(out), processedKey);
             return JsonUtil.toJson(Map.of(

@@ -11,8 +11,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import org.redisson.api.RedissonClient;
+import org.redisson.api.RLock;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,6 +27,12 @@ public class TranscodeTaskService {
 
     private final TranscodeTaskMapper taskMapper;
     private final ObjectMapper objectMapper;
+    private final RedissonClient redisson;
+    private final S3StorageUtil storage;
+
+    public RLock artifactLock(String taskKey) {
+        return redisson.getLock("content:export:" + taskKey);
+    }
 
     /**
      * 内容哈希做 task_key: 只取影响成片内容的字段, 不含请求者与动态 id, 不同用户下载同一份内容共享缓存。
@@ -32,6 +40,7 @@ public class TranscodeTaskService {
     public String taskKeyOf(TranscodeSubmitDTO dto) {
         try {
             Map<String, Object> content = new LinkedHashMap<>();
+            content.put("composition", "image-loop-audio-v1");
             content.put("canvasW", dto.getCanvasW());
             content.put("canvasH", dto.getCanvasH());
             content.put("transition", dto.getTransition());
@@ -63,14 +72,23 @@ public class TranscodeTaskService {
         String taskKey = taskKeyOf(dto);
         String requestJson = objectMapper.writeValueAsString(dto);
 
-        TranscodeTask done = taskMapper.selectOne(new LambdaQueryWrapper<TranscodeTask>()
-                .eq(TranscodeTask::getTaskKey, taskKey)
-                .eq(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_DONE)
-                .last("limit 1"));
-        if (done != null && done.getResultObjectKey() != null && !done.getResultObjectKey().isEmpty()) {
-            return insert(dto, taskKey, requestJson, TranscodeTaskVO.STATUS_DONE, done.getResultObjectKey());
-        }
-        return insert(dto, taskKey, requestJson, TranscodeTaskVO.STATUS_PENDING, null);
+        var lock = artifactLock(taskKey);
+        if (!lock.tryLock()) return insert(dto, taskKey, requestJson, TranscodeTaskVO.STATUS_PENDING, null);
+        try {
+            var done = validCompleted(taskKey);
+            return insert(dto, taskKey, requestJson, done == null ? TranscodeTaskVO.STATUS_PENDING : TranscodeTaskVO.STATUS_DONE,
+                    done == null ? null : done.getResultObjectKey());
+        } finally { lock.unlock(); }
+    }
+
+    public TranscodeTask validCompleted(String taskKey) {
+        var done = taskMapper.selectOne(new LambdaQueryWrapper<TranscodeTask>()
+                .eq(TranscodeTask::getTaskKey, taskKey).eq(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_DONE).last("limit 1"));
+        if (done == null || done.getResultObjectKey() == null || done.getResultObjectKey().isBlank()) return null;
+        if (storage.objectExists(done.getResultObjectKey())) return done;
+        taskMapper.update(null, new LambdaUpdateWrapper<TranscodeTask>().eq(TranscodeTask::getTaskKey, taskKey)
+                .eq(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_DONE).set(TranscodeTask::getStatus, "EXPIRED"));
+        return null;
     }
 
     public TranscodeTask getById(Long taskId) {
@@ -113,7 +131,7 @@ public class TranscodeTaskService {
                                  String status, String resultObjectKey) {
         TranscodeTask task = new TranscodeTask();
         task.setTaskKey(taskKey);
-        task.setDynamicId(dto.getDynamicId());
+        task.setContentId(dto.getContentId());
         task.setUserId(dto.getUserId());
         task.setStatus(status);
         task.setRequestJson(requestJson);

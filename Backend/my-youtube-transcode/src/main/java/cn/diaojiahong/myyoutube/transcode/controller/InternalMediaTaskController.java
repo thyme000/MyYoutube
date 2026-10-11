@@ -1,29 +1,18 @@
 package cn.diaojiahong.myyoutube.transcode.controller;
-
 import cn.diaojiahong.myyoutube.transcode.api.MediaTaskPort;
 import cn.diaojiahong.myyoutube.transcode.service.MediaTaskService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
+import org.springframework.web.bind.annotation.*;
 import java.util.List;
-
-/**
- * transcode 服务内部接口: 草稿任务结果, 供 video 服务发布链路读取
- */
 @RestController
 @RequestMapping("/internal/media")
 @RequiredArgsConstructor
-public class InternalMediaTaskController {
-
-    private final MediaTaskService mediaTaskService;
-
-    @GetMapping("/tasks/{draftId}")
-    public List<MediaTaskPort.TaskResult> getTaskResults(@PathVariable Long draftId) {
-        return mediaTaskService.listByDraft(draftId).stream()
-                .map(t -> new MediaTaskPort.TaskResult(t.getTaskType(), t.getStatus(), t.getResultJson()))
-                .toList();
-    }
+public class InternalMediaTaskController implements MediaTaskPort {
+    private final MediaTaskService tasks;
+    @Override public List<TaskResult> getTaskResults(Long ownerId) { return tasks.listByDraft(ownerId).stream().map(t -> new TaskResult(t.getTaskType(), t.getStatus(), t.getResultJson())).toList(); }
+    @Override public PipelineView pipeline(Long pipelineId) { return tasks.view(pipelineId); }
+    @Override public List<PipelineView> waiting(int page, int size) { return tasks.waiting(page, size); }
+    @Override public boolean retry(Long pipelineId) { return tasks.retry(pipelineId); }
+    @Override public void received(Long pipelineId) { tasks.received(pipelineId); }
+    @Override public void resultReceived(Long taskId, int attempt) { tasks.resultReceived(taskId, attempt); }
 }

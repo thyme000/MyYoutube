@@ -17,7 +17,6 @@ import java.util.UUID;
 
 /**
  * 视频封面生成: ffmpeg 直读 S3 URL 抽帧评分 -> LLM 选帧 -> 高清重抽 -> 上传
- * 旧发布链路(VideoCoverListener)与新草稿管线(COVER 任务)共用
  */
 @Slf4j
 @Service
@@ -26,21 +25,15 @@ public class VideoCoverGenerator {
 
     private static final Path OUTPUT_DIR = Path.of(System.getProperty("java.io.tmpdir"), "my-youtube", "video-cover");
     private static final String PREFIX_STORAGE = "video-cover";
-    private static final String DEFAULT_COVER_RESOURCE = "cover/default-video.png";
-    private static final String DEFAULT_COVER_OBJECT_KEY = "video-cover/default-video.png";
-
-    /** 默认图上传成功后缓存 objectKey, 避免重复上传 */
-    private volatile String defaultCoverKey;
-
     private final S3StorageUtil storageUtil;
     private final CoverVisionSelector coverVisionSelector;
 
     /**
-     * 生成封面并上传, 返回成品 objectKey; 无帧/异常回落默认封面
+     * 生成真实封面并上传；技术失败交给任务调度器重试
      */
     public String generate(Long refId, Long userId, String videoObjectKey) {
         if (videoObjectKey == null || videoObjectKey.isBlank()) {
-            return defaultCoverObjectKey();
+            throw new IllegalStateException("封面输入或抽帧失败");
         }
         Path taskDir = null;
         try {
@@ -58,7 +51,7 @@ public class VideoCoverGenerator {
 
             List<FFmpegUtil.FrameScore> candidates = FFmpegUtil.extractAndScoreCandidates(source, taskDir, opt);
             if (candidates.isEmpty()) {
-                return defaultCoverObjectKey();
+                throw new IllegalStateException("封面输入或抽帧失败");
             }
             FFmpegUtil.FrameScore best = selectBest(candidates, opt);
 
@@ -70,8 +63,7 @@ public class VideoCoverGenerator {
             return storageUtil.uploadForObjectKey(Files.readAllBytes(finalCover),
                     finalCover.getFileName().toString(), userId, PREFIX_STORAGE);
         } catch (Exception e) {
-            log.error("生成视频封面失败, 视频id={}", refId, e);
-            return defaultCoverObjectKey();
+            throw new IllegalStateException("生成封面失败 videoId=" + refId, e);
         } finally {
             if (taskDir != null) {
                 try (java.util.stream.Stream<Path> s = Files.walk(taskDir)) {
@@ -87,7 +79,7 @@ public class VideoCoverGenerator {
         }
     }
 
-    /** LLM 决胜, 失败/不可用回落启发式最高分; 预筛通过者为零时全员参与 */
+    /** 关闭视觉模型时取质量最高分；开启后的调用失败交由任务重试 */
     private FFmpegUtil.FrameScore selectBest(List<FFmpegUtil.FrameScore> candidates, FFmpegUtil.Options opt) {
         List<FFmpegUtil.FrameScore> survivors = candidates.stream()
                 .filter(c -> FFmpegUtil.passesPrefilter(c, opt))
@@ -101,24 +93,6 @@ public class VideoCoverGenerator {
         return pool.stream()
                 .max(Comparator.comparingDouble(FFmpegUtil.FrameScore::totalScore))
                 .orElseThrow();
-    }
-
-    /** 抽帧失败时的兜底: 上传内置默认封面到固定 objectKey, 失败抛异常交给 MQ 重试 */
-    private String defaultCoverObjectKey() {
-        String cached = defaultCoverKey;
-        if (cached != null) {
-            return cached;
-        }
-        try (java.io.InputStream in = getClass().getClassLoader().getResourceAsStream(DEFAULT_COVER_RESOURCE)) {
-            if (in == null) {
-                throw new IllegalStateException("缺少默认封面资源: " + DEFAULT_COVER_RESOURCE);
-            }
-            storageUtil.uploadWithKey(in.readAllBytes(), DEFAULT_COVER_OBJECT_KEY);
-            defaultCoverKey = DEFAULT_COVER_OBJECT_KEY;
-            return DEFAULT_COVER_OBJECT_KEY;
-        } catch (IOException e) {
-            throw new IllegalStateException("读取默认封面资源失败: " + DEFAULT_COVER_RESOURCE, e);
-        }
     }
 
     private static void deleteIfEmpty(Path dir) throws IOException {

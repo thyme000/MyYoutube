@@ -28,6 +28,7 @@ public class TranscodeLruCleaner {
     private final StringRedisTemplate redisTemplate;
     private final TranscodeTaskMapper taskMapper;
     private final S3StorageUtil storageUtil;
+    private final cn.diaojiahong.myyoutube.transcode.service.TranscodeTaskService tasks;
 
     @Scheduled(fixedDelay = 3600_000, initialDelay = 120_000)
     public void clean() {
@@ -42,16 +43,20 @@ public class TranscodeLruCleaner {
                 return;
             }
             for (String taskKey : oldest) {
-                redisTemplate.opsForZSet().remove(RedisConstants.TRANSCODE_LRU, taskKey);
-                for (TranscodeTask task : taskMapper.selectList(new LambdaQueryWrapper<TranscodeTask>()
-                        .eq(TranscodeTask::getTaskKey, taskKey)
-                        .eq(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_DONE))) {
-                    if (task.getResultObjectKey() != null && !task.getResultObjectKey().isEmpty()) {
-                        storageUtil.deleteObjectQuietly(task.getResultObjectKey());
+                var lock = tasks.artifactLock(taskKey);
+                if (!lock.tryLock()) continue;
+                try {
+                    redisTemplate.opsForZSet().remove(RedisConstants.TRANSCODE_LRU, taskKey);
+                    for (TranscodeTask task : taskMapper.selectList(new LambdaQueryWrapper<TranscodeTask>()
+                            .eq(TranscodeTask::getTaskKey, taskKey)
+                            .eq(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_DONE))) {
+                        if (task.getResultObjectKey() != null && !task.getResultObjectKey().isEmpty()) {
+                            storageUtil.deleteObjectQuietly(task.getResultObjectKey());
+                        }
+                        // 直接删行最干净: 下次提交查不到 DONE, 会重新转码
+                        taskMapper.deleteById(task.getId());
                     }
-                    // 直接删行最干净: 下次提交查不到 DONE, 会重新转码
-                    taskMapper.deleteById(task.getId());
-                }
+                } finally { lock.unlock(); }
             }
             log.info("成片缓存 LRU 清理完成, 本轮淘汰 {} 个 taskKey", oldest.size());
         } catch (Exception e) {

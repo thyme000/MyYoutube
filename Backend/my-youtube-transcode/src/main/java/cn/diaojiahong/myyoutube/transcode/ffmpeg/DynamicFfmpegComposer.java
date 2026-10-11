@@ -2,12 +2,10 @@ package cn.diaojiahong.myyoutube.transcode.ffmpeg;
 
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeItemDTO;
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeSubmitDTO;
+import cn.diaojiahong.myyoutube.common.media.DynamicTimeline;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -15,10 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * 动态成片合成器: 单张图逐段缩放裁剪(focus 焦点对齐)后, 按 cut/fade 拼接并铺音频。
- * 切换点公式与预览端一致: 第 k 次切换发生在 item[k].startMs(= sum(d_0..d_{k-1}) - k*fade)。
- */
+/** 按冻结时间轴导出一轮；只在相邻图片间计算转场重叠。 */
 @Slf4j
 public final class DynamicFfmpegComposer {
 
@@ -36,11 +31,12 @@ public final class DynamicFfmpegComposer {
         int w = params.getCanvasW();
         int h = params.getCanvasH();
         boolean isFade = "fade".equals(params.getTransition());
-        double fadeSec = isFade ? Math.max(1, params.getFadeMs() == null ? 800 : params.getFadeMs()) / 1000.0 : 0.0;
-        double totalSec = (params.getTotalDurationMs() == null ? 0 : params.getTotalDurationMs()) / 1000.0;
-        if (totalSec <= 0) {
-            throw new IllegalArgumentException("成片总时长无效");
-        }
+        long fadeMs = isFade ? params.getFadeMs() == null ? 800 : params.getFadeMs() : 0;
+        var timing = DynamicTimeline.schedule(params.getItems().stream().map(TranscodeItemDTO::getDurationMs).toList(), fadeMs);
+        if (params.getTotalDurationMs() == null || params.getTotalDurationMs() != timing.exportDurationMs())
+            throw new IllegalArgumentException("成片总时长与图片时间轴不一致");
+        double fadeSec = fadeMs / 1000.0;
+        double totalSec = timing.exportDurationMs() / 1000.0;
 
         List<String> cmd = new ArrayList<>();
         cmd.add(ff);
@@ -53,9 +49,14 @@ public final class DynamicFfmpegComposer {
             cmd.add("-i");
             cmd.add(imagePaths.get(i).toAbsolutePath().toString());
         }
-        boolean hasAudio = audioPath != null && Files.exists(audioPath);
+        if (audioPath != null && !Files.isRegularFile(audioPath)) {
+            throw new IOException("配乐文件不存在: " + audioPath);
+        }
+        boolean hasAudio = audioPath != null;
         int audioIndex = n;
         if (hasAudio) {
+            cmd.add("-stream_loop");
+            cmd.add("-1");
             cmd.add("-i");
             cmd.add(audioPath.toAbsolutePath().toString());
         } else {
@@ -87,7 +88,7 @@ public final class DynamicFfmpegComposer {
             String prev = "v0";
             for (int k = 1; k < n; k++) {
                 // offset = 本次切换点(秒), 即第 k 项的 startMs
-                double offset = (params.getItems().get(k).getStartMs() == null ? 0 : params.getItems().get(k).getStartMs()) / 1000.0;
+                double offset = timing.startsMs().get(k) / 1000.0;
                 String out = "x" + k;
                 if (k > 1) {
                     sb.append(';');
@@ -110,12 +111,9 @@ public final class DynamicFfmpegComposer {
             finalLabel = "xcat";
         }
 
-        // 音频: 不足补静音, 超长在结尾 2s 淡出后截断
-        String st = String.format(Locale.US, "%.3f", Math.max(0, totalSec - 2));
-        String d = String.format(Locale.US, "%.3f", Math.min(2, totalSec / 2));
         chains.add("[" + audioIndex + ":a]"
-                + "aresample=48000,apad,afade=t=out:st=" + st + ":d=" + d
-                + ",atrim=0:" + String.format(Locale.US, "%.3f", totalSec) + "[aud]");
+                + "aresample=48000,atrim=duration=" + String.format(Locale.US, "%.3f", totalSec)
+                + ",asetpts=PTS-STARTPTS[aud]");
 
         String fc = String.join(";", chains);
         cmd.add("-filter_complex");
@@ -162,22 +160,16 @@ public final class DynamicFfmpegComposer {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(workDir.toFile());
         pb.redirectErrorStream(true);
-        StringBuilder out = new StringBuilder();
+        Path log = Files.createTempFile(workDir, "ffmpeg-", ".log");
+        pb.redirectOutput(log.toFile());
         Process p = pb.start();
-        try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = r.readLine()) != null) {
-                out.append(line).append('\n');
-            }
-        }
-        boolean ok = p.waitFor(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-        if (!ok) {
-            p.destroyForcibly();
-            throw new IOException("ffmpeg 超时");
-        }
-        if (p.exitValue() != 0) {
-            log.warn("ffmpeg 非零退出: code={} out={}", p.exitValue(), out);
-            throw new IOException("ffmpeg 失败 exit=" + p.exitValue() + ": " + out);
+        try {
+            if (!p.waitFor(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS))
+                throw new IOException("ffmpeg 超时");
+            if (p.exitValue() != 0) throw new IOException("ffmpeg 失败 exit=" + p.exitValue() + ": " + Files.readString(log));
+        } finally {
+            if (p.isAlive()) p.destroyForcibly();
+            Files.deleteIfExists(log);
         }
     }
 }

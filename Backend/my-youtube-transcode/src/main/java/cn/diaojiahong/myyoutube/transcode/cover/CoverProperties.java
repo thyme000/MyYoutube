@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "my-youtube.cover")
 public class CoverProperties {
 
+    private boolean visionEnabled;
+
     /** 封面选帧视觉模型; 留空回落 llm-svc 默认模型 */
     private String visionModel;
 

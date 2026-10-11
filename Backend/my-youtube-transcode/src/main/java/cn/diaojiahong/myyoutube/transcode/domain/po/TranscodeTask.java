@@ -25,7 +25,7 @@ public class TranscodeTask implements Serializable {
 
     private String taskKey;
 
-    private Long dynamicId;
+    private Long contentId;
 
     private Long userId;
 
@@ -40,4 +40,6 @@ public class TranscodeTask implements Serializable {
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;
+
+    private LocalDateTime nextDispatchAt;
 }

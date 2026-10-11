@@ -3,6 +3,9 @@ spring:
     import:
       - classpath:application-common.yml
       - optional:classpath:application-local.yml
+  task.scheduling:
+    pool.size: 4
+    thread-name-prefix: media-schedule-
   application:
     name: my-youtube-transcode-service
   datasource:
@@ -21,5 +24,44 @@ my-youtube:
   llm-service:
     url: ${LLM_SERVICE_URL:}
   cover:
+    # 默认使用图像质量评分选帧，显式开启后才调用视觉大模型
+    vision-enabled: ${COVER_VISION_ENABLED:false}
     # 封面选帧视觉模型; 留空回落 llm-svc 默认模型, 真实值填 application-local.yml
     vision-model: ${LLM_VISION_MODEL:}
+
+spring.cloud.openfeign.client.config:
+  default:
+    connectTimeout: 5000
+    readTimeout: 130000
+  asrPort:
+    readTimeout: 1350000
+  ocrPort:
+    readTimeout: 180000
+my-youtube.media-pipeline:
+  chunk-characters: ${CONTENT_CHUNK_CHARACTERS:12000}
+  lease-seconds: ${MEDIA_LEASE_SECONDS:150}
+  draft-concurrency: ${DRAFT_WORKER_CONCURRENCY:2}
+  content-concurrency: ${CONTENT_WORKER_CONCURRENCY:4}
+  review-concurrency: ${REVIEW_WORKER_CONCURRENCY:2}
+my-youtube.asr.url: ${ASR_SERVICE_URL:}
+my-youtube.ocr.url: ${OCR_SERVICE_URL:}
+
+management:
+  endpoints.web.exposure.include: health,prometheus
+  metrics.distribution.percentiles-histogram:
+    "[media.pipeline.duration]": true
+    "[media.pipeline.ready.duration]": true
+    "[media.node.wait]": true
+    "[media.node.retry.wait]": true
+    "[model.calls.duration]": true
+sentinel:
+  nacos:
+    enabled: ${SENTINEL_NACOS_ENABLED:false}
+    server-addr: ${NACOS_ADDR:localhost:8848}
+    namespace: ${NACOS_NAMESPACE:}
+    username: ${NACOS_USERNAME:}
+    password: ${NACOS_PASSWORD:}
+    data-id: ${spring.application.name}-model-degrade.json
+    group: SENTINEL_GROUP
+
+media.monitor.dlq-groups: transcode_draft_worker,transcode_content_worker,transcode_review_worker,transcode_content_submitted,transcode_review_requested,transcode_media_upload_event_group

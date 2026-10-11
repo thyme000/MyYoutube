@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.cover;
 
+import cn.diaojiahong.myyoutube.common.resilience.ModelCallGuard;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.transcode.ffmpeg.FFmpegUtil;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
@@ -17,7 +18,7 @@ import java.util.List;
 /**
  * LLM 封面选帧: 候选帧按顺序内嵌 base64 送视觉模型, 返回入选帧下标。
  * 输出契约是序列号而非时间戳, 时间戳由调用方按下标反查, 避免模型幻觉时间点。
- * 任何失败(未配模型/调用异常/输出不合法)返回 null, 交给启发式兜底。
+ * 失败交给任务调度器统一重试。
  */
 @Slf4j
 @Component
@@ -30,9 +31,11 @@ public class CoverVisionSelector {
             只输出 JSON: {"index": 编号}, 不要输出任何其他文字。""";
 
     private final LlmPort llmPort;
+    private final ModelCallGuard guard;
     private final CoverProperties properties;
 
     public Integer pickBest(List<FFmpegUtil.FrameScore> candidates) {
+        if (!properties.isVisionEnabled()) return null;
         try {
             List<LlmPort.ContentPart> parts = new ArrayList<>();
             parts.add(new LlmPort.ContentPart("text",
@@ -44,15 +47,14 @@ public class CoverVisionSelector {
             LlmPort.ChatRequest request = new LlmPort.ChatRequest(
                     List.of(new LlmPort.Message("user", null, parts)),
                     properties.effectiveVisionModel(), 0.2, 512);
-            String content = llmPort.chat(request).getContent();
+            String content = guard.call("LLM", () -> llmPort.chat(request)).getContent();
             return parseIndex(content, candidates.size());
         } catch (Exception e) {
-            log.warn("LLM 封面选帧失败, 回落启发式: {}", e.getMessage());
-            return null;
+            throw new IllegalStateException("封面模型选帧失败", e);
         }
     }
 
-    /** @return 0-based 下标; 越界/解析失败返回 null */
+    /** @return 0-based 下标; 越界/解析失败抛异常 */
     private Integer parseIndex(String content, int candidateCount) {
         try {
             String json = extractJson(content);
@@ -60,12 +62,11 @@ public class CoverVisionSelector {
             int index = obj.get("index").getAsInt();
             if (index < 1 || index > candidateCount) {
                 log.warn("LLM 选帧下标越界: index={}, 候选数={}", index, candidateCount);
-                return null;
+                throw new IllegalArgumentException("封面选帧下标越界");
             }
             return index - 1;
         } catch (Exception e) {
-            log.warn("LLM 选帧输出不可解析: {}", content);
-            return null;
+            throw new IllegalArgumentException("封面选帧输出不可解析", e);
         }
     }
 

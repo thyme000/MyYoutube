@@ -47,11 +47,32 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
                     msg.getTaskId(), task == null ? "null" : task.getStatus());
             return;
         }
+        var lock = taskService.artifactLock(task.getTaskKey());
+        try {
+            lock.lockInterruptibly();
+            try { process(taskService.getById(task.getId())); }
+            finally { lock.unlock(); }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("等待成片任务锁被中断", e);
+        }
+    }
+
+    private void process(TranscodeTask task) {
+        if (task == null || TranscodeTaskVO.STATUS_DONE.equals(task.getStatus())
+                || TranscodeTaskVO.STATUS_FAILED.equals(task.getStatus())) return;
+        var cached = taskService.validCompleted(task.getTaskKey());
+        if (cached != null) {
+            var affected = taskService.listInflightByKey(task.getTaskKey());
+            taskService.completeByKey(task.getTaskKey(), cached.getResultObjectKey());
+            notifier.notifyAffected(affected, "TRANSCODE_DONE");
+            return;
+        }
         // 认领: PENDING -> PROCESSING, 抢不到说明同任务正被处理
         TranscodeTask claim = new TranscodeTask();
         claim.setStatus(TranscodeTaskVO.STATUS_PROCESSING);
         boolean claimed = taskService.updateByIdWithStatus(task.getId(), claim, TranscodeTaskVO.STATUS_PENDING);
-        if (!claimed) {
+        if (!claimed && !TranscodeTaskVO.STATUS_PROCESSING.equals(task.getStatus())) {
             return;
         }
 

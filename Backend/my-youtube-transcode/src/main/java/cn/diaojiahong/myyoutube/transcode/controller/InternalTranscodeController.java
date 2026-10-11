@@ -1,16 +1,13 @@
 package cn.diaojiahong.myyoutube.transcode.controller;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeSubmitDTO;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
-import cn.diaojiahong.myyoutube.transcode.mq.message.TranscodeTaskMessage;
+import cn.diaojiahong.myyoutube.transcode.schedule.DownloadTaskDispatcher;
 import cn.diaojiahong.myyoutube.transcode.service.TranscodeTaskService;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,7 +17,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 
 /**
  * 内部接口: 供 video 服务经 Feign 调用。提交按 task_key(内容哈希) 幂等 ——
@@ -34,7 +30,7 @@ import java.util.List;
 public class InternalTranscodeController {
 
     private final TranscodeTaskService taskService;
-    private final RocketMQTemplate rocketMQTemplate;
+    private final DownloadTaskDispatcher dispatcher;
     private final StringRedisTemplate redisTemplate;
 
     /** 内部契约接口, 与其他 internal 控制器一致直接返回 DTO(不走 Result 信封), 异常场景返回 null */
@@ -47,11 +43,11 @@ public class InternalTranscodeController {
         try {
             task = taskService.submit(dto);
         } catch (Exception e) {
-            log.error("创建转码任务失败 dynamicId={}", dto.getDynamicId(), e);
+            log.error("创建转码任务失败 contentId={}", dto.getContentId(), e);
             return null;
         }
         if (TranscodeTaskVO.STATUS_PENDING.equals(task.getStatus())) {
-            rocketMQTemplate.syncSend(MqConstants.TOPIC_DYNAMIC_TRANSCODE, new TranscodeTaskMessage(task.getId()));
+            dispatcher.dispatch(task.getId());
         }
         touchLru(task.getTaskKey());
         return toVO(task);
@@ -64,14 +60,25 @@ public class InternalTranscodeController {
             return null;
         }
         if (TranscodeTaskVO.STATUS_DONE.equals(task.getStatus())) {
-            touchLru(task.getTaskKey());
+            if (taskService.validCompleted(task.getTaskKey()) == null) {
+                task.setStatus(TranscodeTaskVO.STATUS_FAILED);
+                task.setErrorMessage("成片已过期，请重新下载");
+            } else touchLru(task.getTaskKey());
+        }
+        if ("EXPIRED".equals(task.getStatus())) {
+            task.setStatus(TranscodeTaskVO.STATUS_FAILED);
+            task.setErrorMessage("成片已过期，请重新下载");
         }
         return toVO(task);
     }
 
     private void touchLru(String taskKey) {
         if (StringUtils.hasText(taskKey)) {
-            redisTemplate.opsForZSet().add(RedisConstants.TRANSCODE_LRU, taskKey, System.currentTimeMillis());
+            try {
+                redisTemplate.opsForZSet().add(RedisConstants.TRANSCODE_LRU, taskKey, System.currentTimeMillis());
+            } catch (Exception e) {
+                log.warn("更新下载缓存 LRU 失败 taskKey={}", taskKey, e);
+            }
         }
     }
 
@@ -80,7 +87,7 @@ public class InternalTranscodeController {
                 .taskId(task.getId())
                 .taskKey(task.getTaskKey())
                 .status(task.getStatus())
-                .userId(task.getUserId())
+                .userId(task.getUserId()).contentId(task.getContentId())
                 .resultObjectKey(task.getResultObjectKey())
                 .errorMessage(task.getErrorMessage())
                 .build();
