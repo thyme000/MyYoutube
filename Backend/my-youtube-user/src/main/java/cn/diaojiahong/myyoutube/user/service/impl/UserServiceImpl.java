@@ -13,7 +13,6 @@ import cn.diaojiahong.myyoutube.user.cache.UserSummaryCache;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
-import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.mapper.UserMapper;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
@@ -48,7 +47,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private final S3StorageUtil storageUtil;
     private static final Long STORAGE_EXPIRE = 3600 * 24L;// 24小时过期时间
     private final StringRedisTemplate redisTemplate;
-    private final UserVideoPort userVideoPort;
     private final RocketMQTemplate rocketMQTemplate;
     private final EsSyncPublisher esSyncPublisher;
     private final UserSummaryCache summaryCache;

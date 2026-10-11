@@ -34,6 +34,11 @@ public class InternalUserController {
         return userPortAdapter.listByIds(ids);
     }
 
+    @PostMapping("/counters/content-event")
+    public void applyContentCountEvent(@RequestBody cn.diaojiahong.myyoutube.user.api.dto.ContentCountEvent event) {
+        userPortAdapter.applyContentCountEvent(event);
+    }
+
     @PostMapping("/counters/adjust")
     public void adjustCounters(@RequestBody List<CounterAdjust> adjustments) {
         userPortAdapter.adjustCounters(adjustments);

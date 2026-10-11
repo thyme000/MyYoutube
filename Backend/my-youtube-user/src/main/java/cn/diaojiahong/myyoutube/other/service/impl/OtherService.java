@@ -20,6 +20,7 @@ public class OtherService implements IOtherService {
     private static final Map<String, String> BIZ_DIRS = Map.of(
             "work", "video",
             "chat", "chat",
+            "audio", "audio",
             "picture", "picture"
     );
     private static final long PRESIGN_EXPIRE_SECONDS = 30 * 60;

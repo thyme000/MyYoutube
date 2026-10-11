@@ -91,7 +91,7 @@ public class User implements Serializable {
     /**
      * 视频发布数量
      */
-     private Long videoCount;
+     private Long contentCount;
 
     /**
      * 个人介绍

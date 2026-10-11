@@ -1,15 +1,15 @@
 package cn.diaojiahong.myyoutube.user.domain.vo;
 
-import cn.diaojiahong.myyoutube.video.api.dto.VideoSummaryVO;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentCardVO;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 /**
- * 用户历史的短视频/长视频通用展示 VO, 公共字段见 video-api 的 VideoSummaryVO
+ * 用户历史的短视频/长视频通用展示 VO, 公共字段见 video-api 的 ContentCardVO
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class UserShortsVideoVO extends VideoSummaryVO {
+public class UserShortsVideoVO extends ContentCardVO {
     private Boolean isFollow;
     private Boolean isLike;
 }

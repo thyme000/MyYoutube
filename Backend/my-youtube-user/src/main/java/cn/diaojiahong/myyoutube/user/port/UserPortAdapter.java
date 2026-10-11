@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.user.port;
 
-import cn.diaojiahong.myyoutube.common.counter.AbstractCounterTarget;
 import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
 import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
@@ -9,9 +8,11 @@ import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.user.cache.UserSummaryCache;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.hutool.core.bean.BeanUtil;
-import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Collection;
 import java.util.List;
@@ -25,6 +26,7 @@ import java.util.stream.Collectors;
 public class UserPortAdapter implements UserPort {
 
     private final cn.diaojiahong.myyoutube.user.service.IUserService userService;
+    private final cn.diaojiahong.myyoutube.user.mapper.UserCounterEventMapper counterEvents;
     private final CounterBuffer counterBuffer;
     private final UserSummaryCache summaryCache;
 
@@ -46,6 +48,21 @@ public class UserPortAdapter implements UserPort {
     }
 
     @Override
+    @Transactional
+    public void applyContentCountEvent(cn.diaojiahong.myyoutube.user.api.dto.ContentCountEvent event) {
+        if (event.eventId() == null || event.eventId().isBlank() || event.userId() == null || Math.abs(event.delta()) != 1)
+            throw new IllegalArgumentException("非法作品计数事件");
+        if (counterEvents.record(event.eventId(), event.userId()) > 0) {
+            if (counterEvents.applyDelta(event.userId(), event.delta()) != 1)
+                throw new IllegalStateException("作品计数事件无法应用");
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override public void afterCommit() { summaryCache.evict(event.userId()); }
+                });
+    }
+
+    @Override
     public void adjustCounters(List<CounterAdjust> adjustments) {
         for (CounterAdjust a : adjustments) {
             switch (a.getField()) {
@@ -53,15 +70,9 @@ public class UserPortAdapter implements UserPort {
                 // 大 V 的单行竞争极高, 而这两个字段本来就不是同步可见的
                 case "fans" -> counterBuffer.add(CounterType.USER_FANS, a.getUserId(), a.getDelta());
                 case "attentionCount" -> counterBuffer.add(CounterType.USER_ATTENTION, a.getUserId(), a.getDelta());
-                case "videoCount" -> adjustOne(a, User::getVideoCount);
                 default -> throw new IllegalArgumentException("未知计数字段: " + a.getField());
             }
         }
-    }
-
-    /** 低频计数(发布数等)不值得缓冲, 直接落库(负值护底规则与计数目标共用一份) */
-    private void adjustOne(CounterAdjust a, SFunction<User, ?> column) {
-        AbstractCounterTarget.guardedDelta(userService, User::getId, a.getUserId(), column, a.getDelta());
     }
 
     private static UserSummary toSummary(User user) {
