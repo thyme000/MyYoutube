@@ -11,5 +11,9 @@ spring:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
       - com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration
 
+rocketmq:
+  producer:
+    group: myyoutube_admin_producer
+
 server:
   port: ${SERVER_PORT:8085}

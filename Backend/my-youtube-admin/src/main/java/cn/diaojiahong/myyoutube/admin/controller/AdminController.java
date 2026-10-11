@@ -1,10 +1,10 @@
 package cn.diaojiahong.myyoutube.admin.controller;
 
 import cn.diaojiahong.myyoutube.admin.domain.dto.AdminCommentReportPageQueryDTO;
-import cn.diaojiahong.myyoutube.admin.domain.dto.AdminVideoPageQueryDTO;
+import cn.diaojiahong.myyoutube.admin.domain.dto.AdminContentPageQueryDTO;
 import cn.diaojiahong.myyoutube.admin.domain.vo.AdminCommentReportVO;
 import cn.diaojiahong.myyoutube.admin.domain.vo.AdminCommentVO;
-import cn.diaojiahong.myyoutube.admin.domain.vo.AdminVideoVO;
+import cn.diaojiahong.myyoutube.admin.domain.vo.AdminContentVO;
 import cn.diaojiahong.myyoutube.admin.service.IAdminService;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -21,27 +21,53 @@ import org.springframework.web.bind.annotation.*;
 public class AdminController {
 
     private final IAdminService adminService;
+    private final cn.diaojiahong.myyoutube.video.api.ContentAdminPort contentAdminPort;
+    public record Decision(@jakarta.validation.constraints.NotBlank String reason) {}
+
+    private void requireAdmin() {
+        if (!"1".equals(cn.diaojiahong.myyoutube.common.utils.UserContext.getUserId()))
+            throw new cn.diaojiahong.myyoutube.common.exception.BizException(403, "需要管理员权限");
+    }
+    @GetMapping("/content/{contentId}/media")
+    public Result<cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO> media(@PathVariable Long contentId) {
+        requireAdmin(); return contentAdminPort.media(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId));
+    }
+
+    @GetMapping("/content/{contentId}")
+    public Result<java.util.Map<String, Object>> content(@PathVariable Long contentId) {
+        requireAdmin(); return contentAdminPort.contentStatus(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId));
+    }
+    @PostMapping("/content/{contentId}/retry")
+    public Result<Boolean> retryContent(@PathVariable Long contentId) {
+        requireAdmin(); return contentAdminPort.retryContent(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId));
+    }
+    @GetMapping("/content/waiting")
+    public Result<java.util.List<java.util.Map<String, Object>>> waiting(@RequestParam(defaultValue = "1") long pageNo,
+                                                                       @RequestParam(defaultValue = "20") long pageSize) {
+        requireAdmin(); return contentAdminPort.waitingContent(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.AdminContentQuery(null, null, null, pageNo, pageSize, null));
+    }
+
 
     /**
      * 审核通过
-     * @param videoId 视频id
+     * @param contentId 视频id
      * @return
      */
     @Operation(summary = "审核通过")
-    @PostMapping("/review/pass/{videoId}")
-    public Result<String> pass(@PathVariable Long videoId) {
-        return Result.success(adminService.pass(videoId));
+    @PostMapping("/review/pass/{contentId}")
+    public Result<String> pass(@PathVariable Long contentId, @jakarta.validation.Valid @RequestBody Decision decision) {
+        return Result.success(adminService.pass(contentId, decision.reason()));
     }
 
     /**
      * 禁用视频
-     * @param videoId 视频id
+     * @param contentId 视频id
      * @return
      */
     @Operation(summary = "审核不通过")
-    @PostMapping("/review/ban/{videoId}")
-    public Result<String> ban(@PathVariable Long videoId) {
-        return Result.success(adminService.ban(videoId));
+    @PostMapping("/review/ban/{contentId}")
+    public Result<String> ban(@PathVariable Long contentId, @jakarta.validation.Valid @RequestBody Decision decision) {
+        return Result.success(adminService.ban(contentId, decision.reason()));
     }
 
     /**
@@ -51,8 +77,8 @@ public class AdminController {
      */
     @Operation(summary = "查看所有带审查的视频")
     @GetMapping("/list")
-    public Result<PageResult<AdminVideoVO>> getVideosPage(@ModelAttribute AdminVideoPageQueryDTO adminVideoPageQueryDTO) {
-        return Result.success(adminService.getVideosPage(adminVideoPageQueryDTO));
+    public Result<PageResult<AdminContentVO>> getContentsPage(@ModelAttribute AdminContentPageQueryDTO adminVideoPageQueryDTO) {
+        return Result.success(adminService.getContentsPage(adminVideoPageQueryDTO));
     }
 
     /**

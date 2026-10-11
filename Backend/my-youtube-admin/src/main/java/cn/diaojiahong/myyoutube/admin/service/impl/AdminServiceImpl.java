@@ -1,10 +1,10 @@
 package cn.diaojiahong.myyoutube.admin.service.impl;
 
 import cn.diaojiahong.myyoutube.admin.domain.dto.AdminCommentReportPageQueryDTO;
-import cn.diaojiahong.myyoutube.admin.domain.dto.AdminVideoPageQueryDTO;
+import cn.diaojiahong.myyoutube.admin.domain.dto.AdminContentPageQueryDTO;
 import cn.diaojiahong.myyoutube.admin.domain.vo.AdminCommentReportVO;
 import cn.diaojiahong.myyoutube.admin.domain.vo.AdminCommentVO;
-import cn.diaojiahong.myyoutube.admin.domain.vo.AdminVideoVO;
+import cn.diaojiahong.myyoutube.admin.domain.vo.AdminContentVO;
 import cn.diaojiahong.myyoutube.admin.service.IAdminService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
@@ -13,16 +13,13 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.result.ResultCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.search.api.UserDocPort;
-import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
-import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.CommentAdminPort;
-import cn.diaojiahong.myyoutube.video.api.VideoAdminPort;
-import cn.diaojiahong.myyoutube.video.api.dto.VideoSummary;
-import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.ContentAdminPort;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -45,74 +42,47 @@ public class AdminServiceImpl implements IAdminService {
     private static final long ADMIN_USER_ID = 1L;
 
     private final UserPort userPort;
-    private final VideoAdminPort videoAdminPort;
+    private final ContentAdminPort contentAdminPort;
     private final CommentAdminPort commentAdminPort;
-    private final ContentDocPort contentDocPort;
-    private final UserDocPort userDocPort;
     private final S3StorageUtil storageUtil;
 
     @Override
-    public String pass(Long videoId) {
+    public String pass(Long contentId, String reason) {
         checkAdmin();
-        Result<Boolean> markResult = videoAdminPort.markStatus(
-                new VideoAdminPort.MarkStatus(videoId, VideoStatusEnum.PUBLISHED.getCode()));
-        if (!Boolean.TRUE.equals(markResult.getData())) {
-            throw new BizException(BizException.BIZ_ERROR, "发布失败");
-        }
-        Result<VideoSummary> videoResult = videoAdminPort.getVideo(new VideoAdminPort.VideoId(videoId));
-        VideoSummary video = videoResult.getData();
-        if (video == null) {
-            throw new BizException(BizException.BIZ_ERROR, "视频不存在");
-        }
-        // 作者作品数 +1
-        userPort.adjustCounters(List.of(new CounterAdjust(video.getAuthorId(), "videoCount", 1)));
-        // ES 视频文档状态(重建补全词) + 用户文档作品数
-        contentDocPort.syncStatus(videoId, new ContentDocPort.StatusSync(
-                VideoStatusEnum.PUBLISHED.getCode(), video.getTitle(), video.getDescription(),
-                video.getTags(), true));
-        userDocPort.adjustVideoCount(video.getAuthorId(), 1);
-        return "发布成功";
+        var result = contentAdminPort.markStatus(new ContentAdminPort.MarkStatus(contentId, ContentStatusEnum.PUBLISHED.getCode(), reason, getUserId()));
+        requireOk(result);
+        if (!Boolean.TRUE.equals(result.getData())) throw new BizException(BizException.BIZ_ERROR, "审核状态已变化");
+        return "审核通过";
     }
 
     @Override
-    public String ban(Long videoId) {
+    public String ban(Long contentId, String reason) {
         checkAdmin();
-        Result<VideoSummary> videoResult = videoAdminPort.getVideo(new VideoAdminPort.VideoId(videoId));
-        VideoSummary video = videoResult.getData();
-        if (video == null) {
-            throw new BizException(BizException.BIZ_ERROR, "视频不存在");
-        }
-        boolean wasPublished = VideoStatusEnum.PUBLISHED.getCode().equals(video.getStatus());
-        videoAdminPort.markStatus(new VideoAdminPort.MarkStatus(videoId, VideoStatusEnum.BANNED.getCode()));
-        if (wasPublished) {
-            userPort.adjustCounters(List.of(new CounterAdjust(video.getAuthorId(), "videoCount", -1)));
-            userDocPort.adjustVideoCount(video.getAuthorId(), -1);
-        }
-        contentDocPort.syncStatus(videoId, new ContentDocPort.StatusSync(
-                VideoStatusEnum.BANNED.getCode(), null, null, null, false));
-        return "封禁成功";
+        var result = contentAdminPort.markStatus(new ContentAdminPort.MarkStatus(contentId, ContentStatusEnum.BANNED.getCode(), reason, getUserId()));
+        requireOk(result);
+        if (!Boolean.TRUE.equals(result.getData())) throw new BizException(BizException.BIZ_ERROR, "审核状态已变化");
+        return "审核拒绝或封禁成功";
     }
 
     @Override
-    public PageResult<AdminVideoVO> getVideosPage(AdminVideoPageQueryDTO q) {
+    public PageResult<AdminContentVO> getContentsPage(AdminContentPageQueryDTO q) {
         checkAdmin();
-        Result<PageResult<VideoSummary>> pageResult = videoAdminPort.pageVideos(new VideoAdminPort.AdminVideoQuery(
-                q.getVideoStatus() != null ? q.getVideoStatus().getCode() : null,
-                q.getVideoCategory() != null ? q.getVideoCategory().getCode() : null,
+        Result<PageResult<ContentSummary>> pageResult = contentAdminPort.pageContents(new ContentAdminPort.AdminContentQuery(
+                q.getStatusCode(),
+                q.getCategoryCode(),
                 q.getUserId(),
                 q.getPageNo(),
-                q.getPageSize()));
-        PageResult<VideoSummary> page = pageResult.getData();
+                q.getPageSize(), q.getType()));
+        PageResult<ContentSummary> page = pageResult.getData();
         if (page == null || page.getList() == null || page.getList().isEmpty()) {
             return PageResult.of(0, 0, new ArrayList<>());
         }
-        List<Long> authorIds = page.getList().stream().map(VideoSummary::getAuthorId).toList();
+        List<Long> authorIds = page.getList().stream().map(ContentSummary::getAuthorId).toList();
         List<UserSummary> authors = userPort.listByIds(authorIds);
         Map<Long, String> avatars = UserSummaries.toAvatarMap(authors);
         Map<Long, String> nicknames = UserSummaries.toNicknameMap(authors);
-        List<AdminVideoVO> voList = page.getList().stream().map(v -> {
-            AdminVideoVO vo = new AdminVideoVO();
-            vo.setVideoId(v.getId());
+        List<AdminContentVO> voList = page.getList().stream().map(v -> {
+            AdminContentVO vo = cn.hutool.core.bean.BeanUtil.copyProperties(v, AdminContentVO.class);
             vo.setTitle(v.getTitle());
             vo.setDescription(v.getDescription());
             vo.setCoverUrl(storageUtil.signGetUrl(v.getCoverUrl(), 60 * 10));
