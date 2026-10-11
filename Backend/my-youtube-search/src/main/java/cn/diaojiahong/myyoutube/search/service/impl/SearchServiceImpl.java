@@ -20,7 +20,7 @@ import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
-import cn.diaojiahong.myyoutube.video.api.UserVideoPort;
+import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import cn.hutool.core.bean.BeanUtil;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -53,7 +53,7 @@ public class SearchServiceImpl implements ISearchService {
 
     private final ElasticsearchOperations elasticsearchOperations;
     private final FollowPort followPort;
-    private final UserVideoPort userVideoPort;
+    private final ContentInternalPort contentInternalPort;
     private final ContentSummaryPort contentSummaryPort;
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
@@ -69,8 +69,10 @@ public class SearchServiceImpl implements ISearchService {
         // 策略并行召回 + 按排序模式融合, 策略数无关; 共享输入(关注列表/查询向量)在 pipeline prep 里只算一次
         List<String> fused = recallPipeline.execute(ctx);
         // total 用融合结果真实长度: 召回以 recall-size 封顶, 深分页不可达就不虚报
-        PageResult<SearchVideoVO> result = buildPageResult(fused, fused.size(),
-                pageQuery.getPageNo(), pageQuery.getPageSize(), ctx.getFollowIds());
+        var readable = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(fused, null));
+        int from = Math.min((pageQuery.getPageNo() - 1) * pageQuery.getPageSize(), readable.size());
+        var page = readable.subList(from, Math.min(from + pageQuery.getPageSize(), readable.size()));
+        PageResult<SearchVideoVO> result = buildPageResult(page, readable.size(), pageQuery.getPageSize(), ctx.getFollowIds());
         loadForHotSearch(userId, ctx.getKeyword());
         return result;
     }
@@ -208,8 +210,14 @@ public class SearchServiceImpl implements ISearchService {
                     )), Void.class);
 
             Set<String> merged = new LinkedHashSet<>();
-            appendSuggestTexts(videoResp, "video_suggest", merged);
-            appendSuggestTexts(userResp, "user_suggest", merged);
+            var entries = videoResp.suggest().get("video_suggest");
+            var ids = entries == null ? List.<String>of() : entries.stream()
+                    .flatMap(entry -> entry.completion().options().stream())
+                    .map(option -> option.id()).filter(Objects::nonNull).distinct().toList();
+            var readable = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(ids, null))
+                    .stream().map(summary -> summary.getId().toString()).collect(Collectors.toSet());
+            appendSuggestTexts(videoResp, "video_suggest", merged, readable::contains);
+            appendSuggestTexts(userResp, "user_suggest", merged, id -> true);
 
             return merged.stream().limit(10).toList();
         } catch (Exception e) {
@@ -220,7 +228,7 @@ public class SearchServiceImpl implements ISearchService {
 
     private void appendSuggestTexts(co.elastic.clients.elasticsearch.core.SearchResponse<Void> response,
                                     String suggestName,
-                                    Set<String> merged) {
+                                    Set<String> merged, java.util.function.Predicate<String> readable) {
         if (response == null || response.suggest() == null) {
             return;
         }
@@ -234,7 +242,7 @@ public class SearchServiceImpl implements ISearchService {
         }
         completion.options().forEach(opt -> {
             String text = opt.text();
-            if (text != null && !text.isBlank()) {
+            if (readable.test(opt.id()) && text != null && !text.isBlank()) {
                 merged.add(text.trim());
             }
         });
@@ -301,22 +309,14 @@ public class SearchServiceImpl implements ISearchService {
         SearchHits<ContentDoc> hits = elasticsearchOperations.search(query, ContentDoc.class);
         List<String> orderedIds = hits.getSearchHits().stream()
                 .map(hit -> hit.getContent().getId().toString()).toList();
-        return buildPageResult(orderedIds, hits.getTotalHits(), pageNo, pageSize, followIds);
+        return buildPageResult(contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(orderedIds, null)),
+                hits.getTotalHits(), pageSize, followIds);
     }
 
-    /**
-     * 按 id 顺序回填详情: 传入顺序(ES 相关性序或 RRF 融合序)经 LinkedHashSet 透传,
-     * 前端看到的顺序与召回排序一致
-     */
-    private PageResult<SearchVideoVO> buildPageResult(List<String> orderedIds, long total,
-                                                      int pageNo, int pageSize, List<Long> followIds) {
+    private PageResult<SearchVideoVO> buildPageResult(List<ContentSummary> videos, long total,
+                                                      int pageSize, List<Long> followIds) {
         long pages = (total + pageSize - 1) / pageSize;
-        int from = (pageNo - 1) * pageSize;
-        if (from >= orderedIds.size()) {
-            return PageResult.of(total, pages, Collections.emptyList());
-        }
-        List<String> pageIds = orderedIds.subList(from, Math.min(from + pageSize, orderedIds.size()));
-        List<ContentSummary> videos = contentSummaryPort.listByIdsOrdered(new ArrayList<>(pageIds));
+        if (videos.isEmpty()) return PageResult.of(total, pages, List.of());
         List<SearchVideoVO> result = BeanUtil.copyToList(videos, SearchVideoVO.class);
         // 填充用户昵称和头像url(一次批量取摘要, 本地投影)
         List<UserSummary> authors = userPort.listByIds(videos.stream().map(ContentSummary::getAuthorId).collect(Collectors.toList()));
@@ -356,7 +356,7 @@ public class SearchServiceImpl implements ISearchService {
         if (videoIds == null || videoIds.isEmpty()) {
             return Collections.emptyList();
         }
-        Map<Long, Boolean> likedMap = userVideoPort.likedMap(userId, new HashSet<>(videoIds.stream().map(String::valueOf).toList()));
+        Map<Long, Boolean> likedMap = contentInternalPort.likedMap(userId, new HashSet<>(videoIds));
         return likedMap.entrySet().stream().filter(Map.Entry::getValue).map(Map.Entry::getKey).toList();
     }
 

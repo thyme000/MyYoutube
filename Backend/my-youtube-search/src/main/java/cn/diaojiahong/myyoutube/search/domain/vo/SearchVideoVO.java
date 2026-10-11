@@ -1,12 +1,12 @@
 package cn.diaojiahong.myyoutube.search.domain.vo;
 
-import cn.diaojiahong.myyoutube.video.api.dto.VideoSummaryVO;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentCardVO;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class SearchVideoVO extends VideoSummaryVO {
+public class SearchVideoVO extends ContentCardVO {
     /** 内容类型: video/dynamic */
     private String type;
     // 是否点赞了该视频

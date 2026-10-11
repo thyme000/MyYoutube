@@ -3,20 +3,18 @@ package cn.diaojiahong.myyoutube.search.port;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
-import cn.diaojiahong.myyoutube.search.api.ContentDocPort.StatusSync;
-import cn.diaojiahong.myyoutube.search.api.VisibilitySync;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
-import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
-import org.springframework.data.elasticsearch.core.query.ScriptType;
-import org.springframework.data.elasticsearch.core.query.UpdateQuery;
-import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.stereotype.Component;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.document.Document;
+import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
+import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
+import cn.diaojiahong.myyoutube.search.service.ContentDocumentWriter;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -25,37 +23,20 @@ import java.util.stream.StreamSupport;
 public class ContentDocPortImpl implements ContentDocPort {
 
     private final ContentDocRepository contentDocRepository;
-    private final ElasticsearchOperations elasticsearchOperations;
+    private final ContentInternalPort contents;
+    private final ContentDocumentWriter writer;
+    private final ElasticsearchOperations operations;
 
-    /** 计数走 scripted update 原子自增, 读-改-写回存在并发下互相覆盖丢更新 */
-    private static final String INC_PLAY_COUNT_SCRIPT =
-            "if (ctx._source.playCount == null) { ctx._source.playCount = params.delta } " +
-            "else { ctx._source.playCount += params.delta }";
+    @Override
+    public void rebuildContent(Long contentId) {
+        var current = contents.searchDocument(contentId);
+        if (current == null) contentDocRepository.deleteById(contentId);
+        else writer.write(current);
+    }
 
     @Override
     public void deleteDoc(Long contentId) {
         contentDocRepository.deleteById(contentId);
-    }
-
-    @Override
-    public void adjustPlayCount(Long contentId, Long delta) {
-        elasticsearchOperations.update(
-                UpdateQuery.builder(String.valueOf(contentId))
-                        .withScriptType(ScriptType.INLINE)
-                        .withScript(INC_PLAY_COUNT_SCRIPT)
-                        .withParams(Map.of("delta", delta))
-                        .withRetryOnConflict(3)
-                        .build(),
-                IndexCoordinates.of("content"));
-    }
-
-    @Override
-    public void syncPlayLike(Long contentId, Long playCount, Long likeCount) {
-        contentDocRepository.findById(contentId).ifPresent(doc -> {
-            doc.setPlayCount(playCount);
-            doc.setLikeCount(likeCount);
-            contentDocRepository.save(doc);
-        });
     }
 
     @Override
@@ -64,73 +45,19 @@ public class ContentDocPortImpl implements ContentDocPort {
             return;
         }
         List<Long> ids = counts.stream().map(CountSync::contentId).toList();
-        Map<Long, ContentDoc> docById = StreamSupport
+        var existing = StreamSupport
                 .stream(contentDocRepository.findAllById(ids).spliterator(), false)
-                .collect(Collectors.toMap(ContentDoc::getId, d -> d, (a, b) -> a));
-        List<ContentDoc> updated = new ArrayList<>();
+                .map(ContentDoc::getId).collect(Collectors.toSet());
+        List<UpdateQuery> updated = new ArrayList<>();
         for (CountSync c : counts) {
-            ContentDoc doc = docById.get(c.contentId());
-            if (doc == null) {
+            if (!existing.contains(c.contentId())) {
                 continue;
             }
-            doc.setPlayCount(c.playCount());
-            doc.setLikeCount(c.likeCount());
-            updated.add(doc);
+            updated.add(UpdateQuery.builder(c.contentId().toString())
+                    .withDocument(Document.from(Map.of("playCount", c.playCount(), "likeCount", c.likeCount())))
+                    .withDocAsUpsert(false).withRetryOnConflict(3).build());
         }
-        contentDocRepository.saveAll(updated);
+        if (!updated.isEmpty()) operations.bulkUpdate(updated, IndexCoordinates.of("content"));
     }
 
-    @Override
-    public void syncStatus(Long contentId, StatusSync sync) {
-        contentDocRepository.findById(contentId).ifPresent(doc -> {
-            if (sync.rebuildSuggest()) {
-                // List.of 不接受 null 元素, 无简介/未取到作者名的视频要跳过
-                List<String> list = new ArrayList<>();
-                if (sync.title() != null) {
-                    list.add(sync.title());
-                }
-                if (sync.description() != null) {
-                    list.add(sync.description());
-                }
-                if (doc.getAuthorName() != null) {
-                    list.add(doc.getAuthorName());
-                }
-                if (sync.tags() != null) {
-                    list.addAll(Arrays.asList(sync.tags().split(",")));
-                }
-                doc.setSuggest(new Completion(list));
-            } else {
-                doc.setSuggest(new Completion());
-            }
-            doc.setStatus(sync.statusCode());
-            contentDocRepository.save(doc);
-        });
-    }
-
-    @Override
-    public void syncVisibility(Long contentId, VisibilitySync sync) {
-        contentDocRepository.findById(contentId).ifPresent(doc -> {
-            if ("private".equals(sync.getVisibility())) {
-                doc.setSuggest(new Completion());
-            } else if (sync.isRebuildSuggest()) {
-                // List.of 不接受 null 元素, 无简介/未取到作者名的视频要跳过
-                List<String> list = new ArrayList<>();
-                if (sync.getTitle() != null) {
-                    list.add(sync.getTitle());
-                }
-                if (sync.getDescription() != null) {
-                    list.add(sync.getDescription());
-                }
-                if (doc.getAuthorName() != null) {
-                    list.add(doc.getAuthorName());
-                }
-                if (sync.getTags() != null) {
-                    list.addAll(Arrays.asList(sync.getTags().split(",")));
-                }
-                doc.setSuggest(new Completion(list));
-            }
-            doc.setVisibility(sync.getVisibility());
-            contentDocRepository.save(doc);
-        });
-    }
 }

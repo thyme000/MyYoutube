@@ -16,6 +16,12 @@ import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Map;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.document.Document;
+import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
+import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 
 @Slf4j
 @Component
@@ -29,7 +35,8 @@ public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> 
 
     private final UserPort userPort;
     private final UserDocRepository userDocRepository;
-    private final ContentDocRepository videoDocRepository;
+    private final ContentDocRepository contentDocRepository;
+    private final ElasticsearchOperations operations;
 
     /**
      * 用户文档同步: 以 MySQL 为准写入 ES, 延迟投递天然合并短时间内的多次变更
@@ -41,23 +48,27 @@ public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> 
             log.warn("同步用户文档失败, 用户不存在: {}", message.getUserId());
             return;
         }
-        // 同步刷新该用户的视频文档作者昵称
+        // 局部更新，避免从旧副本整文档写回而覆盖并发可见性／审核状态。
         try {
-            List<ContentDoc> videoDocs = videoDocRepository.findContentDocByAuthorId(message.getUserId());
-            if (videoDocs != null && !videoDocs.isEmpty()) {
-                videoDocs.forEach(v -> {
-                    v.setAuthorName(user.getNickname());
-                    v.setSuggest(new Completion(List.of(
-                            v.getTitle(),
-                            v.getDescription(),
-                            user.getNickname(),
-                            String.join(" ", v.getTagNames())
-                    )));
-                });
-                videoDocRepository.saveAll(videoDocs);
+            List<ContentDoc> contents = contentDocRepository.findContentDocByAuthorId(message.getUserId());
+            if (contents != null && !contents.isEmpty()) {
+                var updates = contents.stream().map(content -> {
+                    var words = new ArrayList<String>();
+                    if ("published".equals(content.getStatus()) && "public".equals(content.getVisibility())) {
+                        if (content.getTitle() != null) words.add(content.getTitle());
+                        if (content.getDescription() != null) words.add(content.getDescription());
+                        if (user.getNickname() != null) words.add(user.getNickname());
+                        if (content.getTagNames() != null) words.addAll(content.getTagNames());
+                    }
+                    return UpdateQuery.builder(content.getId().toString())
+                            .withDocument(Document.from(Map.of("authorName", user.getNickname() == null ? "" : user.getNickname(),
+                                    "suggest", Map.of("input", words))))
+                            .withDocAsUpsert(false).withRetryOnConflict(3).build();
+                }).toList();
+                operations.bulkUpdate(updates, IndexCoordinates.of("content"));
             }
         } catch (Exception e) {
-            log.error("更新视频文档的作者昵称失败, userId={}", message.getUserId(), e);
+            log.error("更新内容文档的作者昵称失败, userId={}", message.getUserId(), e);
         }
 
         UserDoc doc = userDocRepository.findById(message.getUserId()).orElse(null);
@@ -68,18 +79,16 @@ public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> 
             doc.setNickname(user.getNickname());
             doc.setIntroduction(user.getIntroduction());
             doc.setLikeCount(user.getLikeCount());
-            doc.setVideoCount(user.getVideoCount());
+            doc.setContentCount(user.getContentCount());
             doc.setCreateTime(user.getCreateTime());
         }
         doc.setIdKeyword(user.getId().toString());
         doc.setNickname(user.getNickname());
         doc.setIntroduction(user.getIntroduction());
         doc.setLikeCount(user.getLikeCount());
-        doc.setVideoCount(user.getVideoCount());
+        doc.setContentCount(user.getContentCount());
         doc.setFans(user.getFans());
-        doc.setSuggest(new Completion(List.of(
-                user.getNickname()
-        )));
+        doc.setSuggest(user.getNickname() == null ? new Completion() : new Completion(List.of(user.getNickname())));
         userDocRepository.save(doc);
     }
 }
