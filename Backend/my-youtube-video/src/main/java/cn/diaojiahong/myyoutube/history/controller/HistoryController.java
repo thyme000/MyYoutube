@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.history.controller;
 
-import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.history.domain.vo.HistoryVO;
@@ -41,7 +41,7 @@ public class HistoryController {
 
     @Operation(summary = "我的浏览历史分页")
     @GetMapping("/page")
-    public Result<PageResult<HistoryVO>> page(@ModelAttribute PageQuery pageQuery) {
+    public Result<PageResult<HistoryVO>> page(@ModelAttribute ContentPageQuery pageQuery) {
         return Result.success(historyService.page(pageQuery));
     }
 

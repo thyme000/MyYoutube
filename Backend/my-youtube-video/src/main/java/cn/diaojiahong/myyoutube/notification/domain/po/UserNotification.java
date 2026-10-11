@@ -44,7 +44,7 @@ public class UserNotification implements Serializable {
     private Long senderId;
 
     /**
-     * 类型：COMMENT_LIKE / COMMENT_REPLY / VIDEO_COMMENT 等
+     * 类型：COMMENT_LIKE / COMMENT_REPLY / CONTENT_COMMENT 等
      */
     private String type;
 
@@ -59,17 +59,17 @@ public class UserNotification implements Serializable {
     private String content;
 
     /**
-     * 关联业务类型：VIDEO / COMMENT
+     * 关联业务类型：CONTENT / COMMENT / SYSTEM / CHAT
      */
     private String refType;
 
     /**
-     * 关联主键 ID（如 comment_id 或 video_id，按 type 约定）
+     * 关联主键 ID（如 comment_id 或 content_id，按 type 约定）
      */
     private Long refId;
 
     /**
-     * 扩展字段：videoId、parentCommentId 等
+     * 扩展字段：contentId、parentCommentId 等
      */
     private String extraJson;
 

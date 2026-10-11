@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.collect.service;
 
-import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.collect.domain.vo.CollectVO;
 
@@ -14,6 +14,6 @@ public interface IContentCollectService {
     /** 取消收藏, 未收藏时幂等 */
     void cancelCollect(Long contentId);
     /** 我的收藏, 按收藏时间倒序 */
-    PageResult<CollectVO> page(PageQuery pageQuery);
+    PageResult<CollectVO> page(ContentPageQuery pageQuery);
     /** 我是否收藏了该内容 */
     Boolean status(Long contentId);}

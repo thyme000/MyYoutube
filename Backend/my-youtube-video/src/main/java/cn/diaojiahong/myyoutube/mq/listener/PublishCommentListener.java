@@ -5,7 +5,6 @@ import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.RefTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
-import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
 import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,10 +37,10 @@ public class PublishCommentListener implements RocketMQListener<CommentMessage> 
         userNotification.setReceiverId(message.getReceiverId());
         userNotification.setSenderId(message.getSenderId());
         userNotification.setType(message.getIsContentComment() ?
-                NotificationTypeEnum.VIDEO_COMMENT.getCode() :
+                NotificationTypeEnum.CONTENT_COMMENT.getCode() :
                 NotificationTypeEnum.COMMENT_REPLY.getCode());
         userNotification.setContent(message.getContent());
-        userNotification.setRefType(RefTypeEnum.COMMENT.getCode());
+        userNotification.setRefType(message.getIsContentComment() ? RefTypeEnum.CONTENT.getCode() : RefTypeEnum.COMMENT.getCode());
         userNotification.setRefId(message.getIsContentComment() ? message.getContentId() : message.getCommentId());
         return userNotification;
     }

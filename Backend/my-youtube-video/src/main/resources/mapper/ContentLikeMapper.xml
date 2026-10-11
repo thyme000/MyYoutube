@@ -2,13 +2,20 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper">
 
+    <sql id="readable">
+        AND c.is_delete = 0 AND c.status = 'published'
+        AND (c.visibility = 'public' OR c.author_id = #{viewerId})
+        <if test="type != null">AND c.type = #{type}</if>
+    </sql>
+
     <select id="selectListByUserId" resultType="java.lang.Long">
         SELECT cl.content_id
         FROM content_like cl
                  INNER JOIN content c ON cl.content_id = c.id
         WHERE cl.user_id = #{userId}
           AND cl.is_liked = 1
-        ORDER BY cl.update_time DESC
+        <include refid="readable"/>
+        ORDER BY cl.update_time DESC, cl.content_id DESC
             LIMIT #{offset}, #{size}
     </select>
 
@@ -18,5 +25,6 @@
                  INNER JOIN content c ON cl.content_id = c.id
         WHERE cl.user_id = #{userId}
           AND cl.is_liked = 1
+        <include refid="readable"/>
     </select>
 </mapper>

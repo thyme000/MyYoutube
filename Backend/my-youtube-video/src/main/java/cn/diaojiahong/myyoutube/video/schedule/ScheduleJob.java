@@ -48,7 +48,7 @@ public class ScheduleJob {
      * 每 30s 把点赞缓冲落库。
      */
     @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
-    public void flushVideoCounters() {
+    public void flushContentCounters() {
         roundLock.run("schedule:lock:video:counter:flush", counterFlushService::flushRound);
     }
 
@@ -56,7 +56,7 @@ public class ScheduleJob {
      * 每小时用 COUNT(*) 无条件覆盖一次点赞数, 抹平任意方向的累积误差
      */
     @Scheduled(cron = "0 20 * * * ?")
-    public void reconcileVideoCounters() {
+    public void reconcileContentCounters() {
         roundLock.run("schedule:lock:video:counter:reconcile", counterFlushService::reconcileRound);
     }
 

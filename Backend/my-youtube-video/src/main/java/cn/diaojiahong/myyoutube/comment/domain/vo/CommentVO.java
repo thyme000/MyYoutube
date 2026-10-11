@@ -10,7 +10,7 @@ public class CommentVO {
     // 评论内容
     private String content;
     // 视频id
-    private Long videoId;
+    private Long contentId;
     // 用户id
     private Long userId;
     // 用户昵称

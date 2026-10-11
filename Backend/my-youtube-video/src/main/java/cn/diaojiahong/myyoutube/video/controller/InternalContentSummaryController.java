@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
+import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort.SummaryQuery;
 import cn.diaojiahong.myyoutube.video.port.ContentSummaryPortImpl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +22,7 @@ public class InternalContentSummaryController {
     private final ContentSummaryPortImpl contentSummaryPort;
 
     @PostMapping("/list-ordered")
-    public List<ContentSummary> listByIdsOrdered(@RequestBody List<String> ids) {
-        return contentSummaryPort.listByIdsOrdered(ids);
+    public List<ContentSummary> listByIdsOrdered(@RequestBody SummaryQuery query) {
+        return contentSummaryPort.listByIdsOrdered(query);
     }
 }

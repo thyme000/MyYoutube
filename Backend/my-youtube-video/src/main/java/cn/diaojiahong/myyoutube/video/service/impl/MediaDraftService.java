@@ -2,6 +2,8 @@ package cn.diaojiahong.myyoutube.video.service.impl;
 
 import cn.diaojiahong.myyoutube.video.api.MediaDraftPort;
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.video.domain.po.MediaDraft;
 import cn.diaojiahong.myyoutube.video.mapper.MediaDraftMapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -26,25 +28,42 @@ public class MediaDraftService {
                 .eq(MediaDraft::getObjectKey, objectKey)
                 .last("limit 1"));
         if (existing != null) {
+            if (!userId.equals(existing.getUserId())) throw new BizException(BizException.BIZ_ERROR, "素材不属于当前用户");
             return existing.getId();
         }
         MediaDraft draft = new MediaDraft()
                 .setId(IdWorker.getId())
                 .setUserId(userId)
+                .setType(ContentTypeEnum.VIDEO)
+                .setVisibility("public")
+                .setAllowComment(1)
+                .setRevision(0)
                 .setObjectKey(objectKey)
                 .setOriginalFilename(filename)
                 .setStatus(MediaDraftStatusEnum.UPLOADING);
         try {
             draftMapper.insert(draft);
         } catch (org.springframework.dao.DuplicateKeyException e) {
-            return draftMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<MediaDraft>()
-                    .eq(MediaDraft::getObjectKey, objectKey).last("limit 1")).getId();
+            var winner = getByObjectKey(objectKey);
+            if (winner == null) throw e;
+            if (!userId.equals(winner.getUserId())) throw new BizException(BizException.BIZ_ERROR, "素材不属于当前用户");
+            return winner.getId();
         }
         return draft.getId();
     }
 
     public MediaDraft getById(Long draftId) {
         return draftMapper.selectById(draftId);
+    }
+
+    public boolean submit(MediaDraft frozen, long durationMs) {
+        return draftMapper.update(null, new LambdaUpdateWrapper<MediaDraft>()
+                .eq(MediaDraft::getId, frozen.getId()).eq(MediaDraft::getUserId, frozen.getUserId())
+                .eq(MediaDraft::getRevision, frozen.getRevision()).eq(MediaDraft::getStatus, MediaDraftStatusEnum.READY)
+                .set(MediaDraft::getStatus, MediaDraftStatusEnum.SUBMITTED)
+                .set(MediaDraft::getTitle, frozen.getTitle()).set(MediaDraft::getDescription, frozen.getDescription())
+                .set(MediaDraft::getVisibility, "public").set(MediaDraft::getAllowComment, frozen.getAllowComment())
+                .set(MediaDraft::getDurationMs, durationMs).setIncrBy(MediaDraft::getRevision, 1)) > 0;
     }
 
     public MediaDraft getByObjectKey(String objectKey) {

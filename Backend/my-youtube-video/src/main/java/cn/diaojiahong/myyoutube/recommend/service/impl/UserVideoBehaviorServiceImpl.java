@@ -11,7 +11,6 @@ import cn.diaojiahong.myyoutube.recommend.mapper.UserVideoBehaviorMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserVideoBehaviorService;
 import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
-import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

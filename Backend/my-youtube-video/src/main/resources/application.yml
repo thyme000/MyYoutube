@@ -3,6 +3,9 @@ spring:
     import:
       - classpath:application-common.yml
       - optional:classpath:application-local.yml
+  task.scheduling:
+    pool.size: 4
+    thread-name-prefix: media-schedule-
   application:
     name: my-youtube-video-service
   datasource:
@@ -34,6 +37,8 @@ my-youtube:
       # 在线相似度表选择: itemcf | swing, 两份都离线算好, 改这里重启即切换
       algorithm: swing
   autotag:
+    # 默认只按文本打标，显式开启后才发送图片
+    vision-enabled: ${TAG_VISION_ENABLED:false}
     # 打标防线阈值, 必填无默认(0~1), 缺失服务拒绝启动; 真实值填 application-local.yml
     # min-confidence: 0.5
   comment:
@@ -45,3 +50,39 @@ my-youtube:
     # 名单固定 TTL(秒)不续期: latest 排序值无缓冲滞后故取短, hot 对齐点赞缓冲落库周期
     latest-ttl-seconds: ${COMMENT_LATEST_TTL_SECONDS:5}
     hot-ttl-seconds: ${COMMENT_HOT_TTL_SECONDS:30}
+
+spring.cloud.openfeign.client.config:
+  default:
+    connectTimeout: 5000
+    readTimeout: 130000
+my-youtube.content-pipeline:
+  # 关闭整个机器审核时，完成加工后直接转人工审核
+  auto-review: ${CONTENT_AUTO_REVIEW:true}
+  # 画面审核独立开启；关闭时仅审文本，审批仍由 auto-review 和审核阈值控制
+  review-vision-enabled: ${CONTENT_REVIEW_VISION_ENABLED:false}
+  review-frame-batch-size: ${CONTENT_REVIEW_FRAME_BATCH_SIZE:4}
+  max-risk: ${CONTENT_REVIEW_MAX_RISK:0.2}
+  min-confidence: ${CONTENT_REVIEW_MIN_CONFIDENCE:0.9}
+  evidence-chunk-characters: 12000
+  review-model: ${CONTENT_REVIEW_MODEL:qwen3.5:9b}
+  rules-version: content-v1
+
+management:
+  endpoints.web.exposure.include: health,prometheus
+  metrics.distribution.percentiles-histogram:
+    "[media.pipeline.duration]": true
+    "[media.pipeline.ready.duration]": true
+    "[media.node.wait]": true
+    "[media.node.retry.wait]": true
+    "[model.calls.duration]": true
+sentinel:
+  nacos:
+    enabled: ${SENTINEL_NACOS_ENABLED:false}
+    server-addr: ${NACOS_ADDR:localhost:8848}
+    namespace: ${NACOS_NAMESPACE:}
+    username: ${NACOS_USERNAME:}
+    password: ${NACOS_PASSWORD:}
+    data-id: ${spring.application.name}-model-degrade.json
+    group: SENTINEL_GROUP
+
+media.monitor.dlq-groups: video_content_understood,video_review_result,video_publication_count,video_publication_search,video_publication_notice

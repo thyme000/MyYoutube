@@ -55,11 +55,10 @@ public class InternalMediaDraftController {
             return false;
         }
         MediaDraftStatusEnum target = MediaDraftStatusEnum.valueOf(statusCode.toUpperCase());
-        // 合法迁移: UPLOADING->PROCESSING, PROCESSING->READY/FAILED, READY->PUBLISHED
+        // 提交只允许业务事务冻结输入，处理回调不能把草稿置为 SUBMITTED。
         MediaDraftStatusEnum expect = switch (target) {
             case PROCESSING -> MediaDraftStatusEnum.UPLOADING;
             case READY, FAILED -> MediaDraftStatusEnum.PROCESSING;
-            case PUBLISHED -> MediaDraftStatusEnum.READY;
             default -> null;
         };
         if (expect == null) {

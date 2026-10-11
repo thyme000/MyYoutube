@@ -18,8 +18,6 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
-import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategy;
-import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
@@ -72,7 +70,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final IContentService contentService;
-    private final ContentTypeStrategyRegistry contentTypeStrategies;
+    private final cn.diaojiahong.myyoutube.content.service.ContentAccessService access;
     private final StringRedisTemplate redisTemplate;
     private final RocketMQTemplate rocketMQTemplate;
     private final TransactionTemplate transactionTemplate;
@@ -81,18 +79,9 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
     @Override
     public void publishComment(CommentDTO commentDTO) {
         Long parentId = commentDTO.getParentId() == null ? 0L : commentDTO.getParentId();
-        Content content = contentService.getById(commentDTO.getVideoId());
-        if (content == null) {
-
-            throw new IllegalArgumentException("内容不存在");
-        }
-        // 评论开关随内容类型走各自策略: 视频有开关, 动态默认可评论
-        ContentTypeStrategy contentTypeStrategy = contentTypeStrategies.get(content.getType());
-        if (contentTypeStrategy != null) {
-
-            contentTypeStrategy.assertCommentAllowed(content.getId());
-        }
         Long userId = getUserId();
+        Content content = access.readable(commentDTO.getContentId(), userId);
+        access.requireCommentable(content, userId);
         // 父评论校验放事务外, 只在回复时查
         ContentComment parent = null;
         if (parentId != 0) {
@@ -101,7 +90,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
 
                 throw new IllegalArgumentException("父评论不存在或不可回复");
             }
-            if (!Objects.equals(p.getContentId(), commentDTO.getVideoId())) {
+            if (!Objects.equals(p.getContentId(), commentDTO.getContentId())) {
 
                 throw new IllegalArgumentException("父评论不属于该内容");
             }
@@ -110,7 +99,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         final ContentComment parentRef = parent;
         ContentComment comment = new ContentComment()
                 .setUserId(userId)
-                .setContentId(commentDTO.getVideoId())
+                .setContentId(commentDTO.getContentId())
                 .setContent(commentDTO.getContent())
                 .setLikeCount(0)
                 .setReplyCount(0)
@@ -122,6 +111,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         comment.setCreateTime(LocalDateTime.now());
         // 事务只圈 DB 写, 避免包住 MQ
         transactionTemplate.executeWithoutResult(tx -> {
+            access.requireCommentable(access.locked(content.getId()), userId);
             save(comment);
             // path 要用自增 id, 只能先 save 再回填
             comment.setPath(parentRef == null ? String.valueOf(comment.getId()) : parentRef.getPath() + "." + comment.getId());
@@ -131,7 +121,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
                 lambdaUpdate().eq(ContentComment::getId, rootIdOf(parentRef))
                         .setIncrBy(ContentComment::getReplyCount, 1).update();
             }
-            contentService.lambdaUpdate().eq(Content::getId, commentDTO.getVideoId())
+            contentService.lambdaUpdate().eq(Content::getId, commentDTO.getContentId())
                     .setIncrBy(Content::getCommentCount, 1).update();
         });
 
@@ -208,8 +198,8 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
 
     @Override
     public CommentPageVO getRootComments(CommentListQuery query) {
-        Long contentId = query.getVideoId();
-        Content content = contentService.getById(contentId);
+        Long contentId = query.getContentId();
+        Content content = access.readable(contentId, getUserId());
         if (content == null) {
 
             throw new IllegalArgumentException("内容不存在");
@@ -249,6 +239,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
 
             throw new IllegalArgumentException("评论不存在");
         }
+        access.readable(root.getContentId(), getUserId());
         int limit = clampPageSize(query.getPageSize());
         CommentCursor cursor = CommentCursor.decode(query.getCursor());
         LambdaQueryWrapper<ContentComment> w = new LambdaQueryWrapper<ContentComment>()
@@ -400,7 +391,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         }
         List<CommentVO> voList = records.stream().map(record -> {
             CommentVO vo = BeanUtil.toBean(record, CommentVO.class);
-            vo.setVideoId(record.getContentId());
+            vo.setContentId(record.getContentId());
             vo.setCreateTime(record.getCreateTime() == null ? null : TIME_FORMATTER.format(record.getCreateTime()));
             if (CommentStatusEnum.BLOCKED.getCode().equals(record.getStatus())) {
                 vo.setContent("[评论违规,已被处理]");

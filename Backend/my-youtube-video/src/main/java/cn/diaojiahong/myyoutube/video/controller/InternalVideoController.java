@@ -6,22 +6,13 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
-import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
 import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.video.api.NotificationPort;
-import cn.diaojiahong.myyoutube.video.api.VideoInternalPort;
-import cn.diaojiahong.myyoutube.video.api.enums.VideoStatusEnum;
-import cn.diaojiahong.myyoutube.video.api.enums.VideoVisibilityEnum;
-import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
-import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
-import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.PreferencePort;
-import cn.diaojiahong.myyoutube.video.service.IVideoService;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -42,58 +33,47 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class InternalVideoController {
 
-    private final IVideoService videoService;
-    private final DynamicMapper dynamicMapper;
+
+    private final cn.diaojiahong.myyoutube.recommend.service.IContentTagService contentTags;
+
     private final IContentService contentService;
+    private final cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper likes;
+    private final cn.diaojiahong.myyoutube.content.service.ContentAccessService access;
     private final CounterBuffer counterBuffer;
-    private final ObjectMapper objectMapper;
+
     private final IUserFollowService userFollowService;
     private final NotificationPublisher notificationPublisher;
     private final IUserTagPreferenceService userTagPreferenceService;
 
-    @GetMapping("/video/forward-info/{videoId}")
-    public VideoInternalPort.ForwardVideoInfo getForwardVideo(@PathVariable Long videoId) {
-        Video video = videoService.getById(videoId);
-        if (video == null || Boolean.TRUE.equals(video.getIsDelete())) {
-            return null;
-        }
-        return new VideoInternalPort.ForwardVideoInfo(video.getId(), video.getTitle(), video.getCoverUrl());
+    @GetMapping("/content/search-document/{contentId}")
+    public cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage searchDocument(@PathVariable Long contentId) {
+        var content = contentService.getById(contentId);
+        if (content == null || Integer.valueOf(1).equals(content.getIsDelete())) return null;
+        var tagIds = contentTags.lambdaQuery().eq(cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag::getContentId, contentId)
+                .list().stream().map(cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag::getTagId).toList();
+        return cn.diaojiahong.myyoutube.content.support.ContentDocMessages.of(content, tagIds);
     }
-
-    // Feign 基路径是 /internal/video, 这里必须拼全 /video/dynamic/... 否则 chat 转发动态 404
-    @GetMapping("/video/dynamic/forward-info/{dynamicId}")
-    public VideoInternalPort.ForwardDynamicInfo getForwardDynamic(@PathVariable Long dynamicId) {
-        Dynamic dynamic = dynamicMapper.selectById(dynamicId);
-        if (dynamic == null || Integer.valueOf(1).equals(dynamic.getIsDelete())) {
-            return null;
-        }
-        return new VideoInternalPort.ForwardDynamicInfo(dynamic.getId(), dynamic.getTitle(), firstFrameKey(dynamic.getTimelineJson()));
+    @GetMapping("/content/forward-info/{contentId}")
+    public ContentInternalPort.ForwardInfo forwardInfo(@PathVariable Long contentId, @RequestParam Long viewerId) {
+        var content = access.readable(contentId, viewerId);
+        return new ContentInternalPort.ForwardInfo(contentId, content.getType().getCode(), content.getTitle(), content.getCoverObjectKey());
     }
-
-    /** 从时间轴 JSON 里取首帧图片 objectKey 作封面(与 ContentSummaryPortImpl 同口径) */
-    private String firstFrameKey(String timelineJson) {
-        if (timelineJson == null) {
-            return null;
-        }
-        try {
-            List<Map<String, Object>> timeline = objectMapper.readValue(timelineJson,
-                    new TypeReference<List<Map<String, Object>>>() {});
-            if (!timeline.isEmpty() && timeline.get(0).get("imageObjectKey") != null) {
-                return String.valueOf(timeline.get(0).get("imageObjectKey"));
-            }
-        } catch (Exception ignored) {
-            // 时间轴解析失败时封面留空
-        }
-        return null;
-    }
-
-    @PostMapping("/video/share/{videoId}")
-    public boolean incrementShareCount(@PathVariable Long videoId) {
-        // 计数缓冲: 转发链路高频小增量, 批量落库
-        counterBuffer.add(CounterType.CONTENT_SHARE, videoId, 1);
+    @PostMapping("/content/share/{contentId}")
+    public boolean incrementShareCount(@PathVariable Long contentId, @RequestParam Long viewerId) {
+        access.readable(contentId, viewerId);
+        counterBuffer.add(CounterType.CONTENT_SHARE, contentId, 1);
         return true;
     }
 
+    @PostMapping("/content/liked-map")
+    public Map<Long, Boolean> likedMap(@RequestParam Long userId, @RequestBody java.util.Set<Long> contentIds) {
+        if (contentIds.isEmpty()) return Map.of();
+        return likes.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<cn.diaojiahong.myyoutube.like.domain.po.ContentLike>()
+                .eq(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getUserId, userId)
+                .eq(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getIsLiked, 1)
+                .in(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getContentId, contentIds)).stream()
+                .collect(java.util.stream.Collectors.toMap(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getContentId, row -> true));
+    }
     @GetMapping("/follow/follow-ids")
     public List<Long> getFollowIds(@RequestParam("userId") Long userId) {
         return userFollowService.getFollowIds(userId);

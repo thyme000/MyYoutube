@@ -1,11 +1,11 @@
 package cn.diaojiahong.myyoutube.history.service;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
+import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.history.domain.po.UserViewHistory;
 import cn.diaojiahong.myyoutube.history.domain.vo.HistoryVO;
@@ -21,7 +21,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -42,7 +41,7 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
 
     private final UserViewHistoryMapper historyMapper;
     private final ContentSummaryPort contentSummaryPort;
-    private final IContentService contentService;
+    private final ContentAccessService access;
     private final UserPort userPort;
     private final IUserFollowService userFollowService;
     private final S3StorageUtil storageUtil;
@@ -50,31 +49,31 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
     @Override
     public void record(Long contentId) {
         Long userId = getUserId();
-        if (contentService.getById(contentId) == null) {
-
-            throw new BizException(BizException.BIZ_ERROR, "内容不存在");
-        }
+        access.readable(contentId, userId);
         historyMapper.upsert(userId, contentId);
         return;
     }
 
     @Override
-    public PageResult<HistoryVO> page(PageQuery pageQuery) {
+    public PageResult<HistoryVO> page(ContentPageQuery pageQuery) {
         Long userId = getUserId();
+        pageQuery.mediaType();
+        int total = historyMapper.selectHistoryCount(userId, pageQuery.getType());
+        int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
-        List<Long> contentIds = historyMapper.selectHistoryIds(userId, offset, pageQuery.getPageSize());
+        List<Long> contentIds = historyMapper.selectHistoryIds(userId, pageQuery.getType(), offset, pageQuery.getPageSize());
         if (contentIds.isEmpty()) {
 
-            return PageResult.of(0, 0, List.of());
+            return PageResult.of(total, totalPages, List.of());
         }
 
         // toList 保序: 摘要装配按入参顺序返回, 即 view_time 倒序
         List<ContentSummary> summaries = contentSummaryPort.listByIdsOrdered(
-                contentIds.stream().map(String::valueOf).toList());
+                new ContentSummaryPort.SummaryQuery(contentIds.stream().map(String::valueOf).toList(), userId));
         // 内容被删的条目不再回显, 以摘要装配结果为准
         if (summaries.isEmpty()) {
 
-            return PageResult.of(0, 0, List.of());
+            return PageResult.of(total, totalPages, List.of());
         }
 
         Map<Long, LocalDateTime> viewTimeById = lambdaQuery()
@@ -105,8 +104,6 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
             vo.setIsFollow(isFollows.get(i));
         }
 
-        int total = historyMapper.selectHistoryCount(userId);
-        int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
         return PageResult.of(total, totalPages, voList);
     }
 

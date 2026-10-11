@@ -4,7 +4,7 @@ import lombok.Data;
 
 @Data
 public class CommentListQuery {
-    private Long videoId;
+    private Long contentId;
     /** hot / latest, 缺省 hot */
     private String tab;
     /** 「排序值.评论id」, 首页不传 */

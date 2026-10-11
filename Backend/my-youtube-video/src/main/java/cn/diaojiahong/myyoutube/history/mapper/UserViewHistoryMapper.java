@@ -20,7 +20,7 @@ public interface UserViewHistoryMapper extends BaseMapper<UserViewHistory> {
     void upsert(@Param("userId") Long userId, @Param("contentId") Long contentId);
 
     /** 按最近观看倒序分页取 content_id, join content 保证内容仍存在 */
-    List<Long> selectHistoryIds(@Param("userId") Long userId, @Param("offset") int offset, @Param("size") int size);
+    List<Long> selectHistoryIds(@Param("userId") Long userId, @Param("type") String type, @Param("offset") int offset, @Param("size") int size);
 
-    int selectHistoryCount(@Param("userId") Long userId);
+    int selectHistoryCount(@Param("userId") Long userId, @Param("type") String type);
 }

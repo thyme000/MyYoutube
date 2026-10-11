@@ -20,7 +20,12 @@ import java.util.Map;
  * @since 2026-03-25
  */
 @Service
+@lombok.RequiredArgsConstructor
+@lombok.extern.slf4j.Slf4j
 public class ContentTagServiceImpl extends ServiceImpl<ContentTagMapper, ContentTag> implements IContentTagService {
+
+    private final cn.diaojiahong.myyoutube.recommend.service.ITagService tags;
+    private final cn.diaojiahong.myyoutube.recommend.tag.TagPoolHolder pool;
 
     @Override
     @Transactional
@@ -28,6 +33,21 @@ public class ContentTagServiceImpl extends ServiceImpl<ContentTagMapper, Content
         if (contentId == null) {
             throw new IllegalArgumentException("内容id不能为空!");
         }
+        var old = lambdaQuery().eq(ContentTag::getContentId, contentId).list().stream().map(ContentTag::getTagId)
+                .collect(java.util.stream.Collectors.toSet());
+        var current = tagWeights == null ? java.util.Set.<Long>of() : java.util.Set.copyOf(tagWeights.keySet());
+        var changed = new java.util.HashSet<>(old); changed.addAll(current);
+        var values = changed.isEmpty() ? java.util.List.<cn.diaojiahong.myyoutube.recommend.domain.po.Tag>of() : tags.listByIds(changed);
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCommit() {
+                        for (var tag : values) {
+                            int delta = (current.contains(tag.getId()) ? 1 : 0) - (old.contains(tag.getId()) ? 1 : 0);
+                            if (delta != 0) try { pool.incrRefCount(tag, delta); }
+                            catch (Exception error) { log.warn("Tag popularity requires reconciliation tagId={}", tag.getId(), error); }
+                        }
+                    }
+                });
         lambdaUpdate().eq(ContentTag::getContentId, contentId).remove();
         if (tagWeights == null || tagWeights.isEmpty()) {
             return List.of();

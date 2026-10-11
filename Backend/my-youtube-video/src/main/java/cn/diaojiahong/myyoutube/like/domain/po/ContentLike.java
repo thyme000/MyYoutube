@@ -12,7 +12,7 @@ import lombok.experimental.Accessors;
 
 /**
  * <p>
- * 视频点赞表
+ * 内容点赞表
  * </p>
  *
  * @author thyme

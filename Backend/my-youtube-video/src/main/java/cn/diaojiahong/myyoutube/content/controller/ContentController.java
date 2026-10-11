@@ -1,78 +1,86 @@
 package cn.diaojiahong.myyoutube.content.controller;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.page.PageQuery;
-import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.page.*;
+import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
-import cn.diaojiahong.myyoutube.content.service.IContentFeedService;
-import cn.diaojiahong.myyoutube.video.domain.enums.VideoSortEnum;
+import cn.diaojiahong.myyoutube.content.domain.vo.*;
+import cn.diaojiahong.myyoutube.content.service.*;
+import cn.diaojiahong.myyoutube.video.domain.enums.ContentSortEnum;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
-/**
- * 统一内容池消费端接口: 连播流与首页混排网格(视频/动态同池)
- */
 @RestController
 @RequestMapping("/contents")
 @RequiredArgsConstructor
 public class ContentController {
+    private final IContentFeedService feeds;
+    private final ContentReadService reads;
+    private final ContentSettingsService settings;
+    private final ContentDownloadService downloads;
+    private final ContentPlaybackService playback;
 
-    private final IContentFeedService contentFeedService;
+    @GetMapping("/{contentId}/playback")
+    public Result<ContentPlaybackVO> playback(@PathVariable Long contentId) {
+        return Result.success(playback.get(contentId, userId()));
+    }
+    @PutMapping("/{contentId}/playback")
+    public Result<Void> playback(@PathVariable Long contentId, @RequestBody cn.diaojiahong.myyoutube.content.domain.dto.ContentPlaybackDTO body) {
+        playback.save(contentId, userId(), body); return Result.success();
+    }
 
-    /**
-     * 按作者查内容(详情层侧栏): 视频与动态同列; 他人仅公开, 本人含私密
-     */
+    @GetMapping("/{contentId}")
+    public Result<ContentDetailVO> detail(@PathVariable Long contentId) {
+        return Result.success(reads.detail(contentId, userId()));
+    }
+    @GetMapping("/{contentId}/subtitles")
+    public Result<String> subtitles(@PathVariable Long contentId) {
+        return Result.success(reads.subtitles(contentId, userId()));
+    }
+    @PutMapping("/{contentId}/settings")
+    public Result<Void> settings(@PathVariable Long contentId, @RequestBody ContentSettingsService.Settings body) {
+        settings.update(contentId, userId(), body); return Result.success();
+    }
+    @DeleteMapping("/{contentId}")
+    public Result<Void> delete(@PathVariable Long contentId) {
+        settings.delete(contentId, userId()); return Result.success();
+    }
+    @PostMapping("/{contentId}/download")
+    public Result<ContentDownloadService.Download> download(@PathVariable Long contentId) {
+        return Result.success(downloads.create(contentId, userId()));
+    }
+    @GetMapping("/download-tasks/{taskId}")
+    public Result<ContentDownloadService.Download> downloadStatus(@PathVariable Long taskId) {
+        return Result.success(downloads.status(taskId, userId()));
+    }
     @GetMapping("/author/{authorId}")
-    public Result<PageResult<ContentFeedVO>> byAuthor(@PathVariable Long authorId, @ModelAttribute PageQuery pageQuery) {
-        return Result.success(contentFeedService.byAuthor(getUserId(), authorId, pageQuery));
+    public Result<PageResult<ContentFeedVO>> byAuthor(@PathVariable Long authorId, @ModelAttribute ContentPageQuery query) {
+        return Result.success(feeds.byAuthor(userId(), authorId, query));
     }
-
-    /**
-     * 关注流(关注页连播): 所有关注作者的内容, 视频与动态同池, 时间序
-     */
     @GetMapping("/follow/list")
-    public Result<PageResult<ContentFeedVO>> followList(@ModelAttribute PageQuery pageQuery) {
-        return Result.success(contentFeedService.followFeed(getUserId(), pageQuery));
+    public Result<PageResult<ContentFeedVO>> follow(@ModelAttribute ContentPageQuery query) {
+        return Result.success(feeds.followFeed(userId(), query));
     }
-
-    /**
-     * 统一消费流(连播): 推荐召回全量混排
-     */
     @GetMapping("/feed")
-    public Result<PageResult<ContentFeedVO>> feed(@ModelAttribute PageQuery pageQuery) {
-        return Result.success(contentFeedService.feed(getUserId(), pageQuery));
+    public Result<PageResult<ContentFeedVO>> feed(@ModelAttribute ContentPageQuery query) {
+        return Result.success(feeds.feed(userId(), query));
     }
-
-    /**
-     * 首页混排网格: sort=recommended 走推荐, 其余按计数/时间排序; category 过滤时仅视频
-     */
     @GetMapping("/list")
-    public Result<PageResult<ContentFeedVO>> list(@ModelAttribute PageQuery pageQuery,
-                                                  @RequestParam(required = false) VideoSortEnum sort,
-                                                  @RequestParam(required = false) String category) {
-        return Result.success(contentFeedService.list(getUserId(), sort, category, pageQuery));
+    public Result<PageResult<ContentFeedVO>> list(@ModelAttribute ContentPageQuery query, @RequestParam(required = false) String sort,
+                                                @RequestParam(required = false) String category) {
+        var order = ContentSortEnum.fromField(sort);
+        if (sort != null && order == null)
+            throw new BizException(BizException.BIZ_ERROR, "排序方式无效");
+        return Result.success(feeds.list(userId(), order, category, query));
     }
-
-    /**
-     * 我的内容(创作中心/我的作品): 视频与动态同列, 含审核状态与可见性
-     */
     @GetMapping("/mine")
-    public Result<PageResult<ContentFeedVO>> mine(@ModelAttribute PageQuery pageQuery) {
-        return Result.success(contentFeedService.mine(getUserId(), pageQuery));
+    public Result<PageResult<ContentFeedVO>> mine(@ModelAttribute ContentPageQuery query) {
+        return Result.success(feeds.mine(userId(), query));
     }
-
-    private static Long getUserId() {
-        String userId = UserContext.getUserId();
-        if (userId == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
-        }
-        return Long.valueOf(userId);
+    private static Long userId() {
+        String id = UserContext.getUserId();
+        if (id == null) throw new BizException(BizException.USER_ERROR, "用户未登录");
+        return Long.valueOf(id);
     }
 }

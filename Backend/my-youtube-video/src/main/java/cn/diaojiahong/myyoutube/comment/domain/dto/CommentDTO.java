@@ -4,7 +4,7 @@ import lombok.Data;
 
 @Data
 public class CommentDTO {
-    private Long videoId;
+    private Long contentId;
     private String content;
     private Long parentId;
 }

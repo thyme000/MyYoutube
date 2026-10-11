@@ -3,12 +3,11 @@ package cn.diaojiahong.myyoutube.notification.service.impl;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
-import cn.diaojiahong.myyoutube.content.domain.po.Content;
-import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
+import cn.diaojiahong.myyoutube.video.api.enums.RefTypeEnum;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
@@ -39,11 +38,10 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMapper, UserNotification> implements IUserNotificationService {
-    private final IContentService contentService;
+    private final ContentAccessService access;
 
     private final UserPort userPort;
-    private final IContentCommentService videoCommentService;
-    private final S3StorageUtil storageUtil;
+    private final IContentCommentService comments;
 
     @Override
     public PageResult<NotificationVO> getNotificationList(PageQuery pageQuery) {
@@ -65,26 +63,21 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
             vo.setId(r.getId());
             vo.setSenderId(r.getSenderId());
             vo.setType(NotificationTypeEnum.valueOf(r.getType()));
-            if (r.getType().equals(NotificationTypeEnum.VIDEO_COMMENT.getCode())) {
-
-                // 存库时 refId 即为内容 id（非评论 id）
-                vo.setVideoId(r.getRefId());
-            } else if (r.getType().equals(NotificationTypeEnum.COMMENT_LIKE.getCode()) ||
-                    r.getType().equals(NotificationTypeEnum.COMMENT_REPLY.getCode())) {
-
-                ContentComment comment = videoCommentService.getById(r.getRefId());
-                if (comment != null && !comment.getStatus().equals(CommentStatusEnum.DELETED.getCode())) {
-
-                    vo.setVideoId(comment.getContentId());
-                }
+            vo.setRefType(r.getRefType());
+            Long contentId = null;
+            if (RefTypeEnum.CONTENT.getCode().equals(r.getRefType())) contentId = r.getRefId();
+            else if (RefTypeEnum.COMMENT.getCode().equals(r.getRefType())) {
+                ContentComment comment = comments.getById(r.getRefId());
+                if (comment != null && !CommentStatusEnum.DELETED.getCode().equals(comment.getStatus()))
+                    contentId = comment.getContentId();
             }
-            // 跳转目标的内容类型(视频/动态), 供前端分流
-            if (vo.getVideoId() != null) {
-
-                Content content = contentService.getById(vo.getVideoId());
-                if (content != null && content.getType() != null) {
-
-                    vo.setRefType(content.getType().getCode());
+            if (contentId != null) {
+                try {
+                    var current = access.readable(contentId, userId);
+                    vo.setContentId(current.getId());
+                    vo.setMediaType(current.getType().getCode());
+                } catch (BizException ignored) {
+                    // 通知保留，失效或已无权访问的内容不提供跳转目标。
                 }
             }
             vo.setContent(r.getContent());
@@ -94,16 +87,12 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
             result.add(vo);
         });
 
-        // 填充发送者昵称与头像url
+        // 填充发送者昵称
         List<Long> senderIds = result.stream().map(NotificationVO::getSenderId).toList();
         List<UserSummary> senders = userPort.listByIds(senderIds);
         Map<Long, String> nicknames = UserSummaries.toNicknameMap(senders);
         result.forEach(r -> {
-            r.setSenderNickname(nicknames.getOrDefault(r.getSenderId(), ""));
-        });
-        Map<Long, String> avatarUrls = UserSummaries.toAvatarMap(senders);
-        result.forEach(r -> {
-            r.setSenderAvatarUrl(storageUtil.signGetUrl(avatarUrls.getOrDefault(r.getSenderId(), ""), 300));
+            r.setSenderNickname(r.getSenderId() != null ? nicknames.getOrDefault(r.getSenderId(), "") : "");
         });
 
         return PageResult.of(page.getTotal(), page.getPages(), result);
@@ -114,7 +103,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
 
         UserNotification notification = getById(notificationId);
         Long userId = getUserId();
-        if (!Objects.equals(notification.getReceiverId(), userId)) {
+        if (notification == null || !Objects.equals(notification.getReceiverId(), userId)) {
 
             throw new BizException(BizException.NOTIFICATION_ERROR,"不能读取他人通知");
         }

@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.video.domain.po;
 
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -25,6 +26,22 @@ public class MediaDraft implements Serializable {
     private Long id;
 
     private Long userId;
+
+    private ContentTypeEnum type;
+
+    private String title;
+
+    private String description;
+
+    private String visibility;
+
+    private Integer allowComment;
+
+    private String mediaJson;
+
+    private String coverObjectKey;
+
+    private Integer revision;
 
     private String objectKey;
 

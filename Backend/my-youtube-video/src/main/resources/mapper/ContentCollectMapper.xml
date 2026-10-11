@@ -2,12 +2,19 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.diaojiahong.myyoutube.collect.mapper.ContentCollectMapper">
 
+    <sql id="readable">
+        AND c.is_delete = 0 AND c.status = 'published'
+        AND (c.visibility = 'public' OR c.author_id = #{userId})
+        <if test="type != null">AND c.type = #{type}</if>
+    </sql>
+
     <select id="selectCollectIds" resultType="java.lang.Long">
         SELECT cc.content_id
         FROM content_collect cc
                  INNER JOIN content c ON cc.content_id = c.id
         WHERE cc.user_id = #{userId}
-        ORDER BY cc.create_time DESC
+        <include refid="readable"/>
+        ORDER BY cc.create_time DESC, cc.content_id DESC
             LIMIT #{offset}, #{size}
     </select>
 
@@ -16,5 +23,6 @@
         FROM content_collect cc
                  INNER JOIN content c ON cc.content_id = c.id
         WHERE cc.user_id = #{userId}
+        <include refid="readable"/>
     </select>
 </mapper>

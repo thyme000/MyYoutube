@@ -1,0 +1,89 @@
+package cn.diaojiahong.myyoutube.content.service;
+
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.media.DynamicMedia;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
+import cn.diaojiahong.myyoutube.video.domain.dto.ContentMetadataDTO;
+import cn.diaojiahong.myyoutube.video.domain.dto.DynamicDraftDTO;
+import cn.diaojiahong.myyoutube.video.domain.po.MediaDraft;
+import cn.diaojiahong.myyoutube.video.domain.vo.ContentDraftVO;
+import cn.diaojiahong.myyoutube.video.mapper.MediaDraftMapper;
+import cn.diaojiahong.myyoutube.video.service.DynamicMediaPreparationService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+public class ContentDraftService {
+    private final MediaDraftMapper drafts;
+    private final DynamicMediaPreparationService preparation;
+
+    public ContentDraftVO saveDynamic(Long draftId, Long userId, DynamicDraftDTO dto) {
+        MediaDraft current = draftId == null ? null : owned(draftId, userId);
+        if (current != null && (current.getType() != ContentTypeEnum.DYNAMIC || current.getStatus() != MediaDraftStatusEnum.READY))
+            throw new BizException(BizException.BIZ_ERROR, "草稿不可编辑");
+        if (dto == null) throw new BizException(BizException.BIZ_ERROR, "草稿不能为空");
+        var draft = new MediaDraft().setId(draftId == null ? IdWorker.getId() : draftId).setUserId(userId)
+                .setType(ContentTypeEnum.DYNAMIC).setStatus(MediaDraftStatusEnum.READY)
+                .setTitle(ContentSubmissionRules.title(dto.getTitle()))
+                .setDescription(ContentSubmissionRules.description(dto.getDescription()))
+                .setVisibility("public")
+                .setAllowComment(ContentSubmissionRules.allowComment(dto.getAllowComment()));
+        var prepared = preparation.prepare(dto, userId);
+        var media = prepared.media();
+        draft.setMediaJson(JsonUtil.toJson(media)).setDurationMs(media.exportDurationMs())
+                .setCoverObjectKey(prepared.coverObjectKey()).setRevision(current == null ? 0 : current.getRevision() + 1);
+        if (current == null) drafts.insert(draft);
+        else {
+            int changed = drafts.update(null, editable(draftId, userId)
+                    .eq(MediaDraft::getType, ContentTypeEnum.DYNAMIC)
+                    .eq(MediaDraft::getStatus, MediaDraftStatusEnum.READY)
+                    .eq(MediaDraft::getRevision, current.getRevision())
+                    .set(MediaDraft::getTitle, draft.getTitle()).set(MediaDraft::getDescription, draft.getDescription())
+                    .set(MediaDraft::getVisibility, draft.getVisibility()).set(MediaDraft::getAllowComment, draft.getAllowComment())
+                    .set(MediaDraft::getMediaJson, draft.getMediaJson()).set(MediaDraft::getDurationMs, draft.getDurationMs())
+                    .set(MediaDraft::getCoverObjectKey, draft.getCoverObjectKey()).setIncrBy(MediaDraft::getRevision, 1));
+            if (changed == 0) throw new BizException(BizException.BIZ_ERROR, "草稿已提交或状态已变化");
+        }
+        return view(draft);
+    }
+
+    public ContentDraftVO saveMetadata(Long draftId, Long userId, ContentMetadataDTO dto) {
+        owned(draftId, userId);
+        if (dto == null) throw new BizException(BizException.BIZ_ERROR, "草稿不能为空");
+        int changed = drafts.update(null, editable(draftId, userId)
+                .set(MediaDraft::getTitle, ContentSubmissionRules.title(dto.getTitle()))
+                .set(MediaDraft::getDescription, ContentSubmissionRules.description(dto.getDescription()))
+                .set(MediaDraft::getVisibility, "public")
+                .set(MediaDraft::getAllowComment, ContentSubmissionRules.allowComment(dto.getAllowComment()))
+                .setIncrBy(MediaDraft::getRevision, 1));
+        if (changed == 0) throw new BizException(BizException.BIZ_ERROR, "草稿已提交或状态已变化");
+        return get(draftId, userId);
+    }
+
+    public ContentDraftVO get(Long draftId, Long userId) { return view(owned(draftId, userId)); }
+
+    private MediaDraft owned(Long draftId, Long userId) {
+        var draft = drafts.selectById(draftId);
+        if (draft == null || !userId.equals(draft.getUserId()))
+            throw new BizException(BizException.BIZ_ERROR, "草稿不存在");
+        return draft;
+    }
+
+    private LambdaUpdateWrapper<MediaDraft> editable(Long draftId, Long userId) {
+        return new LambdaUpdateWrapper<MediaDraft>().eq(MediaDraft::getId, draftId).eq(MediaDraft::getUserId, userId)
+                .in(MediaDraft::getStatus, MediaDraftStatusEnum.UPLOADING, MediaDraftStatusEnum.PROCESSING, MediaDraftStatusEnum.READY);
+    }
+
+    private ContentDraftVO view(MediaDraft draft) {
+        return new ContentDraftVO(draft.getId(), draft.getType().getCode(), draft.getStatus().getCode(), draft.getTitle(),
+                draft.getDescription(), draft.getVisibility(), draft.getAllowComment(), draft.getCoverObjectKey(), draft.getObjectKey(), draft.getDurationMs(),
+                draft.getType() == ContentTypeEnum.DYNAMIC ? JsonUtil.fromJson(draft.getMediaJson(), DynamicMedia.class) : null,
+                draft.getErrorMessage());
+    }
+}

@@ -8,7 +8,7 @@ import java.util.List;
 
 /**
  * <p>
- * 视频点赞表 Mapper 接口
+ * 内容点赞表 Mapper 接口
  * </p>
  *
  * @author thyme
@@ -16,7 +16,7 @@ import java.util.List;
  */
 public interface ContentLikeMapper extends BaseMapper<ContentLike> {
 
-    List<Long> selectListByUserId(@Param("userId") Long userId, @Param("offset") int offset, @Param("size") int size);
+    List<Long> selectListByUserId(@Param("userId") Long userId, @Param("viewerId") Long viewerId, @Param("type") String type, @Param("offset") int offset, @Param("size") int size);
 
-    int selectUserLikedCount(@Param("userId") Long userId);
+    int selectUserLikedCount(@Param("userId") Long userId, @Param("viewerId") Long viewerId, @Param("type") String type);
 }

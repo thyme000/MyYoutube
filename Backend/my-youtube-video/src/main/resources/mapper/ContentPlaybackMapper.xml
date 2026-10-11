@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.content.mapper.ContentPlaybackMapper">
+    <sql id="newer">
+        (#{state.sessionStartedAt} &gt; session_started_at OR
+        (#{state.sessionStartedAt} = session_started_at AND #{state.sequence} &gt;= sequence))
+    </sql>
+    <insert id="save">
+        INSERT INTO content_playback(user_id, content_id, session_id, session_started_at, sequence, watched_ms,
+            video_position_ms, image_index, image_elapsed_ms, audio_position_ms)
+        VALUES(#{userId}, #{contentId}, #{state.sessionId}, #{state.sessionStartedAt}, #{state.sequence}, #{state.watchedMs},
+            #{state.videoPositionMs}, #{state.imageIndex}, #{state.imageElapsedMs}, #{state.audioPositionMs})
+        ON DUPLICATE KEY UPDATE
+            session_id = CASE WHEN <include refid="newer"/> THEN #{state.sessionId} ELSE session_id END,
+            watched_ms = CASE WHEN <include refid="newer"/> THEN #{state.watchedMs} ELSE watched_ms END,
+            video_position_ms = CASE WHEN <include refid="newer"/> THEN #{state.videoPositionMs} ELSE video_position_ms END,
+            image_index = CASE WHEN <include refid="newer"/> THEN #{state.imageIndex} ELSE image_index END,
+            image_elapsed_ms = CASE WHEN <include refid="newer"/> THEN #{state.imageElapsedMs} ELSE image_elapsed_ms END,
+            audio_position_ms = CASE WHEN <include refid="newer"/> THEN #{state.audioPositionMs} ELSE audio_position_ms END,
+            sequence = CASE WHEN <include refid="newer"/> THEN #{state.sequence} ELSE sequence END,
+            session_started_at = GREATEST(session_started_at, #{state.sessionStartedAt})
+    </insert>
+</mapper>

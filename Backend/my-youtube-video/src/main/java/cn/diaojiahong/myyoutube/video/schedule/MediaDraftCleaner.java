@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.transcode.api.MediaTaskPort;
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.MediaDraft;
 import cn.diaojiahong.myyoutube.video.mapper.MediaDraftMapper;
 import cn.diaojiahong.myyoutube.video.service.impl.MediaDraftService;
@@ -81,7 +82,8 @@ public class MediaDraftCleaner {
             return;
         }
         if (mediaDraftService.expire(draft.getId(), List.of(MediaDraftStatusEnum.READY, MediaDraftStatusEnum.FAILED))) {
-            deletePipelineArtifacts(draft.getId(), draft.getObjectKey());
+            // 图集引用可被其他草稿或已发布内容共用，不能随单个草稿删除原始素材。
+            if (draft.getType() == ContentTypeEnum.VIDEO) deletePipelineArtifacts(draft.getId(), draft.getObjectKey());
             log.info("超期未发布草稿已回收: draftId={}", draft.getId());
         }
     }
@@ -103,10 +105,10 @@ public class MediaDraftCleaner {
                 return;
             }
             for (MediaTaskPort.TaskResult t : results) {
-                if (!"SUCCESS".equals(t.getStatus()) || t.getResultJson() == null) {
+                if (!"SUCCESS".equals(t.status()) || t.resultJson() == null) {
                     continue;
                 }
-                JsonObject json = JsonUtil.GSON.fromJson(t.getResultJson(), JsonObject.class);
+                JsonObject json = JsonUtil.GSON.fromJson(t.resultJson(), JsonObject.class);
                 if (json.has("processedObjectKey")) {
                     storageUtil.deleteObjectQuietly(json.get("processedObjectKey").getAsString());
                 }

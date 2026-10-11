@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.collect.controller;
 
 import cn.diaojiahong.myyoutube.collect.domain.vo.CollectVO;
 import cn.diaojiahong.myyoutube.collect.service.IContentCollectService;
-import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import io.swagger.v3.oas.annotations.Operation;
@@ -48,7 +48,7 @@ public class ContentCollectController {
 
     @Operation(summary = "我的收藏分页")
     @GetMapping("/page")
-    public Result<PageResult<CollectVO>> page(@ModelAttribute PageQuery pageQuery) {
+    public Result<PageResult<CollectVO>> page(@ModelAttribute ContentPageQuery pageQuery) {
         return Result.success(contentCollectService.page(pageQuery));
     }
 

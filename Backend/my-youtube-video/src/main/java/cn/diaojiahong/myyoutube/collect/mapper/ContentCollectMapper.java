@@ -17,7 +17,7 @@ import java.util.List;
 public interface ContentCollectMapper extends BaseMapper<ContentCollect> {
 
     /** 按收藏时间倒序分页取 content_id, join content 保证内容仍存在 */
-    List<Long> selectCollectIds(@Param("userId") Long userId, @Param("offset") int offset, @Param("size") int size);
+    List<Long> selectCollectIds(@Param("userId") Long userId, @Param("type") String type, @Param("offset") int offset, @Param("size") int size);
 
-    int selectCollectCount(@Param("userId") Long userId);
+    int selectCollectCount(@Param("userId") Long userId, @Param("type") String type);
 }

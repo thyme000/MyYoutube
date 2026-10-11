@@ -20,9 +20,8 @@ public class NotificationVO {
     private String content;
     // 目标id
     private Long refId;
-    // 视频id(统一内容池后为内容id)
-    private Long videoId;
-    // 关联内容类型: video/dynamic, 前端据此分流跳转
+    private Long contentId;
+    private String mediaType;
     private String refType;
     // 发送时间
     private LocalDateTime createTime;
