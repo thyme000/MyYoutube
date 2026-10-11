@@ -96,13 +96,26 @@ services:
     volumes:
       - rocketmq-namesrv-logs:/home/rocketmq/logs
 
+  rocketmq-broker-volume-init:
+    image: apache/rocketmq:5.5.0
+    # 官方镜像以 UID 3000 运行，新卷的根目录可能属于 root。
+    user: "0:0"
+    entrypoint: ["sh", "-c"]
+    command: ["chown 3000:3000 /home/rocketmq/logs /home/rocketmq/store"]
+    volumes:
+      - rocketmq-broker-logs:/home/rocketmq/logs
+      - rocketmq-broker-store:/home/rocketmq/store
+
   rocketmq-broker:
     image: apache/rocketmq:5.5.0
     container_name: myyoutube-rocketmq-broker
     restart: unless-stopped
     command: sh mqbroker -c /home/rocketmq/broker.conf
     depends_on:
-      - rocketmq-nameserver
+      rocketmq-nameserver:
+        condition: service_started
+      rocketmq-broker-volume-init:
+        condition: service_completed_successfully
     environment:
       # Docker Desktop 虚拟机内存配额有限, 默认 8g 堆会 OOM
       JAVA_OPT_EXT: "-Xms2g -Xmx2g -Xmn1g"
@@ -154,12 +167,12 @@ services:
       RUSTFS_CONSOLE_ENABLE: "true"
       # 浏览器直传预签名 URL 需要 CORS; 上服务器后建议改成具体域名
       RUSTFS_CORS_ALLOWED_ORIGINS: "*"
-      # 事件通知: ObjectCreated webhook -> transcode 桥接口(启动时注册目标, 桶订阅用 S3 API 配置)
+      # 此处只注册目标；桶订阅还需按 docker/rustfs/README.md 单独配置
       RUSTFS_NOTIFY_ENABLE: "true"
       RUSTFS_NOTIFY_WEBHOOK_ENABLE_PRIMARY: "on"
       RUSTFS_NOTIFY_WEBHOOK_ENDPOINT_PRIMARY: "http://host.docker.internal:8086/internal/media/storage-event"
       RUSTFS_NOTIFY_WEBHOOK_QUEUE_DIR_PRIMARY: "/data/notify-primary"
-      RUSTFS_OUTBOUND_ALLOW_ORIGINS: "*"
+      RUSTFS_OUTBOUND_ALLOW_ORIGINS: "http://host.docker.internal:8086"
     ports:
       - "9000:9000"   # S3 API, 后端与预签名 URL 都用这个
       - "9001:9001"   # 控制台

@@ -1,0 +1,62 @@
+groups:
+  - name: content-pipeline
+    rules:
+      - alert: PipelineDeadLetters
+        expr: mq_dlq_retained > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "消费组 {{ $labels.group }} 存在死信，需人工保留证据并处理"
+      - alert: PipelineGraphAnomaly
+        expr: increase(media_pipeline_graph_errors_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "加工依赖图无法推进，检查 pipelineId 日志"
+      - alert: ModelCircuitOpen
+        expr: increase(model_circuit_transitions_total{state="OPEN"}[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "模型资源 {{ $labels.resource }} 熔断"
+      - alert: ModelQueueSaturated
+        expr: model_queue_depth >= 4
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} 等待队列持续满载"
+      - alert: ModelOverload
+        expr: increase(model_overload_total[5m]) > 5
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} 发生容量拒绝"
+      - alert: PipelineReadyBacklog
+        expr: sum by (phase) (media_tasks{status="READY"}) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.phase }} READY 节点持续积压"
+      - alert: PipelineNeedsArtifacts
+        expr: sum(media_tasks{phase="CONTENT",status="DEAD"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "存在重试耗尽的加工节点，请检查资料待补齐队列"
+      - alert: PublicationEffectsStalled
+        expr: media_publication_pending > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "发布副作用超过兜底周期仍未收敛"
+      - alert: DeadLetterProbeUnavailable
+        expr: increase(mq_dlq_probe_failures_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "无法读取 MQ 死信指标"

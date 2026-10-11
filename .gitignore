@@ -31,7 +31,7 @@ HELP.md
 .apt_generated
 Backend/**/.mvn/wrapper/maven-wrapper.jar
 
-# ===== 前端（本仓库暂不维护，前端在独立仓库重建） =====
+# ===== 前端独立仓库工作区 =====
 Frontend/
 frontend-admin/
 
@@ -40,9 +40,6 @@ frontend-admin/
 !.env.example
 **/application-local.yml
 
-# ==== 项目文档(后续重构完毕后添加) =====
-README.md
-
 # workbuddy-ai 工作区数据
 .workbuddy-ai/
 
@@ -50,6 +47,12 @@ README.md
 .venv/
 __pycache__/
 
-docs
+docs/*
 
 resources/migration
+
+resources/migrations
+
+*.md
+!docker/rustfs/README.md
+!docker/content-integration/README.md

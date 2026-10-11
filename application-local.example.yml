@@ -1,0 +1,132 @@
+# 本地开发示例：Java 服务在宿主机运行，中间件使用 docker/docker-compose.yml。
+# 在项目根目录执行（已有 application-local.yml 时请手动合并）：
+# cp -n application-local.example.yml Backend/my-youtube-common/src/main/resources/application-local.yml
+# 所有 Java 启动模块（含 gateway）依赖 common，均会通过已有 classpath import 加载此文件。
+# 无需激活 local profile；根目录 .env 不会被 Spring Boot 自动读取。
+# ${变量:默认值} 可由 IDE/进程环境变量覆盖；以下账号和密钥仅用于本机开发。
+# 不设置 server.port、spring.application.name 或 my-youtube.db-name，保留各服务自己的值。
+# 端口：gateway 8080 / user 8081 / video 8082 / chat 8083 / search 8084 /
+#       admin 8085 / transcode 8086 / llm 8087 / OCR 8088 / ASR 8089。
+
+spring:
+  cloud:
+    nacos:
+      # 本地 Compose 未启用鉴权；接入其他环境时填写凭据。
+      username: ${NACOS_USERNAME:}
+      password: ${NACOS_PASSWORD:}
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+        # 留空使用 public；Java 与 Python 必须使用同一 namespace/group/cluster。
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:DEFAULT_GROUP}
+        cluster-name: ${NACOS_CLUSTER:DEFAULT}
+
+  datasource:
+    # 必填：账号需能访问 user_db、video_db、chat_db、transcode_db。
+    # 首次启动前导入 resources/schema.sql；Compose 只自动创建 my_youtube 空库。
+    # 数据库地址/端口通过 DATASOURCE_HOST、DATASOURCE_PORT 覆盖，库名由各服务决定。
+    url: jdbc:mysql://${DATASOURCE_HOST:localhost}:${DATASOURCE_PORT:3306}/${my-youtube.db-name}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DATASOURCE_USERNAME:root}
+    password: ${DATASOURCE_PASSWORD:root123456}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Compose 中 Redis 密码固定为 123456；改密码需同步修改 Compose。
+      password: ${REDIS_PASSWORD:123456}
+    mongodb:
+      # chat 使用；账号与 .env 中 MONGO_USERNAME/MONGO_PASSWORD 保持一致。
+      # 密码含 URI 保留字符时须 URL 编码；本机单节点副本集直连，认证库为 admin。
+      uri: ${MONGODB_URI:mongodb://root:mongo123456@localhost:27017/chat_db?authSource=admin&replicaSet=rs0&directConnection=true}
+
+  elasticsearch:
+    # search 使用；Compose 将容器 9200 映射到宿主机 9201。
+    uris: ${ES_URIS:http://localhost:9201}
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESERVER:localhost:9876}
+  # producer.group 保留各服务自己的配置。
+
+jwt:
+  # 必填：网关和业务服务必须一致；部署到共享环境前替换为随机密钥。
+  secret: ${JWT_SECRET:local-dev-only-change-this-jwt-secret}
+
+my-youtube:
+  # 网关和业务服务保持一致；空值会关闭内部请求来源校验。
+  internal-token: ${INTERNAL_TOKEN:local-dev-only-change-this-internal-token}
+
+  s3:
+    # 必填：与 .env 中 S3_ACCESS_KEY/S3_SECRET_KEY 保持一致。
+    # endpoint 需同时被浏览器、Java、Python 和模型服务访问；9000 为 API，9001 为控制台。
+    endpoint: ${S3_ENDPOINT:http://localhost:9000}
+    access-key: ${S3_ACCESS_KEY:myyoutube-local}
+    secret-key: ${S3_SECRET_KEY:myyoutube-local-secret}
+    # 启动时尝试建桶；桶上传通知需另行配置，见 docker/rustfs/README.md。
+    bucket-name: ${S3_BUCKET_NAME:myyoutube}
+    region: us-east-1
+
+  # 服务间调用默认走 Nacos；直连调试时填写对应 URL，例如 http://localhost:8081。
+  # 网关 lb:// 路由仍依赖 Nacos，以下 URL 不会改变网关路由。
+  user-service:
+    url: ${USER_SERVICE_URL:}
+  video-service:
+    url: ${VIDEO_SERVICE_URL:}
+  chat-service:
+    url: ${CHAT_SERVICE_URL:}
+  search-service:
+    url: ${SEARCH_SERVICE_URL:}
+  transcode-service:
+    url: ${TRANSCODE_SERVICE_URL:}
+  llm-service:
+    url: ${LLM_SERVICE_URL:}
+  asr:
+    url: ${ASR_SERVICE_URL:}
+  ocr:
+    url: ${OCR_SERVICE_URL:}
+
+  llm:
+    # OpenAI 兼容接口；本地示例使用 Ollama，须先安装并拉取下列模型。
+    # 云端接口改 base-url/api-key/model，cloud=true 时由 llm 服务代拉图片并转 base64。
+    base-url: ${LLM_BASE_URL:http://localhost:11434/v1}
+    api-key: ${LLM_API_KEY:}
+    model: ${LLM_MODEL:qwen3.5:9b}
+    cloud: ${LLM_CLOUD:false}
+    timeout-seconds: ${LLM_TIMEOUT_SECONDS:120}
+    # 不支持 reasoning_effort 的厂商设为空字符串。
+    reasoning-effort: ${LLM_REASONING_EFFORT:none}
+    embedding:
+      base-url: ${EMBEDDING_BASE_URL:http://localhost:11434/v1}
+      api-key: ${EMBEDDING_API_KEY:}
+      model: ${EMBEDDING_MODEL:qwen3-embedding:8b}
+      # 当前 ES dense_vector 映射固定 4096；换维度须同步修改映射并重建索引。
+      dims: 4096
+      # 空值按 model:dims 派生；换向量模型/版本后须 rebuild 存量向量。
+      version: ${EMBEDDING_VERSION:}
+
+  autotag:
+    # video 必填，范围 0~1；0.5 为本地开发示例值。
+    min-confidence: 0.5
+    vision-enabled: ${TAG_VISION_ENABLED:false}
+  cover:
+    vision-enabled: ${COVER_VISION_ENABLED:false}
+    # 开启视觉选帧时须支持图片；空值使用 llm.model。
+    vision-model: ${LLM_VISION_MODEL:}
+  media:
+    tag-vision-model: ${TAG_VISION_MODEL:}
+    # Compose primary webhook 默认未带 token；启用后同步给目标 URL 添加 ?token=同值。
+    webhook-token: ${MEDIA_WEBHOOK_TOKEN:}
+  content-pipeline:
+    # false：加工完成后转人工审核；ASR/OCR、摘要和打标仍会执行。
+    auto-review: ${CONTENT_AUTO_REVIEW:true}
+    # 默认只审核文本；开启后完整分批审核采样帧/原图，模型须支持图片。
+    review-vision-enabled: ${CONTENT_REVIEW_VISION_ENABLED:false}
+    review-frame-batch-size: ${CONTENT_REVIEW_FRAME_BATCH_SIZE:4}
+    review-model: ${CONTENT_REVIEW_MODEL:qwen3.5:9b}
+    max-risk: ${CONTENT_REVIEW_MAX_RISK:0.2}
+    min-confidence: ${CONTENT_REVIEW_MIN_CONFIDENCE:0.9}
+
+# 完整内容加工还需：transcode 主机 PATH 中安装 ffmpeg/ffprobe，启动 ASR/OCR 服务。
+# Python 各自复制 asr-svc/.env.example、ocr-svc/.env.example 为同目录 .env，
+# 并把 ASR_MODEL_DIRECTORY 改成自己的模型目录；部署参数见 asr-svc/OPERATIONS.md。
+# 当前 Compose 和 broker.conf 面向宿主机开发；容器/跨机器部署需调整注册地址和可访问地址。
