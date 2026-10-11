@@ -13,6 +13,18 @@
 
 	<dependencies>
 		<dependency>
+			<groupId>cn.diaojiahong</groupId>
+			<artifactId>my-youtube-transcode</artifactId>
+			<version>${project.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>cn.diaojiahong</groupId>
+			<artifactId>my-youtube-video</artifactId>
+			<version>${project.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
@@ -43,7 +55,7 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
-				<!-- 普通 jar 供旧单体过渡期依赖, 可执行 jar 用 -exec 后缀 -->
+				<!-- 普通 jar 供模块测试依赖，可执行服务使用 -exec 后缀 -->
 				<configuration>
 					<classifier>exec</classifier>
 				</configuration>

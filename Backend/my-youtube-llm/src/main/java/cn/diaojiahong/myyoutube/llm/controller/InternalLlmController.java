@@ -21,6 +21,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class InternalLlmController {
 
+    private final cn.diaojiahong.myyoutube.llm.LlmProperties properties;
     private final LlmClient llmClient;
     private final EmbeddingOrchestrator embeddingOrchestrator;
 
@@ -37,7 +38,7 @@ public class InternalLlmController {
             throw new BizException(BizException.BIZ_ERROR, "messages 不能为空");
         }
         String content = llmClient.chat(messages, request.getModel(), request.getTemperature(), request.getMaxTokens());
-        return new LlmPort.ChatResponse(content);
+        return new LlmPort.ChatResponse(content, StringUtils.hasText(request.getModel()) ? request.getModel() : properties.getModel());
     }
 
     @PostMapping("/embeddings")

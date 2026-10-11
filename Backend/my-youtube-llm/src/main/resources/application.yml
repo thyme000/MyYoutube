@@ -18,16 +18,18 @@ my-youtube:
   llm:
     # OpenAI 兼容接口, 厂商不进代码: base-url/model/api-key 显式配置, 换厂商只改这里
     # 云端厂商 cloud: true(图片由 llm-svc 代拉转 base64); 内网自建模型设 false, 图片内网 URL 直传
-    cloud: ${LLM_CLOUD:true}
-    base-url: ${LLM_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
-    api-key: ${LLM_API_KEY:}
-    model: ${LLM_MODEL:glm-4-flash}
+    cloud: ${LLM_CLOUD:false}
+    base-url: ${LLM_BASE_URL:http://localhost:11434/v1}
+    api-key: ${LLM_API_KEY:''}
+    model: ${LLM_MODEL:qwen3.5:9b}
     temperature: 0.2
-    timeout-seconds: 20
+    timeout-seconds: ${LLM_TIMEOUT_SECONDS:120}
     max-tokens: 512
+    # Ollama OpenAI 兼容接口使用 reasoning_effort，none 显式关闭思考；不支持此参数的厂商可设为空
+    reasoning-effort: ${LLM_REASONING_EFFORT:none}
     # 向量化: 模型/维度/版本一组配置, 切换即换向量空间, 需触发 search 服务 rebuild 重算存量
     embedding:
-      api-key: ${EMBEDDING_API_KEY:}
+      api-key: ${EMBEDDING_API_KEY:''}
       base-url: ${EMBEDDING_BASE_URL:http://localhost:11434/v1}
       model: ${EMBEDDING_MODEL:qwen3-embedding:8b}
       # 必须与 content 索引 dense_vector 映射一致(qwen3-embedding:8b 原生 4096)

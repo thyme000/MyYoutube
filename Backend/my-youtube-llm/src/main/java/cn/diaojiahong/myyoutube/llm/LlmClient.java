@@ -31,6 +31,10 @@ public class LlmClient {
     private final LlmProperties properties;
 
     public boolean isConfigured() {
+        return !properties.isCloud() || hasApiKey();
+    }
+
+    private boolean hasApiKey() {
         return properties.getApiKey() != null && !properties.getApiKey().isBlank();
     }
 
@@ -50,6 +54,9 @@ public class LlmClient {
         body.addProperty("model", model != null && !model.isBlank() ? model : properties.getModel());
         body.addProperty("temperature", temperature != null ? temperature : properties.getTemperature());
         body.addProperty("max_tokens", maxTokens != null ? maxTokens : properties.getMaxTokens());
+        if (properties.getReasoningEffort() != null && !properties.getReasoningEffort().isBlank()) {
+            body.addProperty("reasoning_effort", properties.getReasoningEffort());
+        }
         JsonArray arr = new JsonArray();
         for (Message m : messages) {
             JsonObject o = new JsonObject();
@@ -76,13 +83,15 @@ public class LlmClient {
         }
         body.add("messages", arr);
 
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(properties.getBaseUrl() + "/chat/completions"))
                 .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + properties.getApiKey())
-                .POST(HttpRequest.BodyPublishers.ofString(JsonUtil.toJson(body)))
-                .build();
+                .POST(HttpRequest.BodyPublishers.ofString(JsonUtil.toJson(body)));
+        if (hasApiKey()) {
+            builder.header("Authorization", "Bearer " + properties.getApiKey());
+        }
+        HttpRequest request = builder.build();
 
         try {
             HttpResponse<String> resp = HTTP.send(request, HttpResponse.BodyHandlers.ofString());

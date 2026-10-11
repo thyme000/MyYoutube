@@ -21,6 +21,8 @@ public class LlmProperties {
     private double temperature = 0.2;
     private int timeoutSeconds = 20;
     private int maxTokens = 512;
+    /** OpenAI 兼容思考强度；none 关闭 Ollama 思考，空值不发送该参数 */
+    private String reasoningEffort = "none";
 
     @PostConstruct
     void validate() {
