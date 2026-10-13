@@ -42,6 +42,14 @@ public class MediaDraft implements Serializable {
     private String coverObjectKey;
 
     private Integer revision;
+    private Long mediaVersion;
+    private Long preparationId;
+    private Integer preparationAttempt;
+    private Boolean preparationRetry;
+    private LocalDateTime preparationAfter;
+    private LocalDateTime expiresAt;
+    private String preparedJson;
+    private String preparedCoverObjectKey;
 
     private String objectKey;
 

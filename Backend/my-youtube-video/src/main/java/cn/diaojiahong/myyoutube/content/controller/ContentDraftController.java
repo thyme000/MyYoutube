@@ -18,6 +18,12 @@ public class ContentDraftController {
     private final ContentDraftService drafts;
     private final ContentSubmissionService submissions;
     private final cn.diaojiahong.myyoutube.transcode.api.MediaTaskPort tasks;
+    private final cn.diaojiahong.myyoutube.video.service.DraftPreparationService preparation;
+
+    @PostMapping("/{draftId}/preparation/retry")
+    public Result<Boolean> retryPreparation(@PathVariable Long draftId) {
+        return Result.success(preparation.retry(draftId, userId()));
+    }
 
     @PostMapping("/{draftId}/submit")
     public Result<ContentSubmissionService.Receipt> submit(@PathVariable Long draftId) {
@@ -42,7 +48,7 @@ public class ContentDraftController {
     @GetMapping("/{draftId}/tasks")
     public Result<java.util.List<cn.diaojiahong.myyoutube.transcode.api.MediaTaskPort.TaskResult>> tasks(@PathVariable Long draftId) {
         var draft = drafts.get(draftId, userId());
-        return Result.success("video".equals(draft.type()) ? tasks.getTaskResults(draftId) : java.util.List.of());
+        return Result.success(tasks.getTaskResults(draft.preparationId()));
     }
     @GetMapping("/{draftId}")
     public Result<ContentDraftVO> get(@PathVariable Long draftId) {

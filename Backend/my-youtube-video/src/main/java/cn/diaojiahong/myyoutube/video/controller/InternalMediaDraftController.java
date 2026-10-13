@@ -27,6 +27,10 @@ public class InternalMediaDraftController {
 
     private final MediaDraftService mediaDraftService;
     private final NotificationPublisher notificationPublisher;
+    private final cn.diaojiahong.myyoutube.video.service.DraftPreparationService preparation;
+
+    @PostMapping("/{draftId}/uploaded")
+    public boolean uploaded(@PathVariable Long draftId) { return preparation.uploaded(draftId); }
 
     @PostMapping("/create")
     public MediaDraftPort.DraftCreated createDraft(@RequestBody MediaDraftPort.DraftCreate create) {
@@ -51,7 +55,7 @@ public class InternalMediaDraftController {
                                 @PathVariable String statusCode,
                                 @RequestBody MediaDraftPort.StatusUpdate update) {
         MediaDraft draft = mediaDraftService.getById(draftId);
-        if (draft == null) {
+        if (draft == null || draft.getPreparationId() != null) {
             return false;
         }
         MediaDraftStatusEnum target = MediaDraftStatusEnum.valueOf(statusCode.toUpperCase());

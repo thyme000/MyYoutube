@@ -24,6 +24,10 @@ public class MediaDraftService {
 
     /** 幂等创建: objectKey 唯一, 重复创建(事件重放/重试)返回已有草稿 */
     public Long createDraft(Long userId, String objectKey, String filename) {
+        cn.diaojiahong.myyoutube.common.media.MediaInputs.objectKey(objectKey);
+        if (userId == null || userId <= 0 || objectKey.length() > 512 || !objectKey.startsWith("uploads/video/" + userId + "/")
+                || objectKey.split("/", -1).length != 5)
+            throw new BizException(BizException.BIZ_ERROR, "视频素材不属于当前用户");
         MediaDraft existing = draftMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<MediaDraft>()
                 .eq(MediaDraft::getObjectKey, objectKey)
                 .last("limit 1"));
@@ -37,7 +41,7 @@ public class MediaDraftService {
                 .setType(ContentTypeEnum.VIDEO)
                 .setVisibility("public")
                 .setAllowComment(1)
-                .setRevision(0)
+                .setExpiresAt(java.time.LocalDateTime.now().plusDays(7)).setRevision(0).setMediaVersion(0L).setPreparationId(IdWorker.getId()).setPreparationAttempt(0).setPreparationRetry(false)
                 .setObjectKey(objectKey)
                 .setOriginalFilename(filename)
                 .setStatus(MediaDraftStatusEnum.UPLOADING);
@@ -60,6 +64,8 @@ public class MediaDraftService {
         return draftMapper.update(null, new LambdaUpdateWrapper<MediaDraft>()
                 .eq(MediaDraft::getId, frozen.getId()).eq(MediaDraft::getUserId, frozen.getUserId())
                 .eq(MediaDraft::getRevision, frozen.getRevision()).eq(MediaDraft::getStatus, MediaDraftStatusEnum.READY)
+                .eq(MediaDraft::getMediaVersion, frozen.getMediaVersion()).eq(MediaDraft::getPreparationId, frozen.getPreparationId())
+                .eq(MediaDraft::getPreparedJson, frozen.getPreparedJson())
                 .set(MediaDraft::getStatus, MediaDraftStatusEnum.SUBMITTED)
                 .set(MediaDraft::getTitle, frozen.getTitle()).set(MediaDraft::getDescription, frozen.getDescription())
                 .set(MediaDraft::getVisibility, "public").set(MediaDraft::getAllowComment, frozen.getAllowComment())

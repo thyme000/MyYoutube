@@ -34,7 +34,7 @@ public class ContentSubmissionService {
                 .setDescription(ContentSubmissionRules.description(draft.getDescription()))
                 .setVisibility("public")
                 .setAllowComment(ContentSubmissionRules.allowComment(draft.getAllowComment()))
-                .setCoverObjectKey(draft.getCoverObjectKey()).setStatus("review").setIsDelete(0).setCreateTime(LocalDateTime.now());
+                .setCoverObjectKey(draft.getPreparedCoverObjectKey()).setStatus("review").setIsDelete(0).setCreateTime(LocalDateTime.now());
         var strategy = strategies.get(draft.getType());
         if (strategy == null) throw new BizException(BizException.BIZ_ERROR, "不支持的内容类型");
         var media = strategy.prepare(draft);

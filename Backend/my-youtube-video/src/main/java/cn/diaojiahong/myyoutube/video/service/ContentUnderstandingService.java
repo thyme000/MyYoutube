@@ -86,6 +86,9 @@ public class ContentUnderstandingService {
         MediaInputs.objectKey(coverKey);
         if (manifest.input().media().dynamic() != null && !coverKey.equals(manifest.input().coverObjectKey()))
             throw new IllegalArgumentException("图集封面与提交快照不一致");
+        if (manifest.input().media().video() != null && manifest.input().media().preparation() != null
+                && manifest.input().media().preparation().items().stream().noneMatch(i -> "FRAME".equals(i.role()) && coverKey.equals(i.objectKey())))
+            throw new IllegalArgumentException("视频封面不属于公共准备帧");
         Long receivedAt = transaction.execute(tx -> {
             var row = locked(manifest.contentId());
             if (!Objects.equals(row.getPipelineId(), manifest.pipelineId()) || Boolean.TRUE.equals(row.getReceived())) return null;

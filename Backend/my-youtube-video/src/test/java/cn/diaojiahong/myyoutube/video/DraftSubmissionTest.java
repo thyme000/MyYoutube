@@ -26,7 +26,7 @@ class DraftSubmissionTest {
     final ContentUnderstandingService understanding = mock(ContentUnderstandingService.class);
     final TransactionTemplate tx = mock(TransactionTemplate.class);
     final ContentSubmissionService service = new ContentSubmissionService(drafts, contents,
-            new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos, tasks))), understanding, tx);
+            new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos))), understanding, tx);
     MediaDraft draft;
     @BeforeEach void setup() {
         draft = new MediaDraft().setId(1L).setUserId(9L).setType(ContentTypeEnum.VIDEO).setTitle("标题")
@@ -37,17 +37,18 @@ class DraftSubmissionTest {
         when(tx.execute(any())).thenAnswer(call -> ((org.springframework.transaction.support.TransactionCallback<?>)call.getArgument(0)).doInTransaction(new SimpleTransactionStatus()));
     }
     void prepared() {
-        when(tasks.getTaskResults(1L)).thenReturn(List.of(new MediaTaskPort.TaskResult("TRANSCODE","SUCCESS","{\"processedObjectKey\":\"processed.mp4\",\"durationMs\":500}")));
+        draft.setPreparationId(101L).setMediaVersion(0L);
+        PreparedDraftTestSupport.ready(draft);
     }
-    @Test void missingTranscodeFailsWithoutPublishingOriginalFile() {
+    @Test void missingPreparationFailsWithoutPublishingOriginalFile() {
         when(tasks.getTaskResults(1L)).thenReturn(List.of(new MediaTaskPort.TaskResult("TRANSCODE","DEAD",null)));
         assertThrows(BizException.class, () -> service.submit(1L, 9L)); verifyNoInteractions(videos, contents, understanding);
     }
-    @Test void processedMediaAndCommonMetadataHaveOneOwner() {
+    @Test void frozenOriginalAndCommonMetadataHaveOneOwner() {
         prepared(); draft.setDescription("简介").setVisibility("private").setAllowComment(0);
         assertEquals(100L, service.submit(1L,9L).pipelineId());
         var media = org.mockito.ArgumentCaptor.forClass(Video.class); verify(videos).insert(media.capture());
-        assertEquals("processed.mp4", media.getValue().getObjectKey()); assertEquals(500L,media.getValue().getDurationMs());
+        assertEquals("media-prepared/9/101/video", media.getValue().getObjectKey()); assertEquals(1501L,media.getValue().getDurationMs());
         var common = org.mockito.ArgumentCaptor.forClass(cn.diaojiahong.myyoutube.content.domain.po.Content.class); verify(contents).insert(common.capture());
         assertEquals("简介",common.getValue().getDescription()); assertEquals("public",common.getValue().getVisibility());
         assertEquals("review",common.getValue().getStatus());

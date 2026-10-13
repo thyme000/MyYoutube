@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.video;
 
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
@@ -50,22 +51,28 @@ class ContentDraftIntegrationTest {
         @Bean ContentUnderstandingService understanding() { return mock(ContentUnderstandingService.class); }
         @Bean DynamicMediaPreparationService preparation(S3StorageUtil storage, IAudioService audio) {
             return new DynamicMediaPreparationService(new SyncChainStepRegistry(List.of(
-                    new ItemsCountStep(), new CanvasStyleStep(), new AudioReferenceStep(audio, storage), new ItemsPrepareStep(storage))));
+                    new ItemsCountStep(), new CanvasStyleStep(), new AudioReferenceStep(audio), new ItemsPrepareStep())));
         }
         @Bean ContentDraftService drafts(MediaDraftMapper rows, DynamicMediaPreparationService preparation) {
             return new ContentDraftService(rows, preparation);
+        }
+        @Bean cn.diaojiahong.myyoutube.video.service.DraftPreparationService coordinator(MediaDraftMapper rows, MediaTaskPort tasks) {
+            return new cn.diaojiahong.myyoutube.video.service.DraftPreparationService(rows, tasks);
         }
         @Bean MediaDraftService mediaDrafts(MediaDraftMapper rows) { return new MediaDraftService(rows); }
         @Bean ContentSubmissionService publish(MediaDraftService drafts, MediaTaskPort tasks, VideoMapper videos,
                                             DynamicMapper dynamics, DynamicMediaPreparationService preparation,
                                             ContentMapper contents, ContentUnderstandingService understanding, TransactionTemplate tx) {
-            var strategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos, tasks), new DynamicContentStrategy(dynamics, preparation)));
+            var strategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos), new DynamicContentStrategy(dynamics)));
             return new ContentSubmissionService(drafts, contents, strategies, understanding, tx);
         }
     }
 
     @Autowired DataSource dataSource;
     @Autowired ContentDraftService drafts;
+    @Autowired cn.diaojiahong.myyoutube.video.service.DraftPreparationService coordinator;
+    @Autowired ContentMapper contentRows;
+    @Autowired TransactionTemplate transaction;
     @Autowired MediaDraftService mediaDrafts;
     @Autowired MediaDraftMapper rows;
     @Autowired ContentSubmissionService publish;
@@ -84,6 +91,8 @@ class ContentDraftIntegrationTest {
         jdbc.execute("""
                 CREATE TABLE media_draft(id BIGINT PRIMARY KEY,user_id BIGINT NOT NULL,type VARCHAR(16) NOT NULL,
                   title VARCHAR(100),description VARCHAR(512),visibility VARCHAR(16) DEFAULT 'public',allow_comment INT DEFAULT 1,
+                  media_version BIGINT DEFAULT 0,preparation_id BIGINT,preparation_attempt INT DEFAULT 0,preparation_retry BOOLEAN DEFAULT FALSE,
+                  expires_at TIMESTAMP,preparation_after TIMESTAMP,prepared_json TEXT,prepared_cover_object_key VARCHAR(512),
                   revision INT DEFAULT 0,cover_object_key VARCHAR(512),media_json TEXT,object_key VARCHAR(512) UNIQUE,original_filename VARCHAR(256),status VARCHAR(16),
                   duration_ms BIGINT,error_message VARCHAR(500),create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
@@ -104,10 +113,10 @@ class ContentDraftIntegrationTest {
         dto.setItems(List.of(a, b)); return dto;
     }
 
-    @Test void nativeDraftIsReadyWithoutTranscodeAndSupportsSelectedCover() {
+    @Test void nativeDraftIsProcessingWithoutMediaIoAndSupportsSelectedCover() {
         var dto = dynamic(); dto.setCoverImageObjectKey(second); dto.setAllowComment(0);
         var result = drafts.saveDynamic(null, 9L, dto);
-        assertEquals("ready", result.status()); assertEquals("dynamic", result.type());
+        assertEquals("processing", result.status()); assertEquals("dynamic", result.type());
         assertEquals("标题", result.title()); assertEquals("简介", result.description());
         assertEquals(second, result.coverObjectKey());
         assertEquals(List.of(first, second), result.dynamic().items().stream().map(i -> i.imageObjectKey()).toList());
@@ -115,7 +124,7 @@ class ContentDraftIntegrationTest {
         assertEquals("public", result.visibility()); assertEquals(0, result.allowComment());
         assertEquals(result, drafts.get(result.draftId(), 9L));
         assertNull(result.objectKey());
-        verifyNoInteractions(tasks, understanding, audio);
+        verifyNoInteractions(tasks, understanding, audio, storage);
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));
     }
 
@@ -133,9 +142,9 @@ class ContentDraftIntegrationTest {
         when(audio.getReferenceable(20L, 9L)).thenThrow(new BizException(BizException.BIZ_ERROR, "无权使用该音频"));
         assertThrows(BizException.class, () -> drafts.saveDynamic(null, 9L, dto));
         doReturn(new Audio().setId(20L).setObjectKey("uploads/audio/7/20261011/music.mp3").setDurationMs(2000)).when(audio).getReferenceable(20L, 9L);
-        when(storage.readHeadBytes("uploads/audio/7/20261011/music.mp3", 1)).thenThrow(new BizException(BizException.STORAGE_ERROR, "对象不存在"));
-        assertThrows(BizException.class, () -> drafts.saveDynamic(null, 9L, dto));
-        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM media_draft", Integer.class));
+        var draft = drafts.saveDynamic(null, 9L, dto);
+        assertEquals("processing", draft.status());
+        verifyNoInteractions(storage);
     }
 
     @Test void invalidInputsCannotCreateReadyDrafts() {
@@ -149,9 +158,9 @@ class ContentDraftIntegrationTest {
         assertThrows(BizException.class, () -> drafts.saveDynamic(null, 9L, dto)); dto.getItems().get(0).setImageObjectKey(first);
         dto.getItems().get(0).setFocusX(Double.NaN);
         assertThrows(BizException.class, () -> drafts.saveDynamic(null, 9L, dto)); dto.getItems().get(0).setFocusX(null);
-        when(storage.readHeadBytes(second, 16)).thenReturn(new byte[16]);
-        assertThrows(BizException.class, () -> drafts.saveDynamic(null, 9L, dto));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM media_draft", Integer.class));
+        assertEquals("processing", drafts.saveDynamic(null, 9L, dto).status());
+        verifyNoInteractions(storage);
     }
 
     @Test void ownershipAndStateProtectEditsAndDescriptionCanBeCleared() {
@@ -166,12 +175,18 @@ class ContentDraftIntegrationTest {
         assertEquals("更新", drafts.get(created.draftId(), 9L).title());
     }
 
+    void ready(Long id) {
+        var row = rows.selectById(id);
+        var request = PreparedDraftTestSupport.request(row);
+        when(tasks.preparation(row.getPreparationId())).thenReturn(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(
+                row.getPreparationId(), "SUCCESS", 1, 0, null, PreparedDraftTestSupport.manifest(request), false));
+        jdbc.update("UPDATE media_draft SET preparation_after=CURRENT_TIMESTAMP WHERE id=?", id);
+        coordinator.reconcile();
+        assertEquals(MediaDraftStatusEnum.READY, rows.selectById(id).getStatus());
+    }
     Long readyVideo() {
         Long id = mediaDrafts.createDraft(9L, "uploads/video/9/20261011/original.mp4", "original.mp4");
-        assertTrue(mediaDrafts.transition(id, MediaDraftStatusEnum.UPLOADING, MediaDraftStatusEnum.PROCESSING, null, null));
-        assertTrue(mediaDrafts.transition(id, MediaDraftStatusEnum.PROCESSING, MediaDraftStatusEnum.READY, 1501L, null));
-        when(tasks.getTaskResults(id)).thenReturn(List.of(new MediaTaskPort.TaskResult("TRANSCODE", "SUCCESS", "{\"processedObjectKey\":\"processed.mp4\",\"durationMs\":1501}")));
-        return id;
+        assertTrue(coordinator.uploaded(id)); ready(id); return id;
     }
 
     @Test void concurrentSubmissionCreatesOneContentAndOneEnrollment() {
@@ -206,13 +221,15 @@ class ContentDraftIntegrationTest {
     @Test void nativeSubmissionFreezesMediaAndHasNoTranscodeDependency() {
         var dto = dynamic(); dto.setCoverImageObjectKey(second); dto.setAllowComment(0);
         var draft = drafts.saveDynamic(null, 9L, dto);
+        ready(draft.draftId()); clearInvocations(tasks);
         var firstReceipt = publish.submit(draft.draftId(), 9L);
         assertEquals(firstReceipt, publish.submit(draft.draftId(), 9L));
         assertEquals("submitted", firstReceipt.draftStatus());
         assertEquals("review", jdbc.queryForObject("SELECT status FROM content", String.class));
-        assertEquals(second, jdbc.queryForObject("SELECT cover_object_key FROM content", String.class));
+        assertEquals(rows.selectById(draft.draftId()).getPreparedCoverObjectKey(), jdbc.queryForObject("SELECT cover_object_key FROM content", String.class));
         assertEquals(0, jdbc.queryForObject("SELECT allow_comment FROM content", Integer.class));
-        assertEquals(rows.selectById(draft.draftId()).getMediaJson(), jdbc.queryForObject("SELECT media_json FROM dynamic", String.class));
+        assertEquals(cn.diaojiahong.myyoutube.common.utils.JsonUtil.fromJson(rows.selectById(draft.draftId()).getPreparedJson(), cn.diaojiahong.myyoutube.common.media.ContentMedia.class).dynamic(),
+                cn.diaojiahong.myyoutube.common.utils.JsonUtil.fromJson(jdbc.queryForObject("SELECT media_json FROM dynamic", String.class), cn.diaojiahong.myyoutube.common.media.DynamicMedia.class));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM video", Integer.class));
         verify(understanding, times(1)).enroll(any(), argThat(m -> m.dynamic() != null));
         verifyNoInteractions(tasks);
@@ -220,23 +237,232 @@ class ContentDraftIntegrationTest {
     @Test void editDuringMaterialValidationCannotSubmitOldSnapshot() {
         Long id = readyVideo();
         var metadata = new ContentMetadataDTO(); metadata.setTitle("初始"); drafts.saveMetadata(id, 9L, metadata);
-        var output = tasks.getTaskResults(id);
-        when(tasks.getTaskResults(id)).thenAnswer(call -> {
-            metadata.setTitle("更新"); drafts.saveMetadata(id, 9L, metadata); return output;
+        var strategy = mock(cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategy.class);
+        when(strategy.type()).thenReturn(cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum.VIDEO);
+        when(strategy.prepare(any())).thenAnswer(call -> {
+            var media = cn.diaojiahong.myyoutube.content.strategy.PreparedDrafts.media(call.getArgument(0));
+            metadata.setTitle("更新"); drafts.saveMetadata(id, 9L, metadata); return media;
         });
-        assertThrows(BizException.class, () -> publish.submit(id, 9L));
+        var racing = new ContentSubmissionService(mediaDrafts, contentRows,
+                new ContentTypeStrategyRegistry(List.of(strategy)), understanding, transaction);
+        assertThrows(BizException.class, () -> racing.submit(id, 9L));
         assertEquals("更新", rows.selectById(id).getTitle());
         assertEquals(MediaDraftStatusEnum.READY, rows.selectById(id).getStatus());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));
         verify(understanding, never()).enroll(any(), any());
     }
-    @Test void nativeSubmissionRechecksAudioAndStoredImages() {
+    @Test void nativeSubmissionUsesFrozenMediaAfterAudioPermissionsChange() {
         var dto = dynamic(); dto.setAudioId(20L);
         when(audio.getReferenceable(20L, 9L)).thenReturn(new Audio().setId(20L).setObjectKey("uploads/audio/7/20261011/music.mp3").setDurationMs(2000));
         var draft = drafts.saveDynamic(null, 9L, dto);
+        ready(draft.draftId()); clearInvocations(audio, storage, tasks);
         when(audio.getReferenceable(20L, 9L)).thenThrow(new BizException(BizException.BIZ_ERROR,"已移除音频权限"));
-        assertThrows(BizException.class, () -> publish.submit(draft.draftId(), 9L));
-        assertEquals(MediaDraftStatusEnum.READY, rows.selectById(draft.draftId()).getStatus());
+        assertNotNull(publish.submit(draft.draftId(), 9L));
+        assertEquals(MediaDraftStatusEnum.SUBMITTED, rows.selectById(draft.draftId()).getStatus());
+        verifyNoInteractions(audio, storage, tasks);
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));
+    }
+    @Test void processingDraftCannotSubmitAndMetadataEditsDoNotInvalidatePreparation() {
+        var created = drafts.saveDynamic(null, 9L, dynamic());
+        assertThrows(BizException.class, () -> publish.submit(created.draftId(), 9L));
+        var metadata = new ContentMetadataDTO(); metadata.setTitle("新标题");
+        var edited = drafts.saveMetadata(created.draftId(), 9L, metadata);
+        assertEquals(created.preparationId(), edited.preparationId()); assertEquals(created.mediaVersion(), edited.mediaVersion());
+        ready(created.draftId());
+        var ready = drafts.get(created.draftId(), 9L);
+        var unchanged = dynamic(); unchanged.setTitle("再改标题");
+        var saved = drafts.saveDynamic(created.draftId(), 9L, unchanged);
+        assertEquals("ready", saved.status()); assertEquals(ready.preparationId(), saved.preparationId());
+        assertEquals(ready.mediaVersion(), saved.mediaVersion());
+        assertNotNull(publish.submit(created.draftId(), 9L));
+        verifyNoInteractions(storage);
+    }
+
+    @Test void oldPreparationResponseCannotReadyReplacementMedia() {
+        var created = drafts.saveDynamic(null, 9L, dynamic());
+        var row = rows.selectById(created.draftId());
+        var request = PreparedDraftTestSupport.request(row);
+        when(tasks.preparation(created.preparationId())).thenAnswer(call -> {
+            var replacement = dynamic(); replacement.getItems().get(1).setImageObjectKey("uploads/picture/9/20261011/replaced.png");
+            drafts.saveDynamic(created.draftId(), 9L, replacement);
+            return new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(created.preparationId(), "SUCCESS", 1, 0, null,
+                    PreparedDraftTestSupport.manifest(request), false);
+        });
+        coordinator.reconcile();
+        var current = rows.selectById(created.draftId());
+        assertEquals(MediaDraftStatusEnum.PROCESSING, current.getStatus()); assertNull(current.getPreparedJson());
+        assertEquals(1, current.getMediaVersion()); assertNotEquals(created.preparationId(), current.getPreparationId());
+        assertThrows(BizException.class, () -> publish.submit(created.draftId(), 9L));
+        ready(created.draftId()); assertNotNull(publish.submit(created.draftId(), 9L));
+    }
+
+    @Test void deadTaskRetryRejectsLateFailureAndKeepsSamePreparation() {
+        var created = drafts.saveDynamic(null, 9L, dynamic());
+        var row = rows.selectById(created.draftId()); var request = PreparedDraftTestSupport.request(row);
+        var dead = new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(created.preparationId(), "DEAD", 4, 3, "下载失败", null, false);
+        when(tasks.preparation(created.preparationId())).thenReturn(dead);
+        coordinator.reconcile(); assertEquals("failed", drafts.get(created.draftId(), 9L).status());
+        assertTrue(coordinator.retry(created.draftId(), 9L)); assertTrue(coordinator.retry(created.draftId(), 9L));
+        when(tasks.retryPreparation(created.preparationId())).thenReturn(true);
+        coordinator.reconcile(); assertEquals("processing", drafts.get(created.draftId(), 9L).status());
+        assertEquals(5, rows.selectById(created.draftId()).getPreparationAttempt());
+        when(tasks.preparation(created.preparationId())).thenReturn(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(
+                created.preparationId(), "SUCCESS", 5, 0, null, PreparedDraftTestSupport.manifest(request), false));
+        jdbc.update("UPDATE media_draft SET preparation_after=CURRENT_TIMESTAMP WHERE id=?", created.draftId());
+        coordinator.reconcile(); assertEquals("ready", drafts.get(created.draftId(), 9L).status());
+        assertEquals(created.preparationId(), drafts.get(created.draftId(), 9L).preparationId());
+        assertThrows(BizException.class, () -> coordinator.retry(created.draftId(), 10L));
+    }
+
+    @Test void failedRegistrationIsRecoveredFromPersistedIntent() {
+        var created = drafts.saveDynamic(null, 9L, dynamic());
+        doThrow(new IllegalStateException("MQ unavailable")).when(tasks).prepare(any());
+        coordinator.reconcile(); assertEquals("processing", drafts.get(created.draftId(), 9L).status());
+        doNothing().when(tasks).prepare(any()); ready(created.draftId());
+        verify(tasks, times(2)).prepare(argThat(r -> r.preparationId().equals(created.preparationId())));
+    }
+
+    @Test void videoRetryAfterServerConfigurationChangeCreatesNewVersionWithoutReupload() {
+        var id = mediaDrafts.createDraft(9L, "uploads/video/9/20261011/original.mp4", "original.mp4");
+        assertTrue(coordinator.uploaded(id)); retryChangedConfiguration(id);
+    }
+
+    @Test void dynamicRetryAfterServerConfigurationChangeCreatesNewVersionWithSameMedia() {
+        retryChangedConfiguration(drafts.saveDynamic(null, 9L, dynamic()).draftId());
+    }
+
+    void retryChangedConfiguration(Long id) {
+        var before = rows.selectById(id);
+        when(tasks.preparation(before.getPreparationId())).thenReturn(new PreparationContracts.View(
+                before.getPreparationId(), "DEAD", 4, 3, PreparationContracts.PARAMETERS_CHANGED_MESSAGE, null, true));
+        coordinator.reconcile(); assertEquals("failed", drafts.get(id, 9L).status());
+        assertTrue(coordinator.retry(id, 9L));
+        var renewed = rows.selectById(id);
+        assertEquals(before.getMediaVersion() + 1, renewed.getMediaVersion());
+        assertNotEquals(before.getPreparationId(), renewed.getPreparationId());
+        assertEquals(before.getRevision() + 1, renewed.getRevision());
+        assertEquals(before.getObjectKey(), renewed.getObjectKey());
+        assertEquals(before.getMediaJson(), renewed.getMediaJson());
+        assertEquals(before.getCoverObjectKey(), renewed.getCoverObjectKey());
+        assertEquals(0, renewed.getPreparationAttempt()); assertFalse(renewed.getPreparationRetry());
+        assertNull(renewed.getErrorMessage()); assertNull(renewed.getPreparedJson());
+        assertNull(renewed.getPreparedCoverObjectKey());
+        assertTrue(coordinator.retry(id, 9L));
+        assertEquals(renewed.getPreparationId(), rows.selectById(id).getPreparationId());
+        assertEquals("RELEASED", reference(id, before.getPreparationId(), before.getMediaVersion()));
+        ready(id);
+        verify(tasks).prepare(argThat(r -> r.preparationId().equals(renewed.getPreparationId()) && r.mediaVersion() == 1));
+        verify(tasks, never()).retryPreparation(anyLong()); verifyNoInteractions(storage);
+    }
+
+    @Test void retryCannotReplaceMediaEditedWhileCheckingConfiguration() {
+        var created = drafts.saveDynamic(null, 9L, dynamic());
+        var dead = new PreparationContracts.View(created.preparationId(), "DEAD", 4, 3, "旧配置", null, true);
+        when(tasks.preparation(created.preparationId())).thenReturn(dead); coordinator.reconcile();
+        when(tasks.preparation(created.preparationId())).thenAnswer(call -> {
+            var replacement = dynamic(); replacement.getItems().get(1).setImageObjectKey("uploads/picture/9/20261011/replaced.png");
+            drafts.saveDynamic(created.draftId(), 9L, replacement); return dead;
+        });
+        assertFalse(coordinator.retry(created.draftId(), 9L));
+        var current = rows.selectById(created.draftId());
+        assertEquals(1, current.getMediaVersion());
+        assertTrue(current.getMediaJson().contains("replaced.png"));
+        assertEquals(MediaDraftStatusEnum.PROCESSING, current.getStatus());
+        assertEquals(1, current.getRevision()); verify(tasks, never()).retryPreparation(anyLong());
+    }
+
+    @Test void unavailableConfigurationCheckLeavesFailedDraftRetryable() {
+        var created = drafts.saveDynamic(null, 9L, dynamic());
+        when(tasks.preparation(created.preparationId())).thenReturn(new PreparationContracts.View(
+                created.preparationId(), "DEAD", 4, 3, "下载失败", null, false));
+        coordinator.reconcile();
+        when(tasks.preparation(created.preparationId())).thenReturn(null);
+        assertThrows(BizException.class, () -> coordinator.retry(created.draftId(), 9L));
+        var current = rows.selectById(created.draftId());
+        assertEquals(MediaDraftStatusEnum.FAILED, current.getStatus());
+        assertEquals(created.preparationId(), current.getPreparationId()); assertEquals(4, current.getPreparationAttempt());
+        verify(tasks, never()).retryPreparation(anyLong());
+    }
+
+    @Test void incompleteOrMismatchedManifestCannotReadyDraft() {
+        var created = drafts.saveDynamic(null, 9L, dynamic());
+        var request = PreparedDraftTestSupport.request(rows.selectById(created.draftId()));
+        var valid = PreparedDraftTestSupport.manifest(request);
+        var incomplete = new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Manifest(valid.preparationId(), valid.draftId(),
+                valid.mediaVersion(), valid.userId(), valid.parameterVersion(), valid.items().subList(0, 3), valid.durationMs(), valid.hasAudio());
+        when(tasks.preparation(created.preparationId())).thenReturn(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(
+                created.preparationId(), "SUCCESS", 1, 0, null, incomplete, false));
+        coordinator.reconcile(); assertEquals("processing", drafts.get(created.draftId(), 9L).status());
+        assertNull(rows.selectById(created.draftId()).getPreparedJson());
+        assertThrows(BizException.class, () -> publish.submit(created.draftId(), 9L));
+        ready(created.draftId());
+        jdbc.update("UPDATE media_draft SET media_version=media_version+1 WHERE id=?", created.draftId());
+        assertThrows(BizException.class, () -> publish.submit(created.draftId(), 9L));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));
     }
+    @Test void unversionedLegacyStatusCallbackCannotReadyPreparedDraft() {
+        Long id = mediaDrafts.createDraft(9L, "uploads/video/9/20261011/callback.mp4", "callback.mp4");
+        assertTrue(coordinator.uploaded(id)); assertFalse(coordinator.uploaded(id));
+        var notifications = mock(cn.diaojiahong.myyoutube.notification.service.NotificationPublisher.class);
+        var controller = new cn.diaojiahong.myyoutube.video.controller.InternalMediaDraftController(mediaDrafts, notifications, coordinator);
+        assertFalse(controller.updateStatus(id, "ready", new cn.diaojiahong.myyoutube.video.api.MediaDraftPort.StatusUpdate(1000L, null)));
+        assertEquals(MediaDraftStatusEnum.PROCESSING, rows.selectById(id).getStatus());
+        assertNull(rows.selectById(id).getPreparedJson()); verifyNoInteractions(notifications);
+    }
+    @Test void equivalentStoredJsonDoesNotRestartReadyMediaPreparation() {
+        var created = drafts.saveDynamic(null, 9L, dynamic()); ready(created.draftId());
+        String stored = rows.selectById(created.draftId()).getMediaJson();
+        var normalized = cn.diaojiahong.myyoutube.common.utils.JsonUtil.GSON.toJson(
+                cn.diaojiahong.myyoutube.common.utils.JsonUtil.GSON.fromJson(stored, com.google.gson.JsonObject.class));
+        jdbc.update("UPDATE media_draft SET media_json=? WHERE id=?", normalized.replace(",", ", "), created.draftId());
+        var dto = dynamic(); dto.setTitle("只改标题");
+        var edited = drafts.saveDynamic(created.draftId(), 9L, dto);
+        assertEquals("ready", edited.status()); assertEquals(created.preparationId(), edited.preparationId());
+        assertEquals(created.mediaVersion(), edited.mediaVersion()); assertNotNull(publish.submit(created.draftId(), 9L));
+    }
+    String reference(Long id, Long preparationId, long version) {
+        return transaction.execute(tx -> new PreparationReferenceService(rows, contentRows).reference(
+                new cn.diaojiahong.myyoutube.video.api.MediaDraftPort.PreparationReference(preparationId, id, 9L, version)));
+    }
+    @Test void persistentDraftAndContentReferencesSurviveSubmissionAndReleaseOnlyOnDeletion() {
+        var draft = drafts.saveDynamic(null, 9L, dynamic());
+        assertEquals("RETAINED", reference(draft.draftId(), draft.preparationId(), 0));
+        ready(draft.draftId()); publish.submit(draft.draftId(), 9L);
+        assertEquals("RETAINED", reference(draft.draftId(), draft.preparationId(), 0));
+        assertEquals("UNKNOWN", reference(draft.draftId(), draft.preparationId() + 1, 0));
+        jdbc.update("UPDATE content SET is_delete=1 WHERE id=?", draft.draftId());
+        assertEquals("RELEASED", reference(draft.draftId(), draft.preparationId(), 0));
+        assertEquals("UNKNOWN", reference(-1L, draft.preparationId(), 0));
+    }
+    @Test void replacedVersionsReleaseOldCohortButKeepNewInputs() {
+        var draft = drafts.saveDynamic(null, 9L, dynamic());
+        var replacement = dynamic(); replacement.getItems().get(1).setImageObjectKey("uploads/picture/9/20261011/new.png");
+        var next = drafts.saveDynamic(draft.draftId(), 9L, replacement);
+        assertEquals("RELEASED", reference(draft.draftId(), draft.preparationId(), 0));
+        assertEquals("RETAINED", reference(next.draftId(), next.preparationId(), 1));
+        assertEquals("UNKNOWN", reference(next.draftId(), next.preparationId(), 2));
+    }
+    @Test void sevenDayExpiryUsesUserDeadlineAndStopsReconciliationAndSubmission() {
+        var created = drafts.saveDynamic(null, 9L, dynamic());
+        jdbc.update("UPDATE media_draft SET expires_at=DATEADD('DAY', -1, CURRENT_TIMESTAMP),update_time=CURRENT_TIMESTAMP WHERE id=?", created.draftId());
+        new DraftExpiryService(rows).expire();
+        assertEquals(MediaDraftStatusEnum.EXPIRED, rows.selectById(created.draftId()).getStatus());
+        assertEquals("RELEASED", reference(created.draftId(), created.preparationId(), 0));
+        coordinator.reconcile(); verifyNoInteractions(tasks);
+        assertThrows(BizException.class, () -> publish.submit(created.draftId(), 9L));
+        assertThrows(BizException.class, () -> drafts.saveDynamic(created.draftId(), 9L, dynamic()));
+        assertFalse(coordinator.retry(created.draftId(), 9L));
+    }
+    @Test void userEditRenewsDeadlineAndSubmittedContentNeverExpires() {
+        var draft = drafts.saveDynamic(null, 9L, dynamic());
+        jdbc.update("UPDATE media_draft SET expires_at=DATEADD('DAY', -1, CURRENT_TIMESTAMP) WHERE id=?", draft.draftId());
+        var metadata = new ContentMetadataDTO(); metadata.setTitle("继续编辑");
+        drafts.saveMetadata(draft.draftId(), 9L, metadata);
+        new DraftExpiryService(rows).expire(); assertEquals(MediaDraftStatusEnum.PROCESSING, rows.selectById(draft.draftId()).getStatus());
+        ready(draft.draftId()); publish.submit(draft.draftId(), 9L);
+        jdbc.update("UPDATE media_draft SET expires_at=DATEADD('DAY', -1, CURRENT_TIMESTAMP) WHERE id=?", draft.draftId());
+        new DraftExpiryService(rows).expire(); assertEquals(MediaDraftStatusEnum.SUBMITTED, rows.selectById(draft.draftId()).getStatus());
+        assertEquals("RETAINED", reference(draft.draftId(), draft.preparationId(), 0));
+    }
+
 }

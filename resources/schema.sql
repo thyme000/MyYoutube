@@ -326,6 +326,15 @@ USE video_db;
 
 -- 视频上传后转码 READY；图集原生素材校验后 READY；提交冻结为 submitted。
 CREATE TABLE IF NOT EXISTS `media_draft` (
+    media_version BIGINT NOT NULL DEFAULT 0,
+    preparation_id BIGINT NOT NULL,
+    preparation_attempt INT NOT NULL DEFAULT 0,
+    preparation_retry TINYINT NOT NULL DEFAULT 0,
+    preparation_after DATETIME,
+    expires_at DATETIME NOT NULL,
+    KEY idx_draft_expiry(status, expires_at, id),
+    prepared_json TEXT,
+    prepared_cover_object_key VARCHAR(512),
     `id`                BIGINT       NOT NULL COMMENT '雪花ID, 与后续video/content共用',
     `user_id`           BIGINT       NOT NULL COMMENT '属主',
     `type`              VARCHAR(16)  NOT NULL COMMENT 'video/dynamic',
@@ -345,6 +354,7 @@ CREATE TABLE IF NOT EXISTS `media_draft` (
     `update_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_object_key` (`object_key`),
+    KEY idx_draft_preparation(status, preparation_after, id),
     KEY `idx_user_status` (`user_id`, `status`)
 ) ENGINE=InnoDB COMMENT='内容草稿';
 

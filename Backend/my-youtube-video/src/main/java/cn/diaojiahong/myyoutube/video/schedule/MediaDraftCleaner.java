@@ -70,13 +70,14 @@ public class MediaDraftCleaner {
                         .userId(draft.getUserId())
                         .objectKey(draft.getObjectKey())
                         .build());
-            } else {
+            } else if (draft.getPreparationId() == null) {
                 // 直传从未完成或对象已被清: 过期回收
                 mediaDraftService.expire(draft.getId(), List.of(MediaDraftStatusEnum.UPLOADING));
                 log.info("直传未完成草稿过期: draftId={}", draft.getId());
             }
             return;
         }
+        if (draft.getPreparationId() != null) return; // 新草稿由 DraftExpiryService 和准备清单回收器治理。
         // READY/FAILED 超期: 原件+管线产物一并回收
         if (!draft.getUpdateTime().isBefore(now.minusDays(UNPUBLISHED_KEEP_DAYS))) {
             return;
@@ -89,12 +90,7 @@ public class MediaDraftCleaner {
     }
 
     private boolean objectExists(String objectKey) {
-        try {
-            storageUtil.readHeadBytes(objectKey, 1);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+        return storageUtil.objectExists(objectKey);
     }
 
     private void deletePipelineArtifacts(Long draftId, String originalKey) {
