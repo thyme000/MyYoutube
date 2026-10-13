@@ -27,6 +27,13 @@ groups:
           severity: warning
         annotations:
           summary: "{{ $labels.service }} 等待队列持续满载"
+      - alert: ModelDiscoveryUnavailable
+        expr: model_discovery_registered == 0 and on (job, instance, service) model_discovery_enabled == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} Nacos 注册未就绪，检查模型服务的连接恢复日志"
       - alert: ModelOverload
         expr: increase(model_overload_total[5m]) > 5
         labels:

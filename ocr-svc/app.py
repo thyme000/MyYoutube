@@ -2,6 +2,7 @@ import multiprocessing
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, HttpUrl, Field
 from prometheus_client import make_asgi_app
 from engine import Worker
@@ -20,7 +21,8 @@ async def lifespan(app):
     app.state.pool = pool
     await pool.start()
     try:
-        async with registration("ocr-svc", 8088):
+        async with registration("ocr-svc", 8088) as discovery:
+            app.state.discovery = discovery
             yield
     finally:
         await pool.close()
@@ -37,7 +39,12 @@ class BatchRequest(BaseModel):
 @app.get("/health")
 async def health():
     pool = app.state.pool
-    return {"ready": pool.accepting, "concurrency": CONCURRENCY, "admitted": pool.admitted}
+    healthy = sum(worker.ready and worker.process.is_alive() for worker in pool.workers)
+    discovery = app.state.discovery
+    ready = pool.accepting and healthy > 0 and discovery.ready
+    return JSONResponse({"ready": ready, "concurrency": CONCURRENCY, "healthyWorkers": healthy,
+                         "admitted": pool.admitted, "discovery": discovery.status()},
+                        status_code=200 if ready else 503)
 
 
 @app.post("/ocr")

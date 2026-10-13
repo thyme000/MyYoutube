@@ -29,6 +29,8 @@ def write_outputs(segments):
 
 def serve(connection, config):
     os.setsid()
+    import logging
+    logger = logging.getLogger(__name__)
     client = None
     try:
         from pywhispercpp.model import Model
@@ -71,10 +73,13 @@ def serve(connection, config):
                     for url, content in ((request["vttUploadUrl"], vtt), (request["segmentsUploadUrl"], data)):
                         response = client.put(url, content=content.encode("utf-8"))
                         response.raise_for_status()
+                    logger.info("ASR completed pid=%s elapsed=%.3fs segments=%s peakRssBytes=%s", os.getpid(),
+                                time.monotonic() - started, len(segments), resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024))
                     connection.send({"durationMs": duration_ms, "segmentCount": len(segments), "promptTokenCount": count(prompt),
                                      "speechEmpty": not segments, "elapsedSeconds": time.monotonic() - started,
                                      "workerPid": os.getpid(), "peakRssBytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)})
             except Exception as error:
+                logger.error("ASR execution failed pid=%s error=%s elapsed=%.3fs", os.getpid(), type(error).__name__, time.monotonic() - started)
                 connection.send({"error": type(error).__name__})
     except BaseException as error:
         try:

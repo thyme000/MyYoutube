@@ -1,0 +1,44 @@
+import json
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+from model_runtime.discovery import Registration
+
+import app
+
+
+class HealthTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        with patch.dict("os.environ", {}, clear=True):
+            app.app.state.discovery = Registration("asr-health-test", 8089)
+        app.app.state.discovery.set_registered(True)
+
+    async def test_restarting_or_dead_worker_is_not_ready(self):
+        worker = SimpleNamespace(ready=True, process=SimpleNamespace(is_alive=lambda: True))
+        app.app.state.pool = SimpleNamespace(accepting=True, workers=[worker], admitted=0)
+        self.assertEqual((await app.health()).status_code, 200)
+        worker.ready = False
+        response = await app.health()
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(json.loads(response.body)["ready"])
+        worker.ready = True
+        worker.process.is_alive = lambda: False
+        self.assertEqual((await app.health()).status_code, 503)
+
+    async def test_discovery_failure_and_recovery_change_readiness(self):
+        worker = SimpleNamespace(ready=True, process=SimpleNamespace(is_alive=lambda: True))
+        app.app.state.pool = SimpleNamespace(accepting=True, workers=[worker], admitted=0)
+        app.app.state.discovery.set_registered(False)
+        response = await app.health()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(json.loads(response.body)["discovery"], {"enabled": True, "registered": False})
+        app.app.state.discovery.set_registered(True)
+        self.assertEqual((await app.health()).status_code, 200)
+        app.app.state.discovery.enabled = False
+        app.app.state.discovery.set_registered(False)
+        self.assertEqual((await app.health()).status_code, 200)
+
+
+if __name__ == "__main__":
+    unittest.main()
