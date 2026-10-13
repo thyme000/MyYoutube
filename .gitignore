@@ -46,6 +46,7 @@ frontend-admin/
 # ===== Python (ocr-svc) =====
 .venv/
 __pycache__/
+node_modules/
 
 docs/*
 
