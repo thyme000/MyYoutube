@@ -84,6 +84,10 @@ my-youtube:
     url: ${ASR_SERVICE_URL:}
   ocr:
     url: ${OCR_SERVICE_URL:}
+  media-pipeline:
+    # transcode 每次 OCR 请求的图片数；整批共用 Python 的 OCR_EXECUTION_TIMEOUT。
+    ocr-batch-size: ${OCR_BATCH_SIZE:2}
+    draft-concurrency: ${DRAFT_WORKER_CONCURRENCY:1}
 
   llm:
     # OpenAI 兼容接口；本地示例使用 Ollama，须先安装并拉取下列模型。

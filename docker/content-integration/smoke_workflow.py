@@ -102,6 +102,8 @@ def main():
         dynamic = api("/contents/drafts/dynamic", owner, {"title": "太阳系科普图集", "description": "介绍地球围绕太阳公转",
                 "canvasType": "vertical", "transition": "fade", "visibility": "public", "allowComment": 1,
                 "coverImageObjectKey": images[1], "items": [{"imageObjectKey": key, "durationMs": 3000} for key in images]})
+        dynamic_id = dynamic["draftId"]
+        until("dynamic draft READY after media preparation", lambda: api(f"/contents/drafts/{dynamic_id}", owner)["status"] == "ready")
         video_file = args.output / "speech.mp4"
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=320x240:r=10",
                         "-i", str(args.speech), "-t", "10", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(video_file)], check=True)
@@ -113,7 +115,7 @@ def main():
                                          data=json.dumps(event).encode(), headers={"Content-Type": "application/json"})
         urllib.request.urlopen(request, timeout=30).close()
         video_id = video["draftId"]
-        until("video draft READY after real transcode", lambda: api(f"/contents/drafts/{video_id}", owner)["status"] == "ready")
+        until("video draft READY after media preparation", lambda: api(f"/contents/drafts/{video_id}", owner)["status"] == "ready")
         api(f"/contents/drafts/{video_id}/metadata", owner,
             {"title": "太阳系科普视频", "description": "介绍地球与太阳的关系", "visibility": "public", "allowComment": 1}, "PUT")
         published_ids = set()

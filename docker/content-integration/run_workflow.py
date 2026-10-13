@@ -20,7 +20,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--components", action="store_true", help="Run all opt-in component tests before starting Java services")
     parser.add_argument("--speech", type=Path, required=True, help="Local speech WAV of at least ten seconds")
+    parser.add_argument("--hold-seconds", type=int, default=0, help="Keep this isolated environment available for browser checks after the workflow")
     args = parser.parse_args()
+    if not 0 <= args.hold_seconds <= 1800:
+        parser.error("hold-seconds must be between 0 and 1800")
     if not args.speech.is_file():
         raise RuntimeError("Speech sample is missing")
     for port in range(18080, 18090):
@@ -121,6 +124,9 @@ def main():
         processes.append(smoke)
         if smoke.wait(timeout=900) != 0:
             raise RuntimeError("Workflow checks failed")
+        if args.hold_seconds:
+            print(f"Workflow passed; browser checks available for {args.hold_seconds} seconds", flush=True)
+            time.sleep(args.hold_seconds)
     finally:
         for process in reversed(processes):
             if process.poll() is None:

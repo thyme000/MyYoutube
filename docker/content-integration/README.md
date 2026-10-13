@@ -48,6 +48,8 @@ cd ocr-svc
 NACOS_ADDR=127.0.0.1:18848 SERVER_PORT=18088 PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True sh start.sh
 ```
 
+ASR/OCR 每 15 秒向 Nacos 实时核对自己的注册；实例丢失时补注册，连接失效时重建客户端并退避重试。启动时 Nacos 暂不可用，模型进程仍运行并在后台重试，注册恢复前 `/health` 返回 503。`NACOS_CHECK_INTERVAL`、`NACOS_OPERATION_TIMEOUT`、`NACOS_RECONNECT_MAX_DELAY` 默认分别为 15、10、60 秒，可在服务进程环境调整。`/health` 返回 `discovery.registered`。联调可运行 `PYTHONPATH=. asr-svc/.venv/bin/python -m model_runtime.check_discovery_recovery`，用唯一临时服务验证补注册及连接恢复；它默认连接本机 8848，隔离 Nacos 需设置 `NACOS_ADDR=127.0.0.1:18848`。
+
 确认两者 /health 就绪后，从仓库根目录执行，WAV 样本需至少十秒且包含语音：
 
 ```sh
@@ -87,3 +89,24 @@ python3 docker/content-integration/run_workflow.py --components --speech /absolu
 **此运行器会重建测试项目内的 user_db/video_db/chat_db/transcode_db，并清空测试 Redis/Mongo/ES。**配置固定在本目录 application.yml，检查 MySQL 标记及 Mongo/ES 名称，使用专用端口 18080~18089；不要与其他测试并行。依赖已经缓存的模型和工具，不下载模型或调用云服务。日志写到新的 content-final-workflow-* 临时目录，结束自动停止自己创建的 Java/Python/检查子进程；之后仍需执行 compose down -v。
 
 视频素材经真实签名 POST 上传，但测试手动重放 RustFS 通知载荷到真实 storage-event/MQ 桥接，不覆盖对象存储通知配置本身。测试配置明确为无密码 Redisson 连接，仅用于本机隔离实例；不得作为业务部署配置。正式部署顺序和剩余运行验收见 [交付说明](../../docs/content-unification-handover.md)。
+
+
+## 媒体准备与页面验收
+
+视频上传事件启动 PREPARE，保留原片、不强制转码；动态保存后也需等 READY 再提交。`PreparationWorkflowTest` 支持 `-Dcontent.integration=true` 使用隔离 MySQL。新增 `LiveMediaPreparationTest` 还需 `-Dpreparation.live=true`，覆盖真实 RustFS 条件复制、版本删除、图片复用、视频字节保留／公共 8 帧及共享引用回收；`-Dcontent.models=true` 额外启用真实 OCR 正常文字对比。普通回归默认跳过这些用例。原始 4K OCR 会消耗较多内存，避免与其他模型负载同时执行。
+
+页面状态与恢复检查使用实际 Vue 页面及受控 API：
+
+```sh
+cd Frontend/my-youtube
+node scripts/e2e/smoke-preparation.mjs
+```
+
+真实播放检查需完整业务运行器已经通过，并通过 `--hold-seconds 600` 保留服务；在另一个终端执行：
+
+```sh
+cd Frontend/my-youtube
+node scripts/e2e/smoke-prepared-playback.mjs
+```
+
+两份脚本使用既有浏览器 CDP harness 并自动清理自己的页面与 Vite 进程。真实脚本连接隔离网关 18080 和测试账号，仅用于该隔离环境。`--hold-seconds` 最大 1800 秒，结束后运行器停止自己的子进程；仍需 compose down -v。浏览器通过不代表跨设备兼容或内存稳定性通过。本次实际结果及未验收边界见 [媒体准备报告第六批](../../docs/media-preparation-optimization-report.md)。

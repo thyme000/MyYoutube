@@ -1,7 +1,7 @@
 # 视频上传事件通知
 
 上传链路为 RustFS → transcode `/internal/media/storage-event` → RocketMQ
-`media_upload_event_topic` → 视频草稿转码。
+`media_upload_event_topic` → 视频草稿异步媒体准备（PREPARE）。
 
 Compose 的 `RUSTFS_NOTIFY_*` 环境变量只注册 webhook 目标，不会创建桶订阅。
 后端启动时也只检查桶是否存在。新建桶后必须单独应用 `video-notification.json`，
@@ -38,7 +38,7 @@ PUT 会替换整个桶的通知配置；已有其他订阅时，先备份并合�
 - 若启用了 `my-youtube.media.webhook-token`，webhook 目标 URL 必须携带相同的 `?token=`。
   修改 RustFS 环境变量后需重新创建容器。
 - 上传 `uploads/video/` 下的临时对象，确认 transcode 出现“已桥接上传事件”日志，
-  并检查 `transcode_media_upload_event_group` 的消费进度。没有业务草稿的临时对象不会创建转码任务，验证后删除。
+  并检查 `transcode_media_upload_event_group` 的消费进度。没有业务草稿的临时对象不会创建媒体准备任务，验证后删除。
 - 新增订阅不会补发以前的上传事件。对卡在 `uploading` 的草稿，先用 S3 HEAD 确认对象存在，
   再将该对象的 URL 编码 key 和真实 size 作为 `s3:ObjectCreated:Put` 的 `Records` 重放到 webhook。
-  消费者仍按对象 key 反查草稿，并通过原有流程启动转码；不要直接修改数据库状态。
+  消费者仍按对象 key 反查草稿，并启动 PREPARE 固定原片、校验并准备公共帧；不要直接修改数据库状态。
