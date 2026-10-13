@@ -6,7 +6,7 @@ import java.util.Map;
 
 @Data
 public class StoragePresignVO {
-    // 上传类型: put=XHR PUT 直传(旧路径), post=multipart form-data 表单直传(带大小/类型约束)
+    // 上传类型：视频 PUT 签名绑定实际大小和类型；post 使用表单字段。
     private String uploadType;
     // put: 预签名 PUT URL; post: 表单提交地址
     private String url;

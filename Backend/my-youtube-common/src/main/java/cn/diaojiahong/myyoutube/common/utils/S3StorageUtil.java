@@ -210,6 +210,17 @@ public class S3StorageUtil {
         return s3Presigner.presignPutObject(request).url().toString();
     }
 
+    public String presignPutUrl(String objectKey, long expireSeconds, long contentLength, String contentType) {
+        if (contentLength <= 0 || !StringUtils.hasText(contentType))
+            throw new IllegalArgumentException("上传大小和类型不能为空");
+        var request = PutObjectPresignRequest.builder()
+                .signatureDuration(Duration.ofSeconds(Math.max(1, expireSeconds)))
+                .putObjectRequest(b -> b.bucket(properties.getBucketName()).key(objectKey)
+                        .contentLength(contentLength).contentType(contentType))
+                .build();
+        return s3Presigner.presignPutObject(request).url().toString();
+    }
+
     /**
      * 生成 presigned POST 表单（SDK v2 不支持, 手签 SigV4 POST policy）。
      * 签名时锁定 objectKey/大小上下限/Content-Type 前缀, 存储层直接拒绝越界上传。

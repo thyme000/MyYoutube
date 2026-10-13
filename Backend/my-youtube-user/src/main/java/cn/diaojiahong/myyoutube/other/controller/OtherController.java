@@ -22,7 +22,9 @@ public class OtherController {
     @GetMapping("/storage/presign")
     @Operation(summary = "获取上传预签名URL")
     public Result<StoragePresignVO> presignUpload(@RequestParam String bizType,
-                                              @RequestParam(required = false) String filename) {
-        return Result.success(otherService.presignUpload(bizType, filename));
+                                              @RequestParam(required = false) String filename,
+                                              @RequestParam(required = false) Long fileSize,
+                                              @RequestParam(required = false) String contentType) {
+        return Result.success(otherService.presignUpload(bizType, filename, fileSize, contentType));
     }
 }

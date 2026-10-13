@@ -54,7 +54,8 @@ def png(color):
 
 
 def upload(token, biz, name, data, mime):
-    signed = api("/storage/presign?" + urllib.parse.urlencode({"bizType": biz, "filename": name}), token)
+    signed = api("/storage/presign?" + urllib.parse.urlencode(
+        {"bizType": biz, "filename": name, "fileSize": len(data), "contentType": mime}), token)
     if signed["uploadType"] == "put":
         request = urllib.request.Request(signed["url"], data=data, method="PUT", headers={"Content-Type": mime})
     else:

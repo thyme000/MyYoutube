@@ -25,7 +25,6 @@ public class OtherService implements IOtherService {
     );
     private static final long PRESIGN_EXPIRE_SECONDS = 30 * 60;
     // 视频直传约束: 签名策略锁死, 存储层直接拒绝越界对象
-    private static final String VIDEO_CONTENT_TYPE_PREFIX = "video/";
     private static final long VIDEO_MIN_BYTES = 1;
     private static final long VIDEO_MAX_BYTES = 500L * 1024 * 1024;
 
@@ -33,11 +32,14 @@ public class OtherService implements IOtherService {
     private final MediaDraftPort mediaDraftPort;
 
     @Override
-    public StoragePresignVO presignUpload(String bizType, String filename) {
+    public StoragePresignVO presignUpload(String bizType, String filename, Long fileSize, String contentType) {
         String biz = BIZ_DIRS.get(bizType);
         if (biz == null) {
             throw new BizException(BizException.STORAGE_ERROR, "不支持的 bizType: " + bizType);
         }
+        if ("work".equals(bizType) && (fileSize == null || fileSize < VIDEO_MIN_BYTES || fileSize > VIDEO_MAX_BYTES
+                || contentType == null || !contentType.matches("video/[a-zA-Z0-9.+-]+")))
+            throw new BizException(BizException.STORAGE_ERROR, "请选择不超过 500 MB 的非空视频文件，并提供视频类型");
         Long userId = Long.valueOf(UserContext.getUserId());
 
         String objectKey = storageUtil.buildUniqueObjectKey(userId, biz, filename);
@@ -46,14 +48,12 @@ public class OtherService implements IOtherService {
         vo.setObjectKey(objectKey);
         vo.setExpireSeconds(PRESIGN_EXPIRE_SECONDS);
         if ("work".equals(bizType)) {
-            // 视频走事件驱动管线: presign 即建草稿, POST 表单锁定大小/类型
+            // PUT 避开 RustFS 的二进制表单解析问题，签名仍锁定实际大小和类型。
+            String url = storageUtil.presignPutUrl(objectKey, PRESIGN_EXPIRE_SECONDS, fileSize, contentType);
             Long draftId = mediaDraftPort.createDraft(
                     new MediaDraftPort.DraftCreate(userId, objectKey, filename)).getDraftId();
-            S3StorageUtil.PresignPostForm form = storageUtil.presignPostForm(
-                    objectKey, VIDEO_CONTENT_TYPE_PREFIX, VIDEO_MIN_BYTES, VIDEO_MAX_BYTES, PRESIGN_EXPIRE_SECONDS);
-            vo.setUploadType("post");
-            vo.setUrl(form.url());
-            vo.setFormFields(form.fields());
+            vo.setUploadType("put");
+            vo.setUrl(url);
             vo.setDraftId(draftId);
             log.info("视频上传凭证已发放 userId={} draftId={} objectKey={}", userId, draftId, objectKey);
         } else {
