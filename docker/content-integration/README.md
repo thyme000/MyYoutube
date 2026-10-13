@@ -109,4 +109,4 @@ cd Frontend/my-youtube
 node scripts/e2e/smoke-prepared-playback.mjs
 ```
 
-两份脚本使用既有浏览器 CDP harness 并自动清理自己的页面与 Vite 进程。真实脚本连接隔离网关 18080 和测试账号，仅用于该隔离环境。`--hold-seconds` 最大 1800 秒，结束后运行器停止自己的子进程；仍需 compose down -v。浏览器通过不代表跨设备兼容或内存稳定性通过。本次实际结果及未验收边界见 [媒体准备报告第六批](../../docs/media-preparation-optimization-report.md)。
+两份脚本使用既有浏览器 CDP harness 并自动清理自己的页面与 Vite 进程。真实脚本连接隔离网关 18080 和测试账号，仅用于该隔离环境。`--hold-seconds` 最大 1800 秒，结束后运行器停止自己的子进程；仍需 compose down -v。浏览器通过不代表跨设备兼容或内存稳定性通过。
