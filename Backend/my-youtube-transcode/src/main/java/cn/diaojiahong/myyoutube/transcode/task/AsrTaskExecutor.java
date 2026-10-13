@@ -27,7 +27,7 @@ public class AsrTaskExecutor implements MediaTaskExecutor {
         String base = "content/" + msg.getPipelineId() + "/asr/" + msg.getAttempt() + "/" + UUID.randomUUID();
         String vtt = base + ".vtt", segments = base + ".json";
         var media = input.media();
-        if (media.dynamic() != null && media.dynamic().audio() == null) {
+        if (media.preparation() != null && !media.preparation().hasAudio() || media.dynamic() != null && media.dynamic().audio() == null) {
             storage.uploadWithKey("WEBVTT\n\n".getBytes(StandardCharsets.UTF_8), vtt);
             String emptySegments = artifacts.write(msg.getPipelineId(), "ASR", msg.getAttempt(), new ContentArtifacts.Transcript(List.of()));
             return JsonUtil.toJson(Map.of("vttKey", vtt, "segmentsKey", emptySegments, "durationMs", 0,

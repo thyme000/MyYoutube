@@ -27,6 +27,40 @@ public class VideoCoverGenerator {
     private static final String PREFIX_STORAGE = "video-cover";
     private final S3StorageUtil storageUtil;
     private final CoverVisionSelector coverVisionSelector;
+    private final cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage preparedStorage;
+
+    public String selectPrepared(cn.diaojiahong.myyoutube.common.media.PreparationContracts.Manifest manifest) {
+        var frames = manifest.items().stream().filter(item -> "FRAME".equals(item.role()))
+                .sorted(Comparator.comparingInt(cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item::index)).toList();
+        if (frames.size() != 8) throw new IllegalArgumentException("Incomplete cover frames");
+        Path work = null;
+        try {
+            work = Files.createTempDirectory("prepared-cover-");
+            var budget = new cn.diaojiahong.myyoutube.transcode.preparation.MediaPreparationProperties();
+            budget.setLongEdge(512); budget.setOutputPixels(512L * 512);
+            var previews = new cn.diaojiahong.myyoutube.transcode.preparation.PreparedImageWriter(budget);
+            var candidates = new java.util.ArrayList<FFmpegUtil.FrameScore>();
+            var keys = new java.util.HashMap<Path, String>();
+            for (var frame : frames) {
+                Path downloaded = work.resolve("input.jpg"), preview = work.resolve("preview-" + frame.index() + ".jpg");
+                var source = preparedStorage.inspect(frame.objectKey());
+                preparedStorage.download(source, downloaded, budget.getSourceBytes());
+                previews.write(downloaded, preview);
+                Files.deleteIfExists(downloaded);
+                var score = FFmpegUtil.scoreFrame(preview, frame.timeMs() / 1000.0);
+                if (score == null) throw new IllegalStateException("Prepared cover frame cannot be scored");
+                candidates.add(score); keys.put(preview, frame.objectKey());
+            }
+            return keys.get(selectBest(candidates, new FFmpegUtil.Options()).framePath());
+        } catch (Exception e) { throw new IllegalStateException("Prepared cover selection failed", e); }
+        finally {
+            if (work != null) try (var paths = Files.walk(work)) {
+                for (var path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                    try { Files.deleteIfExists(path); } catch (IOException e) { log.warn("Prepared cover cleanup failed", e); }
+                }
+            } catch (IOException e) { log.warn("Prepared cover directory cleanup failed", e); }
+        }
+    }
 
     /**
      * 生成真实封面并上传；技术失败交给任务调度器重试

@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Set;
 
 public enum MediaTaskType {
-    TRANSCODE, COVER, ASR, OCR, SUMMARY, TAG, REVIEW;
+    TRANSCODE, PREPARE, COVER, ASR, OCR, SUMMARY, TAG, REVIEW;
     public Set<String> getDependencies() {
         return switch (this) {
             case SUMMARY -> Set.of("ASR", "OCR");

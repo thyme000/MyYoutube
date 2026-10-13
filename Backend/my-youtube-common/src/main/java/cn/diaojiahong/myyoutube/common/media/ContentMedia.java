@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.common.media;
 
-public record ContentMedia(String type, VideoMedia video, DynamicMedia dynamic) {
+public record ContentMedia(String type, VideoMedia video, DynamicMedia dynamic, PreparationContracts.Manifest preparation) {
+    public ContentMedia(String type, VideoMedia video, DynamicMedia dynamic) { this(type, video, dynamic, null); }
     public ContentMedia {
         if (!("video".equals(type) && video != null && dynamic == null
                 || "dynamic".equals(type) && dynamic != null && video == null))

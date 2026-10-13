@@ -34,6 +34,14 @@ public interface MediaDraftPort {
                          @PathVariable("statusCode") String statusCode,
                          @RequestBody StatusUpdate update);
 
+    @PostMapping("/{draftId}/uploaded")
+    boolean uploaded(@PathVariable("draftId") Long draftId);
+
+    @PostMapping("/preparation-reference")
+    String preparationReference(@RequestBody PreparationReference reference);
+
+    record PreparationReference(Long preparationId, Long draftId, Long userId, long mediaVersion) {}
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

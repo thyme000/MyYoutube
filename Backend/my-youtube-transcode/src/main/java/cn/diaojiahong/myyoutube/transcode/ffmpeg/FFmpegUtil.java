@@ -136,7 +136,7 @@ public final class FFmpegUtil {
     public static List<FrameScore> extractAndScoreCandidates(String source, Path outputDir, Options options) {
         Double durationSec = probeDurationSeconds(source, options);
         if (durationSec == null || durationSec <= 0.1) {
-            log.warn("探测视频时长失败: {}", source);
+            log.warn("探测视频时长失败");
             return List.of();
         }
         List<Double> sampleSeconds = buildSampleSeconds(durationSec, options.sampleCount,
@@ -294,7 +294,7 @@ public final class FFmpegUtil {
         }
     }
 
-    private static FrameScore scoreFrame(Path framePath, double second) {
+    public static FrameScore scoreFrame(Path framePath, double second) {
         BufferedImage image;
         try {
             image = ImageIO.read(framePath.toFile());
@@ -359,6 +359,7 @@ public final class FFmpegUtil {
                 + 0.30 * brightnessScore
                 + 0.15 * contrastScore;
 
+        image.flush();
         return new FrameScore(framePath, second, sharpnessScore, brightnessScore, contrastScore, mean, std, total);
     }
 
@@ -387,7 +388,8 @@ public final class FFmpegUtil {
                     String line;
                     while ((line = br.readLine()) != null) {
                         synchronized (out) {
-                            out.append(line).append('\n');
+                            out.append(line.replaceAll("https?://[^\\s\"<>]+", "[redacted-url]")).append('\n');
+                            if (out.length() > 262144) out.delete(0, out.length() - 262144);
                         }
                     }
                 } catch (IOException ignored) {
@@ -422,6 +424,13 @@ public final class FFmpegUtil {
         String[] lines = output.strip().split("\n");
         return lines.length <= 3 ? output.strip() : String.join("\n", lines[lines.length - 3]);
     }
+
+    public static CommandOutput runBoundedCommand(List<String> command, Duration timeout) {
+        var result = runCommand(command, timeout);
+        return new CommandOutput(result.exitCode(), result.output());
+    }
+
+    public record CommandOutput(int exitCode, String output) {}
 
     private record CommandResult(int exitCode, String output) {
     }

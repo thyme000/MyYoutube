@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
         selectorExpression = "DRAFT", consumeThreadNumber = 2, consumeThreadMax = 2, maxReconsumeTimes = 3)
 public class DraftWorkerListener implements RocketMQListener<MediaTaskMessage>, org.apache.rocketmq.spring.core.RocketMQPushConsumerLifecycleListener {
     private final MediaTaskWorker worker;
-    @org.springframework.beans.factory.annotation.Value("${my-youtube.media-pipeline.draft-concurrency:2}")
+    @org.springframework.beans.factory.annotation.Value("${my-youtube.media-pipeline.draft-concurrency:1}")
     private int concurrency;
     @Override public void prepareStart(org.apache.rocketmq.client.consumer.DefaultMQPushConsumer consumer) {
         if (concurrency < 1) throw new IllegalStateException("Worker concurrency must be positive");

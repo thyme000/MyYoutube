@@ -39,8 +39,9 @@ spring.cloud.openfeign.client.config:
     readTimeout: 180000
 my-youtube.media-pipeline:
   chunk-characters: ${CONTENT_CHUNK_CHARACTERS:12000}
+  ocr-batch-size: ${OCR_BATCH_SIZE:2}
   lease-seconds: ${MEDIA_LEASE_SECONDS:150}
-  draft-concurrency: ${DRAFT_WORKER_CONCURRENCY:2}
+  draft-concurrency: ${DRAFT_WORKER_CONCURRENCY:1}
   content-concurrency: ${CONTENT_WORKER_CONCURRENCY:4}
   review-concurrency: ${REVIEW_WORKER_CONCURRENCY:2}
 my-youtube.asr.url: ${ASR_SERVICE_URL:}
@@ -65,3 +66,13 @@ sentinel:
     group: SENTINEL_GROUP
 
 media.monitor.dlq-groups: transcode_draft_worker,transcode_content_worker,transcode_review_worker,transcode_content_submitted,transcode_review_requested,transcode_media_upload_event_group
+
+my-youtube.media-preparation:
+  long-edge: ${MEDIA_PREPARATION_LONG_EDGE:1600}
+  output-pixels: ${MEDIA_PREPARATION_OUTPUT_PIXELS:1600000}
+  jpeg-quality: ${MEDIA_PREPARATION_JPEG_QUALITY:0.85}
+  source-bytes: ${MEDIA_PREPARATION_SOURCE_BYTES:33554432}
+  source-pixels: ${MEDIA_PREPARATION_SOURCE_PIXELS:40000000}
+  source-long-edge: ${MEDIA_PREPARATION_SOURCE_LONG_EDGE:16000}
+  video-source-bytes: ${MEDIA_PREPARATION_VIDEO_SOURCE_BYTES:2147483648}
+  video-max-level: ${MEDIA_PREPARATION_VIDEO_MAX_LEVEL:51}

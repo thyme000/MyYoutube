@@ -40,3 +40,32 @@ CREATE TABLE IF NOT EXISTS media_task (
     KEY idx_task_lease(status, update_time, id),
     KEY idx_task_delivery(phase, completion_ack, status, id)
 );
+
+CREATE TABLE IF NOT EXISTS media_preparation (
+    id BIGINT NOT NULL PRIMARY KEY,
+    draft_id BIGINT NOT NULL,
+    media_version BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    request_json TEXT NOT NULL,
+    parameter_version VARCHAR(64) NOT NULL,
+    lifecycle VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+    reclaim_after DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    retired_at DATETIME,
+    KEY idx_preparation_reclaim(reclaim_after, id),
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_preparation_draft_version(draft_id, media_version)
+);
+CREATE TABLE IF NOT EXISTS media_preparation_item (
+    id BIGINT NOT NULL PRIMARY KEY,
+    preparation_id BIGINT NOT NULL,
+    object_owner_id BIGINT NOT NULL,
+    role VARCHAR(16) NOT NULL,
+    item_index INT NOT NULL,
+    object_key VARCHAR(512) NOT NULL,
+    source_json TEXT,
+    result_json TEXT,
+    status VARCHAR(16) NOT NULL,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_preparation_item(preparation_id, role, item_index),
+    KEY idx_preparation_object(object_key, preparation_id)
+);

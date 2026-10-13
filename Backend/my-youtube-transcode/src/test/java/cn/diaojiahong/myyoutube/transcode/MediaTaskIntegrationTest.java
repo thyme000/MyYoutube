@@ -51,8 +51,9 @@ class MediaTaskIntegrationTest {
         @Bean cn.diaojiahong.myyoutube.video.api.ContentPipelinePort video() { return mock(cn.diaojiahong.myyoutube.video.api.ContentPipelinePort.class); }
         @Bean SimpleMeterRegistry metrics() { return new SimpleMeterRegistry(); }
         @Bean MediaTaskService tasks(MediaTaskMapper tasks, PipelineMapper pipelines, TransactionTemplate transaction,
-                MediaTaskDispatcher dispatcher, SimpleMeterRegistry metrics, cn.diaojiahong.myyoutube.video.api.ContentPipelinePort video) {
-            return new MediaTaskService(tasks, pipelines, transaction, dispatcher, new PipelineProperties(), metrics, video);
+                MediaTaskDispatcher dispatcher, SimpleMeterRegistry metrics, cn.diaojiahong.myyoutube.video.api.ContentPipelinePort video,
+                MediaPreparationMapper preparations) {
+            return new MediaTaskService(tasks, new cn.diaojiahong.myyoutube.transcode.preparation.PreparationLifecycle(preparations), pipelines, transaction, dispatcher, new PipelineProperties(), metrics, video);
         }
     }
     @Autowired MediaTaskService tasks;

@@ -11,12 +11,10 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 @RocketMQMessageListener(topic = MqConstants.TOPIC_MEDIA_UPLOAD_EVENT, consumerGroup = "transcode_media_upload_event_group", maxReconsumeTimes = 3)
 public class MediaUploadEventListener implements RocketMQListener<MediaUploadEventMessage> {
-    private final MediaTaskService tasks;
     private final MediaDraftPort drafts;
     @Override public void onMessage(MediaUploadEventMessage message) {
         var draft = drafts.getByObjectKey(message.getObjectKey());
         if (draft == null || !java.util.Set.of("uploading", "processing").contains(draft.getStatus())) return;
-        drafts.updateStatus(draft.getId(), "processing", new MediaDraftPort.StatusUpdate(null, null));
-        tasks.startDraft(draft.getId(), draft.getUserId(), draft.getObjectKey());
+        drafts.uploaded(draft.getId());
     }
 }

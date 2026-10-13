@@ -10,9 +10,11 @@ import org.springframework.stereotype.Component;
 public class PipelineProperties {
     private int chunkCharacters = 12000;
     private int leaseSeconds = 150;
+    private int ocrBatchSize = 2;
     @jakarta.annotation.PostConstruct
     public void validate() {
-        if (chunkCharacters < 1024 || chunkCharacters > 30000 || leaseSeconds < 90)
+        if (chunkCharacters < 1024 || chunkCharacters > 30000 || leaseSeconds < 90
+                || ocrBatchSize < 1 || ocrBatchSize > 50)
             throw new IllegalStateException("非法加工预算或执行租约");
     }
 }

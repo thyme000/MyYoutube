@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MediaTaskService {
     private final MediaTaskMapper tasks;
+    private final cn.diaojiahong.myyoutube.transcode.preparation.PreparationLifecycle lifecycle;
     private final PipelineMapper pipelines;
     private final TransactionTemplate transaction;
     private final MediaTaskDispatcher dispatcher;
@@ -40,7 +41,15 @@ public class MediaTaskService {
                 || input.media() == null || input.submittedAt() <= 0)
             throw new IllegalArgumentException("Incomplete immutable Pipeline input");
         MediaInputs.validate(input.media(), input.coverObjectKey());
+        if (input.media().preparation() != null) {
+            PreparedMedia.validate(input.media(), input.coverObjectKey());
+            if (!Objects.equals(input.media().preparation().draftId(), input.contentId())
+                    || !Objects.equals(input.media().preparation().userId(), input.userId()))
+                throw new IllegalArgumentException("Prepared Pipeline owner mismatch");
+        }
         transaction.executeWithoutResult(tx -> {
+            lock(input.pipelineId());
+            lifecycle.requireActive(input.media());
             var pipeline = new Pipeline().setId(input.pipelineId()).setContentId(input.contentId())
                     .setInputJson(JsonUtil.toJson(input)).setStatus("PROCESSING").setReceived(false)
                     .setSubmittedAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(input.submittedAt()), ZoneOffset.UTC));
@@ -65,11 +74,33 @@ public class MediaTaskService {
             } catch (DuplicateKeyException ignored) { /* Existing READY work is recovered by its dispatch deadline. */ }
         });
     }
+    public void startPreparation(Long preparationId, Long userId, ContentMedia media, String cover) {
+        transaction.executeWithoutResult(tx -> {
+            lifecycle.requireActive(preparationId);
+            var input = new Input(null, preparationId, userId, "", "", "", cover, media, System.currentTimeMillis());
+            var row = insert(preparationId, null, "DRAFT", MediaTaskType.PREPARE, input);
+            ready(row, Map.of(), input);
+        });
+    }
+    public boolean retryPreparation(Long preparationId) {
+        return Boolean.TRUE.equals(transaction.execute(tx -> {
+            lifecycle.requireActive(preparationId);
+            var row = tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, preparationId)
+                    .eq(MediaTask::getPhase, "DRAFT").eq(MediaTask::getTaskType, "PREPARE").last("FOR UPDATE"));
+            if (row == null) return false;
+            if (Set.of("READY", "RUNNING", "RETRY_WAIT").contains(row.getStatus())) return true;
+            if (!"DEAD".equals(row.getStatus())) return false;
+            row.setRetryCount(0).setErrorMessage(null).setCompletionAck(false);
+            ready(row, Map.of(), input(row, null));
+            return true;
+        }));
+    }
     public void startReview(Long pipelineId) {
         if (!video.reviewSpec(pipelineId, 0).enabled()) return;
         transaction.executeWithoutResult(tx -> {
             var pipeline = lock(pipelineId);
             if (pipeline == null || !"COMPLETED".equals(pipeline.getStatus())) throw new IllegalStateException("Pipeline is not completed");
+            lifecycle.requireActive(JsonUtil.fromJson(pipeline.getInputJson(), Input.class).media());
             try {
                 var manifest = JsonUtil.fromJson(pipeline.getManifestJson(), Manifest.class);
                 var row = insert(pipeline.getContentId(), pipelineId, "REVIEW", MediaTaskType.REVIEW, manifest.input());
@@ -87,6 +118,14 @@ public class MediaTaskService {
     public MediaTaskMessage claim(MediaTaskMessage message) {
         return transaction.execute(tx -> {
             var pipeline = message.getPipelineId() == null ? null : lock(message.getPipelineId());
+            try {
+                if (pipeline != null) lifecycle.requireActive(JsonUtil.fromJson(pipeline.getInputJson(), Input.class).media());
+                else {
+                    var candidate = tasks.selectById(message.getTaskId());
+                    if (candidate == null) return null;
+                    if ("PREPARE".equals(candidate.getTaskType())) lifecycle.requireActive(candidate.getOwnerId());
+                }
+            } catch (IllegalStateException retired) { return null; }
             var row = tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getId, message.getTaskId()).last("FOR UPDATE"));
             if (row == null || !Objects.equals(row.getPipelineId(), message.getPipelineId())
                     || !Objects.equals(row.getPhase(), message.getPhase()) || !"READY".equals(row.getStatus())
@@ -193,7 +232,11 @@ public class MediaTaskService {
                 .userId(input.userId()).objectKey(input.media().video() == null ? null : input.media().video().objectKey()).input(input).dependencies(dependencies(row)).build();
     }
     private void notifyResult(MediaTask row) {
-        if ("REVIEW".equals(row.getPhase())) {
+        if ("DRAFT".equals(row.getPhase()) && "PREPARE".equals(row.getTaskType())) {
+            if (Set.of("SUCCESS", "DEAD").contains(row.getStatus())) {
+                row.setCompletionAck(true); save(row);
+            }
+        } else if ("REVIEW".equals(row.getPhase())) {
             var result = new ReviewResult(row.getPipelineId(), row.getOwnerId(), row.getId(), row.getAttempt(),
                     row.getResultJson(), row.getErrorMessage(), "DEAD".equals(row.getStatus()));
             afterCommit(() -> dispatcher.reviewed(result));
@@ -210,6 +253,7 @@ public class MediaTaskService {
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             var pipeline = lock(id);
             if (pipeline == null || "COMPLETED".equals(pipeline.getStatus())) return false;
+            lifecycle.requireActive(JsonUtil.fromJson(pipeline.getInputJson(), Input.class).media());
             if ("PROCESSING".equals(pipeline.getStatus())) return true;
             var nodes = listPipeline(id, "CONTENT");
             for (var row : nodes) if (Set.of("DEAD", "BLOCKED").contains(row.getStatus())) {

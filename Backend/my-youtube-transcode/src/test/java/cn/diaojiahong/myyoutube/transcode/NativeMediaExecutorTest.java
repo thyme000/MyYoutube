@@ -8,6 +8,7 @@ import cn.diaojiahong.myyoutube.common.utils.*;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.transcode.api.*;
 import cn.diaojiahong.myyoutube.transcode.cover.VideoCoverGenerator;
+import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
 import cn.diaojiahong.myyoutube.transcode.task.*;
 import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,12 @@ class NativeMediaExecutorTest {
         when(ocr.recognize(any())).thenAnswer(call -> new OcrPort.Response(((OcrPort.Request)call.getArgument(0))
                 .urls().stream().map(url -> new OcrPort.Item(url,"",null)).toList()));
         when(artifacts.write(eq(100L),eq("OCR"),eq(1),any())).thenReturn("ocr");
-        var result=StructuredJson.object(new OcrTaskExecutor(ocr,guard,storage,artifacts).execute(message));
+        var result=StructuredJson.object(new OcrTaskExecutor(ocr,guard,storage,artifacts,new PipelineProperties()).execute(message));
+        var requests=ArgumentCaptor.forClass(OcrPort.Request.class);
+        verify(ocr,times(9)).recognize(requests.capture());
+        assertEquals(List.of(2,2,2,2,2,2,2,2,2),requests.getAllValues().stream().map(r -> r.urls().size()).toList());
+        assertEquals(IntStream.range(0,18).mapToObj(i -> "http://local/image-"+i).toList(),
+                requests.getAllValues().stream().flatMap(r -> r.urls().stream()).toList());
         var written=ArgumentCaptor.forClass(Object.class); verify(artifacts).write(eq(100L),eq("OCR"),eq(1),written.capture());
         var frames=((ContentArtifacts.Ocr)written.getValue()).frames();
         assertEquals(18,frames.size()); assertEquals(54000,result.get("durationMs").getAsLong());
@@ -72,7 +78,7 @@ class NativeMediaExecutorTest {
         }
     }
     @Test void missingFailedOrReorderedOcrImagesAreFailures() {
-        var ocr=mock(OcrPort.class); var executor=new OcrTaskExecutor(ocr,guard,storage,artifacts);
+        var ocr=mock(OcrPort.class); var executor=new OcrTaskExecutor(ocr,guard,storage,artifacts,new PipelineProperties());
         when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
         for(var response : List.of(
                 new OcrPort.Response(List.of(new OcrPort.Item("http://local/image-0","",null))),
@@ -82,6 +88,34 @@ class NativeMediaExecutorTest {
             assertThrows(IllegalStateException.class, () -> executor.execute(message(2,null)));
         }
         verifyNoInteractions(artifacts);
+    }
+    @Test void laterOcrBatchFailureDoesNotPublishPartialArtifactOrRetryInsideExecutor() {
+        var ocr=mock(OcrPort.class);
+        when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
+        when(ocr.recognize(any())).thenAnswer(call -> {
+            var urls=((OcrPort.Request)call.getArgument(0)).urls();
+            if(urls.contains("http://local/image-4")) throw new IllegalStateException("execution timed out");
+            return new OcrPort.Response(urls.stream().map(url -> new OcrPort.Item(url,"",null)).toList());
+        });
+        var executor=new OcrTaskExecutor(ocr,guard,storage,artifacts,new PipelineProperties());
+        assertThrows(IllegalStateException.class,() -> executor.execute(message(10,null)));
+        verify(ocr,times(3)).recognize(any());
+        verify(storage,never()).signGetUrl(eq("image-6"),anyLong());
+        verifyNoInteractions(artifacts);
+    }
+    @Test void configurableOcrBatchSizePreservesTailAndRejectsInvalidLimits() throws Exception {
+        var ocr=mock(OcrPort.class); var properties=new PipelineProperties(); properties.setOcrBatchSize(3);
+        when(artifacts.write(eq(100L),eq("OCR"),eq(1),any())).thenReturn("ocr");
+        when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
+        when(ocr.recognize(any())).thenAnswer(call -> new OcrPort.Response(((OcrPort.Request)call.getArgument(0))
+                .urls().stream().map(url -> new OcrPort.Item(url,"text",null)).toList()));
+        new OcrTaskExecutor(ocr,guard,storage,artifacts,properties).execute(message(10,null));
+        var requests=ArgumentCaptor.forClass(OcrPort.Request.class); verify(ocr,times(4)).recognize(requests.capture());
+        assertEquals(List.of(3,3,3,1),requests.getAllValues().stream().map(r -> r.urls().size()).toList());
+        for(int invalid : List.of(0,51)) {
+            properties.setOcrBatchSize(invalid);
+            assertThrows(IllegalStateException.class,properties::validate);
+        }
     }
     @Test void visionReviewCoversAllEighteenImagesIncludingPartialBatch() {
         var port=mock(ContentPipelinePort.class); var llm=mock(LlmPort.class); var message=message(18,null);

@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 
 /**
- * 封面任务: 抽帧评分 + LLM 选帧, 生成逻辑复用 {@link VideoCoverGenerator}
+ * 封面任务复用准备帧，图集直接引用所选原图。
  */
 @Component
 @RequiredArgsConstructor
@@ -25,8 +25,11 @@ public class CoverTaskExecutor implements MediaTaskExecutor {
 
     @Override
     public String execute(MediaTaskMessage msg) {
-        String coverKey = msg.getInput().media().dynamic() != null ? msg.getInput().coverObjectKey()
-                : coverGenerator.generate(msg.getPipelineId(), msg.getUserId(), msg.getInput().media().video().objectKey());
+        var media = msg.getInput().media();
+        if (media.preparation() != null) cn.diaojiahong.myyoutube.common.media.PreparedMedia.validate(media, msg.getInput().coverObjectKey());
+        String coverKey = media.dynamic() != null ? msg.getInput().coverObjectKey()
+                : media.preparation() != null ? coverGenerator.selectPrepared(media.preparation())
+                : coverGenerator.generate(msg.getPipelineId(), msg.getUserId(), media.video().objectKey());
         return JsonUtil.toJson(Map.of("coverObjectKey", coverKey));
     }
 }

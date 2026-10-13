@@ -66,6 +66,7 @@ public class ReviewTaskExecutor implements MediaTaskExecutor {
 
     private void reviewFrames(PipelineContracts.ReviewSpec policy, PipelineContracts.Input input, ContentArtifacts.Ocr ocr,
                               ContentArtifacts.Summary summary, List<ReviewVerdict> verdicts, JsonArray batches) {
+        if (input.media().preparation() != null) PreparedMedia.validateOcr(input.media(), ocr);
         int expected = input.media().dynamic() == null ? 8 : input.media().dynamic().items().size();
         if (ocr.frames().size() != expected) throw new IllegalArgumentException("Missing review frames");
         if (input.media().dynamic() != null) {
