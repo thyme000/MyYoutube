@@ -12,7 +12,7 @@ import cn.diaojiahong.myyoutube.recommend.tag.TagPoolHolder;
 import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
 import cn.diaojiahong.myyoutube.transcode.task.*;
 import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
-import cn.diaojiahong.myyoutube.video.service.ReviewRules;
+import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import feign.Feign;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -105,7 +105,7 @@ class LiveContentModelTest {
         var message = MediaTaskMessage.builder().pipelineId(800L).attempt(1).input(input)
                 .dependencies(Map.of("ASR", "{\"segmentsKey\":\"asr\"}",
                         "OCR", "{\"artifactKey\":\"ocr\",\"durationMs\":5000}")).build();
-        var summaryPointer = StructuredJson.object(new SummaryTaskExecutor(store, new PipelineProperties(), llm, guard).execute(message));
+        var summaryPointer = StructuredJson.object(new SummaryTaskExecutor(store, new PipelineProperties(), llm, guard, new PromptTemplates()).execute(message));
         String key = summaryPointer.get("artifactKey").getAsString();
         var summary = (ContentArtifacts.Summary) values.get(key);
         assertFalse(summary.summary().isBlank());
@@ -113,7 +113,7 @@ class LiveContentModelTest {
 
         var pool = mock(TagPoolHolder.class);
         when(pool.grouped()).thenReturn(Map.of());
-        String tags = new TaggingService(llm, pool, guard, new TaggingProperties())
+        String tags = new TaggingService(llm, pool, guard, new TaggingProperties(), new PromptTemplates())
                 .generate(TaggingInput.ofText(input.title() + "\n" + summary.summary()));
         TagResultMapper.validate(tags);
         assertEquals("KNOWLEDGE", StructuredJson.object(tags).get("category").getAsString());
@@ -151,7 +151,7 @@ class LiveContentModelTest {
     }
 
     private PipelineContracts.ReviewSpec policy(boolean vision) {
-        return new PipelineContracts.ReviewSpec(true, "qwen3.5:9b", "v1", ReviewRules.TEXT, 0.2, 0.9, 12000, vision, 4);
+        return new PipelineContracts.ReviewSpec(true, "qwen3.5:9b", "v1", new PromptTemplates().snapshot().render("review-system"), 0.2, 0.9, 12000, vision, 4);
     }
 
     private ContentMedia media(String type) {

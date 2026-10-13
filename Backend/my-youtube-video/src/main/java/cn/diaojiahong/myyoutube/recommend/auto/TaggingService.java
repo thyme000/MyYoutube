@@ -1,4 +1,5 @@
 package cn.diaojiahong.myyoutube.recommend.auto;
+import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.common.media.StructuredJson;
 import cn.diaojiahong.myyoutube.common.resilience.ModelCallGuard;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
@@ -11,11 +12,11 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class TaggingService {
-    private static final String PROMPT_CATEGORIES = "GAME(游戏) MOVIE(影视) MUSIC(音乐) KNOWLEDGE(知识) LIFE(生活) TECH(科技) ENTERTAINMENT(娱乐) OTHER(其他)";
     private final LlmPort llmPort;
     private final TagPoolHolder tagPoolHolder;
     private final ModelCallGuard guard;
     private final TaggingProperties properties;
+    private final PromptTemplates prompts;
     public String generate(TaggingInput input) {
         if (!properties.isVisionEnabled()) input = TaggingInput.ofText(input.text());
         if ((input.text() == null || input.text().isBlank()) && (input.images() == null || input.images().isEmpty()))
@@ -54,16 +55,10 @@ public class TaggingService {
             appendPoolLine(pool, c.getLabel(), grouped.get(c.getCode()));
         }
         appendPoolLine(pool, "通用", grouped.get(""));
-        return """
-                你是内容平台的自动打标器。任务: 判断内容所属类目, 并挑选标签。
-                规则:
-                1. 类目只能从【类目表】中选一个, 用括号外的 CODE 返回;
-                2. 标签优先从【候选标签】中选择, 每个标签给出 0~1 的置信度;
-                3. 候选确实都不贴切时可自创新标签, 最多 2 个, 每个 2~6 个字, 是规范名词, 禁止摘抄标题片段;
-                4. 标签总数控制在 3~5 个;
-                5. 只输出 JSON, 不要任何解释, 格式: {"category":"CODE","tags":[{"name":"标签名","confidence":0.9}]}
-                【类目表】""" + PROMPT_CATEGORIES
-                + "\n【候选标签】\n" + pool;
+        String categories = Arrays.stream(VideoCategoryEnum.values())
+                .map(category -> category.getCode() + "(" + category.getLabel() + ")")
+                .collect(java.util.stream.Collectors.joining(" "));
+        return prompts.snapshot().render("tagging-system", Map.of("categories", categories, "tagPool", pool.toString()));
     }
 
     private void appendPoolLine(StringBuilder pool, String label, List<Tag> tags) {

@@ -34,6 +34,11 @@ public interface LlmPort {
         private Double temperature;
         /** 可选, 不传用服务端配置 */
         private Integer maxTokens;
+        private java.util.Map<String, Object> responseFormat;
+
+        public ChatRequest(List<Message> messages, String model, Double temperature, Integer maxTokens) {
+            this(messages, model, temperature, maxTokens, null);
+        }
     }
 
     @Data
@@ -76,8 +81,13 @@ public interface LlmPort {
     class ChatResponse {
         private String content;
         private String model;
+        private String finishReason;
+        private Usage usage;
+        public ChatResponse(String content, String model) { this(content, model, null, null); }
         public ChatResponse(String content) { this(content, null); }
     }
+
+    record Usage(Integer promptTokens, Integer completionTokens, Integer totalTokens) {}
 
     @Data
     @NoArgsConstructor

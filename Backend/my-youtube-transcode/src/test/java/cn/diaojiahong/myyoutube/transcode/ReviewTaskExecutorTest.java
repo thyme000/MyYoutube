@@ -60,6 +60,16 @@ class ReviewTaskExecutorTest {
                 """.formatted(decision, risk, confidence), "test");
     }
 
+    @Test void aggregateUsesPolicyVersionInsteadOfModelClaim() {
+        var message = input(false, 4, 0);
+        String version = "a".repeat(64);
+        when(video.reviewSpec(100L, 1)).thenReturn(new ReviewSpec(true, "test", version, "rules", 0.2, 0.9, 12000, false, 4));
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(
+                "{\"decision\":\"PASS\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"安全\",\"evidence\":[],\"rulesVersion\":\"fake\"}", "test"));
+        var result = cn.diaojiahong.myyoutube.common.media.StructuredJson.object(executor.execute(message));
+        assertEquals(version, result.get("rulesVersion").getAsString());
+    }
+
     @Test
     void disabledPolicyCancelsQueuedReviewBeforeReadingArtifactsOrCallingModel() {
         when(video.reviewSpec(100L, 1)).thenReturn(policy(false, false, 4));

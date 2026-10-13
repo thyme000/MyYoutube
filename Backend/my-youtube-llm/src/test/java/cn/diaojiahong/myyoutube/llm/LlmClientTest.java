@@ -32,7 +32,7 @@ class LlmClientTest {
                     StandardCharsets.UTF_8)).getAsJsonObject());
             authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
             byte[] response = """
-                    {"choices":[{"message":{"content":"完成"}}]}
+                    {"choices":[{"message":{"content":"完成"},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":3,"total_tokens":23}}
                     """.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, response.length);
@@ -101,6 +101,18 @@ class LlmClientTest {
         assertFalse(client.isConfigured());
         assertThrows(IllegalStateException.class, this::chat);
         assertNull(requestBody.get());
+    }
+
+    @Test
+    void structuredRequestKeeps1500BudgetAndReturnsFinishReasonAndUsage() {
+        var format = java.util.Map.<String,Object>of("type", "json_schema", "json_schema", java.util.Map.of("name", "summary"));
+        var result = client.chatDetailed(List.of(LlmClient.Message.text("user", "资料")), null, 0.1, 1500, format);
+        assertEquals(1500, requestBody.get().get("max_tokens").getAsInt());
+        assertEquals("json_schema", requestBody.get().getAsJsonObject("response_format").get("type").getAsString());
+        assertEquals("stop", result.getFinishReason());
+        assertEquals(20, result.getUsage().promptTokens());
+        assertEquals(3, result.getUsage().completionTokens());
+        assertEquals(23, result.getUsage().totalTokens());
     }
 
     private String chat() {

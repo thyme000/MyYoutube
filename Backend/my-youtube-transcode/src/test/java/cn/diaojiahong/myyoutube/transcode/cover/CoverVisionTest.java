@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.cover;
 
+import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.common.resilience.ModelCallGuard;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
@@ -22,7 +23,7 @@ class CoverVisionTest {
     private final CoverProperties properties = new CoverProperties();
     private final ModelCallGuard guard = new ModelCallGuard(new StaticListableBeanFactory()
             .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), new MockEnvironment());
-    private final CoverVisionSelector selector = new CoverVisionSelector(llm, guard, properties);
+    private final CoverVisionSelector selector = new CoverVisionSelector(llm, guard, properties, new PromptTemplates());
     @TempDir Path directory;
 
     private FFmpegUtil.FrameScore frame(Path path, double score) {
@@ -45,7 +46,7 @@ class CoverVisionTest {
     void disabledVisionUsesHighestQualityWithoutReadingImagesOrCallingModel() {
         var first = frame(directory.resolve("missing-first.jpg"), 0.2);
         var best = frame(directory.resolve("missing-best.jpg"), 0.9);
-        var generator = new VideoCoverGenerator(mock(S3StorageUtil.class), selector);
+        var generator = new VideoCoverGenerator(mock(S3StorageUtil.class), selector, mock(cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage.class));
         assertSame(best, ReflectionTestUtils.invokeMethod(generator, "selectBest",
                 List.of(first, best), new FFmpegUtil.Options()));
         verifyNoInteractions(llm);
@@ -70,7 +71,7 @@ class CoverVisionTest {
         properties.setVisionEnabled(true);
         Path image = Files.write(directory.resolve("frame.jpg"), new byte[]{1});
         when(llm.chat(any())).thenThrow(new IllegalStateException("model unavailable"));
-        var generator = new VideoCoverGenerator(mock(S3StorageUtil.class), selector);
+        var generator = new VideoCoverGenerator(mock(S3StorageUtil.class), selector, mock(cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage.class));
         assertThrows(IllegalStateException.class, () -> ReflectionTestUtils.invokeMethod(generator,
                 "selectBest", List.of(frame(image, 0.5)), new FFmpegUtil.Options()));
         verify(llm, times(1)).chat(any());

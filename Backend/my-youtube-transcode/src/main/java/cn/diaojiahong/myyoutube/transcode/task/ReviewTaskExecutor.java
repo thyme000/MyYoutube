@@ -102,7 +102,7 @@ public class ReviewTaskExecutor implements MediaTaskExecutor {
 
         return JsonUtil.toJson(new ReviewVerdict(decision, verdicts.stream().mapToDouble(ReviewVerdict::riskScore).max().orElseThrow(),
                 verdicts.stream().mapToDouble(ReviewVerdict::confidence).min().orElseThrow(), reason, batches,
-                verdicts.stream().map(ReviewVerdict::model).distinct().collect(java.util.stream.Collectors.joining(","))));
+                verdicts.stream().map(ReviewVerdict::model).distinct().collect(java.util.stream.Collectors.joining(",")), policy.rulesVersion()));
     }
 
     private ReviewVerdict call(PipelineContracts.ReviewSpec policy, List<LlmPort.ContentPart> parts) {

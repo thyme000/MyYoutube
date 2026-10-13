@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.cover;
 
+import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.common.resilience.ModelCallGuard;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.transcode.ffmpeg.FFmpegUtil;
@@ -25,21 +26,18 @@ import java.util.List;
 @RequiredArgsConstructor
 public class CoverVisionSelector {
 
-    private static final String PROMPT_TEMPLATE = """
-            你是视频封面挑选助手。下面按顺序给出同一段视频的 %d 张候选帧, 编号 1~%d。
-            挑选最适合作为视频封面的一张: 画面主体清晰、构图完整、信息量足, 适合在信息流小图尺寸展示。
-            只输出 JSON: {"index": 编号}, 不要输出任何其他文字。""";
-
     private final LlmPort llmPort;
     private final ModelCallGuard guard;
     private final CoverProperties properties;
+
+    private final PromptTemplates prompts;
 
     public Integer pickBest(List<FFmpegUtil.FrameScore> candidates) {
         if (!properties.isVisionEnabled()) return null;
         try {
             List<LlmPort.ContentPart> parts = new ArrayList<>();
             parts.add(new LlmPort.ContentPart("text",
-                    PROMPT_TEMPLATE.formatted(candidates.size(), candidates.size()), null));
+                    prompts.snapshot().render("cover-user", java.util.Map.of("candidateCount", candidates.size())), null));
             for (FFmpegUtil.FrameScore candidate : candidates) {
                 parts.add(new LlmPort.ContentPart("image_url", null,
                         new LlmPort.ContentPart.ImageUrl(toDataUrl(candidate.framePath()))));

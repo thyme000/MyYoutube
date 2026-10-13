@@ -104,6 +104,13 @@ my-youtube:
       # 空值按 model:dims 派生；换向量模型/版本后须 rebuild 存量向量。
       version: ${EMBEDDING_VERSION:}
 
+  prompts:
+    nacos:
+      # video/transcode 首次启用前发布完整模板，见 docs/model-prompts.md。
+      enabled: ${PROMPTS_NACOS_ENABLED:false}
+      data-id: ${PROMPTS_NACOS_DATA_ID:model-prompts.yaml}
+      group: ${PROMPTS_NACOS_GROUP:PROMPTS_GROUP}
+
   autotag:
     # video 必填，范围 0~1；0.5 为本地开发示例值。
     min-confidence: 0.5

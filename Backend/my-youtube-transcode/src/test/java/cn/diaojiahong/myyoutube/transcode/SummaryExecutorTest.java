@@ -1,4 +1,5 @@
 package cn.diaojiahong.myyoutube.transcode;
+import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.Input;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
@@ -16,7 +17,8 @@ class SummaryExecutorTest {
     final ContentArtifactStore artifacts=mock(ContentArtifactStore.class);
     final LlmPort llm=mock(LlmPort.class);
     final ModelCallGuard guard=new ModelCallGuard(new StaticListableBeanFactory().getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class),new MockEnvironment());
-    final SummaryTaskExecutor executor=new SummaryTaskExecutor(artifacts,new PipelineProperties(),llm,guard);
+    final PromptTemplates prompts = new PromptTemplates();
+    final SummaryTaskExecutor executor=new SummaryTaskExecutor(artifacts,new PipelineProperties(),llm,guard,prompts);
     MediaTaskMessage input(String title) {
         when(artifacts.read("asr",ContentArtifacts.Transcript.class)).thenReturn(new ContentArtifacts.Transcript(List.of()));
         when(artifacts.read("ocr",ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(List.of(new ContentArtifacts.Frame(0,20,"frame",""))));
@@ -28,8 +30,8 @@ class SummaryExecutorTest {
         executor.execute(input("")); verifyNoInteractions(llm);
         verify(artifacts).write(100L,"SUMMARY",1,new ContentArtifacts.Summary("",List.of()));
     }
-    @Test void metadataOnlyMakesOneCallAndDropsUnsupportedChapterTimes() {
-        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse("{\"summary\":\"元数据摘要\",\"chapters\":[{\"startMs\":0,\"title\":\"猜测\"}]}"));
+    @Test void metadataOnlyMakesOneCallWithoutChapterTimes() {
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse("{\"summary\":\"元数据摘要\",\"chapters\":[]}","test","stop",null));
         executor.execute(input("元数据标题")); verify(llm,times(1)).chat(any());
         verify(artifacts).write(100L,"SUMMARY",1,new ContentArtifacts.Summary("元数据摘要",List.of()));
     }
@@ -39,16 +41,67 @@ class SummaryExecutorTest {
                 new DynamicMedia.Audio(20L,"music","配乐",120000),3000);
         message.setInput(new Input(100L,1L,9L,"标题","","","frame",new ContentMedia("dynamic",null,media),0));
         when(artifacts.read("asr",ContentArtifacts.Transcript.class)).thenReturn(new ContentArtifacts.Transcript(List.of(new ContentArtifacts.Segment(110000,120000,"音频末尾证据"))));
-        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse("{\"summary\":\"配乐与图片摘要\",\"chapters\":[{\"startMs\":110000,\"title\":\"配乐末尾\"}]}"));
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse("{\"summary\":\"配乐与图片摘要\",\"chapters\":[]}","test","stop",null));
         executor.execute(message);
         verify(artifacts).write(100L,"SUMMARY",1,new ContentArtifacts.Summary("配乐与图片摘要",List.of()));
         var request=org.mockito.ArgumentCaptor.forClass(LlmPort.ChatRequest.class); verify(llm).chat(request.capture());
         assertTrue(request.getValue().getMessages().get(1).getContent().contains("音频末尾证据"));
+        assertEquals(1500, request.getValue().getMaxTokens());
+        assertEquals("json_schema", request.getValue().getResponseFormat().get("type"));
+        assertTrue(request.getValue().getMessages().get(0).getContent().contains("必须是空数组"));
     }
     @Test void modelFailureIsNotRetriedInsideExecutor() {
         when(llm.chat(any())).thenThrow(new IllegalStateException("down"));
         assertThrows(IllegalStateException.class,()->executor.execute(input("标题")));
         verify(llm,times(1)).chat(any());
+    }
+    @Test void truncationFailsEvenWithParseableJsonWithoutExecutorRetry() {
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse("{\"summary\":\"摘要\",\"chapters\":[]}", "test", "length", null));
+        assertThrows(IllegalArgumentException.class, () -> executor.execute(input("标题")));
+        verify(llm, times(1)).chat(any());
+    }
+    @Test void forbiddenChapterAndWrongJsonTypesFail() {
+        var msg = input("标题");
+        for (String json : List.of("{\"summary\":1,\"chapters\":[]}",
+                "{\"summary\":\"摘要\",\"chapters\":[{\"startMs\":0,\"title\":\"猜测\"}]}",
+                "{\"summary\":\"摘要\",\"chapters\":[],\"extra\":true}",
+                "{\"summary\":\"摘要\",\"chapters\":[]")) {
+            when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(json,"test","stop",null));
+            assertThrows(RuntimeException.class, () -> executor.execute(msg));
+        }
+    }
+    @Test void mergePacksMoreThanTwoSummariesAndKeepsAllEvidence() {
+        var msg = input("标题");
+        var properties = new PipelineProperties(); properties.setChunkCharacters(1024);
+        var text = "证据".repeat(1700);
+        when(artifacts.read("ocr", ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(List.of(new ContentArtifacts.Frame(0,0,"frame",text))));
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse("{\"summary\":\"简短摘要\",\"chapters\":[]}","test","stop",null));
+        new SummaryTaskExecutor(artifacts,properties,llm,guard,new PromptTemplates()).execute(msg);
+        var requests = org.mockito.ArgumentCaptor.forClass(LlmPort.ChatRequest.class);
+        verify(llm, times(5)).chat(requests.capture());
+        var values = requests.getAllValues();
+        assertTrue(String.join("", values.subList(0,4).stream().map(r -> r.getMessages().get(1).getContent()).toList()).contains(text));
+        assertEquals("简短摘要\n简短摘要\n简短摘要\n简短摘要", values.get(4).getMessages().get(1).getContent());
+        assertTrue(values.get(4).getMessages().get(0).getContent().contains("必须是空数组"));
+    }
+    @Test void hotUpdateAppliesToNextTaskButNotRemainingChunksInCurrentTask() throws Exception {
+        String defaults = new org.springframework.core.io.ClassPathResource("prompts/model-prompts.yaml")
+                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        var msg = input("标题");
+        when(artifacts.read("ocr", ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(
+                List.of(new ContentArtifacts.Frame(0, 0, "frame", "证据".repeat(7000)))));
+        when(llm.chat(any())).thenAnswer(call -> {
+            prompts.replace(defaults.replace("你是内容归纳器", "新版归纳器"));
+            return new LlmPort.ChatResponse("{\"summary\":\"摘要\",\"chapters\":[]}", "test", "stop", null);
+        });
+        executor.execute(msg);
+        var requests = org.mockito.ArgumentCaptor.forClass(LlmPort.ChatRequest.class);
+        verify(llm, times(3)).chat(requests.capture());
+        assertTrue(requests.getAllValues().stream().allMatch(r -> r.getMessages().get(0).getContent().startsWith("你是内容归纳器")));
+        clearInvocations(llm);
+        executor.execute(input("下一任务"));
+        verify(llm).chat(requests.capture());
+        assertTrue(requests.getValue().getMessages().get(0).getContent().startsWith("新版归纳器"));
     }
     @Test void missingArtifactCannotMasqueradeAsEmpty() {
         var request=input(""); when(artifacts.read("ocr",ContentArtifacts.Ocr.class)).thenReturn(null);

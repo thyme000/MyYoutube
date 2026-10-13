@@ -40,3 +40,13 @@ mybatis-plus:
 my-youtube:
   # 网关与下游共享的内部密钥, 置空则不启用来源校验; 生产务必通过 INTERNAL_TOKEN 设置
   internal-token: ${INTERNAL_TOKEN:}
+
+# video 与 transcode 使用同一份模板配置。首次启用前先在 Nacos 发布完整 YAML。
+my-youtube.prompts.nacos:
+  enabled: ${PROMPTS_NACOS_ENABLED:false}
+  server-addr: ${NACOS_ADDR:localhost:8848}
+  namespace: ${NACOS_NAMESPACE:}
+  username: ${NACOS_USERNAME:}
+  password: ${NACOS_PASSWORD:}
+  data-id: ${PROMPTS_NACOS_DATA_ID:model-prompts.yaml}
+  group: ${PROMPTS_NACOS_GROUP:PROMPTS_GROUP}

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.video.config.ContentPipelineProperties;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.media.ReviewVerdict;
@@ -29,6 +30,8 @@ public class ReviewDecisionService {
     private final IContentService contents;
     private final ContentPipelineProperties properties;
     private final PublicationEffectsService effects;
+
+    private final PromptTemplates prompts;
 
     @Transactional
     public boolean manual(Long id, boolean pass, String reason, Long actor) {
@@ -78,7 +81,8 @@ public class ReviewDecisionService {
     }
 
     private ReviewSpec spec(boolean enabled) {
-        return new ReviewSpec(enabled, properties.getReviewModel(), properties.getRulesVersion(), ReviewRules.TEXT,
+        var templates = prompts.snapshot();
+        return new ReviewSpec(enabled, properties.getReviewModel(), templates.version(), templates.render("review-system"),
                 properties.getMaxRisk(), properties.getMinConfidence(), properties.getEvidenceChunkCharacters(),
                 properties.isReviewVisionEnabled(), properties.getReviewFrameBatchSize());
     }
@@ -96,13 +100,14 @@ public class ReviewDecisionService {
         if (result.error() == null) {
             if (row.getReviewAttempt() != result.attempt() || row.getState() != ContentReviewState.AUTO_RUNNING) return;
             var json = cn.diaojiahong.myyoutube.common.media.StructuredJson.object(result.verdictJson());
-            machine(result.contentId(), result.attempt(), ReviewVerdict.parse(result.verdictJson(), json.get("model").getAsString()));
+            machine(result.contentId(), result.attempt(), ReviewVerdict.parse(result.verdictJson(), json.get("model").getAsString(),
+                    json.has("rulesVersion") ? json.get("rulesVersion").getAsString() : null));
         } else {
             boolean exists = records.selectCount(new LambdaQueryWrapper<ContentReviewRecord>().eq(ContentReviewRecord::getPipelineId, result.pipelineId())
                     .eq(ContentReviewRecord::getAttempt, result.attempt()).eq(ContentReviewRecord::getSource, "AUTO")) > 0;
             if (!exists) records.insert(new ContentReviewRecord().setContentId(row.getContentId()).setPipelineId(row.getPipelineId()).setAttempt(result.attempt())
                     .setSource("AUTO").setDecision("ERROR").setReason(result.error()).setModel(properties.getReviewModel())
-                    .setRulesVersion(properties.getRulesVersion()).setCreateTime(LocalDateTime.now()));
+                    .setCreateTime(LocalDateTime.now()));
             understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>().eq(ContentUnderstanding::getContentId, row.getContentId())
                     .set(ContentUnderstanding::getReviewAttempt, result.attempt()).set(ContentUnderstanding::getState, result.exhausted() ? "MANUAL_PENDING" : "AUTO_PENDING"));
         }
@@ -122,7 +127,7 @@ public class ReviewDecisionService {
         return new ContentReviewRecord().setContentId(row.getContentId()).setPipelineId(row.getPipelineId()).setAttempt(attempt)
                 .setSource("AUTO").setDecision(verdict.decision()).setRiskScore(verdict.riskScore()).setConfidence(verdict.confidence())
                 .setReason(verdict.reason()).setEvidenceJson(JsonUtil.toJson(verdict.evidence())).setModel(verdict.model())
-                .setRulesVersion(properties.getRulesVersion()).setCreateTime(LocalDateTime.now());
+                .setRulesVersion(verdict.rulesVersion()).setCreateTime(LocalDateTime.now());
     }
 
     private ContentUnderstanding lock(Long id) {

@@ -37,8 +37,8 @@ public class InternalLlmController {
         if (messages.isEmpty()) {
             throw new BizException(BizException.BIZ_ERROR, "messages 不能为空");
         }
-        String content = llmClient.chat(messages, request.getModel(), request.getTemperature(), request.getMaxTokens());
-        return new LlmPort.ChatResponse(content, StringUtils.hasText(request.getModel()) ? request.getModel() : properties.getModel());
+        return llmClient.chatDetailed(messages, request.getModel(), request.getTemperature(),
+                request.getMaxTokens(), request.getResponseFormat());
     }
 
     @PostMapping("/embeddings")

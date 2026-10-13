@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.video.config.ContentPipelineProperties;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -71,11 +72,13 @@ class ReviewTransactionIntegrationTest {
                     mock(cn.diaojiahong.myyoutube.recommend.service.IContentTagService.class),
                     mq, tx, new SimpleMeterRegistry());
         }
+        @Bean PromptTemplates prompts() { return new PromptTemplates(); }
         @Bean ReviewDecisionService decisions(VideoMapper videos, ContentUnderstandingMapper understanding,
-                ContentReviewRecordMapper records, ContentPublicationEventMapper events, IContentService contents, ContentPipelineProperties properties, PublicationEffectsService effects) {
-            return new ReviewDecisionService(understanding, records, events, contents, properties, effects);
+                ContentReviewRecordMapper records, ContentPublicationEventMapper events, IContentService contents, ContentPipelineProperties properties, PublicationEffectsService effects, PromptTemplates prompts) {
+            return new ReviewDecisionService(understanding, records, events, contents, properties, effects, prompts);
         }
     }
+    @Autowired PromptTemplates prompts;
     @Autowired ReviewDecisionService decisions;
     @Autowired ContentUnderstandingService content;
     @Autowired MediaTaskPort tasks;
@@ -108,6 +111,19 @@ class ReviewTransactionIntegrationTest {
         return ReviewVerdict.parse("{\"decision\":\"" + decision + "\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"上下文安全\",\"evidence\":[]}", "vision-test");
     }
     int count(String table) { return jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class); }
+    @Test void reviewResultKeepsExecutedTemplateVersionAfterHotUpdate() throws Exception {
+        state(ContentReviewState.AUTO_PENDING);
+        var spec = decisions.begin(100L, 1);
+        String defaults = new ClassPathResource("prompts/model-prompts.yaml").getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        try {
+            prompts.replace(defaults.replace("你是内容审核者", "新版审核者"));
+            assertNotEquals(spec.rulesVersion(), prompts.snapshot().version());
+            var verdict = new ReviewVerdict("UNCERTAIN", 0.1, 0.99, "待人工确认", new com.google.gson.JsonArray(), "test", spec.rulesVersion());
+            decisions.acceptResult(new ReviewResult(100L, 1L, 88L, 1, JsonUtil.toJson(verdict), null, false));
+            assertEquals(spec.rulesVersion(), jdbc.queryForObject("SELECT rules_version FROM content_review_record", String.class));
+            assertEquals(ContentReviewState.MANUAL_PENDING, understanding.selectById(1L).getState());
+        } finally { prompts.replace(defaults); }
+    }
     @Test void concurrentMachinePassCreatesOnePublicationEvent() {
         state(ContentReviewState.AUTO_RUNNING);
         var a = CompletableFuture.supplyAsync(() -> decisions.machine(1L, 1, verdict("PASS")));

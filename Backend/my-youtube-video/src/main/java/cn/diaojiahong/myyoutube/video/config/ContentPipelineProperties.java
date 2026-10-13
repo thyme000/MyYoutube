@@ -18,7 +18,6 @@ public class ContentPipelineProperties {
     private int reviewFrameBatchSize = 4;
 
     private String reviewModel = "";
-    private String rulesVersion = "content-v1";
 
     @jakarta.annotation.PostConstruct
     public void validate() {

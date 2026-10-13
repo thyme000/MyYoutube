@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.video.config.ContentPipelineProperties;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.video.service.*;
@@ -73,7 +74,7 @@ class ReviewPolicyTest {
         var videos = mock(VideoMapper.class); var rows = mock(ContentUnderstandingMapper.class);
         var records = mock(ContentReviewRecordMapper.class); var events = mock(ContentPublicationEventMapper.class);
         when(rows.selectOne(any())).thenReturn(new ContentUnderstanding().setContentId(1L).setState(ContentReviewState.MANUAL_PENDING).setReviewAttempt(2));
-        var service = new ReviewDecisionService(rows, records, events, mock(IContentService.class), new ContentPipelineProperties(), mock(PublicationEffectsService.class));
+        var service = new ReviewDecisionService(rows, records, events, mock(IContentService.class), new ContentPipelineProperties(), mock(PublicationEffectsService.class), new PromptTemplates());
         assertFalse(service.machine(1L, 1, ReviewVerdict.parse("{\"decision\":\"PASS\",\"riskScore\":0,\"confidence\":1,\"reason\":\"安全\",\"evidence\":[]}", "test")));
         verifyNoInteractions(videos, records, events);
     }

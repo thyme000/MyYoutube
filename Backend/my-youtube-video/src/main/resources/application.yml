@@ -65,7 +65,6 @@ my-youtube.content-pipeline:
   min-confidence: ${CONTENT_REVIEW_MIN_CONFIDENCE:0.9}
   evidence-chunk-characters: 12000
   review-model: ${CONTENT_REVIEW_MODEL:qwen3.5:9b}
-  rules-version: content-v1
 
 management:
   endpoints.web.exposure.include: health,prometheus

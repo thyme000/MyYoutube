@@ -46,6 +46,12 @@ public class LlmClient {
      * @return assistant 回复文本
      */
     public String chat(List<Message> messages, String model, Double temperature, Integer maxTokens) {
+        return chatDetailed(messages, model, temperature, maxTokens, null).getContent();
+    }
+
+    public cn.diaojiahong.myyoutube.llm.api.LlmPort.ChatResponse chatDetailed(
+            List<Message> messages, String model, Double temperature, Integer maxTokens,
+            java.util.Map<String, Object> responseFormat) {
         if (!isConfigured()) {
             throw new IllegalStateException("LLM api-key 未配置");
         }
@@ -82,6 +88,7 @@ public class LlmClient {
             arr.add(o);
         }
         body.add("messages", arr);
+        if (responseFormat != null) body.add("response_format", JsonUtil.GSON.toJsonTree(responseFormat));
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(properties.getBaseUrl() + "/chat/completions"))
@@ -96,16 +103,26 @@ public class LlmClient {
         try {
             HttpResponse<String> resp = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) {
-                String detail = resp.body() == null ? "" : resp.body().substring(0, Math.min(resp.body().length(), 300));
-                throw new IllegalStateException("LLM 响应 " + resp.statusCode() + ": " + detail);
+                throw new IllegalStateException("LLM 响应 " + resp.statusCode());
             }
             JsonObject root = JsonUtil.GSON.fromJson(resp.body(), JsonObject.class);
-            return root.getAsJsonArray("choices").get(0).getAsJsonObject()
-                    .getAsJsonObject("message").get("content").getAsString();
+            var choice = root.getAsJsonArray("choices").get(0).getAsJsonObject();
+            String finish = choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull()
+                    ? choice.get("finish_reason").getAsString() : null;
+            var usage = root.has("usage") && root.get("usage").isJsonObject() ? root.getAsJsonObject("usage") : new JsonObject();
+            var tokens = new cn.diaojiahong.myyoutube.llm.api.LlmPort.Usage(
+                    tokenCount(usage, "prompt_tokens"), tokenCount(usage, "completion_tokens"), tokenCount(usage, "total_tokens"));
+            log.info("LLM completed model={} maxTokens={} finishReason={} promptTokens={} completionTokens={} totalTokens={}",
+                    body.get("model").getAsString(), body.get("max_tokens").getAsInt(), finish,
+                    tokens.promptTokens(), tokens.completionTokens(), tokens.totalTokens());
+            return new cn.diaojiahong.myyoutube.llm.api.LlmPort.ChatResponse(
+                    choice.getAsJsonObject("message").get("content").getAsString(),
+                    body.get("model").getAsString(), finish, tokens);
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {
-            throw new IllegalStateException("LLM 调用失败: " + e.getMessage(), e);
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new IllegalStateException("LLM 调用失败: " + e.getClass().getSimpleName());
         }
     }
 
@@ -135,6 +152,10 @@ public class LlmClient {
         } catch (Exception e) {
             throw new IllegalStateException("图片代拉失败: " + e.getMessage(), e);
         }
+    }
+
+    private static Integer tokenCount(JsonObject usage, String key) {
+        return usage.has(key) && !usage.get(key).isJsonNull() ? usage.get(key).getAsInt() : null;
     }
 
     public record Message(String role, String content, List<Part> parts) {
