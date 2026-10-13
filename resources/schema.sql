@@ -298,21 +298,6 @@ CREATE TABLE IF NOT EXISTS `dynamic` (
     `media_json` JSON NOT NULL COMMENT '有序图片、画布、转场和可选原始音频快照，无签名URL'
 ) ENGINE=InnoDB COMMENT='原生图集媒体';
 
--- ==================== chat_db: 聊天库 ====================
-CREATE DATABASE IF NOT EXISTS chat_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE chat_db;
-
--- 表情项表(聊天用; 聊天消息本体存 MongoDB)
-CREATE TABLE IF NOT EXISTS `emoji_item` (
-    `id`            BIGINT      NOT NULL AUTO_INCREMENT,
-    `category_code` VARCHAR(32) NOT NULL COMMENT '分组, 如 nature/animals',
-    `glyph`         VARCHAR(32) NOT NULL COMMENT '表情字符',
-    `name_zh`       VARCHAR(64)          DEFAULT NULL COMMENT '中文名',
-    `sort_order`    INT         NOT NULL DEFAULT 0,
-    PRIMARY KEY (`id`),
-    KEY `idx_category_sort` (`category_code`, `sort_order`)
-) ENGINE=InnoDB COMMENT='表情项';
-
 -- ==================== transcode_db: 转码库(transcode-svc) ====================
 CREATE DATABASE IF NOT EXISTS transcode_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE transcode_db;

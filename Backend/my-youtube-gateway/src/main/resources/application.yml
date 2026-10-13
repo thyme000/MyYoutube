@@ -45,7 +45,7 @@ spring:
               order: 20
             - id: chat-service
               uri: lb://my-youtube-chat-service
-              predicates: [ "Path=/chat/**,/emoji/**,/sse/**" ]
+              predicates: [ "Path=/chat/**,/sse/**" ]
               order: 30
             # 聊天 WS(进聊天页才连), 须用 lb:ws 转发 Upgrade 握手
             - id: chat-ws
