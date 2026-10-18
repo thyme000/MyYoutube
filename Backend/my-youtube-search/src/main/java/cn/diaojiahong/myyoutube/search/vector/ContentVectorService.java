@@ -17,7 +17,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 内容向量: 消费侧异步补算 / 查询向量 / kNN 召回 / 存量重建 全部收口;
@@ -58,12 +61,12 @@ public class ContentVectorService {
         }
     }
 
-    /** 消费侧异步补算: 文档已先无向量入库, 这里失败只记日志, 由 rebuild 兜底 */
-    public void embedAsync(Long contentId, String title, String description) {
+    /** 异步补算失败由现有 rebuild 入口补偿。 */
+    public void embedAsync(Long contentId, String title, String description, String summary) {
         if (!vectorProperties.isEnabled()) {
             return;
         }
-        String text = buildText(title, description);
+        String text = buildText(title, description, summary);
         if (text.isEmpty()) {
             return;
         }
@@ -144,6 +147,8 @@ public class ContentVectorService {
                     s.index(CONTENT_INDEX)
                             .size(REBUILD_BATCH)
                             .query(q -> q.bool(b -> b
+                                    .filter(f -> f.term(t -> t.field("status").value("published")))
+                                    .filter(f -> f.term(t -> t.field("visibility").value("public")))
                                     .mustNot(m -> m.term(t -> t.field("vectorVersion").value(version)))))
                             .sort(so -> so.field(f -> f.field("id").order(co.elastic.clients.elasticsearch._types.SortOrder.Asc)));
                     if (cursor > 0) {
@@ -192,13 +197,14 @@ public class ContentVectorService {
     }
 
     private String fetchText(Long id) {
-        // rebuild 只处理有标题的文档; 标题简介在消费写入时已定, 直接查 ES 文档
         try {
             var resp = elasticsearchClient.get(g -> g.index(CONTENT_INDEX).id(String.valueOf(id)), Map.class);
             if (resp.found() && resp.source() != null) {
                 Object title = resp.source().get("title");
                 Object desc = resp.source().get("description");
-                return buildText(title == null ? null : title.toString(), desc == null ? null : desc.toString());
+                Object summary = resp.source().get("summary");
+                return buildText(title == null ? null : title.toString(), desc == null ? null : desc.toString(),
+                        summary == null ? null : summary.toString());
             }
         } catch (Exception e) {
             log.warn("content {} 文档读取失败: {}", id, e.getMessage());
@@ -220,12 +226,8 @@ public class ContentVectorService {
         }
     }
 
-    private String buildText(String title, String description) {
-        String t = title == null ? "" : title.trim();
-        String d = description == null ? "" : description.trim();
-        if (t.isEmpty() && d.isEmpty()) {
-            return "";
-        }
-        return t + "\n" + d;
+    private String buildText(String title, String description, String summary) {
+        return Stream.of(title, description, summary).filter(Objects::nonNull)
+                .map(String::trim).filter(text -> !text.isEmpty()).collect(Collectors.joining("\n"));
     }
 }

@@ -11,6 +11,9 @@ import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.RefreshPolicy;
+import org.springframework.data.elasticsearch.core.convert.MappingElasticsearchConverter;
+import org.springframework.data.elasticsearch.core.mapping.SimpleElasticsearchMappingContext;
 import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
 import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 import java.util.List;
@@ -22,19 +25,35 @@ class ContentPublicationSyncTest {
     @Test void rebuildCreatesFullDocumentAndUsesCurrentVideoState() {
         var repository = mock(ContentDocRepository.class);
         var videos = mock(ContentInternalPort.class);
-        var writer = new ContentDocumentWriter(repository, mock(UserPort.class), mock(ContentVectorService.class));
-        var port = new ContentDocPortImpl(repository, videos, writer, mock(org.springframework.data.elasticsearch.core.ElasticsearchOperations.class));
+        var operations = mock(ElasticsearchOperations.class);
+        var converter = new MappingElasticsearchConverter(new SimpleElasticsearchMappingContext());
+        converter.afterPropertiesSet();
+        when(operations.getElasticsearchConverter()).thenReturn(converter);
+        var vectors = mock(ContentVectorService.class);
+        var writer = new ContentDocumentWriter(operations, mock(UserPort.class), vectors);
+        var port = new ContentDocPortImpl(repository, videos, writer, operations);
         var message = ContentDocMessage.builder().contentId(1L).type("video").title("新视频").authorId(9L)
-                .statusCode("published").visibilityCode("public").tags("技术").build();
+                .description("简介").summary("内容摘要").statusCode("published").visibilityCode("public").tags("技术").build();
         when(videos.searchDocument(1L)).thenReturn(message);
         port.rebuildContent(1L);
         message.setStatusCode("banned");
         port.rebuildContent(1L);
-        var captured = ArgumentCaptor.forClass(ContentDoc.class);
-        verify(repository, times(2)).save(captured.capture());
-        assertEquals("published", captured.getAllValues().get(0).getStatus());
-        assertEquals("新视频", captured.getAllValues().get(0).getTitle());
-        assertEquals("banned", captured.getAllValues().get(1).getStatus());
+        var captured = ArgumentCaptor.forClass(UpdateQuery.class);
+        verify(operations, times(2)).update(captured.capture(), eq(IndexCoordinates.of("content")));
+        assertEquals("published", captured.getAllValues().get(0).getDocument().get("status"));
+        assertEquals("新视频", captured.getAllValues().get(0).getDocument().get("title"));
+        assertEquals("内容摘要", captured.getAllValues().get(0).getDocument().get("summary"));
+        assertEquals("banned", captured.getAllValues().get(1).getDocument().get("status"));
+        for (var update : captured.getAllValues()) {
+            assertTrue(update.getDocAsUpsert());
+            assertEquals(RefreshPolicy.IMMEDIATE, update.getRefreshPolicy());
+            assertFalse(update.getDocument().containsKey("vector"));
+            assertFalse(update.getDocument().containsKey("vectorVersion"));
+        }
+        var ordered = inOrder(operations, vectors);
+        ordered.verify(operations).update(any(UpdateQuery.class), eq(IndexCoordinates.of("content")));
+        ordered.verify(vectors).embedAsync(1L, "新视频", "简介", "内容摘要");
+        verifyNoMoreInteractions(vectors);
         when(videos.searchDocument(1L)).thenReturn(null);
         port.rebuildContent(1L);
         verify(repository).deleteById(1L);

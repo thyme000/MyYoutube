@@ -12,6 +12,7 @@ import cn.diaojiahong.myyoutube.video.api.NotificationPort;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.video.api.PreferencePort;
+import cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,6 +38,7 @@ public class InternalVideoController {
     private final cn.diaojiahong.myyoutube.recommend.service.IContentTagService contentTags;
 
     private final IContentService contentService;
+    private final ContentUnderstandingMapper understandings;
     private final cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper likes;
     private final cn.diaojiahong.myyoutube.content.service.ContentAccessService access;
     private final CounterBuffer counterBuffer;
@@ -51,7 +53,9 @@ public class InternalVideoController {
         if (content == null || Integer.valueOf(1).equals(content.getIsDelete())) return null;
         var tagIds = contentTags.lambdaQuery().eq(cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag::getContentId, contentId)
                 .list().stream().map(cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag::getTagId).toList();
-        return cn.diaojiahong.myyoutube.content.support.ContentDocMessages.of(content, tagIds);
+        var understanding = understandings.selectById(contentId);
+        return cn.diaojiahong.myyoutube.content.support.ContentDocMessages.of(content, tagIds,
+                understanding == null ? null : understanding.getSummary());
     }
     @GetMapping("/content/forward-info/{contentId}")
     public ContentInternalPort.ForwardInfo forwardInfo(@PathVariable Long contentId, @RequestParam Long viewerId) {

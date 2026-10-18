@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.doc.*;
 import cn.diaojiahong.myyoutube.search.port.ContentDocPortImpl;
 import cn.diaojiahong.myyoutube.search.service.ContentDocumentWriter;
 import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
+import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
@@ -15,6 +16,8 @@ import org.springframework.data.elasticsearch.client.ClientConfiguration;
 import org.springframework.data.elasticsearch.client.elc.*;
 import org.springframework.data.elasticsearch.repository.support.ElasticsearchRepositoryFactory;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -29,7 +32,8 @@ class LiveContentSearchTest {
     ContentDocumentWriter writer;
 
     @BeforeEach void setup() throws Exception {
-        client=ElasticsearchClients.createImperative(ClientConfiguration.builder().connectedTo("127.0.0.1:19200").build());
+        client=ElasticsearchClients.createImperative(ClientConfiguration.builder()
+                .connectedTo(System.getProperty("content.es.address", "127.0.0.1:19201")).build());
         assertEquals("content-it",client.info().clusterName());
         operations=new ElasticsearchTemplate(client);
         var factory=new ElasticsearchRepositoryFactory(operations);
@@ -37,7 +41,7 @@ class LiveContentSearchTest {
         repository=mock(ContentDocRepository.class,org.mockito.AdditionalAnswers.delegatesTo(factory.getRepository(ContentDocRepository.class)));
         contents=mock(ContentInternalPort.class); users=mock(UserPort.class);
         var user=new UserSummary(); user.setId(9L); user.setNickname(""); when(users.getUser(9L)).thenReturn(user);
-        writer=new ContentDocumentWriter(repository,users,mock(ContentVectorService.class));
+        writer=new ContentDocumentWriter(operations,users,mock(ContentVectorService.class));
         port=new ContentDocPortImpl(repository,contents,writer,operations);
     }
     @AfterEach void close() throws Exception { if(client!=null) client._transport().close(); }
@@ -64,6 +68,33 @@ class LiveContentSearchTest {
         repository.deleteById(1L);
         assertThrows(RuntimeException.class,() -> port.syncPlayLikeBatch(counts));
         assertFalse(repository.existsById(1L));
+    }
+    @Test void metadataUpdatesPreserveVectorsWhileKnnFiltersPrivateAndBannedContent() throws Exception {
+        var first = message(1); first.setSummary("内容摘要");
+        writer.write(first); writer.write(message(2));
+        var vector = new java.util.ArrayList<>(java.util.Collections.nCopies(4096, 0.0f));
+        vector.set(0, 1.0f);
+        for (String id : List.of("1", "2")) {
+            client.update(update -> update.index("content").id(id)
+                    .doc(Map.of("vector", vector, "vectorVersion", "test:4096")), Void.class);
+        }
+        operations.indexOps(ContentDoc.class).refresh();
+        var vectors = new ContentVectorService(null, client, null, new VectorProperties(), null);
+        var query = new ContentVectorService.QueryVector(vector, "test:4096");
+        assertEquals(Set.of("1", "2"), Set.copyOf(vectors.knnSearch(query, null, 10)));
+        assertEquals("内容摘要", repository.findById(1L).orElseThrow().getSummary());
+        assertFalse(client.indices().getMapping(mapping -> mapping.index("content"))
+                .result().get("content").mappings().properties().get("summary").text().index());
+
+        first.setVisibilityCode("private"); writer.write(first);
+        assertEquals(vector, repository.findById(1L).orElseThrow().getVector());
+        assertEquals(List.of("2"), vectors.knnSearch(query, null, 10));
+        first.setStatusCode("banned"); first.setVisibilityCode("public"); writer.write(first);
+        assertEquals(vector, repository.findById(1L).orElseThrow().getVector());
+        assertEquals(List.of("2"), vectors.knnSearch(query, null, 10));
+        first.setStatusCode("published"); writer.write(first);
+        assertEquals(vector, repository.findById(1L).orElseThrow().getVector());
+        assertEquals(Set.of("1", "2"), Set.copyOf(vectors.knnSearch(query, null, 10)));
     }
     @Test void nicknameBulkUpdateKeepsPrivacyAndEmptyNicknameIsLegal() {
         var userIndex=operations.indexOps(cn.diaojiahong.myyoutube.search.domain.doc.UserDoc.class);

@@ -148,7 +148,8 @@ class ContentListsIntegrationTest {
 
     @Test void forwardingAndShareCounterRecheckCurrentStateWithAuthenticatedViewer() {
         var counter = mock(CounterBuffer.class);
-        var internal = new InternalVideoController(mock(IContentTagService.class),contentService,likes,
+        var internal = new InternalVideoController(mock(IContentTagService.class),contentService,
+                mock(cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper.class),likes,
                 new ContentAccessService(contents),counter,mock(IUserFollowService.class),
                 mock(NotificationPublisher.class),mock(IUserTagPreferenceService.class));
         assertEquals("dynamic",internal.forwardInfo(2L,9L).type());

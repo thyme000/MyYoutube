@@ -2,10 +2,13 @@ package cn.diaojiahong.myyoutube.search.service;
 
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
-import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
 import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.RefreshPolicy;
+import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
+import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.stereotype.Service;
 import java.util.Arrays;
@@ -14,7 +17,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class ContentDocumentWriter {
-    private final ContentDocRepository contentDocRepository;
+    private final ElasticsearchOperations operations;
     private final UserPort userPort;
     private final ContentVectorService contentVectorService;
 
@@ -33,6 +36,7 @@ public class ContentDocumentWriter {
         doc.setCategory(message.getCategoryCode());
         doc.setStatus(message.getStatusCode());
         doc.setDescription(message.getDescription());
+        doc.setSummary(message.getSummary());
         doc.setTagIds(tagIds);
         doc.setAuthorId(message.getAuthorId());
         doc.setPlayCount(message.getPlayCount() != null ? message.getPlayCount() : 0L);
@@ -50,10 +54,16 @@ public class ContentDocumentWriter {
         if (list != null && !list.isEmpty()) {
             suggest.addAll(list);
         }
-        doc.setSuggest("published".equals(message.getStatusCode()) && "public".equals(message.getVisibilityCode())
+        boolean searchable = "published".equals(message.getStatusCode()) && "public".equals(message.getVisibilityCode());
+        doc.setSuggest(searchable
                 ? new Completion(suggest) : new Completion());
-        contentDocRepository.save(doc);
-        // 文档已入库(关键词立即可搜), 向量异步补算, 失败由 rebuild 兜底
-        contentVectorService.embedAsync(message.getContentId(), message.getTitle(), message.getDescription());
+        // 部分更新不携带向量字段，保留异步写回的向量。
+        var update = UpdateQuery.builder(message.getContentId().toString())
+                .withDocument(operations.getElasticsearchConverter().mapObject(doc))
+                .withDocAsUpsert(true).withRetryOnConflict(3).withRefreshPolicy(RefreshPolicy.IMMEDIATE).build();
+        operations.update(update, IndexCoordinates.of("content"));
+        if (searchable) {
+            contentVectorService.embedAsync(message.getContentId(), message.getTitle(), message.getDescription(), message.getSummary());
+        }
     }
 }

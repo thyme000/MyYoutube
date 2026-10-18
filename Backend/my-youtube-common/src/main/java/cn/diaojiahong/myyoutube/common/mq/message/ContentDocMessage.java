@@ -22,6 +22,7 @@ public class ContentDocMessage {
     private Long contentId;
     private String title;
     private String description;
+    private String summary;
     /** 封面 objectKey: 视频用封面, 动态用首帧 */
     private String coverUrl;
     private String tags;
