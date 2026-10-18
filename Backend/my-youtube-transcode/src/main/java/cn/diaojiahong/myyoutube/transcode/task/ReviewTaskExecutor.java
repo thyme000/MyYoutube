@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.transcode.task;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.common.resilience.ModelCallGuard;
+import cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure;
 import cn.diaojiahong.myyoutube.common.utils.*;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
@@ -107,10 +108,34 @@ public class ReviewTaskExecutor implements MediaTaskExecutor {
     }
 
     private ReviewVerdict call(PipelineContracts.ReviewSpec policy, List<LlmPort.ContentPart> parts) {
-        var response = guard.call("LLM", () -> llm.chat(new LlmPort.ChatRequest(List.of(LlmPort.Message.asText("system", policy.rules()),
-                new LlmPort.Message("user", null, parts)), policy.model(), 0.0, 1500)));
+        var request = new LlmPort.ChatRequest(List.of(LlmPort.Message.asText("system", policy.rules()),
+                new LlmPort.Message("user", null, parts)), policy.model(), 0.0, 1500);
+        request.setResponseFormat(responseFormat());
+        return guard.call("LLM", () -> {
+            var response = llm.chat(request);
+            if (response == null || !"stop".equals(response.getFinishReason()))
+                throw new ModelCallFailure("LLM", "审核模型输出未正常结束", null);
+            try {
+                return ReviewVerdict.parse(response.getContent(), response.getModel() == null ? policy.model() : response.getModel());
+            } catch (IllegalArgumentException error) {
+                throw new ModelCallFailure("LLM", "审核模型输出 JSON 非法或结构不完整", error);
+            }
+        });
+    }
 
-        return ReviewVerdict.parse(response.getContent(), response.getModel() == null ? policy.model() : response.getModel());
+    private static Map<String, Object> responseFormat() {
+        var evidence = Map.of("type", "object", "additionalProperties", false,
+                "required", List.of("category", "location", "quote"), "properties", Map.of(
+                        "category", Map.of("type", "string"), "location", Map.of("type", "string"),
+                        "quote", Map.of("type", "string")));
+        return Map.of("type", "json_schema", "json_schema", Map.of("name", "content_review", "strict", true,
+                "schema", Map.of("type", "object", "additionalProperties", false,
+                        "required", List.of("decision", "riskScore", "confidence", "reason", "evidence"), "properties", Map.of(
+                                "decision", Map.of("type", "string", "enum", List.of("PASS", "REJECT", "UNCERTAIN")),
+                                "riskScore", Map.of("type", "number", "minimum", 0, "maximum", 1),
+                                "confidence", Map.of("type", "number", "minimum", 0, "maximum", 1),
+                                "reason", Map.of("type", "string", "minLength", 1, "maxLength", 4000),
+                                "evidence", Map.of("type", "array", "items", evidence)))));
     }
 
     private void addBatch(JsonArray batches, String source, ReviewVerdict verdict) {

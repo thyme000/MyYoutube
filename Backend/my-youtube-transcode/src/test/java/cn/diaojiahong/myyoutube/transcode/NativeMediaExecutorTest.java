@@ -126,7 +126,7 @@ class NativeMediaExecutorTest {
         when(artifacts.read("ocr",ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(IntStream.range(0,18)
                 .mapToObj(i -> new ContentArtifacts.Frame(i,frames.get(i).startMs(),frames.get(i).imageObjectKey(),"")).toList()));
         when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
-        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse("{\"decision\":\"PASS\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"安全\",\"evidence\":[]}","test"));
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse("{\"decision\":\"PASS\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"安全\",\"evidence\":[]}","test","stop",null));
         message.setDependencies(Map.of("ASR","{\"segmentsKey\":\"asr\"}","OCR","{\"artifactKey\":\"ocr\"}","SUMMARY","{\"artifactKey\":\"summary\"}"));
         var verdict=ReviewVerdict.parse(new ReviewTaskExecutor(port,artifacts,storage,llm,guard).execute(message),"test");
         assertTrue(verdict.passes(0.2,0.9));

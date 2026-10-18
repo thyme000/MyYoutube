@@ -5,6 +5,18 @@ import com.google.gson.JsonObject;
 
 public final class StructuredJson {
     private StructuredJson() {}
+    public static JsonObject strictObject(String text) {
+        if (text == null) throw new IllegalArgumentException("模型输出为空");
+        try {
+            var factory = com.fasterxml.jackson.core.JsonFactory.builder()
+                    .enable(com.fasterxml.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper(factory)
+                    .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+            var node = mapper.readTree(text);
+            if (node == null || !node.isObject()) throw new IllegalArgumentException("模型输出须为 JSON 对象");
+            return JsonUtil.GSON.fromJson(node.toString(), JsonObject.class);
+        } catch (java.io.IOException e) { throw new IllegalArgumentException("模型输出 JSON 非法", e); }
+    }
     public static JsonObject object(String text) {
         if (text == null) throw new IllegalArgumentException("模型输出为空");
         String value = text.trim();

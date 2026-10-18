@@ -57,7 +57,54 @@ class ReviewTaskExecutorTest {
     private LlmPort.ChatResponse response(String decision, double risk, double confidence) {
         return new LlmPort.ChatResponse("""
                 {"decision":"%s","riskScore":%s,"confidence":%s,"reason":"审核依据","evidence":[]}
-                """.formatted(decision, risk, confidence), "test");
+                """.formatted(decision, risk, confidence), "test", "stop", null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"summary\":\"unterminated",
+            "{\"summary\":\"wrong output contract\"}",
+            "{\"decision\":\"PASS\",\"decision\":\"REJECT\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"ok\",\"evidence\":[]}",
+            "{\"decision\":\"PASS\",\"riskScore\":\"0.1\",\"confidence\":0.99,\"reason\":\"ok\",\"evidence\":[]}",
+            "{\"decision\":\"PASS\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"ok\",\"evidence\":[]} trailing"
+    })
+    void malformedModelOutputIsAnLlmFailureRatherThanAReviewVerdict(String content) {
+        var message = input(false, 4, 0);
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(content, "test", "stop", null));
+        var error = assertThrows(cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure.class,
+                () -> executor.execute(message));
+        assertEquals("LLM", error.resource());
+        assertTrue(error.getMessage().contains("JSON"));
+        assertNotNull(error.getCause());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"length", "tool_calls", "content_filter"})
+    void nonStopResponseCannotPassEvenWithValidJson(String finishReason) {
+        var message = input(false, 4, 0);
+        var response = response("PASS", .1, .99);
+        response.setFinishReason(finishReason);
+        when(llm.chat(any())).thenReturn(response);
+        var error = assertThrows(cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure.class,
+                () -> executor.execute(message));
+        assertEquals("审核模型输出未正常结束", error.getMessage());
+    }
+
+    @Test void reviewRequestsTheReviewSchemaForTextAndFrames() {
+        var message = input(true, 4, 8);
+        when(llm.chat(any())).thenReturn(response("PASS", .1, .99));
+        executor.execute(message);
+        var requests = ArgumentCaptor.forClass(LlmPort.ChatRequest.class);
+        verify(llm, times(3)).chat(requests.capture());
+        for (var request : requests.getAllValues()) {
+            var format = cn.diaojiahong.myyoutube.common.utils.JsonUtil.GSON.toJsonTree(request.getResponseFormat()).getAsJsonObject();
+            assertEquals("json_schema", format.get("type").getAsString());
+            var schema = format.getAsJsonObject("json_schema");
+            assertEquals("content_review", schema.get("name").getAsString());
+            assertTrue(schema.get("strict").getAsBoolean());
+            assertEquals(java.util.Set.of("decision", "riskScore", "confidence", "reason", "evidence"),
+                    schema.getAsJsonObject("schema").getAsJsonObject("properties").keySet());
+        }
     }
 
     @Test void aggregateUsesPolicyVersionInsteadOfModelClaim() {
@@ -65,7 +112,7 @@ class ReviewTaskExecutorTest {
         String version = "a".repeat(64);
         when(video.reviewSpec(100L, 1)).thenReturn(new ReviewSpec(true, "test", version, "rules", 0.2, 0.9, 12000, false, 4));
         when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(
-                "{\"decision\":\"PASS\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"安全\",\"evidence\":[],\"rulesVersion\":\"fake\"}", "test"));
+                "{\"decision\":\"PASS\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"安全\",\"evidence\":[],\"rulesVersion\":\"fake\"}", "test", "stop", null));
         var result = cn.diaojiahong.myyoutube.common.media.StructuredJson.object(executor.execute(message));
         assertEquals(version, result.get("rulesVersion").getAsString());
     }

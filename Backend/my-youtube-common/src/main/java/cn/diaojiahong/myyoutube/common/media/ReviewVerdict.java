@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.common.media;
 
-import cn.diaojiahong.myyoutube.common.media.StructuredJson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
@@ -18,7 +17,10 @@ public record ReviewVerdict(String decision, double riskScore, double confidence
     public static ReviewVerdict parse(String response, String model, String rulesVersion) {
         if (rulesVersion != null && !rulesVersion.matches("[a-f0-9]{64}"))
             throw new IllegalArgumentException("审核模板版本非法");
-        JsonObject json = StructuredJson.object(response);
+        JsonObject json = StructuredJson.strictObject(response);
+        if (!string(json, "decision") || !number(json, "riskScore") || !number(json, "confidence")
+                || !string(json, "reason") || !json.has("evidence") || !json.get("evidence").isJsonArray())
+            throw new IllegalArgumentException("审核输出结构非法");
         String decision = json.get("decision").getAsString();
         double risk = json.get("riskScore").getAsDouble(), confidence = json.get("confidence").getAsDouble();
         String reason = json.get("reason").getAsString();
@@ -27,5 +29,11 @@ public record ReviewVerdict(String decision, double riskScore, double confidence
                 || reason.isBlank() || reason.length() > 4000 || !json.has("evidence") || !json.get("evidence").isJsonArray())
             throw new IllegalArgumentException("审核输出不合法");
         return new ReviewVerdict(decision, risk, confidence, reason, json.getAsJsonArray("evidence"), model, rulesVersion);
+    }
+    private static boolean string(JsonObject json, String key) {
+        return json.has(key) && json.get(key).isJsonPrimitive() && json.getAsJsonPrimitive(key).isString();
+    }
+    private static boolean number(JsonObject json, String key) {
+        return json.has(key) && json.get(key).isJsonPrimitive() && json.getAsJsonPrimitive(key).isNumber();
     }
 }
