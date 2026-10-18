@@ -22,6 +22,10 @@ server:
 # 全部服务已注册进 Nacos, 置空走负载均衡
 my-youtube:
   db-name: video_db
+  s3:
+    video-upload-notification-enabled: ${S3_VIDEO_UPLOAD_NOTIFICATION_ENABLED:true}
+    video-upload-notification-queue-arn: ${S3_VIDEO_UPLOAD_NOTIFICATION_QUEUE_ARN:arn:rustfs:sqs::primary:webhook}
+    video-upload-notification-check-interval-ms: ${S3_VIDEO_UPLOAD_NOTIFICATION_CHECK_INTERVAL_MS:60000}
   user-service:
     url: ${USER_SERVICE_URL:}
   search-service:

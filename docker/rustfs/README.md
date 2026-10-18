@@ -3,13 +3,22 @@
 上传链路为 RustFS → transcode `/internal/media/storage-event` → RocketMQ
 `media_upload_event_topic` → 视频草稿异步媒体准备（PREPARE）。
 
+上传事件消费者在没有已保存消费进度时从队列最早保留的消息开始，避免首条事件先于新消费组队列分配到达而被跳过；已有进度的消费组继续从原位置读取。重复事件仍按对象 key 查询草稿，已完成或已提交的草稿不会重新准备。修改消费起点不会恢复已经跳过的事件，这类草稿需要按下文确认对象后重放通知。
+
 Compose 的 `RUSTFS_NOTIFY_*` 环境变量只注册 webhook 目标，不会创建桶订阅。
-后端启动时也只检查桶是否存在。新建桶后必须单独应用 `video-notification.json`，
-否则视频对象上传成功，草稿仍停在 `uploading`。
+video 服务启动时会检查 `video-upload` 桶订阅，之后每 60 秒检查一次；
+桶被删除后会重建桶并恢复该订阅。检查只更新 `video-upload`，保留其他通知规则。
+若 RustFS 暂时不可用，检查会记录告警并在下一轮重试。
 
-## 配置桶订阅
+此行为仅适用于本项目的 RustFS webhook。使用其他 S3 存储时，设置
+`S3_VIDEO_UPLOAD_NOTIFICATION_ENABLED=false`；如 webhook 目标名称不同，可设置
+`S3_VIDEO_UPLOAD_NOTIFICATION_QUEUE_ARN`。检查间隔可通过
+`S3_VIDEO_UPLOAD_NOTIFICATION_CHECK_INTERVAL_MS` 调整。
 
-先启动 RustFS、transcode 和 video，确保桶已创建。安装 AWS CLI，并设置
+## 手动检查与恢复
+
+正常启动 video 后无需执行下列命令。需要手动排查时，先启动 RustFS、transcode 和 video。
+安装 AWS CLI，并设置
 `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`，值与 RustFS 的 S3 凭据一致。
 从仓库根目录执行：
 
@@ -28,9 +37,9 @@ aws --endpoint-url "${S3_ENDPOINT:-http://localhost:9000}" --region us-east-1 \
   --bucket "${S3_BUCKET_NAME:-myyoutube}"
 ```
 
-PUT 会替换整个桶的通知配置；已有其他订阅时，先备份并合并全部规则，再提交。
+手动 PUT 会替换整个桶的通知配置；已有其他订阅时，先备份并合并全部规则，再提交。
 确认读回结果包含 `video-upload`、`s3:ObjectCreated:*` 和 `uploads/video/` 前缀。
-桶订阅随存储卷持久化；新桶或重建数据卷后需要重新配置。
+桶订阅随存储卷持久化；新桶或重建数据卷后由 video 自动恢复。
 
 ## 验证与恢复
 
