@@ -254,7 +254,7 @@ CREATE TABLE IF NOT EXISTS `user_video_behavior` (
     `id`          BIGINT      NOT NULL COMMENT '雪花ID',
     `user_id`     BIGINT      NOT NULL,
     `content_id`  BIGINT      NOT NULL,
-    `event_type`  VARCHAR(16) NOT NULL COMMENT 'expose/play/finish/like/skip/dislike',
+    `event_type`  VARCHAR(16) NOT NULL COMMENT 'play/finish/like/skip/dislike',
     `duration_ms` BIGINT               DEFAULT 0 COMMENT '停留/播放时长(毫秒)',
     `created_at`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),

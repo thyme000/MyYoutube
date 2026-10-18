@@ -45,7 +45,7 @@ public class UserVideoBehavior implements Serializable {
     private Long contentId;
 
     /**
-     * 行为：expose曝光 play播放 finish完播 like点赞 skip跳过 dislike点踩
+     * 行为：play播放 finish完播 like点赞 skip跳过 dislike点踩
      */
     private EventEnum eventType;
 
