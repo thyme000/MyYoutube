@@ -312,6 +312,9 @@ class ReviewTransactionIntegrationTest {
         var service=new PublicationEffectsService(new org.mybatis.spring.SqlSessionTemplate(
                 contextFactory()).getMapper(ContentPublicationEventMapper.class),users,search,es,notifications,push,tx,redis,mq);
         assertThrows(IllegalStateException.class,()->service.apply(new cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage(50L,"COUNT")));
+        doThrow(new IllegalStateException("vector task delivery failed")).doNothing().when(search).rebuildContent(1L);
+        assertThrows(IllegalStateException.class, () -> service.apply(new cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage(50L,"SEARCH")));
+        assertEquals(0, jdbc.queryForObject("SELECT search_done FROM content_publication_event WHERE id=50", Integer.class));
         service.apply(new cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage(50L,"SEARCH"));
         service.apply(new cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage(50L,"NOTICE"));
         service.apply(new cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage(50L,"NOTICE"));
@@ -321,7 +324,7 @@ class ReviewTransactionIntegrationTest {
         service.apply(new cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage(50L,"COUNT"));
         assertEquals(1,jdbc.queryForObject("SELECT completed FROM content_publication_event WHERE id=50",Integer.class));
         var order=inOrder(users,es); order.verify(users,times(2)).applyContentCountEvent(any()); order.verify(es).syncUserDoc(9L);
-        verify(search,times(1)).rebuildContent(1L); verify(push,times(1)).pushSseSignal(anyLong(),anyString());
+        verify(search,times(2)).rebuildContent(1L); verify(push,times(1)).pushSseSignal(anyLong(),anyString());
     }
     @Autowired SqlSessionFactory factory;
     SqlSessionFactory contextFactory() { return factory; }

@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
+import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
+import cn.diaojiahong.myyoutube.mq.listener.ContentVectorListener;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.GetResponse;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
@@ -19,6 +21,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -31,11 +36,11 @@ class ContentVectorServiceTest {
     final ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
     final ContentVectorService service = new ContentVectorService(llm, client, redis, properties, executor);
 
-    @Test void embedsAllThreeFieldsOnlyAfterQueuedTaskRunsAndWritesOnlyVectorFields() throws Exception {
+    @Test void consumerCompletesAllThreeFieldsAndWritesOnlyVectorFieldsBeforeReturning() throws Exception {
+        storedContent(Map.of("status", "published", "visibility", "public", "title", " 标题 ", "description", " 简介 ", "summary", " 内容摘要 "));
         when(llm.embeddings(any())).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1.0f, 2.0f)), 2, "model:2"));
-        service.embedAsync(1L, " 标题 ", " 简介 ", " 内容摘要 ");
-        verifyNoInteractions(llm, client);
-        runQueuedTask();
+        new ContentVectorListener(service).onMessage(new ContentVectorMessage(1L));
+        verifyNoInteractions(executor);
 
         var input = ArgumentCaptor.forClass(LlmPort.EmbeddingsRequest.class);
         verify(llm).embeddings(input.capture());
@@ -48,21 +53,67 @@ class ContentVectorServiceTest {
         assertEquals("model:2", fields.get("vectorVersion"));
     }
 
-    @Test void emptySummaryIsAllowedAndModelFailureDoesNotWriteOrDeleteDocument() {
+    @Test void emptySummaryIsAllowedAndModelFailureReachesMqListener() throws Exception {
+        storedContent(Map.of("status", "published", "visibility", "public", "title", "标题", "summary", " "));
         when(llm.embeddings(any())).thenThrow(new IllegalStateException("model unavailable"));
-        service.embedAsync(1L, "标题", null, " ");
-        assertDoesNotThrow(this::runQueuedTask);
+        assertThrows(IllegalStateException.class, () -> new ContentVectorListener(service).onMessage(new ContentVectorMessage(1L)));
         var input = ArgumentCaptor.forClass(LlmPort.EmbeddingsRequest.class);
         verify(llm).embeddings(input.capture());
         assertEquals(List.of("标题"), input.getValue().getTexts());
-        verifyNoInteractions(client);
+        verify(client, never()).update(any(Function.class), eq(Void.class));
     }
 
-    @Test void disabledOrEmptyInputDoesNotScheduleEmbedding() {
-        service.embedAsync(1L, " ", null, "");
-        properties.setEnabled(false);
-        service.embedAsync(1L, "标题", "简介", "摘要");
-        verifyNoInteractions(executor, llm, client);
+    @Test void missingPrivateBannedCompletedAndEmptyDocumentsDoNotCallModel() throws Exception {
+        storedContent(Map.of("status", "published", "visibility", "private", "title", "标题"));
+        service.embedContent(1L);
+        storedContent(Map.of("status", "banned", "visibility", "public", "title", "标题"));
+        service.embedContent(1L);
+        storedContent(Map.of("status", "published", "visibility", "public", "title", "标题", "vectorVersion", "model:2"));
+        service.embedContent(1L);
+        storedContent(Map.of("status", "published", "visibility", "public", "title", " "));
+        service.embedContent(1L);
+        when(client.get(any(Function.class), eq(Map.class))).thenReturn(mock(GetResponse.class));
+        service.embedContent(1L);
+        verifyNoInteractions(executor, llm);
+        verify(client, never()).update(any(Function.class), eq(Void.class));
+    }
+
+    @Test void esReadAndWriteFailuresReachConsumerAndAllowLaterRetry() throws Exception {
+        var listener = new ContentVectorListener(service);
+        when(client.get(any(Function.class), eq(Map.class))).thenThrow(new IOException("ES unavailable"));
+        assertThrows(IllegalStateException.class, () -> listener.onMessage(new ContentVectorMessage(1L)));
+        verifyNoInteractions(llm);
+        GetResponse<Map> stored = mock(GetResponse.class);
+        when(stored.found()).thenReturn(true);
+        when(stored.source()).thenReturn(Map.of("status", "published", "visibility", "public", "title", "标题"));
+        doReturn(stored).when(client).get(any(Function.class), eq(Map.class));
+        when(llm.embeddings(any())).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1.0f)), 1, "model:1"));
+        when(client.update(any(Function.class), eq(Void.class))).thenThrow(new IOException("ES write failed")).thenReturn(null);
+        assertThrows(IllegalStateException.class, () -> listener.onMessage(new ContentVectorMessage(1L)));
+        assertDoesNotThrow(() -> listener.onMessage(new ContentVectorMessage(1L)));
+        verify(client, times(2)).update(any(Function.class), eq(Void.class));
+    }
+
+    @Test void rejectedManualRebuildDoesNotRemainRunning() throws Exception {
+        var rebuildExecutor = new VectorConfig().vectorRebuildExecutor();
+        var started = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try {
+            rebuildExecutor.execute(() -> {
+                started.countDown();
+                try { release.await(); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            });
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            var rebuild = new ContentVectorService(llm, client, redis, properties, rebuildExecutor);
+            assertFalse(rebuild.startRebuild());
+            assertFalse(rebuild.isRebuildRunning());
+            assertFalse(rebuild.startRebuild());
+            assertFalse(rebuild.isRebuildRunning());
+        } finally {
+            release.countDown();
+            rebuildExecutor.shutdown();
+        }
     }
 
     @Test void knnFiltersPublicationVisibilityCategoryAndModelVersion() throws Exception {
@@ -106,6 +157,13 @@ class ContentVectorServiceTest {
         var task = ArgumentCaptor.forClass(Runnable.class);
         verify(executor).execute(task.capture());
         task.getValue().run();
+    }
+
+    private void storedContent(Map<String, Object> content) throws Exception {
+        GetResponse<Map> stored = mock(GetResponse.class);
+        when(stored.found()).thenReturn(true);
+        when(stored.source()).thenReturn(content);
+        when(client.get(any(Function.class), eq(Map.class))).thenReturn(stored);
     }
 
     private UpdateRequest<Void, JsonData> captureUpdate() throws Exception {

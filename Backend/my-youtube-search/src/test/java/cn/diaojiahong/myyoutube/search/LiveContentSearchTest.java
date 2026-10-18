@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.doc.*;
 import cn.diaojiahong.myyoutube.search.port.ContentDocPortImpl;
 import cn.diaojiahong.myyoutube.search.service.ContentDocumentWriter;
 import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
+import cn.diaojiahong.myyoutube.search.vector.ContentVectorPublisher;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
@@ -41,7 +42,7 @@ class LiveContentSearchTest {
         repository=mock(ContentDocRepository.class,org.mockito.AdditionalAnswers.delegatesTo(factory.getRepository(ContentDocRepository.class)));
         contents=mock(ContentInternalPort.class); users=mock(UserPort.class);
         var user=new UserSummary(); user.setId(9L); user.setNickname(""); when(users.getUser(9L)).thenReturn(user);
-        writer=new ContentDocumentWriter(operations,users,mock(ContentVectorService.class));
+        writer=new ContentDocumentWriter(operations,users,mock(ContentVectorPublisher.class));
         port=new ContentDocPortImpl(repository,contents,writer,operations);
     }
     @AfterEach void close() throws Exception { if(client!=null) client._transport().close(); }

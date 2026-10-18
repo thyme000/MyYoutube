@@ -5,7 +5,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
 import cn.diaojiahong.myyoutube.search.port.ContentDocPortImpl;
 import cn.diaojiahong.myyoutube.search.service.ContentDocumentWriter;
-import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
+import cn.diaojiahong.myyoutube.search.vector.ContentVectorPublisher;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import org.junit.jupiter.api.Test;
@@ -29,7 +29,7 @@ class ContentPublicationSyncTest {
         var converter = new MappingElasticsearchConverter(new SimpleElasticsearchMappingContext());
         converter.afterPropertiesSet();
         when(operations.getElasticsearchConverter()).thenReturn(converter);
-        var vectors = mock(ContentVectorService.class);
+        var vectors = mock(ContentVectorPublisher.class);
         var writer = new ContentDocumentWriter(operations, mock(UserPort.class), vectors);
         var port = new ContentDocPortImpl(repository, videos, writer, operations);
         var message = ContentDocMessage.builder().contentId(1L).type("video").title("新视频").authorId(9L)
@@ -52,11 +52,30 @@ class ContentPublicationSyncTest {
         }
         var ordered = inOrder(operations, vectors);
         ordered.verify(operations).update(any(UpdateQuery.class), eq(IndexCoordinates.of("content")));
-        ordered.verify(vectors).embedAsync(1L, "新视频", "简介", "内容摘要");
+        ordered.verify(vectors).publish(1L);
         verifyNoMoreInteractions(vectors);
         when(videos.searchDocument(1L)).thenReturn(null);
         port.rebuildContent(1L);
         verify(repository).deleteById(1L);
+    }
+
+    @Test void vectorDeliveryFailurePropagatesAfterDocumentWriteAndCanBeRetried() {
+        var operations = mock(ElasticsearchOperations.class);
+        var converter = new MappingElasticsearchConverter(new SimpleElasticsearchMappingContext());
+        converter.afterPropertiesSet();
+        when(operations.getElasticsearchConverter()).thenReturn(converter);
+        var publisher = mock(ContentVectorPublisher.class);
+        doThrow(new IllegalStateException("Broker unavailable")).doNothing().when(publisher).publish(1L);
+        var writer = new ContentDocumentWriter(operations, mock(UserPort.class), publisher);
+        var document = ContentDocMessage.builder().contentId(1L).title("标题").authorId(9L)
+                .statusCode("published").visibilityCode("public").build();
+
+        assertThrows(IllegalStateException.class, () -> writer.write(document));
+        var ordered = inOrder(operations, publisher);
+        ordered.verify(operations).update(any(UpdateQuery.class), eq(IndexCoordinates.of("content")));
+        ordered.verify(publisher).publish(1L);
+        assertDoesNotThrow(() -> writer.write(document));
+        verify(operations, times(2)).update(any(UpdateQuery.class), eq(IndexCoordinates.of("content")));
     }
 
     @Test void countSyncUpdatesOnlyCountersAndDoesNotOverwriteVisibilityFromAnOldDocument() {

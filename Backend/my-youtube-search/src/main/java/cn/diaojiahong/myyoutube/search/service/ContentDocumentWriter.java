@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.search.service;
 
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
-import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
+import cn.diaojiahong.myyoutube.search.vector.ContentVectorPublisher;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
@@ -19,7 +19,7 @@ import java.util.List;
 public class ContentDocumentWriter {
     private final ElasticsearchOperations operations;
     private final UserPort userPort;
-    private final ContentVectorService contentVectorService;
+    private final ContentVectorPublisher vectorPublisher;
 
     public void write(ContentDocMessage message) {
         List<Long> tagIds = message.getTagIds();
@@ -63,7 +63,7 @@ public class ContentDocumentWriter {
                 .withDocAsUpsert(true).withRetryOnConflict(3).withRefreshPolicy(RefreshPolicy.IMMEDIATE).build();
         operations.update(update, IndexCoordinates.of("content"));
         if (searchable) {
-            contentVectorService.embedAsync(message.getContentId(), message.getTitle(), message.getDescription(), message.getSummary());
+            vectorPublisher.publish(message.getContentId());
         }
     }
 }

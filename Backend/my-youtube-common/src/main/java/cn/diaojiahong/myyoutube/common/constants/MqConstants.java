@@ -8,6 +8,7 @@ public class MqConstants {
     public static final String TOPIC_REVIEW_REQUESTED = "review_requested_topic";
     public static final String TOPIC_REVIEW_RESULT = "review_result_topic";
     public static final String TOPIC_PUBLICATION_EFFECT = "publication_effect_topic";
+    public static final String TOPIC_CONTENT_VECTOR = "content_vector_topic";
 
     // 评论互动, tag 区分: like/unlike/publish
     public static final String TOPIC_COMMENT_ACTION = "comment_action_topic";
