@@ -11,7 +11,6 @@ from prompt import build_prompt
 
 
 def idle_worker(connection, config):
-    os.setsid()
     connection.send({"ready": True})
     connection.recv()
     time.sleep(60)
@@ -43,6 +42,8 @@ class PromptTests(unittest.TestCase):
             old = worker.process
             try:
                 with self.assertRaises(RuntimeError): worker.run({})
+                self.assertFalse(worker.ready)
+                worker.recover()
                 self.assertFalse(old.is_alive())
                 self.assertNotEqual(old.pid, worker.process.pid)
                 self.assertTrue(worker.process.is_alive())
@@ -64,18 +65,19 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
                 return {"segmentCount": 0}
         from model_runtime.pool import BoundedPool
         FakeWorker.stop = lambda self: None
-        app.app.state.pool = BoundedPool("asr-test", FakeWorker, app.CONCURRENCY, app.QUEUE_SIZE, 60)
+        app.app.state.pool = BoundedPool("asr-test", FakeWorker, 1, 4, 60)
         await app.app.state.pool.start()
         request = app.AsrRequest(sourceUrl="http://localhost/input", vttUploadUrl="http://localhost/vtt", segmentsUploadUrl="http://localhost/json")
-        jobs = [asyncio.create_task(app.transcribe(request)) for _ in range(app.CONCURRENCY + app.QUEUE_SIZE)]
+        jobs = [asyncio.create_task(app.transcribe(request)) for _ in range(1 + 4)]
         await asyncio.sleep(0.1)
         try:
             with self.assertRaises(app.HTTPException) as error: await app.transcribe(request)
             self.assertEqual(error.exception.status_code, 503)
-            self.assertEqual(peak, app.CONCURRENCY)
+            self.assertEqual(peak, 1)
         finally:
             release.set()
             await asyncio.gather(*jobs)
+            await app.app.state.pool.close()
         self.assertEqual(app.app.state.pool.admitted, 0)
 
 

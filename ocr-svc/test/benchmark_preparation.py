@@ -1,9 +1,9 @@
-"""Compare prepared files against a running OCR worker without loading a second model."""
+"""复用已启动的 OCR 工作进程比较准备文件，不重复加载模型。"""
 import argparse
 import hashlib
 import json
 import re
-import subprocess
+import psutil
 import threading
 import time
 from difflib import SequenceMatcher
@@ -14,9 +14,7 @@ import httpx
 
 
 def swap_bytes():
-    output = subprocess.run(["sysctl", "vm.swapusage"], capture_output=True, text=True).stdout
-    value = re.search(r"used = ([0-9.]+)([MG])", output)
-    return None if value is None else round(float(value[1]) * (1024 ** (2 if value[2] == "M" else 3)))
+    return psutil.swap_memory().used
 
 
 def main():

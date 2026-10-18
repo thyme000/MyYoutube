@@ -12,17 +12,18 @@ REGISTERED = Gauge("model_discovery_registered", "Last confirmed Nacos registrat
 ENABLED = Gauge("model_discovery_enabled", "Whether Nacos registration is required", ["service"])
 
 
-def _seconds(name, default):
-    value = float(os.getenv(name, str(default)))
+def _seconds(name, default, values):
+    value = float(values.get(name, default))
     if not math.isfinite(value) or value <= 0:
         raise ValueError(f"{name} must be a finite positive number")
     return value
 
 
 class Registration:
-    def __init__(self, service, default_port):
+    def __init__(self, service, default_port, fixed_port=False, settings=None):
+        values = os.environ if settings is None else settings.model_dump(by_alias=True)
         self.service = service
-        self.enabled = os.getenv("NACOS_ENABLED", "true").lower() == "true"
+        self.enabled = str(values.get("NACOS_ENABLED", "true")).lower() == "true"
         self.registered = False
         self.client = None
         self.log_handlers = []
@@ -32,17 +33,17 @@ class Registration:
         if not self.enabled:
             return
         from v2.nacos import ClientConfigBuilder
-        self.address = os.getenv("NACOS_INSTANCE_IP", "127.0.0.1")
-        self.port = int(os.getenv("SERVER_PORT", str(default_port)))
-        self.group = os.getenv("NACOS_GROUP", "DEFAULT_GROUP")
-        self.cluster = os.getenv("NACOS_CLUSTER", "DEFAULT")
-        self.interval = _seconds("NACOS_CHECK_INTERVAL", 15)
-        self.timeout = _seconds("NACOS_OPERATION_TIMEOUT", 10)
-        self.max_delay = _seconds("NACOS_RECONNECT_MAX_DELAY", 60)
-        self.config = (ClientConfigBuilder().server_address(os.getenv("NACOS_ADDR", "127.0.0.1:8848"))
-                       .namespace_id(os.getenv("NACOS_NAMESPACE", "") or "public")
-                       .username(os.getenv("NACOS_USERNAME", ""))
-                       .password(os.getenv("NACOS_PASSWORD", ""))
+        self.address = values.get("NACOS_INSTANCE_IP", "127.0.0.1")
+        self.port = default_port if fixed_port else int(values.get("SERVER_PORT", default_port))
+        self.group = values.get("NACOS_GROUP", "DEFAULT_GROUP")
+        self.cluster = values.get("NACOS_CLUSTER", "DEFAULT")
+        self.interval = _seconds("NACOS_CHECK_INTERVAL", 15, values)
+        self.timeout = _seconds("NACOS_OPERATION_TIMEOUT", 10, values)
+        self.max_delay = _seconds("NACOS_RECONNECT_MAX_DELAY", 60, values)
+        self.config = (ClientConfigBuilder().server_address(values.get("NACOS_ADDR", "127.0.0.1:8848"))
+                       .namespace_id(values.get("NACOS_NAMESPACE", "") or "public")
+                       .username(values.get("NACOS_USERNAME", ""))
+                       .password(values.get("NACOS_PASSWORD", ""))
                        .log_dir(os.path.join(os.getenv("MODEL_LOG_DIRECTORY", "logs"), "nacos"))
                        .load_cache_at_start(False).build())
         self.config.cache_dir = os.path.join(self.config.log_dir, "cache")
@@ -112,26 +113,43 @@ class Registration:
         try:
             await asyncio.shield(cleanup)
         except asyncio.CancelledError:
-            await cleanup
+            try:
+                await cleanup
+            except Exception as error:
+                logger.warning("Nacos client cleanup failed during cancellation for %s (%s)", self.service, type(error).__name__)
             raise
+        except Exception as error:
+            logger.warning("Nacos client cleanup failed for %s (%s)", self.service, type(error).__name__)
 
     async def _dispose_client(self, client, handlers):
-        proxy = client.grpc_client_proxy
-        redo = proxy.redo_service._listen_task
-        redo.cancel()
-        await asyncio.gather(redo, return_exceptions=True)
+        proxy = getattr(client, "grpc_client_proxy", None)
+        try:
+            redo = getattr(getattr(proxy, "redo_service", None), "_listen_task", None)
+            if redo is not None:
+                redo.cancel()
+                await asyncio.gather(redo, return_exceptions=True)
+        except Exception as error:
+            logger.warning("Nacos redo cleanup failed for %s (%s)", self.service, type(error).__name__)
         try:
             async with asyncio.timeout(self.timeout):
-                if proxy.rpc_client is not None:
+                if proxy is not None and getattr(proxy, "rpc_client", None) is not None:
                     await proxy.close_client()
         except Exception as error:
             logger.warning("Nacos client cleanup failed for %s (%s)", self.service, type(error).__name__)
         finally:
             # SDK 2.0.11 shutdown awaits synchronous updater.stop() and leaves redo running.
-            client.service_info_updater.stop()
+            try:
+                updater = getattr(client, "service_info_updater", None)
+                if updater is not None:
+                    updater.stop()
+            except Exception as error:
+                logger.warning("Nacos updater cleanup failed for %s (%s)", self.service, type(error).__name__)
             for handler in handlers:
-                client.logger.removeHandler(handler)
-                handler.close()
+                try:
+                    client.logger.removeHandler(handler)
+                    handler.close()
+                except Exception as error:
+                    logger.warning("Nacos log cleanup failed for %s (%s)", self.service, type(error).__name__)
 
     def _retry_delay(self, failures):
         ceiling = min(2 ** min(failures - 1, 16), self.max_delay)
@@ -193,8 +211,8 @@ class Registration:
 
 
 @asynccontextmanager
-async def registration(service, default_port):
-    state = Registration(service, default_port)
+async def registration(service, default_port, fixed_port=False, settings=None):
+    state = Registration(service, default_port, fixed_port, settings)
     try:
         await state.start()
         yield state

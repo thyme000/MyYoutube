@@ -1,34 +1,18 @@
-import multiprocessing
-import os
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, HttpUrl, Field
 from prometheus_client import make_asgi_app
 from engine import Worker
-from model_runtime.pool import BoundedPool
-from model_runtime.discovery import registration
+from model_runtime.application import lifespan_for, health_response
+from model_runtime.settings import SERVICES
+from model_runtime.context import BusinessContextMiddleware
+from model_runtime import tracing
+from model_runtime.monitoring import HttpMetricsMiddleware
 
-CONCURRENCY = max(1, int(os.getenv("OCR_CONCURRENCY", "1")))
-QUEUE_SIZE = max(0, int(os.getenv("OCR_QUEUE_SIZE", "4")))
-
-
-@asynccontextmanager
-async def lifespan(app):
-    pool = BoundedPool("ocr", lambda: Worker(multiprocessing.get_context("spawn"),
-                       {"timeout": int(os.getenv("OCR_EXECUTION_TIMEOUT", "120"))}),
-                       CONCURRENCY, QUEUE_SIZE, int(os.getenv("OCR_QUEUE_TIMEOUT", "60")))
-    app.state.pool = pool
-    await pool.start()
-    try:
-        async with registration("ocr-svc", 8088) as discovery:
-            app.state.discovery = discovery
-            yield
-    finally:
-        await pool.close()
-
-
-app = FastAPI(title="ocr-svc", lifespan=lifespan)
+identity = SERVICES["ocr"]
+app = FastAPI(title=identity.name, lifespan=lifespan_for(identity, Worker))
+app.add_middleware(HttpMetricsMiddleware)
+app.add_middleware(tracing.TracingMiddleware)
+app.add_middleware(BusinessContextMiddleware)
 app.mount("/metrics", make_asgi_app())
 
 
@@ -38,13 +22,7 @@ class BatchRequest(BaseModel):
 
 @app.get("/health")
 async def health():
-    pool = app.state.pool
-    healthy = sum(worker.ready and worker.process.is_alive() for worker in pool.workers)
-    discovery = app.state.discovery
-    ready = pool.accepting and healthy > 0 and discovery.ready
-    return JSONResponse({"ready": ready, "concurrency": CONCURRENCY, "healthyWorkers": healthy,
-                         "admitted": pool.admitted, "discovery": discovery.status()},
-                        status_code=200 if ready else 503)
+    return health_response(app)
 
 
 @app.post("/ocr")

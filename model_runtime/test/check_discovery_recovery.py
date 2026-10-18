@@ -1,4 +1,4 @@
-"""Exercise real Nacos registration repair and client replacement using a unique test service."""
+"""使用独立测试服务检查 Nacos 注册恢复与客户端替换。"""
 import asyncio
 import logging
 import os
@@ -52,7 +52,7 @@ async def main():
                 await wait_for(restored)
                 print("LIVE Nacos: deleted test instance was automatically registered again")
 
-                # Make this test client's transport unusable without stopping shared Nacos.
+                # 只断开当前测试客户端，不停止共享的 Nacos。
                 original = state.client
                 await original.grpc_client_proxy.close_client()
 

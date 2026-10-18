@@ -47,6 +47,15 @@ my-youtube.media-pipeline:
 my-youtube.asr.url: ${ASR_SERVICE_URL:}
 my-youtube.ocr.url: ${OCR_SERVICE_URL:}
 
+my-youtube.local-model-services:
+  start-on-boot: ${MODEL_SERVICES_START_ON_BOOT:true}
+  startup-wait: ${MODEL_SERVICES_STARTUP_WAIT:180s}
+  stop-on-shutdown: ${MODEL_SERVICES_STOP_ON_SHUTDOWN:true}
+  project-root: ${MODEL_SERVICES_PROJECT_ROOT:}
+  shutdown-wait: ${MODEL_SERVICES_SHUTDOWN_WAIT:30s}
+  asr-python: ${MODEL_SERVICES_ASR_PYTHON:}
+  ocr-python: ${MODEL_SERVICES_OCR_PYTHON:}
+
 management:
   endpoints.web.exposure.include: health,prometheus
   metrics.distribution.percentiles-histogram:

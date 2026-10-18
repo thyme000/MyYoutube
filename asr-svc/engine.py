@@ -1,9 +1,6 @@
 import html
-import resource
-import sys
 import json
 import os
-import signal
 import subprocess
 import tempfile
 import time
@@ -13,6 +10,7 @@ from pathlib import Path
 import httpx
 
 from prompt import build_prompt
+from model_runtime.resources import peak_rss_bytes
 
 
 def timestamp(ms):
@@ -28,7 +26,6 @@ def write_outputs(segments):
 
 
 def serve(connection, config):
-    os.setsid()
     import logging
     logger = logging.getLogger(__name__)
     client = None
@@ -36,9 +33,9 @@ def serve(connection, config):
         from pywhispercpp.model import Model
         import _pywhispercpp as native
 
-        model = Model(config["model"], context_params={"use_gpu": True}, language=config["language"],
-                      vad=True, vad_model_path=config["vad"], token_timestamps=True,
-                      max_len=config["cue_length"], no_context=True, print_progress=False,
+        model = Model(str(config.model), context_params={"use_gpu": True}, language=config.language,
+                      vad=True, vad_model_path=str(config.vad), token_timestamps=True,
+                      max_len=config.cue_length, no_context=True, print_progress=False,
                       print_realtime=False, print_timestamps=False)
 
         def count(text):
@@ -50,6 +47,8 @@ def serve(connection, config):
         connection.send({"ready": True, "pid": os.getpid()})
         while True:
             request = connection.recv()
+            if request is None:
+                break
             started = time.monotonic()
             try:
                 with tempfile.TemporaryDirectory(prefix="myyoutube-asr-") as directory:
@@ -66,7 +65,7 @@ def serve(connection, config):
                         with wave.open(str(wav)) as audio:
                             duration_ms = round(audio.getnframes() / audio.getframerate() * 1000)
                         raw = model.transcribe(str(wav), initial_prompt=prompt,
-                                               language=request.get("language") or config["language"])
+                                               language=request.get("language") or config.language)
                         segments = [{"startMs": max(0, s.t0 * 10), "endMs": min(duration_ms, s.t1 * 10),
                                      "text": s.text.strip()} for s in raw if s.text.strip() and s.t1 > s.t0]
                     vtt, data = write_outputs(segments)
@@ -74,10 +73,10 @@ def serve(connection, config):
                         response = client.put(url, content=content.encode("utf-8"))
                         response.raise_for_status()
                     logger.info("ASR completed pid=%s elapsed=%.3fs segments=%s peakRssBytes=%s", os.getpid(),
-                                time.monotonic() - started, len(segments), resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024))
+                                time.monotonic() - started, len(segments), peak_rss_bytes())
                     connection.send({"durationMs": duration_ms, "segmentCount": len(segments), "promptTokenCount": count(prompt),
                                      "speechEmpty": not segments, "elapsedSeconds": time.monotonic() - started,
-                                     "workerPid": os.getpid(), "peakRssBytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)})
+                                     "workerPid": os.getpid(), "peakRssBytes": peak_rss_bytes()})
             except Exception as error:
                 logger.error("ASR execution failed pid=%s error=%s elapsed=%.3fs", os.getpid(), type(error).__name__, time.monotonic() - started)
                 connection.send({"error": type(error).__name__})
@@ -96,5 +95,5 @@ from model_runtime.process import ProcessWorker
 
 
 class Worker(ProcessWorker):
-    def __init__(self, context, config):
-        super().__init__(context, config, serve)
+    def __init__(self, context, config, service="model-runtime", tracing_settings=None):
+        super().__init__(context, config, serve, service, tracing_settings)

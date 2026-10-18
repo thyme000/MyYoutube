@@ -9,11 +9,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from fastapi.testclient import TestClient
 from app import app
+import psutil
 
 
 def main():
     outputs = {}
-    source = Path(os.getenv("ASR_BENCHMARK_SOURCE", "/Users/thyme/project/whisper-models/test.wav"))
+    configured_source = os.getenv("ASR_BENCHMARK_SOURCE")
+    if not configured_source:
+        raise ValueError("ASR_BENCHMARK_SOURCE must explicitly identify an existing audio sample")
+    source = Path(configured_source).expanduser().resolve()
+    if not source.is_file():
+        raise ValueError(f"ASR_BENCHMARK_SOURCE does not exist: {source}")
     with tempfile.TemporaryDirectory(prefix="asr-benchmark-") as directory:
         tail, silent, no_audio = Path(directory) / "tail.wav", Path(directory) / "silent.wav", Path(directory) / "no-audio.mp4"
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(source), "-af", "apad=pad_dur=20", str(tail)], check=True)
@@ -34,8 +40,7 @@ def main():
             with TestClient(app) as client:
                 pids = [worker.process.pid for worker in app.state.pool.workers]
                 def rss():
-                    result = subprocess.run(["ps", "-o", "rss=", "-p", ",".join(map(str, pids))], capture_output=True, text=True, check=True)
-                    return sum(int(value) * 1024 for value in result.stdout.split())
+                    return sum(psutil.Process(pid).memory_info().rss for pid in pids)
                 idle_rss = rss()
                 def run(name, silence=False):
                     response = client.post("/asr", json={"sourceUrl": base + ("/no-audio" if name == "no-audio" else "/silent" if silence else "/source"),
@@ -58,7 +63,7 @@ def main():
                 silence = run("silence", True)
                 missing_audio = run("no-audio")
                 assert missing_audio["segmentCount"] == 0
-                assert len({r["workerPid"] for r in parallel}) == 2
+                assert len({r["workerPid"] for r in parallel}) == min(2, app.state.pool.concurrency)
                 assert silence["segmentCount"] == 0
                 assert all(r["promptTokenCount"] <= 224 for r in [serial, *parallel, silence])
                 longest, tails = 0, []
@@ -70,8 +75,8 @@ def main():
                     assert outputs[f"/{name}.vtt"].startswith(b"WEBVTT")
                 print(json.dumps({"serialSeconds": serial_time, "parallelPairSeconds": parallel_time,
                     "pairThroughputSpeedup": 2 * serial_time / parallel_time, "serial": serial, "parallel": parallel,
-                    "silence": silence, "noAudio": missing_audio, "idleTwoWorkerRssBytes": idle_rss,
-                    "peakConcurrentTwoWorkerRssBytes": max(resident_samples), "longestCueCharacters": longest, "lastSegments": tails}, ensure_ascii=False, indent=2))
+                    "silence": silence, "noAudio": missing_audio, "workerCount": len(pids), "idleWorkerRssBytes": idle_rss,
+                    "peakConcurrentWorkerRssBytes": max(resident_samples), "longestCueCharacters": longest, "lastSegments": tails}, ensure_ascii=False, indent=2))
         finally: server.shutdown(); server.server_close()
 
 

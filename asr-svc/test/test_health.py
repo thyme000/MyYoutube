@@ -1,4 +1,5 @@
 import json
+import os
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -6,6 +7,15 @@ from unittest.mock import patch
 from model_runtime.discovery import Registration
 
 import app
+from model_runtime.pool import BoundedPool
+
+
+def health_pool(worker, admitted=0):
+    pool = BoundedPool("health-test", lambda: worker, 1, 4, 60)
+    pool.workers = [worker]
+    pool.accepting = True
+    pool.admitted = admitted
+    return pool
 
 
 class HealthTests(unittest.IsolatedAsyncioTestCase):
@@ -15,9 +25,11 @@ class HealthTests(unittest.IsolatedAsyncioTestCase):
         app.app.state.discovery.set_registered(True)
 
     async def test_restarting_or_dead_worker_is_not_ready(self):
-        worker = SimpleNamespace(ready=True, process=SimpleNamespace(is_alive=lambda: True))
-        app.app.state.pool = SimpleNamespace(accepting=True, workers=[worker], admitted=0)
-        self.assertEqual((await app.health()).status_code, 200)
+        worker = type("Worker", (), {"ready": True, "process": SimpleNamespace(is_alive=lambda: True)})()
+        app.app.state.pool = health_pool(worker, 0)
+        initial = await app.health()
+        self.assertEqual(initial.status_code, 200)
+        self.assertEqual(json.loads(initial.body)["pid"], os.getpid())
         worker.ready = False
         response = await app.health()
         self.assertEqual(response.status_code, 503)
@@ -27,8 +39,8 @@ class HealthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await app.health()).status_code, 503)
 
     async def test_discovery_failure_and_recovery_change_readiness(self):
-        worker = SimpleNamespace(ready=True, process=SimpleNamespace(is_alive=lambda: True))
-        app.app.state.pool = SimpleNamespace(accepting=True, workers=[worker], admitted=0)
+        worker = type("Worker", (), {"ready": True, "process": SimpleNamespace(is_alive=lambda: True)})()
+        app.app.state.pool = health_pool(worker, 0)
         app.app.state.discovery.set_registered(False)
         response = await app.health()
         self.assertEqual(response.status_code, 503)

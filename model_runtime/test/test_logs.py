@@ -15,9 +15,9 @@ class LogTests(unittest.TestCase):
         handler = PipeLogHandler(connection)
         handler.handle(logging.LogRecord("worker", logging.ERROR, "", 1,
                                          "download failed %s", ("https://storage/key?X-Amz-Signature=secret",), None))
-        self.assertEqual(sent[0][0], logging.ERROR)
-        self.assertIn("[redacted-url]", sent[0][1])
-        self.assertNotIn("secret", sent[0][1])
+        self.assertEqual(sent[0]["levelno"], logging.ERROR)
+        self.assertIn("[redacted-url]", sent[0]["msg"])
+        self.assertNotIn("secret", sent[0]["msg"])
 
     def test_rotation_and_console_share_redacted_formatter(self):
         root = logging.getLogger()

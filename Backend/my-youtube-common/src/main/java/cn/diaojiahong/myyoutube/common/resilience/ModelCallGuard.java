@@ -54,21 +54,21 @@ public class ModelCallGuard {
             return operation.get();
         } catch (BlockException e) {
             if (metrics != null) metrics.counter("model.calls.blocked", "resource", resource).increment();
-            throw new IllegalStateException("Model circuit open: " + resource, e);
+            String code = e instanceof DegradeException ? "MODEL_CIRCUIT_OPEN" : "MODEL_ADMISSION_BLOCKED";
+            log.warn("Model call rejected resource={} reason={}", resource, code);
+            throw new ModelUnavailable(resource, code, 30, e);
         } catch (RuntimeException e) {
             // Overload rejection is capacity feedback, not a model execution failure.
-            boolean overloaded = status(e) == 503;
+            boolean overloaded = e instanceof ModelUnavailable unavailable && ModelUnavailable.DEFER_CODES.contains(unavailable.code());
             if (!overloaded && entry != null) Tracer.traceEntry(e, entry);
             if (metrics != null) metrics.counter("model.calls.failures", "resource", resource, "kind", overloaded ? "overload" : "execution").increment();
-            throw e;
+            if (e instanceof ModelUnavailable unavailable) throw unavailable.forResource(resource);
+            if (e instanceof ModelCallFailure) throw e;
+            throw new ModelCallFailure(resource,e);
         } finally {
             if (entry != null) entry.exit();
             if (metrics != null) metrics.timer("model.calls.duration", "resource", resource).record(System.nanoTime()-start, java.util.concurrent.TimeUnit.NANOSECONDS);
         }
-    }
-    private int status(Throwable error) {
-        try { return ((Number) error.getClass().getMethod("status").invoke(error)).intValue(); }
-        catch (ReflectiveOperationException ignored) { return -1; }
     }
     @PreDestroy public void close() throws Exception { if (source != null) source.close(); }
 }

@@ -5,9 +5,21 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from model_runtime.discovery import Registration, registration, REGISTERED
+from model_runtime.settings import DiscoverySettings
 
 
 class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_snapshot_and_port_ignore_later_environment_changes(self):
+        client, _ = self.client(18088)
+        settings = DiscoverySettings(namespace="service-space", group="service-group")
+        with patch.dict("os.environ", {"SERVER_PORT": "8086", "NACOS_NAMESPACE": "parent-space"}, clear=True), \
+             patch("v2.nacos.NacosNamingService", return_value=client) as constructor:
+            async with registration("ocr-svc", 18088, fixed_port=True, settings=settings):
+                self.assertEqual(constructor.call_args.args[0].namespace_id, "service-space")
+                param = client.register_instance.call_args.args[0]
+                self.assertEqual(param.port, 18088)
+                self.assertEqual(param.group_name, "service-group")
+
     def client(self, port=8089):
         host = SimpleNamespace(ip="127.0.0.1", port=port, clusterName="DEFAULT",
                                healthy=True, enabled=True, weight=1)
@@ -159,6 +171,32 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 pass
         client.grpc_client_proxy.close_client.assert_awaited_once()
         self.assertTrue(client.grpc_client_proxy.redo_service._listen_task.done())
+
+    async def test_cleanup_errors_do_not_stop_reconnection(self):
+        old, _ = self.client()
+        recovered, _ = self.client()
+        old.grpc_client_proxy.query_instance_of_service.side_effect = ConnectionError("disconnected")
+        old.grpc_client_proxy.close_client.side_effect = AttributeError("SDK changed")
+        old.service_info_updater.stop.side_effect = RuntimeError("stop failed")
+        env = {"NACOS_CHECK_INTERVAL": "0.01"}
+        with patch.dict("os.environ", env, clear=True), \
+             patch("v2.nacos.NacosNamingService", side_effect=[old, recovered]), \
+             patch.object(Registration, "_retry_delay", return_value=0.01):
+            async with registration("asr-svc", 8089) as state:
+                await self.until(lambda: state.client is recovered and state.ready)
+                self.assertFalse(state.task.done())
+        self.assertTrue(old.grpc_client_proxy.redo_service._listen_task.done())
+
+    async def test_missing_sdk_redo_attribute_still_closes_transport(self):
+        client, _ = self.client()
+        client.grpc_client_proxy.redo_service._listen_task.cancel()
+        await asyncio.gather(client.grpc_client_proxy.redo_service._listen_task, return_exceptions=True)
+        del client.grpc_client_proxy.redo_service
+        with patch.dict("os.environ", {}, clear=True), \
+             patch("v2.nacos.NacosNamingService", return_value=client):
+            async with registration("asr-svc", 8089):
+                pass
+        client.grpc_client_proxy.close_client.assert_awaited_once()
 
     async def test_backoff_is_capped_and_invalid_settings_fail(self):
         with patch.dict("os.environ", {}, clear=True):

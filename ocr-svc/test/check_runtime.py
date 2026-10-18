@@ -1,4 +1,4 @@
-"""Run against an already started OCR instance; uses real model inference and HTTP."""
+"""对已启动的 OCR 实例执行真实模型和 HTTP 检查。"""
 import asyncio
 import io
 import os

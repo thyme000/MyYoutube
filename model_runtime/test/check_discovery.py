@@ -1,4 +1,4 @@
-"""Check real registration, two-instance discovery, and clean deregistration."""
+"""检查真实注册、双实例发现与注销。"""
 import asyncio
 import os
 import uuid

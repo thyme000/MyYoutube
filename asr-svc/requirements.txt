@@ -1,7 +1,5 @@
+-r ../model_runtime/requirements.txt
 fastapi==0.143.0
 uvicorn[standard]==0.54.0
 httpx==0.28.1
 pywhispercpp==1.5.1
-
-prometheus-client>=0.21,<1
-nacos-sdk-python==2.0.11
