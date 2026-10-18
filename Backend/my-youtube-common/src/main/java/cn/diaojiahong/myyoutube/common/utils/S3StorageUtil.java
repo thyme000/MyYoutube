@@ -326,9 +326,10 @@ public class S3StorageUtil {
             s3Client.putObject(
                     PutObjectRequest.builder().bucket(properties.getBucketName()).key(objectKey).build(),
                     RequestBody.fromBytes(bytes));
-            log.info("文件上传到 objectKey: {}", objectKey);
+            // 逐对象写入, 调用方(帧/小图/产物)已有批次级汇总, 这里只留排查细节
+            log.debug("对象写入完成 objectKey={} bytes={}", objectKey, bytes == null ? 0 : bytes.length);
         } catch (S3Exception e) {
-            log.warn("S3 上传失败 objectKey={} code={}", objectKey, e.statusCode());
+            log.warn("S3 上传失败 objectKey={} bytes={} code={}", objectKey, bytes == null ? 0 : bytes.length, e.statusCode());
             throw new BizException(BizException.STORAGE_ERROR, "对象存储上传失败: " + e.getMessage());
         }
     }

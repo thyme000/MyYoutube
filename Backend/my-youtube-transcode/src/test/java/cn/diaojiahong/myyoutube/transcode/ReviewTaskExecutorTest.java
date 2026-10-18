@@ -49,8 +49,9 @@ class ReviewTaskExecutorTest {
                 .thenReturn(new ContentArtifacts.Summary("摘要", List.of()));
 
         return MediaTaskMessage.builder().pipelineId(100L).attempt(1)
-                .input(new Input(100L, 1L, 9L, "标题", "简介", "", null, new cn.diaojiahong.myyoutube.common.media.ContentMedia("video", new cn.diaojiahong.myyoutube.common.media.VideoMedia("processed.mp4", 1000), null), 1))
-                .dependencies(Map.of("ASR", "{\"segmentsKey\":\"asr\"}", "OCR", "{\"artifactKey\":\"ocr\"}",
+                .input(new Input(100L, 1L, 9L, "标题", "简介", "", null, new cn.diaojiahong.myyoutube.common.media.ContentMedia("video", new cn.diaojiahong.myyoutube.common.media.VideoMedia("processed.mp4", 40000), null), 1))
+                .dependencies(Map.of("ASR", "{\"segmentsKey\":\"asr\"}", "OCR", cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(Map.of("artifactKey", "ocr", "videoFrameCount", 8,
+                        "videoSampling", cn.diaojiahong.myyoutube.common.media.VideoFrameSampling.plan(8, 80))),
                         "SUMMARY", "{\"artifactKey\":\"summary\"}")).build();
     }
 
@@ -206,5 +207,83 @@ class ReviewTaskExecutorTest {
 
         assertThrows(IllegalArgumentException.class, () -> executor.execute(message));
         verifyNoInteractions(storage);
+    }
+    @ParameterizedTest
+    @ValueSource(ints = {1, 6, 24, 64})
+    void preparedReviewCoversEveryAdaptiveFrameIncludingFinalPartialBatch(int count) {
+        var message = input(true, 7, count);
+        String prefix = "media-prepared/9/101/";
+        var items = new java.util.ArrayList<cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item>();
+        items.add(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item("VIDEO", 0, prefix + "video", prefix + "video", 0, 0, 0));
+        for (int i = 0; i < count; i++) items.add(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item(
+                "FRAME", i, prefix + "video", prefix + "frame-" + i, i * 100L, 80, 60));
+        var manifest = new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Manifest(
+                101L, 1L, 0, 9L, "a".repeat(64), items, count * 5000L, false, count, cn.diaojiahong.myyoutube.common.media.VideoFrameSampling.plan(count, 80));
+        var media = new cn.diaojiahong.myyoutube.common.media.ContentMedia("video",
+                new cn.diaojiahong.myyoutube.common.media.VideoMedia(prefix + "video", manifest.durationMs()), null, manifest);
+        message.setInput(new Input(100L, 1L, 9L, "标题", "简介", "", null, media, 1));
+        when(artifacts.read("ocr", ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(
+                IntStream.range(0, count).mapToObj(i -> new ContentArtifacts.Frame(i, i * 100L,
+                        prefix + "frame-" + i, "文字", prefix + "frame-" + i)).toList()));
+        when(llm.chat(any())).thenReturn(response("PASS", 0.1, 0.99));
+        when(storage.signGetUrl(anyString(), eq(600L))).thenAnswer(call -> "signed:" + call.getArgument(0));
+        assertTrue(ReviewVerdict.parse(executor.execute(message), "test").passes(0.2, 0.9));
+        var requests = ArgumentCaptor.forClass(LlmPort.ChatRequest.class);
+        verify(llm, times(1 + (count + 6) / 7)).chat(requests.capture());
+        var batches = requests.getAllValues().stream().skip(1).map(r -> r.getMessages().get(1).getParts().stream()
+                .filter(p -> "image_url".equals(p.getType())).map(p -> p.getImageUrl().getUrl()).toList()).toList();
+        assertTrue(batches.stream().allMatch(b -> !b.isEmpty() && b.size() <= 7));
+        assertEquals(IntStream.range(0, count).mapToObj(i -> "signed:" + prefix + "frame-" + i).toList(),
+                batches.stream().flatMap(List::stream).toList());
+    }
+
+    private MediaTaskMessage toleratedPreparedInput(boolean missingOcrFrame) {
+        var message = input(true, 3, 8);
+        String prefix = "media-prepared/9/101/";
+        var indices = List.of(0, 1, 3, 4, 5, 6, 8, 9);
+        var items = new java.util.ArrayList<cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item>();
+        items.add(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item("VIDEO", 0, prefix + "video", prefix + "video", 0, 0, 0));
+        for (int i : indices) items.add(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item(
+                "FRAME", i, prefix + "video", prefix + "frame-" + i, i * 5000L, 80, 60));
+        var manifest = new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Manifest(101L, 1L, 0, 9L, "a".repeat(64),
+                items, 50000, false, 8, cn.diaojiahong.myyoutube.common.media.VideoFrameSampling.plan(10, 80));
+        var media = new cn.diaojiahong.myyoutube.common.media.ContentMedia("video",
+                new cn.diaojiahong.myyoutube.common.media.VideoMedia(prefix + "video", 50000), null, manifest);
+        message.setInput(new Input(100L, 1L, 9L, "标题", "简介", "", null, media, 1));
+        var frames = indices.stream().map(i -> new ContentArtifacts.Frame(i, i * 5000L, prefix + "frame-" + i, "文字", prefix + "frame-" + i)).toList();
+        when(artifacts.read("ocr", ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(missingOcrFrame ? frames.subList(0, 7) : frames));
+        when(llm.chat(any())).thenReturn(response("PASS", 0.1, 0.99));
+        when(storage.signGetUrl(anyString(), eq(600L))).thenAnswer(call -> "signed:" + call.getArgument(0));
+        return message;
+    }
+
+    @Test void toleratedPreparedReviewCoversAllEightSparseSlots() {
+        var verdict = ReviewVerdict.parse(executor.execute(toleratedPreparedInput(false)), "test");
+        assertTrue(verdict.passes(.2, .9));
+        var urls = ArgumentCaptor.forClass(String.class);
+        verify(storage, times(8)).signGetUrl(urls.capture(), eq(600L));
+        assertEquals(List.of(0, 1, 3, 4, 5, 6, 8, 9).stream().map(i -> "media-prepared/9/101/frame-" + i).toList(), urls.getAllValues());
+        verify(llm, times(4)).chat(any());
+    }
+
+    @Test void toleratedPreparedReviewStillRejectsOneMissingFrozenResult() {
+        assertThrows(IllegalArgumentException.class, () -> executor.execute(toleratedPreparedInput(true)));
+        verifyNoInteractions(storage);
+    }
+
+    @Test void directVideoReviewUsesFrozenOcrCountInsteadOfCurrentTarget() {
+        var message = input(true, 3, 8);
+        var indices = List.of(0, 1, 3, 4, 5, 6, 8, 9);
+        when(artifacts.read("ocr", ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(
+                indices.stream().map(i -> new ContentArtifacts.Frame(i, i * 100L, "frame-" + i, "文字")).toList()));
+        message.setDependencies(Map.of("ASR", "{\"segmentsKey\":\"asr\"}", "SUMMARY", "{\"artifactKey\":\"summary\"}",
+                "OCR", cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(Map.of("artifactKey", "ocr", "videoFrameCount", 8,
+                        "videoSampling", cn.diaojiahong.myyoutube.common.media.VideoFrameSampling.plan(10, 80)))));
+        when(llm.chat(any())).thenReturn(response("PASS", .1, .99));
+        assertTrue(ReviewVerdict.parse(executor.execute(message), "test").passes(.2, .9));
+        verify(storage, times(8)).signGetUrl(anyString(), eq(600L));
+        when(artifacts.read("ocr", ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(
+                indices.subList(0, 7).stream().map(i -> new ContentArtifacts.Frame(i, i * 100L, "frame-" + i, "文字")).toList()));
+        assertThrows(IllegalArgumentException.class, () -> executor.execute(message));
     }
 }

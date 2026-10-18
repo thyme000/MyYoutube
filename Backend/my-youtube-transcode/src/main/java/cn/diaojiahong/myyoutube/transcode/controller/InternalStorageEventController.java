@@ -42,7 +42,8 @@ public class InternalStorageEventController {
         }
         JsonNode records = body.path("Records");
         if (!records.isArray()) {
-            log.warn("storage-event 缺少 Records 数组: {}", body);
+            // 事件体可能含桶名/对象键等, 只记字段数, 不落原文
+            log.warn("storage-event 缺少 Records 数组, 事件已忽略 bodyFields={}", body.isObject() ? body.size() : 0);
             return;
         }
         for (JsonNode record : records) {

@@ -69,10 +69,10 @@ class LiveMediaPreparationTest {
         var config = new S3Properties(); config.setBucketName(bucket); config.setEndpoint(endpoint.toString());
         storage = new PreparationStorage(s3, config);
         var properties = new MediaPreparationProperties();
-        registry = new PreparationRegistry(preparations, items, taskRows, tasks, transaction, properties);
+        registry = new PreparationRegistry(preparations, items, taskRows, tasks, transaction, properties, new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         var writer = new PreparedImageWriter(properties);
         urls = new S3StorageUtil(config, s3, signer);
-        executor = new PrepareTaskExecutor(registry, storage, writer, new PreparedVideoReader(properties, writer), properties, urls);
+        executor = new PrepareTaskExecutor(registry, storage, writer, new PreparedVideoReader(properties, writer, new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings()), properties, urls, new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
     @AfterEach void close() {
         try {
@@ -131,7 +131,7 @@ class LiveMediaPreparationTest {
         assertThrows(IllegalArgumentException.class, () -> storage.download(storage.inspect("upload/image"), bounded, 1));
         assertFalse(Files.exists(bounded));
     }
-    @Test void realVideoPreparesEightSharedFramesWithoutReencoding() throws Exception {
+    @Test void realVideoPreparesDurationBasedSharedFramesWithoutReencoding() throws Exception {
         var video = work.resolve("sample.mp4"); var log = work.resolve("ffmpeg.log");
         var process = new ProcessBuilder("ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240:r=10",
                 "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", video.toString()).redirectErrorStream(true).redirectOutput(log.toFile()).start();
@@ -139,9 +139,10 @@ class LiveMediaPreparationTest {
         finally { if (process.isAlive()) process.destroyForcibly(); }
         byte[] bytes = Files.readAllBytes(video); put("upload/video", bytes);
         var manifest = prepare(new Request(101L, 1L, 0, 9L, new ContentMedia("video", new VideoMedia("upload/video", 0), null), null));
-        assertEquals(9, manifest.items().size()); assertFalse(manifest.hasAudio());
+        assertEquals(2, manifest.items().size()); assertFalse(manifest.hasAudio());
         assertArrayEquals(bytes, s3.getObjectAsBytes(b -> b.bucket(bucket).key(manifest.items().get(0).objectKey())).asByteArray());
-        assertEquals(8, manifest.items().stream().filter(i -> "FRAME".equals(i.role())).count());
+        assertEquals(1, manifest.videoFrameCount());
+        assertEquals(1, manifest.items().stream().filter(i -> "FRAME".equals(i.role())).count());
         for (var item : manifest.items()) assertNotNull(storage.inspect(item.objectKey()));
     }
     @Test void sharedObjectsAreDeletedOnlyAfterTheLastRealReferenceIsReleased() throws Exception {
@@ -159,7 +160,7 @@ class LiveMediaPreparationTest {
         var session = factory.getObject(); session.getConfiguration().addMapper(PipelineMapper.class);
         var pipelines = new org.mybatis.spring.SqlSessionTemplate(session).getMapper(PipelineMapper.class);
         var cleaner = new PreparationReclaimer(preparations, items, taskRows, pipelines,
-                new PreparationLifecycle(preparations), video, storage, transaction);
+                new PreparationLifecycle(preparations), video, storage, transaction, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         cleaner.reclaim();
         var jdbc = new JdbcTemplate(dataSource); var now = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC);
         jdbc.update("UPDATE media_preparation SET reclaim_after=?,retired_at=?", now.minusSeconds(1), now.minusDays(2));

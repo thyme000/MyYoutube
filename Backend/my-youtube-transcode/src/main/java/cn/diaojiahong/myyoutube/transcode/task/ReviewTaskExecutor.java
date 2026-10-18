@@ -10,11 +10,13 @@ import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
 import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
 import com.google.gson.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import java.util.*;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class ReviewTaskExecutor implements MediaTaskExecutor {
 
     private static final String VISION_DISABLED_REASON = "画面审核未开启，仅审核文本证据";
@@ -32,8 +34,13 @@ public class ReviewTaskExecutor implements MediaTaskExecutor {
 
     @Override
     public String execute(MediaTaskMessage message) {
+        long startedAt = System.currentTimeMillis();
         var policy = video.reviewSpec(message.getPipelineId(), message.getAttempt());
-        if (!policy.enabled()) return "{\"cancelled\":true}";
+        if (!policy.enabled()) {
+            log.info("Review skipped pipelineId={} taskId={} attempt={} reason=POLICY_DISABLED",
+                    message.getPipelineId(), message.getTaskId(), message.getAttempt());
+            return "{\"cancelled\":true}";
+        }
 
         var asrPointer = StructuredJson.object(message.getDependencies().get("ASR"));
         var ocrPointer = StructuredJson.object(message.getDependencies().get("OCR"));
@@ -53,8 +60,10 @@ public class ReviewTaskExecutor implements MediaTaskExecutor {
         }
 
         if (policy.visionEnabled()) {
-            reviewFrames(policy, input, ocr, summary, verdicts, batches);
+            reviewFrames(policy, input, ocr, ocrPointer, summary, verdicts, batches);
         } else {
+            // 只审文本证据是既定降级路径, 批次里已留痕, 普通日志只记一次原因
+            log.debug("Review frames skipped pipelineId={} reason=VISION_DISABLED", message.getPipelineId());
             var skipped = new JsonObject();
             skipped.addProperty("source", "FRAMES");
             skipped.addProperty("skipped", true);
@@ -62,14 +71,30 @@ public class ReviewTaskExecutor implements MediaTaskExecutor {
             batches.add(skipped);
         }
 
-        return aggregate(policy, verdicts, batches);
+        String payload = aggregate(policy, verdicts, batches);
+        var verdict = StructuredJson.object(payload);
+        log.info("Review completed pipelineId={} taskId={} attempt={} decision={} risk={} confidence={} batches={} visionEnabled={} model={} elapsedMs={}",
+                message.getPipelineId(), message.getTaskId(), message.getAttempt(), verdict.get("decision").getAsString(),
+                verdict.get("riskScore").getAsDouble(), verdict.get("confidence").getAsDouble(), batches.size(),
+                policy.visionEnabled(), verdict.get("model").getAsString(), System.currentTimeMillis() - startedAt);
+        return payload;
     }
 
-    private void reviewFrames(PipelineContracts.ReviewSpec policy, PipelineContracts.Input input, ContentArtifacts.Ocr ocr,
+    private void reviewFrames(PipelineContracts.ReviewSpec policy, PipelineContracts.Input input, ContentArtifacts.Ocr ocr, JsonObject ocrPointer,
                               ContentArtifacts.Summary summary, List<ReviewVerdict> verdicts, JsonArray batches) {
-        if (input.media().preparation() != null) PreparedMedia.validateOcr(input.media(), ocr);
-        int expected = input.media().dynamic() == null ? 8 : input.media().dynamic().items().size();
+        if (input.media().preparation() != null) {
+            PreparedMedia.validate(input.media(), input.coverObjectKey());
+            PreparedMedia.validateOcr(input.media(), ocr);
+        }
+        int expected = input.media().dynamic() != null ? input.media().dynamic().items().size()
+                : input.media().preparation() != null ? input.media().preparation().videoFrameCount()
+                : ocrPointer.get("videoFrameCount").getAsInt();
         if (ocr.frames().size() != expected) throw new IllegalArgumentException("Missing review frames");
+        if (input.media().video() != null && input.media().preparation() == null) {
+            var plan = JsonUtil.GSON.fromJson(ocrPointer.get("videoSampling"), VideoFrameSampling.Plan.class);
+            java.util.Objects.requireNonNull(plan, "Missing OCR video sampling plan").validate(
+                    ocr.frames().stream().map(ContentArtifacts.Frame::imageIndex).toList());
+        }
         if (input.media().dynamic() != null) {
             for (int i = 0; i < expected; i++) {
                 var image = input.media().dynamic().items().get(i);

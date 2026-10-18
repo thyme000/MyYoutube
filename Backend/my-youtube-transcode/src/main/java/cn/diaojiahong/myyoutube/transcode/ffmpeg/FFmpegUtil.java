@@ -100,7 +100,7 @@ public final class FFmpegUtil {
                     width = Integer.parseInt(parts[0].trim());
                     height = Integer.parseInt(parts[1].trim());
                 } catch (NumberFormatException e) {
-                    log.warn("ffprobe 尺寸输出不可解析: {}", result.output);
+                    log.warn("ffprobe 尺寸输出不可解析: {}", tail(result.output));
                 }
             }
         }
@@ -146,16 +146,14 @@ public final class FFmpegUtil {
         List<FrameScore> scored = new ArrayList<>();
         for (int i = 0; i < sampleSeconds.size(); i++) {
             Path framePath = outputDir.resolve(candidateName(i));
-            if (!isReadableFile(framePath)) {
-                // 单点重试: 多路调用里个别 seek 失败不该连坐其它路
-                extractFrameAt(source, sampleSeconds.get(i), framePath, options.candidateMaxLongEdge, options);
+            FrameScore frame = isReadableFile(framePath) ? scoreFrame(framePath, sampleSeconds.get(i)) : null;
+            if (frame == null) {
+                try { Files.deleteIfExists(framePath); }
+                catch (IOException e) { throw new IllegalStateException("清理失败采样帧失败", e); }
+                if (extractFrameAt(source, sampleSeconds.get(i), framePath, options.candidateMaxLongEdge, options))
+                    frame = scoreFrame(framePath, sampleSeconds.get(i));
             }
-            if (isReadableFile(framePath)) {
-                FrameScore fs = scoreFrame(framePath, sampleSeconds.get(i));
-                if (fs != null) {
-                    scored.add(fs);
-                }
-            }
+            if (frame != null) scored.add(frame);
         }
         return scored;
     }
@@ -185,6 +183,7 @@ public final class FFmpegUtil {
         cmd.add(String.valueOf(options.jpegQuality));
         cmd.add(frameOut.toString());
         CommandResult result = runCommand(cmd, options.commandTimeout);
+        requireExtractionAvailable(result);
         if (result.exitCode != 0) {
             log.warn("抽帧失败 t={}s: {}", sec, tail(result.output));
             return false;
@@ -237,6 +236,7 @@ public final class FFmpegUtil {
             cmd.add(outputDir.resolve(candidateName(i)).toString());
         }
         CommandResult result = runCommand(cmd, options.commandTimeout);
+        requireExtractionAvailable(result);
         if (result.exitCode != 0) {
             log.warn("多路抽帧整体非零退出, 以落盘文件为准盘点: {}", tail(result.output));
         }
@@ -244,6 +244,25 @@ public final class FFmpegUtil {
 
     private static String candidateName(int index) {
         return "cover-candidate-" + index + ".jpg";
+    }
+
+    public static int candidateIndex(FrameScore frame) {
+        var name = frame.framePath().getFileName().toString();
+        if (!name.matches("cover-candidate-[0-9]+\\.jpg")) throw new IllegalArgumentException("Invalid sampled frame path");
+        return Integer.parseInt(name.substring("cover-candidate-".length(), name.length() - 4));
+    }
+
+    public static boolean extractionUnavailable(CommandOutput result) {
+        String output = result.output().toLowerCase(Locale.ROOT);
+        return result.exitCode() < 0 || result.exitCode() != 0 && List.of("error opening input", "error opening output",
+                "no such file or directory", "permission denied", "input/output error", "server returned",
+                "connection refused", "connection timed out", "network is unreachable", "invalid data found when processing input")
+                .stream().anyMatch(output::contains);
+    }
+
+    private static void requireExtractionAvailable(CommandResult result) {
+        if (extractionUnavailable(new CommandOutput(result.exitCode(), result.output())))
+            throw new IllegalStateException("视频抽帧进程或源输入不可用: exitCode=" + result.exitCode());
     }
 
     private static boolean isReadableFile(Path path) {
@@ -255,7 +274,8 @@ public final class FFmpegUtil {
     }
 
     private static List<Double> buildSampleSeconds(double durationSec, int sampleCount, double startRatio, double endRatio) {
-        int count = Math.max(2, sampleCount);
+        int count = Math.max(1, sampleCount);
+        if (count == 1) return List.of(durationSec * (startRatio + endRatio) / 2);
         List<Double> seconds = new ArrayList<>(count);
         double start = durationSec * startRatio;
         double end = durationSec * endRatio;
@@ -289,7 +309,7 @@ public final class FFmpegUtil {
         try {
             return Double.parseDouble(text);
         } catch (NumberFormatException e) {
-            log.warn("ffprobe 输出不可解析为时长: {}", text);
+            log.warn("ffprobe 输出不可解析为时长: {}", tail(text));
             return null;
         }
     }

@@ -20,7 +20,7 @@ class MediaDraftCleanerTest {
     final S3StorageUtil storage = mock(S3StorageUtil.class);
     final RocketMQTemplate mq = mock(RocketMQTemplate.class);
     final MediaTaskPort tasks = mock(MediaTaskPort.class);
-    final MediaDraftCleaner cleaner = new MediaDraftCleaner(rows, drafts, storage, mq, tasks);
+    final MediaDraftCleaner cleaner = new MediaDraftCleaner(rows, drafts, storage, mq, tasks, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
     MediaDraft uploading() {
         return new MediaDraft().setId(1L).setUserId(9L).setPreparationId(101L).setObjectKey("uploads/video/9/a.mp4")

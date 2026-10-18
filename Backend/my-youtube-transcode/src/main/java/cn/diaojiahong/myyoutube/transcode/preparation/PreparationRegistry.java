@@ -25,6 +25,7 @@ public class PreparationRegistry {
     private final MediaTaskService tasks;
     private final TransactionTemplate transaction;
     private final MediaPreparationProperties properties;
+    private final FrameProcessingSettings frameSettings;
 
     public void start(Request request) {
         validate(request);
@@ -60,9 +61,14 @@ public class PreparationRegistry {
     }
 
     public String parameterVersion() {
+        return parameterVersion(frameSettings.snapshot());
+    }
+
+    public String parameterVersion(FrameProcessingSettings.Snapshot settings) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(("media-preparation-v1:" + JsonUtil.toJson(List.of(properties.getVideoBrands().stream().sorted().toList(),
+                    .digest(("media-preparation-v4:" + JsonUtil.toJson(List.of(settings.intervalSeconds(), settings.maxFrames(), settings.minSuccessPercent(),
+                            properties.getVideoBrands().stream().sorted().toList(),
                             properties.getVideoProfiles().stream().sorted().toList(), properties.getVideoMaxLevel(),
                             properties.getLongEdge(), properties.getOutputPixels(), properties.getJpegQuality(),
                             properties.getSourceBytes(), properties.getVideoSourceBytes(), properties.getSourcePixels(),

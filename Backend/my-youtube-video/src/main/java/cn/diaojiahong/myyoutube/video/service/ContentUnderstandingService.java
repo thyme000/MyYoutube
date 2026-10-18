@@ -42,16 +42,21 @@ public class ContentUnderstandingService {
     private final RocketMQTemplate mq;
     private final TransactionTemplate transaction;
     private final MeterRegistry metrics;
+    private final ContentObservation observation;
 
     public Long enroll(cn.diaojiahong.myyoutube.content.domain.po.Content content, ContentMedia media) {
         long id = IdWorker.getId(), submitted = System.currentTimeMillis();
         var input = new Input(id, content.getId(), content.getAuthorId(), content.getTitle(),
                 content.getDescription(), content.getTags(), content.getCoverObjectKey(), media, submitted);
         MediaInputs.validate(media, content.getCoverObjectKey());
-        understanding.insert(new ContentUnderstanding().setContentId(content.getId()).setPipelineId(id)
+        var row = new ContentUnderstanding().setContentId(content.getId()).setPipelineId(id)
                 .setState(ContentReviewState.WAITING_PIPELINE).setInputJson(JsonUtil.toJson(input))
                 .setSubmissionAck(false).setReceived(false).setRetryRequested(false).setReviewAttempt(0)
-                .setSubmittedAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(submitted), ZoneOffset.UTC)));
+                .setSubmittedAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(submitted), ZoneOffset.UTC));
+        understanding.insert(row);
+        observation.record(row, "CONTENT_SUBMITTED", null, "WAITING_PIPELINE");
+        afterCommit(() -> log.info("Content submitted for understanding contentId={} pipelineId={} authorId={} media={}",
+                content.getId(), id, content.getAuthorId(), media.type()));
         afterCommit(() -> submit(input));
         return id;
     }
@@ -67,6 +72,8 @@ public class ContentUnderstandingService {
         var current = understanding.selectById(manifest.contentId());
         if (current == null || !Objects.equals(current.getPipelineId(), manifest.pipelineId())) throw new IllegalArgumentException("Unknown Pipeline");
         if (Boolean.TRUE.equals(current.getReceived()) || current.getState() == ContentReviewState.CANCELLED) {
+            log.debug("Pipeline manifest ignored contentId={} pipelineId={} reason={}", manifest.contentId(), manifest.pipelineId(),
+                    Boolean.TRUE.equals(current.getReceived()) ? "ALREADY_RECEIVED" : "CANCELLED");
             tasks.received(manifest.pipelineId()); return;
         }
         if (!"COMPLETED".equals(manifest.status()) || !manifest.results().keySet().equals(Set.of("COVER", "ASR", "OCR", "SUMMARY", "TAG")))
@@ -91,10 +98,15 @@ public class ContentUnderstandingService {
             throw new IllegalArgumentException("视频封面不属于公共准备帧");
         Long receivedAt = transaction.execute(tx -> {
             var row = locked(manifest.contentId());
-            if (!Objects.equals(row.getPipelineId(), manifest.pipelineId()) || Boolean.TRUE.equals(row.getReceived())) return null;
+            if (!Objects.equals(row.getPipelineId(), manifest.pipelineId()) || Boolean.TRUE.equals(row.getReceived())
+                    || row.getState() == ContentReviewState.CANCELLED) return null;
             var video = contents.selectById(manifest.contentId());
             if (video == null || Integer.valueOf(1).equals(video.getIsDelete())) {
-                understanding.update(null, patch(row).set(ContentUnderstanding::getState, "CANCELLED")); return null;
+                understanding.update(null, patch(row).set(ContentUnderstanding::getState, "CANCELLED"));
+                observation.record(row, "CONTENT_CANCELLED", row.getState().name(), "CANCELLED");
+                log.info("Pipeline artifacts discarded contentId={} pipelineId={} reason=CONTENT_DELETED",
+                        manifest.contentId(), manifest.pipelineId());
+                return null;
             }
             var mapped = tagMapper.map(rawTags);
             contentTags.saveAutoTags(video.getId(), mapped.weights());
@@ -109,18 +121,35 @@ public class ContentUnderstandingService {
                     .set(ContentUnderstanding::getReceived, true).set(ContentUnderstanding::getRetryRequested, false)
                     .set(ContentUnderstanding::getReceivedAt, LocalDateTime.ofInstant(Instant.ofEpochMilli(readyAt), ZoneOffset.UTC))
                     .set(ContentUnderstanding::getState, properties.isAutoReview() ? "AUTO_PENDING" : "MANUAL_PENDING"));
+            observation.record(row, "ARTIFACTS_STORED", row.getState().name(), properties.isAutoReview() ? "AUTO_PENDING" : "MANUAL_PENDING");
             if (properties.isAutoReview()) afterCommit(() -> requestReview(manifest.pipelineId()));
             return readyAt;
         });
-        if (receivedAt != null) metrics.timer("media.pipeline.ready.duration").record(Math.max(0, receivedAt-manifest.input().submittedAt()), TimeUnit.MILLISECONDS);
+        if (receivedAt != null) {
+            long readyElapsedMs = Math.max(0, receivedAt - manifest.input().submittedAt());
+            metrics.timer("media.pipeline.ready.duration").record(readyElapsedMs, TimeUnit.MILLISECONDS);
+            log.info("Pipeline artifacts stored contentId={} pipelineId={} review={} readyElapsedMs={}",
+                    manifest.contentId(), manifest.pipelineId(), properties.isAutoReview() ? "AUTO" : "MANUAL", readyElapsedMs);
+        } else {
+            log.debug("Pipeline artifacts not stored contentId={} pipelineId={} reason=STALE_OR_CANCELLED",
+                    manifest.contentId(), manifest.pipelineId());
+        }
         tasks.received(manifest.pipelineId());
     }
     private void requestReview(Long pipelineId) { mq.syncSend(MqConstants.TOPIC_REVIEW_REQUESTED, new ReviewRequestedMessage(pipelineId)); }
     public boolean retry(Long videoId) {
         var row = understanding.selectById(videoId);
-        if (row == null || Boolean.TRUE.equals(row.getReceived()) || row.getState() != ContentReviewState.WAITING_PIPELINE) return false;
+        if (row == null || Boolean.TRUE.equals(row.getReceived()) || row.getState() != ContentReviewState.WAITING_PIPELINE) {
+            log.debug("Pipeline retry rejected contentId={} reason={}", videoId, row == null ? "NOT_REGISTERED"
+                    : Boolean.TRUE.equals(row.getReceived()) ? "ARTIFACTS_ALREADY_RECEIVED" : "STATE_" + row.getState());
+            return false;
+        }
         var pipeline = tasks.pipeline(row.getPipelineId());
-        if (pipeline == null || !"WAITING_ARTIFACTS".equals(pipeline.status())) return false;
+        if (pipeline == null || !"WAITING_ARTIFACTS".equals(pipeline.status())) {
+            log.debug("Pipeline retry rejected contentId={} pipelineId={} reason=PIPELINE_{}", videoId, row.getPipelineId(),
+                    pipeline == null ? "MISSING" : pipeline.status());
+            return false;
+        }
         transaction.executeWithoutResult(tx -> understanding.update(null, patch(row).eq(ContentUnderstanding::getReceived, false)
                 .set(ContentUnderstanding::getRetryRequested, true)));
         return retryRequested(row);
@@ -132,8 +161,7 @@ public class ContentUnderstandingService {
     }
     @Scheduled(fixedDelay = 300000, initialDelay = 300000)
     public void reconcile() {
-        if (!properties.isAutoReview()) understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>()
-                .in(ContentUnderstanding::getState, "AUTO_PENDING", "AUTO_RUNNING").set(ContentUnderstanding::getState, "MANUAL_PENDING"));
+        if (!properties.isAutoReview()) handoffReviews();
         long cursor = 0;
         while (true) {
             var rows = understanding.selectList(new LambdaQueryWrapper<ContentUnderstanding>().gt(ContentUnderstanding::getContentId, cursor)
@@ -158,6 +186,21 @@ public class ContentUnderstandingService {
         return result;
     }
     public List<MediaTaskPort.PipelineView> waiting(int page, int size) { return tasks.waiting(page, size); }
+    private void handoffReviews() {
+        long cursor = 0;
+        while (true) {
+            var page = understanding.selectList(new LambdaQueryWrapper<ContentUnderstanding>().gt(ContentUnderstanding::getContentId, cursor)
+                    .in(ContentUnderstanding::getState, "AUTO_PENDING", "AUTO_RUNNING").orderByAsc(ContentUnderstanding::getContentId).last("LIMIT 100"));
+            if (page.isEmpty()) return;
+            cursor = page.get(page.size() - 1).getContentId();
+            for (var candidate : page) transaction.executeWithoutResult(tx -> {
+                var row = locked(candidate.getContentId());
+                if (row == null || !Set.of(ContentReviewState.AUTO_PENDING, ContentReviewState.AUTO_RUNNING).contains(row.getState())) return;
+                understanding.update(null, patch(row).set(ContentUnderstanding::getState, "MANUAL_PENDING"));
+                observation.record(row, "REVIEW_MANUAL_PENDING", row.getState().name(), "MANUAL_PENDING");
+            });
+        }
+    }
     public ContentUnderstanding locked(Long id) { return understanding.selectOne(new LambdaQueryWrapper<ContentUnderstanding>().eq(ContentUnderstanding::getContentId, id).last("FOR UPDATE")); }
     public ContentUnderstanding get(Long id) { return understanding.selectById(id); }
     private LambdaUpdateWrapper<ContentUnderstanding> patch(ContentUnderstanding row) { return new LambdaUpdateWrapper<ContentUnderstanding>().eq(ContentUnderstanding::getContentId, row.getContentId()).eq(ContentUnderstanding::getPipelineId, row.getPipelineId()); }

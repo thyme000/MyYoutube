@@ -46,6 +46,9 @@ class ReviewTransactionIntegrationTest {
     @EnableTransactionManagement
     @MapperScan(basePackageClasses = {VideoMapper.class, ContentMapper.class})
     static class Config {
+        @Bean cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings frameSettings() {
+            return new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings();
+        }
         @Bean DataSource dataSource() { return ContentTestDatabase.create("reviews"); }
         @Bean SqlSessionFactory sqlSessionFactory(DataSource ds) throws Exception {
             var bean = new MybatisSqlSessionFactoryBean(); bean.setDataSource(ds); return bean.getObject();
@@ -66,16 +69,22 @@ class ReviewTransactionIntegrationTest {
         @Bean MediaTaskPort tasks() { return mock(MediaTaskPort.class); }
         @Bean ContentArtifactStore artifacts() { return mock(ContentArtifactStore.class); }
         @Bean ContentUnderstandingService understandingService(ContentUnderstandingMapper rows, ContentMapper videos,
-                ContentReviewRecordMapper records, ContentPipelineProperties properties, MediaTaskPort tasks, ContentArtifactStore artifacts, TagResultMapper tags, RocketMQTemplate mq, TransactionTemplate tx) {
+                ContentReviewRecordMapper records, ContentPipelineProperties properties, MediaTaskPort tasks, ContentArtifactStore artifacts, TagResultMapper tags, RocketMQTemplate mq, TransactionTemplate tx, cn.diaojiahong.myyoutube.video.service.ContentObservation observation) {
             return new ContentUnderstandingService(rows, videos, records, properties, tasks, artifacts,
                     tags,
                     mock(cn.diaojiahong.myyoutube.recommend.service.IContentTagService.class),
-                    mq, tx, new SimpleMeterRegistry());
+                    mq, tx, new SimpleMeterRegistry(), observation);
         }
+        @Bean cn.diaojiahong.myyoutube.common.observability.PipelineObservationProperties observations() { return new cn.diaojiahong.myyoutube.common.observability.PipelineObservationProperties(); }
+        @Bean cn.diaojiahong.myyoutube.common.observability.PipelineEvents pipelineEvents(DataSource ds, DataSourceTransactionManager manager, cn.diaojiahong.myyoutube.common.observability.PipelineObservationProperties props) {
+            return new cn.diaojiahong.myyoutube.common.observability.PipelineEvents(props,
+                    new cn.diaojiahong.myyoutube.common.observability.PipelineEventRecorder(new JdbcTemplate(ds), props, manager), "video", java.time.Clock.systemUTC());
+        }
+        @Bean cn.diaojiahong.myyoutube.video.service.ContentObservation observation(ContentUnderstandingMapper rows, cn.diaojiahong.myyoutube.common.observability.PipelineEvents events) { return new cn.diaojiahong.myyoutube.video.service.ContentObservation(rows, events); }
         @Bean PromptTemplates prompts() { return new PromptTemplates(); }
         @Bean ReviewDecisionService decisions(VideoMapper videos, ContentUnderstandingMapper understanding,
-                ContentReviewRecordMapper records, ContentPublicationEventMapper events, IContentService contents, ContentPipelineProperties properties, PublicationEffectsService effects, PromptTemplates prompts) {
-            return new ReviewDecisionService(understanding, records, events, contents, properties, effects, prompts);
+                ContentReviewRecordMapper records, ContentPublicationEventMapper events, IContentService contents, ContentPipelineProperties properties, PublicationEffectsService effects, PromptTemplates prompts, cn.diaojiahong.myyoutube.video.service.ContentObservation observation) {
+            return new ReviewDecisionService(understanding, records, events, contents, properties, effects, prompts, observation, frameSettings());
         }
     }
     @Autowired PromptTemplates prompts;
@@ -85,17 +94,20 @@ class ReviewTransactionIntegrationTest {
     @Autowired ContentArtifactStore artifacts;
     @Autowired ContentUnderstandingMapper understanding;
     @Autowired DataSource dataSource;
+    @Autowired cn.diaojiahong.myyoutube.common.observability.PipelineObservationProperties observations;
     @Autowired ContentPipelineProperties policy;
+    @Autowired cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings frameSettings;
     @Autowired TransactionTemplate tx;
     @Autowired TagResultMapper tags;
     @Autowired RocketMQTemplate mq;
     JdbcTemplate jdbc;
-    @BeforeEach void schema() {
-        reset(tasks, artifacts, tags, mq);
+    @BeforeEach void schema() throws Exception {
+        reset(tasks, artifacts, tags, mq); observations.getRecording().setEnabled(false);
         policy.setAutoReview(true);
         policy.setReviewVisionEnabled(true);
-        policy.setReviewFrameBatchSize(4);
+        frameSettings.replace("interval-seconds: 5\nmax-frames: 10\nmin-success-percent: 80\ncover-max-candidates: 8\nocr-batch-size: 2\nreview-batch-size: 4");
         jdbc = new JdbcTemplate(dataSource);
+        ContentTestDatabase.outbox(jdbc);
         for (String table : new String[]{"content_review_record", "content_publication_event", "content_understanding", "video", "content"}) jdbc.execute("DROP TABLE IF EXISTS " + table);
         jdbc.execute("CREATE TABLE video(id BIGINT PRIMARY KEY,object_key VARCHAR(512),duration_ms BIGINT)");
         jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
@@ -125,6 +137,7 @@ class ReviewTransactionIntegrationTest {
         } finally { prompts.replace(defaults); }
     }
     @Test void concurrentMachinePassCreatesOnePublicationEvent() {
+        observations.getRecording().setEnabled(true);
         state(ContentReviewState.AUTO_RUNNING);
         var a = CompletableFuture.supplyAsync(() -> decisions.machine(1L, 1, verdict("PASS")));
         var b = CompletableFuture.supplyAsync(() -> decisions.machine(1L, 1, verdict("PASS")));
@@ -133,8 +146,11 @@ class ReviewTransactionIntegrationTest {
         assertEquals("published", jdbc.queryForObject("SELECT status FROM content WHERE id=1", String.class));
         assertEquals(ContentReviewState.APPROVED, understanding.selectById(1L).getState());
         assertEquals(1, count("content_review_record")); assertEquals(1, count("content_publication_event"));
+        assertEquals(1, count("pipeline_event_outbox"));
+        assertEquals(1L, understanding.selectById(1L).getEventSequence());
     }
     @Test void manualTakeoverRetainsMachineRecordAndRejectsLateResult() {
+        observations.getRecording().setEnabled(true);
         state(ContentReviewState.AUTO_RUNNING);
         assertTrue(decisions.machine(1L, 1, verdict("UNCERTAIN")));
         assertEquals(ContentReviewState.MANUAL_PENDING, understanding.selectById(1L).getState());
@@ -143,6 +159,7 @@ class ReviewTransactionIntegrationTest {
         assertEquals("banned", jdbc.queryForObject("SELECT status FROM content WHERE id=1", String.class));
         assertEquals(2, count("content_review_record")); assertEquals(1, count("content_publication_event"));
         assertEquals(0, jdbc.queryForObject("SELECT delta FROM content_publication_event", Integer.class));
+        assertEquals(List.of(1L, 2L), jdbc.queryForList("SELECT event_sequence FROM pipeline_event_outbox ORDER BY event_sequence", Long.class));
     }
     @Test void missingContentCancelsMachinePassWithoutPublishing() {
         state(ContentReviewState.AUTO_RUNNING); jdbc.update("DELETE FROM content WHERE id=1");
@@ -159,6 +176,7 @@ class ReviewTransactionIntegrationTest {
         assertEquals(0, count("content_publication_event"));
     }
     @Test void fourFailuresTransferToManualAndOldAttemptCannotRetryIt() {
+        observations.getRecording().setEnabled(true);
         state(ContentReviewState.AUTO_PENDING);
         for (int attempt=1; attempt<=4; attempt++) {
             assertTrue(decisions.begin(100L, attempt).enabled());
@@ -169,9 +187,11 @@ class ReviewTransactionIntegrationTest {
         decisions.acceptResult(new ReviewResult(100L,1L,88L,3,null,"late failure",false));
         assertEquals(4, count("content_review_record"));
         assertEquals(0, count("content_publication_event"));
+        assertEquals(8, count("pipeline_event_outbox"));
     }
     Input input() { return new Input(100L, 1L, 9L, "标题", "简介", "", null, new cn.diaojiahong.myyoutube.common.media.ContentMedia("video", new cn.diaojiahong.myyoutube.common.media.VideoMedia("processed.mp4", 1000), null), System.currentTimeMillis()); }
     @Test void completionIsIdempotentAndAutoReviewFalseNeverCreatesReview() {
+        observations.getRecording().setEnabled(true);
         policy.setAutoReview(false);
         state(ContentReviewState.WAITING_PIPELINE);
         var row = understanding.selectById(1L);
@@ -192,6 +212,8 @@ class ReviewTransactionIntegrationTest {
         verify(tasks,times(2)).received(100L);
         verifyNoInteractions(mq);
         assertEquals(0,count("content_publication_event"));
+        assertEquals(1, count("pipeline_event_outbox"));
+        assertTrue(jdbc.queryForObject("SELECT payload FROM pipeline_event_outbox", String.class).contains("ARTIFACTS_STORED"));
     }
     @Test void nativeArtifactsUseFrozenCoverAndReachSameManualPublicationOutboxWithoutVideoRow() {
         policy.setAutoReview(false); state(ContentReviewState.WAITING_PIPELINE);
@@ -242,7 +264,7 @@ class ReviewTransactionIntegrationTest {
     @Test void textReviewCanStartWhileVisionIsDisabledAndReceivesBatchConfiguration() {
         state(ContentReviewState.AUTO_PENDING);
         policy.setReviewVisionEnabled(false);
-        policy.setReviewFrameBatchSize(3);
+        frameSettings.replace("interval-seconds: 5\nmax-frames: 10\nmin-success-percent: 80\ncover-max-candidates: 8\nocr-batch-size: 2\nreview-batch-size: 3");
 
         var spec = decisions.begin(100L, 1);
 
@@ -252,13 +274,26 @@ class ReviewTransactionIntegrationTest {
         assertEquals(ContentReviewState.AUTO_RUNNING, understanding.selectById(1L).getState());
     }
     @Test void submissionAckCommitsAfterOuterTransactionAndRollbackNeverSends() {
+        observations.getRecording().setEnabled(true);
         var video=new cn.diaojiahong.myyoutube.content.domain.po.Content().setId(1L).setAuthorId(9L).setTitle("标题");
         var media = new ContentMedia("video",new VideoMedia("processed.mp4",1000),null);
         tx.executeWithoutResult(status -> { content.enroll(video,media); status.setRollbackOnly(); });
         assertEquals(0,count("content_understanding")); verifyNoInteractions(mq);
+        assertEquals(0, count("pipeline_event_outbox"));
         tx.executeWithoutResult(status -> content.enroll(video,media));
         assertTrue(understanding.selectById(1L).getSubmissionAck());
         verify(mq,times(1)).syncSend(anyString(),any(Object.class));
+        assertEquals(1, count("pipeline_event_outbox"));
+        assertTrue(jdbc.queryForObject("SELECT payload FROM pipeline_event_outbox", String.class).contains("CONTENT_SUBMITTED"));
+    }
+    @Test void outboxFailureRollsBackPublicationReviewAndAuditTogether() {
+        observations.getRecording().setEnabled(true); state(ContentReviewState.AUTO_RUNNING);
+        jdbc.execute("DROP TABLE pipeline_event_outbox");
+        assertThrows(RuntimeException.class, () -> decisions.machine(1L, 1, verdict("PASS")));
+        assertEquals("review", jdbc.queryForObject("SELECT status FROM content WHERE id=1", String.class));
+        assertEquals(ContentReviewState.AUTO_RUNNING, understanding.selectById(1L).getState());
+        assertEquals(0, count("content_review_record")); assertEquals(0, count("content_publication_event"));
+        assertEquals(0L, understanding.selectById(1L).getEventSequence());
     }
     @Test void publicationBranchesProgressDespiteCountFailureAndNoticeIsExactlyOnce() {
         jdbc.execute("CREATE TABLE IF NOT EXISTS test_notice(id BIGINT AUTO_INCREMENT PRIMARY KEY)");

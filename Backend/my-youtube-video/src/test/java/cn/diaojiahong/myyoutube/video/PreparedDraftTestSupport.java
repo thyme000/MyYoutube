@@ -32,7 +32,8 @@ final class PreparedDraftTestSupport {
             if (media.audio() != null) items.add(new Item("AUDIO", 0, prefix + "audio", prefix + "audio", 0, 0, 0));
         }
         return new Manifest(request.preparationId(), request.draftId(), request.mediaVersion(), request.userId(), "a".repeat(64), items,
-                request.media().video() != null ? 1501 : request.media().durationMs(), request.media().dynamic() != null && request.media().dynamic().audio() != null);
+                request.media().video() != null ? 1501 : request.media().durationMs(), request.media().dynamic() != null && request.media().dynamic().audio() != null,
+                request.media().video() != null ? 8 : 0, request.media().video() != null ? VideoFrameSampling.plan(8, 80) : null);
     }
     static void ready(MediaDraft draft) {
         var request = request(draft); var snapshot = PreparedMedia.freeze(request, manifest(request));

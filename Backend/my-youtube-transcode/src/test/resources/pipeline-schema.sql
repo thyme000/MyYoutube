@@ -1,4 +1,5 @@
 CREATE TABLE IF NOT EXISTS media_pipeline (
+    event_sequence BIGINT NOT NULL DEFAULT 0,
     id BIGINT NOT NULL PRIMARY KEY,
     content_id BIGINT NOT NULL,
     input_json TEXT NOT NULL,
@@ -14,9 +15,13 @@ CREATE TABLE IF NOT EXISTS media_pipeline (
     KEY idx_pipeline_status(status, id)
 );
 CREATE TABLE IF NOT EXISTS media_task (
+    event_sequence BIGINT NOT NULL DEFAULT 0,
     id BIGINT NOT NULL PRIMARY KEY,
     owner_id BIGINT NOT NULL,
     pipeline_id BIGINT,
+    retry_batch_id BIGINT,
+    failure_code VARCHAR(80),
+    dependency_service VARCHAR(16),
     phase VARCHAR(16) NOT NULL,
     task_type VARCHAR(16) NOT NULL,
     status VARCHAR(16) NOT NULL,
@@ -30,11 +35,13 @@ CREATE TABLE IF NOT EXISTS media_task (
     ready_at DATETIME,
     started_at DATETIME,
     next_retry_at DATETIME,
+    unavailable_deadline DATETIME,
     dispatch_after DATETIME,
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_owner_phase_type(owner_id, phase, task_type),
     UNIQUE KEY uk_pipeline_phase_type(pipeline_id, phase, task_type),
+    KEY idx_task_batch(retry_batch_id, status, id),
     KEY idx_task_dispatch(status, dispatch_after, id),
     KEY idx_task_retry(status, next_retry_at, id),
     KEY idx_task_lease(status, update_time, id),
@@ -68,4 +75,20 @@ CREATE TABLE IF NOT EXISTS media_preparation_item (
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_preparation_item(preparation_id, role, item_index),
     KEY idx_preparation_object(object_key, preparation_id)
+);
+
+CREATE TABLE IF NOT EXISTS media_retry_batch (
+    event_sequence BIGINT NOT NULL DEFAULT 0,
+    id BIGINT NOT NULL PRIMARY KEY,
+    request_id VARCHAR(128) NOT NULL,
+    actor_id BIGINT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    active TINYINT,
+    selection_json TEXT NOT NULL,
+    result_json MEDIUMTEXT,
+    max_concurrency INT NOT NULL,
+    created_at DATETIME NOT NULL,
+    completed_at DATETIME,
+    UNIQUE KEY uk_retry_request(request_id),
+    UNIQUE KEY uk_retry_active(active)
 );

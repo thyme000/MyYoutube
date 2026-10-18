@@ -32,13 +32,18 @@ public final class PreparedMedia {
         if (request.media().video() != null) {
             var original = take(entries, "VIDEO", 0);
             original(original);
-            for (int i = 0; i < 8; i++) {
-                var frame = take(entries, "FRAME", i);
+            long previousTime = -1;
+            for (var frame : videoFrames(manifest)) {
+                take(entries, "FRAME", frame.index());
                 derived(frame, original.objectKey());
-                if (frame.timeMs() > manifest.durationMs()) throw new IllegalArgumentException("Frame time out of bounds");
+                if (frame.timeMs() > manifest.durationMs() || frame.timeMs() < previousTime)
+                    throw new IllegalArgumentException("Frame time out of bounds or order");
+                previousTime = frame.timeMs();
             }
             frozen = new ContentMedia("video", new VideoMedia(original.objectKey(), manifest.durationMs()), null, manifest);
         } else {
+            if (manifest.videoFrameCount() != 0 || manifest.videoSampling() != null)
+                throw new IllegalArgumentException("Unexpected video sampling");
             var dynamic = request.media().dynamic();
             MediaInputs.validate(new ContentMedia("dynamic", null, dynamic), request.coverObjectKey());
             if (dynamic.exportDurationMs() != manifest.durationMs() || (dynamic.audio() != null) != manifest.hasAudio())
@@ -87,6 +92,15 @@ public final class PreparedMedia {
                     || !original.equals(frame.objectKey()) || !item.objectKey().equals(frame.derivedObjectKey()))
                 throw new IllegalArgumentException("OCR does not match preparation manifest");
         }
+    }
+
+    public static List<Item> videoFrames(Manifest manifest) {
+        var plan = Objects.requireNonNull(manifest.videoSampling(), "Missing video sampling plan");
+        var frames = manifest.items().stream().filter(item -> "FRAME".equals(item.role()))
+                .sorted(Comparator.comparingInt(Item::index)).toList();
+        if (frames.size() != manifest.videoFrameCount()) throw new IllegalArgumentException("Incomplete prepared video frames");
+        plan.validate(frames.stream().map(Item::index).toList());
+        return frames;
     }
 
     private static Item take(Map<String, Item> entries, String role, int index) {

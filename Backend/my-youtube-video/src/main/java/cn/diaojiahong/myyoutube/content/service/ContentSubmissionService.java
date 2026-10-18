@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
@@ -9,10 +11,12 @@ import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
 import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
 import cn.diaojiahong.myyoutube.video.service.impl.MediaDraftService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import java.time.LocalDateTime;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ContentSubmissionService {
@@ -24,10 +28,14 @@ public class ContentSubmissionService {
 
     public record Receipt(Long contentId, Long pipelineId, String draftStatus) {}
 
+    @ObservedBusiness(BusinessOperation.SUBMIT_CONTENT)
     public Receipt submit(Long draftId, Long userId) {
         var draft = drafts.getById(draftId);
         if (draft == null || !userId.equals(draft.getUserId())) throw new BizException(BizException.BIZ_ERROR, "草稿不存在");
-        if (draft.getStatus() == MediaDraftStatusEnum.SUBMITTED) return receipt(draftId);
+        if (draft.getStatus() == MediaDraftStatusEnum.SUBMITTED) {
+            log.debug("Content submit reused existing registration draftId={}", draftId);
+            return receipt(draftId);
+        }
         if (draft.getStatus() != MediaDraftStatusEnum.READY) throw new BizException(BizException.BIZ_ERROR, "草稿尚未准备完成");
         var content = new Content().setId(draftId).setType(draft.getType()).setAuthorId(userId)
                 .setTitle(ContentSubmissionRules.title(draft.getTitle()))
@@ -39,15 +47,21 @@ public class ContentSubmissionService {
         if (strategy == null) throw new BizException(BizException.BIZ_ERROR, "不支持的内容类型");
         var media = strategy.prepare(draft);
         try {
-            return transaction.execute(tx -> {
+            Receipt receipt = transaction.execute(tx -> {
                 if (!drafts.submit(draft, media.durationMs())) throw new BizException(BizException.BIZ_ERROR, "草稿已修改或已提交，请刷新");
                 contents.insert(content);
                 strategy.persist(draftId, media);
                 return new Receipt(draftId, understanding.enroll(content, media), "submitted");
             });
+            log.info("Content submit accepted draftId={} contentId={} pipelineId={} userId={} media={} durationMs={}",
+                    draftId, receipt.contentId(), receipt.pipelineId(), userId, draft.getType(), media.durationMs());
+            return receipt;
         } catch (BizException e) {
             var current = drafts.getById(draftId);
-            if (current != null && current.getStatus() == MediaDraftStatusEnum.SUBMITTED) return receipt(draftId);
+            if (current != null && current.getStatus() == MediaDraftStatusEnum.SUBMITTED) {
+                log.debug("Content submit resolved as already submitted draftId={}", draftId);
+                return receipt(draftId);
+            }
             throw e;
         }
     }

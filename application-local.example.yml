@@ -92,10 +92,14 @@ my-youtube:
     shutdown-wait: ${MODEL_SERVICES_SHUTDOWN_WAIT:30s}
     asr-python: ${MODEL_SERVICES_ASR_PYTHON:}
     ocr-python: ${MODEL_SERVICES_OCR_PYTHON:}
-
-  media-pipeline:
-    # transcode 每次 OCR 请求的图片数；整批共用 Python 的 OCR_EXECUTION_TIMEOUT。
+  frame-processing:
+    min-success-percent: ${VIDEO_FRAME_MIN_SUCCESS_PERCENT:80}
     ocr-batch-size: ${OCR_BATCH_SIZE:2}
+  media-pipeline:
+    retry-batch-size: ${MEDIA_RETRY_BATCH_SIZE:20}
+    retry-concurrency: ${MEDIA_RETRY_CONCURRENCY:1}
+    retry-occupation-seconds: ${MEDIA_RETRY_OCCUPATION_SECONDS:3600}
+    model-unavailable-wait-seconds: ${MODEL_UNAVAILABLE_WAIT_SECONDS:600}
     draft-concurrency: ${DRAFT_WORKER_CONCURRENCY:1}
 
   llm:

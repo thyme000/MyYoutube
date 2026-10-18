@@ -16,11 +16,10 @@ class ContentAdminAuthorizationTest {
         var controller = new AdminController(mock(IAdminService.class), port);
         assertThrows(BizException.class, () -> controller.content(1L));
         UserContext.setUser("2");
-        assertThrows(BizException.class, () -> controller.retryContent(1L));
         assertThrows(BizException.class, () -> controller.media(1L));
         verifyNoInteractions(port);
         UserContext.setUser("1");
-        controller.content(1L); controller.retryContent(1L); controller.media(1L);
-        verify(port).media(any()); verify(port).contentStatus(any()); verify(port).retryContent(any());
+        controller.content(1L); controller.media(1L);
+        verify(port).media(any()); verify(port).contentStatus(any());
     }
 }

@@ -37,6 +37,7 @@ public class TranscodeTaskExecutor implements MediaTaskExecutor {
 
     @Override
     public String execute(MediaTaskMessage msg) throws Exception {
+        long startedAt = System.currentTimeMillis();
         // 先校验文件签名再交给 FFmpeg 直读 URL
         byte[] head = storageUtil.readHeadBytes(msg.getObjectKey(), 64);
         String mime = new Tika().detect(head, msg.getObjectKey());
@@ -58,7 +59,11 @@ public class TranscodeTaskExecutor implements MediaTaskExecutor {
             FFmpegUtil.transcodeStandard(source, out, TARGET_LONG_EDGE, opt, Duration.ofMinutes(14));
             String processedKey = "video-processed/" + msg.getUserId() + "/" + msg.getOwnerId() + "/"
                     + taskId + ".mp4";
+            long bytes = Files.size(out);
             storageUtil.uploadWithKey(Files.readAllBytes(out), processedKey);
+            log.info("Transcode completed draftId={} taskId={} attempt={} processedObjectKey={} durationMs={} width={} height={} bytes={} elapsedMs={}",
+                    msg.getOwnerId(), msg.getTaskId(), msg.getAttempt(), processedKey, probe.durationMs(), probe.width(),
+                    probe.height(), bytes, System.currentTimeMillis() - startedAt);
             return JsonUtil.toJson(Map.of(
                     "processedObjectKey", processedKey,
                     "durationMs", probe.durationMs(),

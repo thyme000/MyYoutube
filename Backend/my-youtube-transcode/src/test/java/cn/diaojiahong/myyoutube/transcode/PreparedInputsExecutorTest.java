@@ -11,6 +11,8 @@ import cn.diaojiahong.myyoutube.transcode.cover.*;
 import cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage;
 import cn.diaojiahong.myyoutube.transcode.task.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import java.util.*;
 import java.nio.file.*;
 import java.awt.image.BufferedImage;
@@ -26,13 +28,16 @@ class PreparedInputsExecutorTest {
     final String prefix = "media-prepared/9/101/";
 
     PreparedMedia.Snapshot snapshot(boolean video) {
+        return snapshot(video, 8);
+    }
+    PreparedMedia.Snapshot snapshot(boolean video, int frameCount) {
         var items = new ArrayList<Item>();
         ContentMedia input;
         String cover = null;
         if (video) {
             input = new ContentMedia("video", new VideoMedia("uploaded-video", 0), null);
             items.add(new Item("VIDEO", 0, prefix + "video", prefix + "video", 0, 0, 0));
-            for (int i = 0; i < 8; i++) items.add(new Item("FRAME", i, prefix + "video", prefix + "frame-" + i, i * 100L, 80, 60));
+            for (int i = 0; i < frameCount; i++) items.add(new Item("FRAME", i, prefix + "video", prefix + "frame-" + i, i * 100L, 80, 60));
         } else {
             input = new ContentMedia("dynamic", null, new DynamicMedia("horizontal", 1920, 1080, "cut", 0,
                     List.of(new DynamicMedia.Image("upload-a", 0, 3000, .5, .5), new DynamicMedia.Image("upload-b", 3000, 3000, .5, .5)), null, 6000));
@@ -43,10 +48,29 @@ class PreparedInputsExecutorTest {
             }
         }
         return PreparedMedia.freeze(new Request(101L, 1L, 2, 9L, input, cover),
-                new Manifest(101L, 1L, 2, 9L, "a".repeat(64), items, video ? 1000 : 6000, false));
+                new Manifest(101L, 1L, 2, 9L, "a".repeat(64), items, video ? frameCount * 5000L : 6000, false, video ? frameCount : 0, video ? VideoFrameSampling.plan(frameCount, 80) : null));
+    }
+
+    PreparedMedia.Snapshot toleratedSnapshot() {
+        var base = snapshot(true, 10).media().preparation();
+        var items = base.items().stream().filter(i -> !"FRAME".equals(i.role()) || i.index() != 2 && i.index() != 7).toList();
+        var manifest = new Manifest(base.preparationId(), base.draftId(), base.mediaVersion(), base.userId(), base.parameterVersion(),
+                items, base.durationMs(), base.hasAudio(), 8, base.videoSampling());
+        return PreparedMedia.freeze(new Request(101L, 1L, 2, 9L,
+                new ContentMedia("video", new VideoMedia("uploaded-video", 0), null), null), manifest);
+    }
+
+    MediaTaskMessage toleratedMessage() {
+        var message = message(true);
+        var snapshot = toleratedSnapshot();
+        message.setInput(new PipelineContracts.Input(100L, 1L, 9L, "title", "description", "", null, snapshot.media(), 1));
+        return message;
     }
     MediaTaskMessage message(boolean video) {
-        var snapshot = snapshot(video);
+        return message(video, 8);
+    }
+    MediaTaskMessage message(boolean video, int count) {
+        var snapshot = snapshot(video, count);
         return MediaTaskMessage.builder().pipelineId(100L).ownerId(1L).taskId(7L).userId(9L).attempt(1)
                 .objectKey(video ? snapshot.media().video().objectKey() : null)
                 .input(new PipelineContracts.Input(100L, 1L, 9L, "title", "description", "", snapshot.coverObjectKey(), snapshot.media(), 1))
@@ -61,7 +85,7 @@ class PreparedInputsExecutorTest {
         when(artifacts.write(anyLong(), eq("OCR"), anyInt(), any())).thenReturn("ocr-artifact");
     }
     ContentArtifacts.Ocr recognize(boolean video) throws Exception {
-        new OcrTaskExecutor(ocr, guard, storage, artifacts, new PipelineProperties()).execute(message(video));
+        new OcrTaskExecutor(ocr, guard, storage, artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings()).execute(message(video));
         var captured = org.mockito.ArgumentCaptor.forClass(ContentArtifacts.Ocr.class);
         verify(artifacts).write(eq(100L), eq("OCR"), eq(1), captured.capture());
         return captured.getValue();
@@ -86,12 +110,84 @@ class PreparedInputsExecutorTest {
         var wrong = new ContentArtifacts.Ocr(List.of(new ContentArtifacts.Frame(0, 0, "wrong", "text", "wrong")));
         assertThrows(IllegalArgumentException.class, () -> PreparedMedia.validateOcr(snapshot(true).media(), wrong));
     }
+
+    @Test void toleratedOcrPreservesSparseSlotsAndRequiresEveryFrozenResultAfterConfigChange() throws Exception {
+        var settings = new FrameProcessingSettings(new org.springframework.mock.env.MockEnvironment()
+                .withProperty("my-youtube.frame-processing.min-success-percent", "100"));
+        new OcrTaskExecutor(ocr, guard, storage, artifacts, settings).execute(toleratedMessage());
+        var captured = org.mockito.ArgumentCaptor.forClass(ContentArtifacts.Ocr.class);
+        verify(artifacts).write(eq(100L), eq("OCR"), eq(1), captured.capture());
+        var result = captured.getValue();
+        assertEquals(List.of(0, 1, 3, 4, 5, 6, 8, 9), result.frames().stream().map(ContentArtifacts.Frame::imageIndex).toList());
+        PreparedMedia.validateOcr(toleratedSnapshot().media(), result);
+        assertThrows(IllegalArgumentException.class, () -> PreparedMedia.validateOcr(toleratedSnapshot().media(),
+                new ContentArtifacts.Ocr(result.frames().subList(0, 7))));
+        verify(ocr, times(4)).recognize(any());
+    }
+
+    @Test void toleratedInputDoesNotPermitPartialOcrBatchSuccess() {
+        doAnswer(call -> {
+            OcrPort.Request request = call.getArgument(0);
+            return new OcrPort.Response(List.of(new OcrPort.Item(request.urls().get(0), "text", null)));
+        }).when(ocr).recognize(any());
+        assertThrows(IllegalStateException.class, () -> new OcrTaskExecutor(ocr, guard, storage, artifacts,
+                new FrameProcessingSettings()).execute(toleratedMessage()));
+        verifyNoInteractions(artifacts);
+    }
+
+    @Test void removingOneFrozenFrameCannotBeHiddenByLoweringActualCount() {
+        var media = toleratedSnapshot().media(); var valid = media.preparation();
+        var manifest = new Manifest(valid.preparationId(), valid.draftId(), valid.mediaVersion(), valid.userId(), valid.parameterVersion(),
+                valid.items().subList(0, valid.items().size() - 1), valid.durationMs(), valid.hasAudio(), 7, valid.videoSampling());
+        assertThrows(IllegalArgumentException.class, () -> PreparedMedia.freeze(new Request(101L, 1L, 2, 9L,
+                new ContentMedia("video", new VideoMedia("uploaded-video", 0), null), null), manifest));
+    }
     @Test void silentVideoCreatesExplicitEmptyAsrWithoutCallingModel() {
         var asr = mock(AsrPort.class);
         when(artifacts.write(anyLong(), eq("ASR"), anyInt(), any())).thenReturn("empty-segments");
         var result = StructuredJson.object(new AsrTaskExecutor(asr, guard, storage, artifacts).execute(message(true)));
         assertTrue(result.get("noAudio").getAsBoolean()); assertTrue(result.get("speechEmpty").getAsBoolean());
         verifyNoInteractions(asr); verify(storage, never()).signGetUrl(anyString(), anyLong());
+    }
+    @ParameterizedTest
+    @ValueSource(ints = {1, 6, 24, 64})
+    void adaptiveOcrConsumesEveryDeclaredFrameInBoundedBatches(int count) throws Exception {
+        new OcrTaskExecutor(ocr, guard, storage, artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings()).execute(message(true, count));
+        var result = org.mockito.ArgumentCaptor.forClass(ContentArtifacts.Ocr.class);
+        verify(artifacts).write(eq(100L), eq("OCR"), eq(1), result.capture());
+        assertEquals(count, result.getValue().frames().size());
+        PreparedMedia.validateOcr(snapshot(true, count).media(), result.getValue());
+        verify(ocr, times((count + 1) / 2)).recognize(any());
+        var requests = org.mockito.ArgumentCaptor.forClass(OcrPort.Request.class);
+        verify(ocr, atLeastOnce()).recognize(requests.capture());
+        assertTrue(requests.getAllValues().stream().allMatch(r -> r.urls().size() <= 2));
+        assertEquals(java.util.stream.IntStream.range(0, count).mapToObj(i -> "signed:" + prefix + "frame-" + i).toList(),
+                requests.getAllValues().stream().flatMap(r -> r.urls().stream()).toList());
+    }
+    @Test void missingLastDeclaredFrameCannotFreezeOrBecomeReady() {
+        var media = snapshot(true, 64).media();
+        var valid = media.preparation();
+        var incomplete = new Manifest(valid.preparationId(), valid.draftId(), valid.mediaVersion(), valid.userId(),
+                valid.parameterVersion(), valid.items().subList(0, valid.items().size() - 1), valid.durationMs(), valid.hasAudio(), 64, valid.videoSampling());
+        assertThrows(RuntimeException.class, () -> PreparedMedia.freeze(new Request(101L, 1L, 2, 9L,
+                new ContentMedia("video", new VideoMedia("uploaded-video", 0), null), null), incomplete));
+    }
+    @Test void ocrHotUpdateAppliesToNextAttemptWithoutChangingRunningBatchSize() throws Exception {
+        var settings = new FrameProcessingSettings();
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        doAnswer(call -> {
+            OcrPort.Request request = call.getArgument(0);
+            if (calls.getAndIncrement() == 0) settings.replace(
+                    "interval-seconds: 5\nmax-frames: 10\nmin-success-percent: 80\ncover-max-candidates: 8\nocr-batch-size: 1\nreview-batch-size: 4");
+            return new OcrPort.Response(request.urls().stream().map(url -> new OcrPort.Item(url, "text", null)).toList());
+        }).when(ocr).recognize(any());
+        var executor = new OcrTaskExecutor(ocr, guard, storage, artifacts, settings);
+        executor.execute(message(true, 6));
+        executor.execute(message(true, 6));
+        var requests = org.mockito.ArgumentCaptor.forClass(OcrPort.Request.class);
+        verify(ocr, times(9)).recognize(requests.capture());
+        assertEquals(List.of(2, 2, 2, 1, 1, 1, 1, 1, 1),
+                requests.getAllValues().stream().map(r -> r.urls().size()).toList());
     }
     @Test void preparedCoverReferencesSelectedFrameAndDynamicSelectedOriginal() {
         var generator = mock(VideoCoverGenerator.class);
@@ -101,7 +197,9 @@ class PreparedInputsExecutorTest {
         assertEquals(prefix + "image-1", StructuredJson.object(executor.execute(message(false))).get("coverObjectKey").getAsString());
         verify(generator, never()).generate(anyLong(), anyLong(), anyString());
     }
-    @Test void preparedCoverScoresBoundedPreviewsAndReturnsOriginalKeyWithoutUpload() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void preparedCoverScoresBoundedPreviewsAndReturnsOriginalKeyWithoutUpload(boolean tolerated) throws Exception {
         var preparedStorage = mock(PreparationStorage.class);
         when(preparedStorage.inspect(anyString())).thenAnswer(call -> new PreparationStorage.Source(call.getArgument(0), null, "etag", 100));
         doAnswer(call -> {
@@ -113,15 +211,18 @@ class PreparedInputsExecutorTest {
         var selector = mock(CoverVisionSelector.class);
         when(selector.pickBest(anyList())).thenAnswer(call -> {
             List<cn.diaojiahong.myyoutube.transcode.ffmpeg.FFmpegUtil.FrameScore> candidates = call.getArgument(0);
-            assertEquals(8, candidates.size());
+            assertEquals(3, candidates.size());
             for (var candidate : candidates) {
                 var image = javax.imageio.ImageIO.read(candidate.framePath().toFile());
                 assertTrue(Math.max(image.getWidth(), image.getHeight()) <= 512); image.flush();
             }
-            return 3;
+            return 2;
         });
-        var generator = new VideoCoverGenerator(storage, selector, preparedStorage);
-        assertEquals(prefix + "frame-3", generator.selectPrepared(snapshot(true).media().preparation()));
+        var settings = new FrameProcessingSettings(new org.springframework.mock.env.MockEnvironment()
+                .withProperty("my-youtube.frame-processing.cover-max-candidates", "3"));
+        var generator = new VideoCoverGenerator(storage, selector, preparedStorage, settings);
+        assertEquals(prefix + "frame-" + (tolerated ? 3 : 2), generator.selectPrepared(
+                (tolerated ? toleratedSnapshot() : snapshot(true)).media().preparation()));
         verifyNoInteractions(storage); verify(preparedStorage, times(8)).download(any(), any(), anyLong());
         verify(preparedStorage, never()).upload(any(), anyString());
     }

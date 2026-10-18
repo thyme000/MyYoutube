@@ -63,7 +63,7 @@ class NativeMediaExecutorTest {
         when(ocr.recognize(any())).thenAnswer(call -> new OcrPort.Response(((OcrPort.Request)call.getArgument(0))
                 .urls().stream().map(url -> new OcrPort.Item(url,"",null)).toList()));
         when(artifacts.write(eq(100L),eq("OCR"),eq(1),any())).thenReturn("ocr");
-        var result=StructuredJson.object(new OcrTaskExecutor(ocr,guard,storage,artifacts,new PipelineProperties()).execute(message));
+        var result=StructuredJson.object(new OcrTaskExecutor(ocr,guard,storage,artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings()).execute(message));
         var requests=ArgumentCaptor.forClass(OcrPort.Request.class);
         verify(ocr,times(9)).recognize(requests.capture());
         assertEquals(List.of(2,2,2,2,2,2,2,2,2),requests.getAllValues().stream().map(r -> r.urls().size()).toList());
@@ -78,7 +78,7 @@ class NativeMediaExecutorTest {
         }
     }
     @Test void missingFailedOrReorderedOcrImagesAreFailures() {
-        var ocr=mock(OcrPort.class); var executor=new OcrTaskExecutor(ocr,guard,storage,artifacts,new PipelineProperties());
+        var ocr=mock(OcrPort.class); var executor=new OcrTaskExecutor(ocr,guard,storage,artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
         for(var response : List.of(
                 new OcrPort.Response(List.of(new OcrPort.Item("http://local/image-0","",null))),
@@ -97,14 +97,15 @@ class NativeMediaExecutorTest {
             if(urls.contains("http://local/image-4")) throw new IllegalStateException("execution timed out");
             return new OcrPort.Response(urls.stream().map(url -> new OcrPort.Item(url,"",null)).toList());
         });
-        var executor=new OcrTaskExecutor(ocr,guard,storage,artifacts,new PipelineProperties());
+        var executor=new OcrTaskExecutor(ocr,guard,storage,artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         assertThrows(IllegalStateException.class,() -> executor.execute(message(10,null)));
         verify(ocr,times(3)).recognize(any());
         verify(storage,never()).signGetUrl(eq("image-6"),anyLong());
         verifyNoInteractions(artifacts);
     }
     @Test void configurableOcrBatchSizePreservesTailAndRejectsInvalidLimits() throws Exception {
-        var ocr=mock(OcrPort.class); var properties=new PipelineProperties(); properties.setOcrBatchSize(3);
+        var ocr=mock(OcrPort.class); var properties=new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(
+                new org.springframework.mock.env.MockEnvironment().withProperty("my-youtube.frame-processing.ocr-batch-size", "3"));
         when(artifacts.write(eq(100L),eq("OCR"),eq(1),any())).thenReturn("ocr");
         when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
         when(ocr.recognize(any())).thenAnswer(call -> new OcrPort.Response(((OcrPort.Request)call.getArgument(0))
@@ -113,8 +114,8 @@ class NativeMediaExecutorTest {
         var requests=ArgumentCaptor.forClass(OcrPort.Request.class); verify(ocr,times(4)).recognize(requests.capture());
         assertEquals(List.of(3,3,3,1),requests.getAllValues().stream().map(r -> r.urls().size()).toList());
         for(int invalid : List.of(0,51)) {
-            properties.setOcrBatchSize(invalid);
-            assertThrows(IllegalStateException.class,properties::validate);
+            assertThrows(IllegalArgumentException.class, () -> new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(
+                    new org.springframework.mock.env.MockEnvironment().withProperty("my-youtube.frame-processing.ocr-batch-size", String.valueOf(invalid))));
         }
     }
     @Test void visionReviewCoversAllEighteenImagesIncludingPartialBatch() {

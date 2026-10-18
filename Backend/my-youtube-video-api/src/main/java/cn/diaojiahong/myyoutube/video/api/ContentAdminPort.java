@@ -29,8 +29,6 @@ public interface ContentAdminPort {
 
     @PostMapping("/content/get")
     Result<java.util.Map<String, Object>> contentStatus(@RequestBody ContentId id);
-    @PostMapping("/content/retry")
-    Result<Boolean> retryContent(@RequestBody ContentId id);
     @PostMapping("/content/waiting")
     Result<List<java.util.Map<String, Object>>> waitingContent(@RequestBody AdminContentQuery query);
 

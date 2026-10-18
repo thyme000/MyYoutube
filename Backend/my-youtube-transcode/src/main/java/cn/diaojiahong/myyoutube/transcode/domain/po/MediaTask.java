@@ -13,6 +13,13 @@ public class MediaTask {
     private Long id;
     private Long ownerId;
     private Long pipelineId;
+    private Long eventSequence;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private Long retryBatchId;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String failureCode;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String dependencyService;
     private String phase;
     private String taskType;
     private String status;
@@ -30,6 +37,8 @@ public class MediaTask {
     private LocalDateTime startedAt;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private LocalDateTime nextRetryAt;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private LocalDateTime unavailableDeadline;
     private LocalDateTime dispatchAfter;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;

@@ -20,7 +20,7 @@ class MediaPreparationSampleTest {
             var properties=new MediaPreparationProperties(); properties.setLongEdge(edge);
             properties.setOutputPixels(Math.round(1_600_000*Math.pow(edge/1600.0,2))); properties.validate();
             var writer=new PreparedImageWriter(properties);
-            var videos=new PreparedVideoReader(properties,writer);
+            var videos=new PreparedVideoReader(properties,writer, new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
             int imageIndex=0,videoIndex=0;
             for(var source:sources) {
                 String name=source.getFileName().toString().toLowerCase(Locale.ROOT);
@@ -42,7 +42,7 @@ class MediaPreparationSampleTest {
                         frames.add(Map.of("index",frame.index(),"timeMs",frame.timeMs(),"width",frame.image().width(),
                                 "height",frame.image().height(),"bytes",frame.image().bytes()));
                     });
-                    assertEquals(8,frames.size());
+                    assertEquals(probe.sampleCount(),frames.size());
                     results.add(Map.of("kind","video","index",id,"edge",edge,"durationMs",probe.durationMs(),
                             "frames",frames,"elapsedMs",(System.nanoTime()-start)/1_000_000));
                 }

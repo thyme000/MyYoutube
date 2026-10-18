@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.*;
@@ -25,19 +27,30 @@ import java.util.Objects;
 public class DraftPreparationService {
     private final MediaDraftMapper drafts;
     private final MediaTaskPort tasks;
+    private final DraftObservation observation;
 
     public boolean uploaded(Long id) {
-        return drafts.update(null, new LambdaUpdateWrapper<MediaDraft>().eq(MediaDraft::getId, id)
+        int hit = observation.update(id, new LambdaUpdateWrapper<MediaDraft>().eq(MediaDraft::getId, id)
                 .eq(MediaDraft::getType, ContentTypeEnum.VIDEO).eq(MediaDraft::getStatus, MediaDraftStatusEnum.UPLOADING)
                 .set(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
-                .set(MediaDraft::getPreparationAfter, LocalDateTime.now())) > 0;
+                .set(MediaDraft::getPreparationAfter, LocalDateTime.now()));
+        if (hit > 0) log.info("Draft upload confirmed draftId={} status=PROCESSING", id);
+        else log.debug("Draft upload event ignored draftId={} reason=NOT_UPLOADING", id);
+        return hit > 0;
     }
 
+    @ObservedBusiness(BusinessOperation.RETRY_PREPARATION)
     public boolean retry(Long id, Long userId) {
         var draft = drafts.selectById(id);
         if (draft == null || !userId.equals(draft.getUserId())) throw new BizException(BizException.BIZ_ERROR, "草稿不存在");
-        if (draft.getStatus() == MediaDraftStatusEnum.PROCESSING) return true;
-        if (draft.getStatus() != MediaDraftStatusEnum.FAILED) return false;
+        if (draft.getStatus() == MediaDraftStatusEnum.PROCESSING) {
+            log.debug("Draft retry ignored draftId={} reason=STILL_PROCESSING", id);
+            return true;
+        }
+        if (draft.getStatus() != MediaDraftStatusEnum.FAILED) {
+            log.debug("Draft retry rejected draftId={} reason=STATUS_{}", id, draft.getStatus());
+            return false;
+        }
         var result = tasks.preparation(draft.getPreparationId());
         if (result == null || !Objects.equals(result.preparationId(), draft.getPreparationId())
                 || result.attempt() < draft.getPreparationAttempt())
@@ -46,16 +59,22 @@ public class DraftPreparationService {
                 .set(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                 .set(MediaDraft::getPreparationAfter, LocalDateTime.now()).set(MediaDraft::getErrorMessage, null);
         if (result.parametersChanged()) {
+            // 参数指纹变了: 旧准备清单不能继续用, 换 preparationId 与媒体版本重做
+            long nextPreparationId = IdWorker.getId();
+            log.info("Draft retry re-prepares media draftId={} reason=PARAMETERS_CHANGED previousPreparationId={} nextPreparationId={} mediaVersion={}",
+                    id, draft.getPreparationId(), nextPreparationId, draft.getMediaVersion() + 1);
             update.eq(MediaDraft::getRevision, draft.getRevision()).setIncrBy(MediaDraft::getRevision, 1)
                     .set(MediaDraft::getMediaVersion, draft.getMediaVersion() + 1)
-                    .set(MediaDraft::getPreparationId, IdWorker.getId()).set(MediaDraft::getPreparationAttempt, 0)
+                    .set(MediaDraft::getPreparationId, nextPreparationId).set(MediaDraft::getPreparationAttempt, 0)
                     .set(MediaDraft::getPreparationRetry, false).set(MediaDraft::getPreparedJson, null)
                     .set(MediaDraft::getPreparedCoverObjectKey, null).set(MediaDraft::getExpiresAt, LocalDateTime.now().plusDays(7));
         } else {
+            log.info("Draft retry reuses preparation draftId={} preparationId={} nextAttempt={} reason=TRANSIENT_FAILURE",
+                    id, draft.getPreparationId(), draft.getPreparationAttempt() + 1);
             update.set(MediaDraft::getPreparationRetry, true)
                     .set(MediaDraft::getPreparationAttempt, draft.getPreparationAttempt() + 1);
         }
-        return drafts.update(null, update) > 0;
+        return observation.update(id, update) > 0;
     }
 
     @Scheduled(fixedDelay = 1000, initialDelay = 1000)
@@ -90,18 +109,28 @@ public class DraftPreparationService {
         }
         var result = tasks.preparation(draft.getPreparationId());
         if (result == null || !Objects.equals(result.preparationId(), draft.getPreparationId())
-                || result.attempt() < draft.getPreparationAttempt()) return;
+                || result.attempt() < draft.getPreparationAttempt()) {
+            log.debug("Draft preparation reconciliation deferred draftId={} preparationId={} reason=STALE_RESULT",
+                    draft.getId(), draft.getPreparationId());
+            return;
+        }
         if ("SUCCESS".equals(result.status())) {
             var frozen = PreparedMedia.freeze(request, result.manifest());
-            drafts.update(null, version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
+            observation.update(draft.getId(), version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                     .set(MediaDraft::getStatus, MediaDraftStatusEnum.READY).set(MediaDraft::getPreparedJson, JsonUtil.toJson(frozen.media()))
                     .set(MediaDraft::getPreparedCoverObjectKey, frozen.coverObjectKey()).set(MediaDraft::getDurationMs, frozen.media().durationMs())
                     .set(MediaDraft::getPreparationAttempt, result.attempt()).set(MediaDraft::getErrorMessage, null));
+            log.info("Draft preparation ready draftId={} preparationId={} mediaVersion={} attempt={} media={} durationMs={} frames={}",
+                    draft.getId(), draft.getPreparationId(), draft.getMediaVersion(), result.attempt(), frozen.media().type(),
+                    frozen.media().durationMs(), frozen.media().preparation().videoFrameCount());
         } else if ("DEAD".equals(result.status())) {
             String error = result.errorMessage() == null ? "媒体准备失败" : result.errorMessage();
-            drafts.update(null, version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
+            observation.update(draft.getId(), version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                     .set(MediaDraft::getStatus, MediaDraftStatusEnum.FAILED).set(MediaDraft::getPreparationAttempt, result.attempt())
                     .set(MediaDraft::getErrorMessage, error.substring(0, Math.min(500, error.length()))));
+            log.warn("Draft preparation failed draftId={} preparationId={} mediaVersion={} attempt={} error={}",
+                    draft.getId(), draft.getPreparationId(), draft.getMediaVersion(), result.attempt(),
+                    error.substring(0, Math.min(500, error.length())));
         }
     }
 

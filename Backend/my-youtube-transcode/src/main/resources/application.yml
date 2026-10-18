@@ -36,11 +36,14 @@ spring.cloud.openfeign.client.config:
   asrPort:
     readTimeout: 1350000
   ocrPort:
-    readTimeout: 180000
+    readTimeout: ${OCR_READ_TIMEOUT_MS:210000}
 my-youtube.media-pipeline:
+  retry-batch-size: ${MEDIA_RETRY_BATCH_SIZE:20}
+  retry-concurrency: ${MEDIA_RETRY_CONCURRENCY:1}
+  retry-occupation-seconds: ${MEDIA_RETRY_OCCUPATION_SECONDS:3600}
   chunk-characters: ${CONTENT_CHUNK_CHARACTERS:12000}
-  ocr-batch-size: ${OCR_BATCH_SIZE:2}
   lease-seconds: ${MEDIA_LEASE_SECONDS:150}
+  model-unavailable-wait-seconds: ${MODEL_UNAVAILABLE_WAIT_SECONDS:600}
   draft-concurrency: ${DRAFT_WORKER_CONCURRENCY:1}
   content-concurrency: ${CONTENT_WORKER_CONCURRENCY:4}
   review-concurrency: ${REVIEW_WORKER_CONCURRENCY:2}
@@ -57,7 +60,6 @@ my-youtube.local-model-services:
   ocr-python: ${MODEL_SERVICES_OCR_PYTHON:}
 
 management:
-  endpoints.web.exposure.include: health,prometheus
   metrics.distribution.percentiles-histogram:
     "[media.pipeline.duration]": true
     "[media.pipeline.ready.duration]": true

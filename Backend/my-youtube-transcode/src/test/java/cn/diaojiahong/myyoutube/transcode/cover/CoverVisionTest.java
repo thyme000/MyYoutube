@@ -46,9 +46,9 @@ class CoverVisionTest {
     void disabledVisionUsesHighestQualityWithoutReadingImagesOrCallingModel() {
         var first = frame(directory.resolve("missing-first.jpg"), 0.2);
         var best = frame(directory.resolve("missing-best.jpg"), 0.9);
-        var generator = new VideoCoverGenerator(mock(S3StorageUtil.class), selector, mock(cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage.class));
+        var generator = new VideoCoverGenerator(mock(S3StorageUtil.class), selector, mock(cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage.class), new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         assertSame(best, ReflectionTestUtils.invokeMethod(generator, "selectBest",
-                List.of(first, best), new FFmpegUtil.Options()));
+                List.of(first, best), new FFmpegUtil.Options(), 8));
         verifyNoInteractions(llm);
     }
 
@@ -71,9 +71,24 @@ class CoverVisionTest {
         properties.setVisionEnabled(true);
         Path image = Files.write(directory.resolve("frame.jpg"), new byte[]{1});
         when(llm.chat(any())).thenThrow(new IllegalStateException("model unavailable"));
-        var generator = new VideoCoverGenerator(mock(S3StorageUtil.class), selector, mock(cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage.class));
+        var generator = new VideoCoverGenerator(mock(S3StorageUtil.class), selector, mock(cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage.class), new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         assertThrows(IllegalStateException.class, () -> ReflectionTestUtils.invokeMethod(generator,
-                "selectBest", List.of(frame(image, 0.5)), new FFmpegUtil.Options()));
+                "selectBest", List.of(frame(image, 0.5)), new FFmpegUtil.Options(), 8));
         verify(llm, times(1)).chat(any());
+    }
+    @Test void longVideoLimitsVisionInputToEightHighestQualityCandidates() {
+        var candidates = java.util.stream.IntStream.range(0, 64)
+                .mapToObj(i -> new FFmpegUtil.FrameScore(directory.resolve("frame-" + i), i,
+                        1, 1, 1, 100, 20, i / 64.0)).toList();
+        var boundedSelector = mock(CoverVisionSelector.class);
+        when(boundedSelector.pickBest(anyList())).thenAnswer(call -> {
+            List<FFmpegUtil.FrameScore> pool = call.getArgument(0);
+            assertEquals(8, pool.size());
+            assertEquals(candidates.subList(56, 64), pool);
+            return 7;
+        });
+        var generator = new VideoCoverGenerator(mock(S3StorageUtil.class), boundedSelector,
+                mock(cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage.class), new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
+        assertSame(candidates.get(63), ReflectionTestUtils.invokeMethod(generator, "selectBest", candidates, new FFmpegUtil.Options(), 8));
     }
 }

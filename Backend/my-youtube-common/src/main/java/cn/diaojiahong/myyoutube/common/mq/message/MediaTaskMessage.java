@@ -9,6 +9,7 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MediaTaskMessage {
+    private Long retryBatchId;
     private Long taskId;
     private Long ownerId;
     private Long pipelineId;

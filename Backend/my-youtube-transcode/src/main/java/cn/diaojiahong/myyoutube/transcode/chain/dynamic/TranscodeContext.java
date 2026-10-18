@@ -15,6 +15,8 @@ import java.util.List;
 public class TranscodeContext {
 
     private final TranscodeTask task;
+    /** 建上下文即链执行起点, 供完成日志算端到端耗时 */
+    private final long startedAtMillis = System.currentTimeMillis();
 
     private TranscodeSubmitDTO params;
     private Path workRoot;

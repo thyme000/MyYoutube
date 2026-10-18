@@ -21,6 +21,7 @@ import java.util.List;
 public class MediaDraftService {
 
     private final MediaDraftMapper draftMapper;
+    private final cn.diaojiahong.myyoutube.video.service.DraftObservation observation;
 
     /** 幂等创建: objectKey 唯一, 重复创建(事件重放/重试)返回已有草稿 */
     public Long createDraft(Long userId, String objectKey, String filename) {
@@ -46,7 +47,7 @@ public class MediaDraftService {
                 .setOriginalFilename(filename)
                 .setStatus(MediaDraftStatusEnum.UPLOADING);
         try {
-            draftMapper.insert(draft);
+            observation.insert(draft);
         } catch (org.springframework.dao.DuplicateKeyException e) {
             var winner = getByObjectKey(objectKey);
             if (winner == null) throw e;
@@ -61,7 +62,7 @@ public class MediaDraftService {
     }
 
     public boolean submit(MediaDraft frozen, long durationMs) {
-        return draftMapper.update(null, new LambdaUpdateWrapper<MediaDraft>()
+        return observation.update(frozen.getId(), new LambdaUpdateWrapper<MediaDraft>()
                 .eq(MediaDraft::getId, frozen.getId()).eq(MediaDraft::getUserId, frozen.getUserId())
                 .eq(MediaDraft::getRevision, frozen.getRevision()).eq(MediaDraft::getStatus, MediaDraftStatusEnum.READY)
                 .eq(MediaDraft::getMediaVersion, frozen.getMediaVersion()).eq(MediaDraft::getPreparationId, frozen.getPreparationId())
@@ -81,19 +82,17 @@ public class MediaDraftService {
     /** 条件更新: 只允许状态机合法迁移, 未命中返回 false(调用方按重复消息短路处理) */
     public boolean transition(Long draftId, MediaDraftStatusEnum expect, MediaDraftStatusEnum target,
                               Long durationMs, String errorMessage) {
-        MediaDraft patch = new MediaDraft()
-                .setStatus(target)
-                .setDurationMs(durationMs)
-                .setErrorMessage(errorMessage != null && errorMessage.length() > 500
-                        ? errorMessage.substring(0, 500) : errorMessage);
-        return draftMapper.update(patch, new LambdaUpdateWrapper<MediaDraft>()
+        String summary = errorMessage != null && errorMessage.length() > 500 ? errorMessage.substring(0, 500) : errorMessage;
+        return observation.update(draftId, new LambdaUpdateWrapper<MediaDraft>()
                 .eq(MediaDraft::getId, draftId)
-                .eq(MediaDraft::getStatus, expect)) > 0;
+                .eq(MediaDraft::getStatus, expect).set(MediaDraft::getStatus, target)
+                .set(durationMs != null, MediaDraft::getDurationMs, durationMs)
+                .set(errorMessage != null, MediaDraft::getErrorMessage, summary)) > 0;
     }
 
     /** 过期清理: 从任一预期状态置 EXPIRED(终态, 不再变更) */
     public boolean expire(Long draftId, List<MediaDraftStatusEnum> expects) {
-        return draftMapper.update(null, new LambdaUpdateWrapper<MediaDraft>()
+        return observation.update(draftId, new LambdaUpdateWrapper<MediaDraft>()
                 .eq(MediaDraft::getId, draftId)
                 .in(MediaDraft::getStatus, expects)
                 .set(MediaDraft::getStatus, MediaDraftStatusEnum.EXPIRED)) > 0;

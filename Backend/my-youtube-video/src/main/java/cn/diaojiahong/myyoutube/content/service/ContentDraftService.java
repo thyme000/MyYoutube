@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.DynamicMedia;
 import java.time.LocalDateTime;
@@ -24,7 +26,9 @@ import org.springframework.stereotype.Service;
 public class ContentDraftService {
     private final MediaDraftMapper drafts;
     private final DynamicMediaPreparationService preparation;
+    private final cn.diaojiahong.myyoutube.video.service.DraftObservation observation;
 
+    @ObservedBusiness(BusinessOperation.SAVE_DYNAMIC)
     public ContentDraftVO saveDynamic(Long draftId, Long userId, DynamicDraftDTO dto) {
         MediaDraft current = draftId == null ? null : owned(draftId, userId);
         if (current != null && (current.getType() != ContentTypeEnum.DYNAMIC || !java.util.Set.of(MediaDraftStatusEnum.READY, MediaDraftStatusEnum.PROCESSING, MediaDraftStatusEnum.FAILED).contains(current.getStatus())))
@@ -48,7 +52,7 @@ public class ContentDraftService {
                 .setExpiresAt(LocalDateTime.now().plusDays(7)).setPreparationRetry(false).setPreparationAfter(changedMedia ? LocalDateTime.now() : current.getPreparationAfter());
         if (!changedMedia) draft.setStatus(current.getStatus()).setPreparedJson(current.getPreparedJson())
                 .setPreparedCoverObjectKey(current.getPreparedCoverObjectKey()).setErrorMessage(current.getErrorMessage());
-        if (current == null) drafts.insert(draft);
+        if (current == null) observation.insert(draft);
         else {
             var update = editable(draftId, userId).eq(MediaDraft::getType, ContentTypeEnum.DYNAMIC)
                     .eq(MediaDraft::getStatus, current.getStatus()).eq(MediaDraft::getRevision, current.getRevision())
@@ -61,12 +65,13 @@ public class ContentDraftService {
                     .set(MediaDraft::getPreparationAttempt, 0).set(MediaDraft::getPreparationRetry, false)
                     .set(MediaDraft::getPreparationAfter, draft.getPreparationAfter()).set(MediaDraft::getErrorMessage, null)
                     .set(MediaDraft::getPreparedJson, null).set(MediaDraft::getPreparedCoverObjectKey, null);
-            int changed = drafts.update(null, update);
+            int changed = observation.update(draftId, update);
             if (changed == 0) throw new BizException(BizException.BIZ_ERROR, "草稿已提交或状态已变化");
         }
         return view(draft);
     }
 
+    @ObservedBusiness(BusinessOperation.SAVE_METADATA)
     public ContentDraftVO saveMetadata(Long draftId, Long userId, ContentMetadataDTO dto) {
         owned(draftId, userId);
         if (dto == null) throw new BizException(BizException.BIZ_ERROR, "草稿不能为空");

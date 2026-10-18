@@ -16,4 +16,12 @@ final class ContentTestDatabase {
     static void drop(JdbcTemplate jdbc,String... tables) {
         for(String table:tables) jdbc.execute("DROP TABLE IF EXISTS "+table);
     }
+    static void outbox(JdbcTemplate jdbc) throws Exception {
+        jdbc.execute("DROP TABLE IF EXISTS pipeline_event_outbox");
+        String schema = java.nio.file.Files.readString(java.nio.file.Path.of("../../resources/schema.sql"));
+        int start = schema.indexOf("CREATE TABLE IF NOT EXISTS pipeline_event_outbox (");
+        String sql = schema.substring(start, schema.indexOf(';', start) + 1);
+        if (!Boolean.getBoolean("content.integration")) sql = sql.replace(" CHARACTER SET ascii COLLATE ascii_bin", "").replace(" ENGINE=InnoDB", "");
+        jdbc.execute(sql);
+    }
 }

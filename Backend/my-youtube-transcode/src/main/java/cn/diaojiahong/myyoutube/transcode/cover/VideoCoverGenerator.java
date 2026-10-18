@@ -28,11 +28,11 @@ public class VideoCoverGenerator {
     private final S3StorageUtil storageUtil;
     private final CoverVisionSelector coverVisionSelector;
     private final cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage preparedStorage;
+    private final cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings frameSettings;
 
     public String selectPrepared(cn.diaojiahong.myyoutube.common.media.PreparationContracts.Manifest manifest) {
-        var frames = manifest.items().stream().filter(item -> "FRAME".equals(item.role()))
-                .sorted(Comparator.comparingInt(cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item::index)).toList();
-        if (frames.size() != 8) throw new IllegalArgumentException("Incomplete cover frames");
+        var settings = frameSettings.snapshot();
+        var frames = cn.diaojiahong.myyoutube.common.media.PreparedMedia.videoFrames(manifest);
         Path work = null;
         try {
             work = Files.createTempDirectory("prepared-cover-");
@@ -51,7 +51,9 @@ public class VideoCoverGenerator {
                 if (score == null) throw new IllegalStateException("Prepared cover frame cannot be scored");
                 candidates.add(score); keys.put(preview, frame.objectKey());
             }
-            return keys.get(selectBest(candidates, new FFmpegUtil.Options()).framePath());
+            return keys.get(selectBest(candidates, new FFmpegUtil.Options(), settings.coverMaxCandidates()).framePath());
+        } catch (cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable | cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure e) {
+            throw e;
         } catch (Exception e) { throw new IllegalStateException("Prepared cover selection failed", e); }
         finally {
             if (work != null) try (var paths = Files.walk(work)) {
@@ -66,6 +68,7 @@ public class VideoCoverGenerator {
      * 生成真实封面并上传；技术失败交给任务调度器重试
      */
     public String generate(Long refId, Long userId, String videoObjectKey) {
+        var settings = frameSettings.snapshot();
         if (videoObjectKey == null || videoObjectKey.isBlank()) {
             throw new IllegalStateException("封面输入或抽帧失败");
         }
@@ -80,14 +83,13 @@ public class VideoCoverGenerator {
             String source = storageUtil.signGetUrl(videoObjectKey, 3600 * 2);
 
             FFmpegUtil.Options opt = new FFmpegUtil.Options();
-            opt.sampleCount = 8;
             opt.commandTimeout = Duration.ofSeconds(60);
+            var plan = settings.plan(FFmpegUtil.probeVideo(source, opt).durationMs(), 0);
+            opt.sampleCount = plan.targetCount();
 
             List<FFmpegUtil.FrameScore> candidates = FFmpegUtil.extractAndScoreCandidates(source, taskDir, opt);
-            if (candidates.isEmpty()) {
-                throw new IllegalStateException("封面输入或抽帧失败");
-            }
-            FFmpegUtil.FrameScore best = selectBest(candidates, opt);
+            plan.validate(candidates.stream().map(FFmpegUtil::candidateIndex).sorted().toList());
+            FFmpegUtil.FrameScore best = selectBest(candidates, opt, settings.coverMaxCandidates());
 
             // 成品按选定时间点高清重抽; 失败退回候选帧原图
             Path finalCover = taskDir.resolve("video-cover-" + refId + "-" + taskId + ".jpg");
@@ -96,6 +98,8 @@ public class VideoCoverGenerator {
             }
             return storageUtil.uploadForObjectKey(Files.readAllBytes(finalCover),
                     finalCover.getFileName().toString(), userId, PREFIX_STORAGE);
+        } catch (cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable | cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalStateException("生成封面失败 videoId=" + refId, e);
         } finally {
@@ -114,11 +118,13 @@ public class VideoCoverGenerator {
     }
 
     /** 关闭视觉模型时取质量最高分；开启后的调用失败交由任务重试 */
-    private FFmpegUtil.FrameScore selectBest(List<FFmpegUtil.FrameScore> candidates, FFmpegUtil.Options opt) {
+    private FFmpegUtil.FrameScore selectBest(List<FFmpegUtil.FrameScore> candidates, FFmpegUtil.Options opt, int maxCandidates) {
         List<FFmpegUtil.FrameScore> survivors = candidates.stream()
                 .filter(c -> FFmpegUtil.passesPrefilter(c, opt))
                 .toList();
         List<FFmpegUtil.FrameScore> pool = survivors.isEmpty() ? candidates : survivors;
+        if (pool.size() > maxCandidates) pool = pool.stream().sorted(Comparator.comparingDouble(FFmpegUtil.FrameScore::totalScore).reversed())
+                .limit(maxCandidates).sorted(Comparator.comparingDouble(FFmpegUtil.FrameScore::second)).toList();
         Integer picked = coverVisionSelector.pickBest(pool);
         if (picked != null) {
             log.info("LLM 选帧命中: {}/{}", picked + 1, pool.size());

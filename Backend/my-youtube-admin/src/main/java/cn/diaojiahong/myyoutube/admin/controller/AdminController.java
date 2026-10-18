@@ -37,10 +37,6 @@ public class AdminController {
     public Result<java.util.Map<String, Object>> content(@PathVariable Long contentId) {
         requireAdmin(); return contentAdminPort.contentStatus(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId));
     }
-    @PostMapping("/content/{contentId}/retry")
-    public Result<Boolean> retryContent(@PathVariable Long contentId) {
-        requireAdmin(); return contentAdminPort.retryContent(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId));
-    }
     @GetMapping("/content/waiting")
     public Result<java.util.List<java.util.Map<String, Object>>> waiting(@RequestParam(defaultValue = "1") long pageNo,
                                                                        @RequestParam(defaultValue = "20") long pageSize) {

@@ -54,10 +54,6 @@ public class InternalAdminContentController {
     public Result<Map<String, Object>> contentStatus(@RequestBody ContentAdminPort.ContentId id) {
         return Result.success(understanding.status(id.getContentId()));
     }
-    @PostMapping("/content/retry")
-    public Result<Boolean> retryContent(@RequestBody ContentAdminPort.ContentId id) {
-        return Result.success(understanding.retry(id.getContentId()));
-    }
     @PostMapping("/content/waiting")
     public Result<List<Map<String, Object>>> waitingContent(@RequestBody ContentAdminPort.AdminContentQuery query) {
         return Result.success(understanding.waiting((int) query.getPageNo(), (int) query.getPageSize()).stream().map(row -> {

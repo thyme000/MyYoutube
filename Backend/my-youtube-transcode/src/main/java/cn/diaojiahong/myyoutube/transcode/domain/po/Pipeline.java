@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 public class Pipeline {
     @TableId(type = IdType.INPUT)
     private Long id;
+    private Long eventSequence;
     private Long contentId;
     @TableField(updateStrategy = FieldStrategy.NEVER)
     private String inputJson;

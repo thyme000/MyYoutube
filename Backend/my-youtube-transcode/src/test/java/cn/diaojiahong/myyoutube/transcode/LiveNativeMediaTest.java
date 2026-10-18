@@ -66,7 +66,7 @@ class LiveNativeMediaTest {
         var transcript=artifacts.read(asrResult.get("segmentsKey").getAsString(),ContentArtifacts.Transcript.class);
         assertFalse(transcript.segments().isEmpty());
         assertTrue(new String(env.storage.readObject(asrResult.get("vttKey").getAsString())).startsWith("WEBVTT"));
-        var result=StructuredJson.object(new OcrTaskExecutor(images,guard,env.storage,artifacts,new PipelineProperties()).execute(msg));
+        var result=StructuredJson.object(new OcrTaskExecutor(images,guard,env.storage,artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings()).execute(msg));
         var frames=artifacts.read(result.get("artifactKey").getAsString(),ContentArtifacts.Ocr.class).frames();
         assertEquals(2,frames.size()); assertTrue(frames.get(0).text().contains("ALPHA")); assertTrue(frames.get(1).text().contains("BETA"));
         for(int i=0;i<2;i++) { assertEquals(i,frames.get(i).imageIndex()); assertEquals(items.get(i).startMs(),frames.get(i).timeMs()); assertEquals(items.get(i).imageObjectKey(),frames.get(i).objectKey()); }
@@ -78,7 +78,7 @@ class LiveNativeMediaTest {
         assertTrue(result.get("noAudio").getAsBoolean());
         assertTrue(artifacts.read(result.get("segmentsKey").getAsString(),ContentArtifacts.Transcript.class).segments().isEmpty());
         env.storage.deleteObjectQuietly(items.get(1).imageObjectKey());
-        assertThrows(IllegalStateException.class,() -> new OcrTaskExecutor(images,guard,env.storage,artifacts,new PipelineProperties()).execute(msg));
+        assertThrows(IllegalStateException.class,() -> new OcrTaskExecutor(images,guard,env.storage,artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings()).execute(msg));
     }
     @Test void videoKeepsRealSpeechAndEightFrameOcrPath() throws Exception {
         var audio=work.resolve("audio.wav"); var video=work.resolve("video.mp4");
@@ -91,7 +91,7 @@ class LiveNativeMediaTest {
                         new ContentMedia("video",new VideoMedia(key,10000),null),System.currentTimeMillis())).build();
         var transcript=StructuredJson.object(new AsrTaskExecutor(speech,guard,env.storage,artifacts).execute(msg));
         assertFalse(artifacts.read(transcript.get("segmentsKey").getAsString(),ContentArtifacts.Transcript.class).segments().isEmpty());
-        var result=StructuredJson.object(new OcrTaskExecutor(images,guard,env.storage,artifacts,new PipelineProperties()).execute(msg));
+        var result=StructuredJson.object(new OcrTaskExecutor(images,guard,env.storage,artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings()).execute(msg));
         var frames=artifacts.read(result.get("artifactKey").getAsString(),ContentArtifacts.Ocr.class).frames();
         assertEquals(8,frames.size()); assertTrue(frames.stream().allMatch(frame -> frame.text().contains("ALPHA")));
         for(int i=1;i<8;i++) assertTrue(frames.get(i).timeMs()>frames.get(i-1).timeMs());

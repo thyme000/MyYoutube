@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.preparation;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.transcode.domain.po.*;
 import cn.diaojiahong.myyoutube.transcode.mapper.*;
 import cn.diaojiahong.myyoutube.video.api.MediaDraftPort;
@@ -27,9 +29,11 @@ public class PreparationReclaimer {
     private final MediaDraftPort video;
     private final PreparationStorage storage;
     private final TransactionTemplate transaction;
+    private final io.micrometer.core.instrument.MeterRegistry metrics;
     private static final Set<String> TERMINAL = Set.of("SUCCESS", "DEAD", "BLOCKED");
 
     @Scheduled(fixedDelay = 900000, initialDelay = 300000)
+    @ObservedBusiness(BusinessOperation.RECLAIM_MEDIA)
     public void reclaim() {
         var now = LocalDateTime.now(ZoneOffset.UTC);
         long cursor = 0;
@@ -39,7 +43,10 @@ public class PreparationReclaimer {
             if (page.isEmpty()) return;
             cursor = page.get(page.size() - 1).getId();
             for (var candidate : page) try { inspect(candidate, now); }
-            catch (Exception e) { log.warn("Preparation reclamation deferred preparationId={}", candidate.getId(), e); }
+            catch (Exception e) {
+                metrics.counter("myyoutube.maintenance.deferred", "stage", "preparation_reclaim").increment();
+                log.warn("Preparation reclamation deferred preparationId={}", candidate.getId(), e);
+            }
         }
     }
 

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.schedule;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaUploadEventMessage;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
@@ -39,8 +41,10 @@ public class MediaDraftCleaner {
     private final S3StorageUtil storageUtil;
     private final RocketMQTemplate rocketMQTemplate;
     private final MediaTaskPort mediaTaskPort;
+    private final io.micrometer.core.instrument.MeterRegistry metrics;
 
     @Scheduled(fixedDelay = 1_800_000, initialDelay = 300_000)
+    @ObservedBusiness(BusinessOperation.CLEAN_DRAFTS)
     public void clean() {
         LocalDateTime now = LocalDateTime.now();
         List<MediaDraft> stale = draftMapper.selectList(new LambdaQueryWrapper<MediaDraft>()
@@ -48,13 +52,19 @@ public class MediaDraftCleaner {
                         MediaDraftStatusEnum.READY, MediaDraftStatusEnum.FAILED)
                 .lt(MediaDraft::getUpdateTime, now.minusHours(UPLOADING_STALE_HOURS))
                 .last("limit 200"));
+        if (stale.isEmpty()) {
+            return;
+        }
+        long startedAt = System.currentTimeMillis();
         for (MediaDraft draft : stale) {
             try {
                 handle(draft, now);
             } catch (Exception e) {
+                metrics.counter("myyoutube.maintenance.deferred", "stage", "draft_cleanup").increment();
                 log.warn("草稿治理失败: draftId={}", draft.getId(), e);
             }
         }
+        log.info("Draft cleanup completed scanned={} elapsedMs={}", stale.size(), System.currentTimeMillis() - startedAt);
     }
 
     private void handle(MediaDraft draft, LocalDateTime now) {
@@ -64,12 +74,13 @@ public class MediaDraftCleaner {
             }
             if (objectExists(draft.getObjectKey())) {
                 // 对象在但事件没到: 补发上传事件重新进管线
-                log.warn("补桥上传事件: draftId={}", draft.getId());
+                log.warn("上传事件缺失, 已补发上传事件 draftId={}", draft.getId());
                 rocketMQTemplate.syncSend(MqConstants.TOPIC_MEDIA_UPLOAD_EVENT, MediaUploadEventMessage.builder()
                         .draftId(draft.getId())
                         .userId(draft.getUserId())
                         .objectKey(draft.getObjectKey())
                         .build());
+                metrics.counter("myyoutube.upload.event.repairs").increment();
             } else if (draft.getPreparationId() == null) {
                 // 直传从未完成或对象已被清: 过期回收
                 mediaDraftService.expire(draft.getId(), List.of(MediaDraftStatusEnum.UPLOADING));
@@ -114,6 +125,7 @@ public class MediaDraftCleaner {
                 }
             }
         } catch (Exception e) {
+            metrics.counter("myyoutube.maintenance.deferred", "stage", "artifact_cleanup").increment();
             // transcode 不可用时只删原件, 产物留给下一轮/人工
             log.warn("管线产物清理失败(原件已删): draftId={}", draftId, e);
         }

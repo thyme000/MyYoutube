@@ -69,7 +69,7 @@ class MediaPreparationTest {
                 + (audio == null ? "" : ",{\"codec_type\":\"audio\",\"codec_name\":\""+audio+"\"}") + "]}";
     }
     @Test void videoAllowsNoAudioAndAacButRejectsIncompatibleInputs() {
-        var videos = new PreparedVideoReader(properties,writer);
+        var videos = new PreparedVideoReader(properties,writer, new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         assertFalse(videos.validateProbe(probe("h264",null)).hasAudio());
         assertTrue(videos.validateProbe(probe("h264","aac")).hasAudio());
         for (String input : java.util.List.of(probe("hevc",null),probe("h264","opus"),probe("h264",null).replace("isom","3gp5"),
@@ -80,7 +80,7 @@ class MediaPreparationTest {
             assertThrows(IllegalArgumentException.class,()->videos.validateProbe(input));
     }
     @Test void videoAllowsLevelFiveAndFiveOneAndReportsConfiguredRejection() {
-        var videos = new PreparedVideoReader(properties,writer);
+        var videos = new PreparedVideoReader(properties,writer, new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         for (int level : java.util.List.of(50, 51))
             assertEquals(level, videos.validateProbe(probe("h264","aac")
                     .replace("\"level\":40", "\"level\":" + level)).level());
@@ -92,7 +92,7 @@ class MediaPreparationTest {
         assertTrue(error.getMessage().contains("pix_fmt=\"yuv420p\""));
     }
     @Test void videoBrandAcceptsPaddingAndReportsActualConfiguredAllowlist() {
-        var videos = new PreparedVideoReader(properties,writer);
+        var videos = new PreparedVideoReader(properties,writer, new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         assertFalse(videos.validateProbe(probe("h264",null).replace("isom","M4V ")).hasAudio());
         var unsupported = assertThrows(IllegalArgumentException.class,
                 () -> videos.validateProbe(probe("h264",null).replace("isom","qt  ")));
@@ -104,7 +104,7 @@ class MediaPreparationTest {
         assertTrue(configured.getMessage().contains("允许值=[mp42]"));
     }
     @Test void videoBrandMissingOrMalformedHasDistinctDiagnostic() {
-        var videos = new PreparedVideoReader(properties,writer);
+        var videos = new PreparedVideoReader(properties,writer, new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         for (String tags : java.util.List.of("null", "{}", "{\"major_brand\":null}",
                 "{\"major_brand\":\" \"}", "{\"major_brand\":[]}")) {
             var error = assertThrows(IllegalArgumentException.class, () -> videos.validateProbe(
@@ -116,7 +116,7 @@ class MediaPreparationTest {
         assertTrue(error.getMessage().contains("缺少 major_brand"));
     }
     @Test void videoBrandAllowsRepeatedMetadataButRejectsConflictingOrEmptyValues() {
-        var videos = new PreparedVideoReader(properties,writer);
+        var videos = new PreparedVideoReader(properties,writer, new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         for (String brand : java.util.List.of("isom;isom", "isom; isom ;isom", "mp42;mp42", "M4V ;M4V "))
             assertFalse(videos.validateProbe(probe("h264",null).replace("isom",brand)).hasAudio());
         for (String brand : java.util.List.of("qt  ;qt  ", "isom;qt  ", "qt  ;isom", "isom;mp42",

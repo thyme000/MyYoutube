@@ -47,6 +47,10 @@ public class CoverVisionSelector {
                     properties.effectiveVisionModel(), 0.2, 512);
             String content = guard.call("LLM", () -> llmPort.chat(request)).getContent();
             return parseIndex(content, candidates.size());
+        } catch (cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure e) {
+            throw e;
+        } catch (cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalStateException("封面模型选帧失败", e);
         }

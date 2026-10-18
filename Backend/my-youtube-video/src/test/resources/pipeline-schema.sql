@@ -1,4 +1,5 @@
 CREATE TABLE IF NOT EXISTS content_understanding (
+    event_sequence BIGINT NOT NULL DEFAULT 0,
     content_id BIGINT NOT NULL PRIMARY KEY,
     pipeline_id BIGINT NOT NULL,
     state VARCHAR(32) NOT NULL DEFAULT 'WAITING_PIPELINE',

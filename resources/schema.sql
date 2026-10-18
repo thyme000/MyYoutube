@@ -298,9 +298,32 @@ CREATE TABLE IF NOT EXISTS `dynamic` (
     `media_json` JSON NOT NULL COMMENT '有序图片、画布、转场和可选原始音频快照，无签名URL'
 ) ENGINE=InnoDB COMMENT='原生图集媒体';
 
+-- 可靠管线事件与业务状态同库、同事务记录。
+CREATE TABLE IF NOT EXISTS pipeline_event_outbox (
+    event_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    aggregate_type VARCHAR(16) NOT NULL,
+    aggregate_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    event_sequence BIGINT NOT NULL,
+    occurred_at DATETIME(6) NOT NULL,
+    payload MEDIUMTEXT NOT NULL,
+    payload_digest CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+    lease_token VARCHAR(64),
+    lease_until DATETIME(6),
+    sent_at DATETIME(6),
+    quarantine_reason VARCHAR(128),
+    created_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uk_event_sequence(aggregate_type, aggregate_id, event_sequence),
+    KEY idx_outbox_pending(status, quarantine_reason, created_at, event_id),
+    KEY idx_outbox_lease(status, quarantine_reason, lease_until, event_id),
+    KEY idx_outbox_cleanup(status, quarantine_reason, sent_at, event_id)
+) ENGINE=InnoDB;
+
 -- ==================== transcode_db: 转码库(transcode-svc) ====================
 CREATE DATABASE IF NOT EXISTS transcode_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE transcode_db;
+
+CREATE TABLE IF NOT EXISTS pipeline_event_outbox LIKE video_db.pipeline_event_outbox;
 
 -- 懒转码任务表(动态成片生成; task_key 为元数据内容哈希, 同 key 在途任务复用即幂等)
 CREATE TABLE IF NOT EXISTS `transcode_task` (
@@ -326,6 +349,7 @@ USE video_db;
 
 -- 视频上传后转码 READY；图集原生素材校验后 READY；提交冻结为 submitted。
 CREATE TABLE IF NOT EXISTS `media_draft` (
+    event_sequence BIGINT NOT NULL DEFAULT 0,
     media_version BIGINT NOT NULL DEFAULT 0,
     preparation_id BIGINT NOT NULL,
     preparation_attempt INT NOT NULL DEFAULT 0,
@@ -362,6 +386,7 @@ CREATE TABLE IF NOT EXISTS `media_draft` (
 USE transcode_db;
 
 CREATE TABLE IF NOT EXISTS media_pipeline (
+    event_sequence BIGINT NOT NULL DEFAULT 0,
     id BIGINT NOT NULL PRIMARY KEY,
     content_id BIGINT NOT NULL,
     input_json JSON NOT NULL,
@@ -374,12 +399,17 @@ CREATE TABLE IF NOT EXISTS media_pipeline (
     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_pipeline_content(content_id),
     KEY idx_pipeline_delivery(status, received, notify_after, id),
+    KEY idx_pipeline_metrics_delivery(status, received, completed_at, id),
     KEY idx_pipeline_status(status, id)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS media_task (
+    event_sequence BIGINT NOT NULL DEFAULT 0,
     id BIGINT NOT NULL PRIMARY KEY,
     owner_id BIGINT NOT NULL,
     pipeline_id BIGINT,
+    retry_batch_id BIGINT,
+    failure_code VARCHAR(80),
+    dependency_service VARCHAR(16),
     phase VARCHAR(16) NOT NULL,
     task_type VARCHAR(16) NOT NULL,
     status VARCHAR(16) NOT NULL,
@@ -393,11 +423,14 @@ CREATE TABLE IF NOT EXISTS media_task (
     ready_at DATETIME,
     started_at DATETIME,
     next_retry_at DATETIME,
+    unavailable_deadline DATETIME,
     dispatch_after DATETIME,
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_owner_phase_type(owner_id, phase, task_type),
     UNIQUE KEY uk_pipeline_phase_type(pipeline_id, phase, task_type),
+    KEY idx_task_metrics_ready(status, ready_at, id),
+    KEY idx_task_batch(retry_batch_id, status, id),
     KEY idx_task_dispatch(status, dispatch_after, id),
     KEY idx_task_retry(status, next_retry_at, id),
     KEY idx_task_lease(status, update_time, id),
@@ -406,6 +439,7 @@ CREATE TABLE IF NOT EXISTS media_task (
 
 USE video_db;
 CREATE TABLE IF NOT EXISTS content_understanding (
+    event_sequence BIGINT NOT NULL DEFAULT 0,
     content_id BIGINT NOT NULL PRIMARY KEY,
     pipeline_id BIGINT NOT NULL,
     state VARCHAR(32) NOT NULL DEFAULT 'WAITING_PIPELINE',
@@ -459,6 +493,7 @@ CREATE TABLE IF NOT EXISTS content_publication_event (
     notice_done TINYINT NOT NULL DEFAULT 0,
     completed TINYINT NOT NULL DEFAULT 0,
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_publication_metrics_age (completed, create_time, id),
     KEY idx_publication_pending (completed, id),
     KEY idx_author_count(author_id, user_count_done, id)
 ) ENGINE=InnoDB;
@@ -498,4 +533,21 @@ CREATE TABLE IF NOT EXISTS media_preparation_item (
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_preparation_item(preparation_id, role, item_index),
     KEY idx_preparation_object(object_key, preparation_id)
+);
+
+USE transcode_db;
+CREATE TABLE IF NOT EXISTS media_retry_batch (
+    event_sequence BIGINT NOT NULL DEFAULT 0,
+    id BIGINT NOT NULL PRIMARY KEY,
+    request_id VARCHAR(128) NOT NULL,
+    actor_id BIGINT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    active TINYINT,
+    selection_json TEXT NOT NULL,
+    result_json MEDIUMTEXT,
+    max_concurrency INT NOT NULL,
+    created_at DATETIME NOT NULL,
+    completed_at DATETIME,
+    UNIQUE KEY uk_retry_request(request_id),
+    UNIQUE KEY uk_retry_active(active)
 );

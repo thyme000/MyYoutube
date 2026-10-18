@@ -10,12 +10,14 @@ import cn.diaojiahong.myyoutube.transcode.api.AsrPort;
 import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
 import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import java.util.Map;
 import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class AsrTaskExecutor implements MediaTaskExecutor {
     private final AsrPort asr;
     private final cn.diaojiahong.myyoutube.common.resilience.ModelCallGuard guard;
@@ -27,9 +29,12 @@ public class AsrTaskExecutor implements MediaTaskExecutor {
         String base = "content/" + msg.getPipelineId() + "/asr/" + msg.getAttempt() + "/" + UUID.randomUUID();
         String vtt = base + ".vtt", segments = base + ".json";
         var media = input.media();
+        long startedAt = System.currentTimeMillis();
         if (media.preparation() != null && !media.preparation().hasAudio() || media.dynamic() != null && media.dynamic().audio() == null) {
             storage.uploadWithKey("WEBVTT\n\n".getBytes(StandardCharsets.UTF_8), vtt);
             String emptySegments = artifacts.write(msg.getPipelineId(), "ASR", msg.getAttempt(), new ContentArtifacts.Transcript(List.of()));
+            log.info("ASR completed pipelineId={} taskId={} attempt={} reason=NO_AUDIO segmentCount=0 elapsedMs={}",
+                    msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), System.currentTimeMillis() - startedAt);
             return JsonUtil.toJson(Map.of("vttKey", vtt, "segmentsKey", emptySegments, "durationMs", 0,
                     "segmentCount", 0, "speechEmpty", true, "noAudio", true));
         }
@@ -38,6 +43,9 @@ public class AsrTaskExecutor implements MediaTaskExecutor {
                 storage.presignPutUrl(vtt, 3600), storage.presignPutUrl(segments, 3600),
                 input.title(), input.tags() == null ? "" : input.tags(), input.description() == null ? "" : input.description(), "")));
         if (result == null) throw new IllegalStateException("ASR 返回为空");
+        log.info("ASR completed pipelineId={} taskId={} attempt={} durationMs={} segmentCount={} speechEmpty={} elapsedMs={}",
+                msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), result.durationMs(), result.segmentCount(),
+                result.speechEmpty(), System.currentTimeMillis() - startedAt);
         return JsonUtil.toJson(Map.of("vttKey", vtt, "segmentsKey", segments,
                 "durationMs", result.durationMs(), "segmentCount", result.segmentCount(), "speechEmpty", result.speechEmpty()));
     }

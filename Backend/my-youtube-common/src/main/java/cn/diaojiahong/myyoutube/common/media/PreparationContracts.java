@@ -11,7 +11,8 @@ public final class PreparationContracts {
     public record Item(String role, int index, String originalObjectKey, String objectKey,
                        long timeMs, int width, int height) {}
     public record Manifest(Long preparationId, Long draftId, long mediaVersion, Long userId,
-                           String parameterVersion, List<Item> items, long durationMs, boolean hasAudio) {
+                           String parameterVersion, List<Item> items, long durationMs, boolean hasAudio, int videoFrameCount,
+                           VideoFrameSampling.Plan videoSampling) {
         public Manifest { items = List.copyOf(items); }
     }
     public record View(Long preparationId, String status, int attempt, int retryCount,

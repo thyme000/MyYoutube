@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -15,6 +16,7 @@ import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class SummaryTaskExecutor implements MediaTaskExecutor {
     private final ContentArtifactStore artifacts;
     private final cn.diaojiahong.myyoutube.transcode.config.PipelineProperties properties;
@@ -24,18 +26,24 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
     @Override public MediaTaskType type() { return MediaTaskType.SUMMARY; }
     @Override public String execute(MediaTaskMessage msg) {
         var input = msg.getInput();
+        long startedAt = System.currentTimeMillis();
         var asr = StructuredJson.object(msg.getDependencies().get("ASR"));
         var ocr = StructuredJson.object(msg.getDependencies().get("OCR"));
         var transcript = artifacts.read(asr.get("segmentsKey").getAsString(), ContentArtifacts.Transcript.class);
         var frames = artifacts.read(ocr.get("artifactKey").getAsString(), ContentArtifacts.Ocr.class);
-        if (EvidenceText.empty(input.title(), input.description(), transcript, frames))
+        if (EvidenceText.empty(input.title(), input.description(), transcript, frames)) {
+            log.info("Summary completed pipelineId={} taskId={} attempt={} reason=NO_TEXT_EVIDENCE summaryLength=0 elapsedMs={}",
+                    msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), System.currentTimeMillis() - startedAt);
             return JsonUtil.toJson(Map.of("artifactKey", artifacts.write(msg.getPipelineId(), "SUMMARY", msg.getAttempt(),
                     new ContentArtifacts.Summary("", List.of()))));
+        }
         var templates = prompts.snapshot();
         String evidence = EvidenceText.full(input.title(), input.description(), transcript, frames);
         List<String> summaries = new ArrayList<>();
         List<ContentArtifacts.Chapter> chapters = new ArrayList<>();
+        int chunks = 0;
         for (String chunk : EvidenceText.chunks(evidence, properties.getChunkCharacters())) {
+            chunks++;
             boolean timedText = transcript.segments().stream().anyMatch(segment -> !segment.text().isBlank())
                     || frames.frames().stream().anyMatch(frame -> !frame.text().isBlank());
             var result = summarize(chunk, input.media().video() != null && timedText, templates);
@@ -46,7 +54,9 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
                 chapters.add(chapter);
             }
         }
+        int mergeRounds = 0;
         while (summaries.size() > 1) {
+            mergeRounds++;
             List<String> reduced = new ArrayList<>();
             var group = new ArrayList<String>();
             int characters = 0;
@@ -63,6 +73,9 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
         }
         var result = new ContentArtifacts.Summary(summaries.get(0), chapters.stream()
                 .sorted(Comparator.comparingLong(ContentArtifacts.Chapter::startMs)).distinct().toList());
+        log.info("Summary completed pipelineId={} taskId={} attempt={} evidenceChars={} chunks={} mergeRounds={} chapters={} summaryLength={} elapsedMs={}",
+                msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), evidence.length(), chunks, mergeRounds,
+                result.chapters().size(), result.summary().length(), System.currentTimeMillis() - startedAt);
         return JsonUtil.toJson(Map.of("artifactKey", artifacts.write(msg.getPipelineId(), "SUMMARY", msg.getAttempt(), result)));
     }
     private ContentArtifacts.Summary summarize(String evidence, boolean allowChapters, PromptTemplates.Snapshot templates) {
@@ -75,25 +88,12 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
         var response = guard.call("LLM", () -> llm.chat(request));
         if (response == null || !"stop".equals(response.getFinishReason()))
             throw new IllegalArgumentException("摘要未正常结束");
-        var json = strictObject(response.getContent());
+        var json = StructuredJson.strictObject(response.getContent());
         validateStructure(json, allowChapters);
         var result = JsonUtil.fromJson(json.toString(), ContentArtifacts.Summary.class);
         if (result == null || result.summary() == null || result.summary().isBlank() || result.summary().length() > summaryLimit || result.chapters() == null)
             throw new IllegalArgumentException("摘要输出不完整");
         return result;
-    }
-
-    private static com.google.gson.JsonObject strictObject(String content) {
-        if (content == null) throw new IllegalArgumentException("摘要输出为空");
-        try {
-            var factory = com.fasterxml.jackson.core.JsonFactory.builder()
-                    .enable(com.fasterxml.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
-            var mapper = new com.fasterxml.jackson.databind.ObjectMapper(factory)
-                    .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-            var node = mapper.readTree(content);
-            if (node == null || !node.isObject()) throw new IllegalArgumentException("摘要须为 JSON 对象");
-            return JsonUtil.GSON.fromJson(node.toString(), com.google.gson.JsonObject.class);
-        } catch (java.io.IOException e) { throw new IllegalArgumentException("摘要 JSON 非法"); }
     }
 
     private static Map<String, Object> responseFormat(int limit, boolean chapters) {

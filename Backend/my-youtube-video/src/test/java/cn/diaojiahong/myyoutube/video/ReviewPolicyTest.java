@@ -19,10 +19,13 @@ class ReviewPolicyTest {
         new org.springframework.boot.env.YamlPropertySourceLoader()
                 .load("video", new org.springframework.core.io.ClassPathResource("application.yml"))
                 .forEach(source -> environment.getPropertySources().addLast(source));
+        new org.springframework.boot.env.YamlPropertySourceLoader()
+                .load("common", new org.springframework.core.io.ClassPathResource("application-common.yml"))
+                .forEach(source -> environment.getPropertySources().addLast(source));
         var binder = org.springframework.boot.context.properties.bind.Binder.get(environment);
         var defaults = binder.bind("my-youtube.content-pipeline", ContentPipelineProperties.class).get();
         assertFalse(defaults.isReviewVisionEnabled());
-        assertEquals(4, defaults.getReviewFrameBatchSize());
+        assertEquals(4, new FrameProcessingSettings(environment).snapshot().reviewBatchSize());
         assertFalse(binder.bind("my-youtube.autotag", cn.diaojiahong.myyoutube.recommend.auto.TaggingProperties.class).get().isVisionEnabled());
         environment.setProperty("CONTENT_AUTO_REVIEW", "false");
         environment.setProperty("CONTENT_REVIEW_VISION_ENABLED", "true");
@@ -31,23 +34,19 @@ class ReviewPolicyTest {
         var overridden = binder.bind("my-youtube.content-pipeline", ContentPipelineProperties.class).get();
         assertFalse(overridden.isAutoReview());
         assertTrue(overridden.isReviewVisionEnabled());
-        assertEquals(3, overridden.getReviewFrameBatchSize());
+        assertEquals(3, new FrameProcessingSettings(environment).snapshot().reviewBatchSize());
         assertTrue(binder.bind("my-youtube.autotag", cn.diaojiahong.myyoutube.recommend.auto.TaggingProperties.class).get().isVisionEnabled());
     }
 
     @Test void frameBatchSizeMustBeWithinAvailableFrames() {
-        var policy = new ContentPipelineProperties();
-
         for (int size : new int[]{0, -1, 9}) {
-            policy.setReviewFrameBatchSize(size);
-            assertThrows(IllegalStateException.class, policy::validate);
+            assertThrows(IllegalArgumentException.class, () -> new FrameProcessingSettings.Snapshot(5, 10, 8, 2, size, 80));
             assertThrows(IllegalArgumentException.class, () -> new PipelineContracts.ReviewSpec(
                     true, "test", "v1", "rules", 0.2, 0.9, 12000, true, size));
         }
 
         for (int size : new int[]{1, 4, 8}) {
-            policy.setReviewFrameBatchSize(size);
-            assertDoesNotThrow(policy::validate);
+            assertDoesNotThrow(() -> new FrameProcessingSettings.Snapshot(5, 10, 8, 2, size, 80));
         }
     }
 
@@ -74,7 +73,7 @@ class ReviewPolicyTest {
         var videos = mock(VideoMapper.class); var rows = mock(ContentUnderstandingMapper.class);
         var records = mock(ContentReviewRecordMapper.class); var events = mock(ContentPublicationEventMapper.class);
         when(rows.selectOne(any())).thenReturn(new ContentUnderstanding().setContentId(1L).setState(ContentReviewState.MANUAL_PENDING).setReviewAttempt(2));
-        var service = new ReviewDecisionService(rows, records, events, mock(IContentService.class), new ContentPipelineProperties(), mock(PublicationEffectsService.class), new PromptTemplates());
+        var service = new ReviewDecisionService(rows, records, events, mock(IContentService.class), new ContentPipelineProperties(), mock(PublicationEffectsService.class), new PromptTemplates(), mock(cn.diaojiahong.myyoutube.video.service.ContentObservation.class), new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         assertFalse(service.machine(1L, 1, ReviewVerdict.parse("{\"decision\":\"PASS\",\"riskScore\":0,\"confidence\":1,\"reason\":\"安全\",\"evidence\":[]}", "test")));
         verifyNoInteractions(videos, records, events);
     }

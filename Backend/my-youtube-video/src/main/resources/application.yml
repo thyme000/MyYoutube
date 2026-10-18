@@ -60,14 +60,12 @@ my-youtube.content-pipeline:
   auto-review: ${CONTENT_AUTO_REVIEW:true}
   # 画面审核独立开启；关闭时仅审文本，审批仍由 auto-review 和审核阈值控制
   review-vision-enabled: ${CONTENT_REVIEW_VISION_ENABLED:false}
-  review-frame-batch-size: ${CONTENT_REVIEW_FRAME_BATCH_SIZE:4}
   max-risk: ${CONTENT_REVIEW_MAX_RISK:0.2}
   min-confidence: ${CONTENT_REVIEW_MIN_CONFIDENCE:0.9}
   evidence-chunk-characters: 12000
   review-model: ${CONTENT_REVIEW_MODEL:qwen3.5:9b}
 
 management:
-  endpoints.web.exposure.include: health,prometheus
   metrics.distribution.percentiles-histogram:
     "[media.pipeline.duration]": true
     "[media.pipeline.ready.duration]": true

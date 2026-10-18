@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage;
@@ -43,6 +45,7 @@ public class PublicationEffectsService {
         }
     }
     @Scheduled(fixedDelay = 300000, initialDelay = 300000)
+    @ObservedBusiness(BusinessOperation.RECOVER_PUBLICATION)
     public void recover() {
         long cursor = 0;
         while (true) {
@@ -63,7 +66,11 @@ public class PublicationEffectsService {
     }
     public void apply(PublicationEffectMessage message) {
         var event = events.selectById(message.eventId());
-        if (event == null || Boolean.TRUE.equals(event.getCompleted())) return;
+        if (event == null || Boolean.TRUE.equals(event.getCompleted())) {
+            log.debug("Publication branch ignored eventId={} branch={} reason={}", message.eventId(), message.branch(),
+                    event == null ? "EVENT_MISSING" : "ALREADY_COMPLETED");
+            return;
+        }
         switch (message.branch()) {
             case "COUNT" -> count(event);
             case "SEARCH" -> {
@@ -75,18 +82,30 @@ public class PublicationEffectsService {
             case "NOTICE" -> notice(event);
             default -> throw new IllegalArgumentException("Unknown publication branch");
         }
-        events.update(null, update(event).eq(ContentPublicationEvent::getUserCountDone, true).eq(ContentPublicationEvent::getSearchDone, true)
+        int completed = events.update(null, update(event).eq(ContentPublicationEvent::getUserCountDone, true).eq(ContentPublicationEvent::getSearchDone, true)
                 .eq(ContentPublicationEvent::getNoticeDone, true).set(ContentPublicationEvent::getCompleted, true));
+        if (completed > 0) {
+            log.info("Publication effects completed eventId={} contentId={} authorId={} status={} delta={}",
+                    event.getId(), event.getContentId(), event.getAuthorId(), event.getStatus(), event.getDelta());
+        } else {
+            log.debug("Publication branch applied, waiting for remaining branches eventId={} branch={}", event.getId(), message.branch());
+        }
     }
     private void count(ContentPublicationEvent event) {
         if (Boolean.TRUE.equals(event.getUserCountDone())) return;
         var lock = redisson.getLock("content:publication-count:" + event.getAuthorId());
-        if (!lock.tryLock()) throw new IllegalStateException("Author count branch busy");
+        if (!lock.tryLock()) {
+            log.warn("Author count branch busy, will retry eventId={} authorId={}", event.getId(), event.getAuthorId());
+            throw new IllegalStateException("Author count branch busy");
+        }
         try {
             var first = events.selectOne(new LambdaQueryWrapper<ContentPublicationEvent>().eq(ContentPublicationEvent::getAuthorId, event.getAuthorId())
                     .eq(ContentPublicationEvent::getUserCountDone, false).orderByAsc(ContentPublicationEvent::getId).last("LIMIT 1"));
             if (first == null) return;
-            if (!first.getId().equals(event.getId())) throw new IllegalStateException("Earlier author count event pending");
+            if (!first.getId().equals(event.getId())) {
+                log.debug("Author count waits for earlier event eventId={} earlierEventId={}", event.getId(), first.getId());
+                throw new IllegalStateException("Earlier author count event pending");
+            }
             if (event.getDelta() != 0) users.applyContentCountEvent(new ContentCountEvent(event.getId().toString(), event.getAuthorId(), event.getDelta()));
             esPublisher.syncUserDoc(event.getAuthorId());
             events.update(null, update(event).set(ContentPublicationEvent::getUserCountDone, true));
@@ -104,8 +123,12 @@ public class PublicationEffectsService {
             events.update(null, update(event).set(ContentPublicationEvent::getNoticeDone, true));
             return true;
         }));
-        if (inserted) try { push.pushSseSignal(event.getAuthorId(), NotificationPublisher.NOTIFY_DIRTY_SIGNAL); }
-        catch (Exception e) { log.debug("SSE reminder failed after durable notification", e); }
+        if (inserted) {
+            log.info("Publication notice stored eventId={} contentId={} receiverId={} status={}",
+                    event.getId(), event.getContentId(), event.getAuthorId(), event.getStatus());
+            try { push.pushSseSignal(event.getAuthorId(), NotificationPublisher.NOTIFY_DIRTY_SIGNAL); }
+            catch (Exception e) { log.debug("SSE reminder failed after durable notification", e); }
+        }
     }
     private LambdaUpdateWrapper<ContentPublicationEvent> update(ContentPublicationEvent event) {
         return new LambdaUpdateWrapper<ContentPublicationEvent>().eq(ContentPublicationEvent::getId, event.getId());

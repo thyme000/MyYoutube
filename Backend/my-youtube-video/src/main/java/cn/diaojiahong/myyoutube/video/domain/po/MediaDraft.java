@@ -24,6 +24,7 @@ public class MediaDraft implements Serializable {
 
     @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
+    private Long eventSequence;
 
     private Long userId;
 

@@ -11,6 +11,7 @@ public class ContentUnderstanding {
     @TableId(type = IdType.INPUT)
     private Long contentId;
     private Long pipelineId;
+    private Long eventSequence;
     private ContentReviewState state;
     private String inputJson;
     private Boolean submissionAck;

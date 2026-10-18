@@ -2,6 +2,9 @@ package cn.diaojiahong.myyoutube.transcode.task;
 
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.*;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts;
+import cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings;
+import cn.diaojiahong.myyoutube.common.media.VideoFrameSampling;
+import cn.diaojiahong.myyoutube.common.media.PreparedMedia;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.common.utils.*;
 import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
@@ -24,6 +27,8 @@ public class PrepareTaskExecutor implements MediaTaskExecutor {
     private final PreparedVideoReader videos;
     private final MediaPreparationProperties properties;
     private final S3StorageUtil urls;
+    private final FrameProcessingSettings frameSettings;
+    private final io.micrometer.core.instrument.MeterRegistry metrics;
 
     private record Output(long bytes, long timeMs, int width, int height) {}
 
@@ -34,25 +39,47 @@ public class PrepareTaskExecutor implements MediaTaskExecutor {
         var request = JsonUtil.fromJson(job.getRequestJson(), Request.class);
         if (!Objects.equals(request.userId(), task.getUserId()) || !request.media().equals(task.getInput().media()))
             throw new IllegalStateException("Preparation task input mismatch");
-        if (!job.getParameterVersion().equals(registry.parameterVersion()))
+        var settings = frameSettings.snapshot();
+        if (!job.getParameterVersion().equals(registry.parameterVersion(settings)))
             throw new IllegalStateException(PreparationContracts.PARAMETERS_CHANGED_MESSAGE);
         Path work = Files.createTempDirectory("media-preparation-");
+        long startedAt = System.currentTimeMillis();
+        // 复用与新建分开计数: 复用命中说明上次已冻结的同参数对象仍然有效, 没重抽帧
+        var reusedFrames = new java.util.concurrent.atomic.AtomicInteger();
+        var preparedFrames = new java.util.concurrent.atomic.AtomicInteger();
+        var reusedImages = new java.util.concurrent.atomic.AtomicInteger();
+        var preparedImages = new java.util.concurrent.atomic.AtomicInteger();
         try {
             var result = new ArrayList<Item>();
             long duration;
             boolean hasAudio;
+            int videoFrameCount = 0;
+            VideoFrameSampling.Plan videoSampling = null;
             if (request.media().video() != null) {
                 var original = original(task, "VIDEO", 0, request.media().video().objectKey(), properties.getVideoSourceBytes());
                 result.add(new Item("VIDEO", 0, original.key(), original.key(), 0, 0, 0));
                 String source = urls.signGetUrl(original.key(), 7200);
                 var probe = videos.probe(source, urls.readHeadBytes(original.key(), 65536));
                 duration = probe.durationMs(); hasAudio = probe.hasAudio();
-                videos.frames(source, probe, work, index -> reusable(registry.find(task.getOwnerId(), "FRAME", index)), frame -> {
+                videoSampling = settings.plan(probe.videoDurationMs(), probe.availableFrames());
+                var accepted = new TreeSet<Integer>();
+                videos.frames(source, probe, work, videoSampling, index -> {
+                    boolean skip = reusable(registry.find(task.getOwnerId(), "FRAME", index));
+                    if (skip) { reusedFrames.incrementAndGet(); accepted.add(index); }
+                    return skip;
+                }, frame -> {
                     var row = registry.reserve(task, "FRAME", frame.index(), null);
                     derivative(task, row, frame.path(), new Output(frame.image().bytes(), frame.timeMs(),
                             frame.image().width(), frame.image().height()));
+                    preparedFrames.incrementAndGet();
+                    accepted.add(frame.index());
                 });
-                for (int i = 0; i < 8; i++) result.add(item(task, "FRAME", i, original.key()));
+                videoSampling.validate(List.copyOf(accepted));
+                for (int index : accepted) result.add(item(task, "FRAME", index, original.key()));
+                videoFrameCount = accepted.size();
+                log.info("Preparation video sampling preparationId={} target={} minimum={} actual={} missing={} toleranceUsed={}",
+                        request.preparationId(), videoSampling.targetCount(), videoSampling.minimumCount(), videoFrameCount,
+                        videoSampling.missing(List.copyOf(accepted)), videoFrameCount < videoSampling.targetCount());
             } else {
                 var media = request.media().dynamic();
                 duration = media.exportDurationMs(); hasAudio = media.audio() != null;
@@ -71,6 +98,9 @@ public class PrepareTaskExecutor implements MediaTaskExecutor {
                             var image = images.write(source, output);
                             derivative(task, row, output, new Output(image.bytes(), input.startMs(), image.width(), image.height()));
                         } finally { cleanup(source); cleanup(output); }
+                        preparedImages.incrementAndGet();
+                    } else {
+                        reusedImages.incrementAndGet();
                     }
                     var prepared = item(task, "OCR_IMAGE", i, original.key());
                     result.add(new Item(prepared.role(), i, original.key(), prepared.objectKey(), input.startMs(), prepared.width(), prepared.height()));
@@ -80,8 +110,21 @@ public class PrepareTaskExecutor implements MediaTaskExecutor {
                     result.add(new Item("AUDIO", 0, audio.key(), audio.key(), 0, 0, 0));
                 }
             }
-            return JsonUtil.toJson(new Manifest(request.preparationId(), request.draftId(), request.mediaVersion(),
-                    request.userId(), job.getParameterVersion(), result, duration, hasAudio));
+            var manifest = new Manifest(request.preparationId(), request.draftId(), request.mediaVersion(),
+                    request.userId(), job.getParameterVersion(), result, duration, hasAudio, videoFrameCount, videoSampling);
+            PreparedMedia.freeze(request, manifest);
+            if (videoSampling != null) metrics.counter("media.video.sampling.attempts", "outcome",
+                    videoFrameCount == videoSampling.targetCount() ? "FULL" : "TOLERATED").increment();
+            log.info("Preparation completed preparationId={} draftId={} mediaVersion={} media={} items={} frames={} hasAudio={} durationMs={}"
+                            + " preparedFrames={} reusedFrames={} preparedImages={} reusedImages={} elapsedMs={}",
+                    request.preparationId(), request.draftId(), request.mediaVersion(), request.media().type(), result.size(),
+                    videoFrameCount, hasAudio, duration, preparedFrames.get(), reusedFrames.get(), preparedImages.get(), reusedImages.get(),
+                    System.currentTimeMillis() - startedAt);
+            return JsonUtil.toJson(manifest);
+        } catch (VideoFrameSampling.Rejected error) {
+            metrics.counter("media.video.sampling.attempts", "outcome", error.reason()).increment();
+            log.warn("Preparation video sampling rejected preparationId={} reason={} detail={}", request.preparationId(), error.reason(), error.getMessage());
+            throw error;
         } finally {
             try (var paths = Files.walk(work)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {

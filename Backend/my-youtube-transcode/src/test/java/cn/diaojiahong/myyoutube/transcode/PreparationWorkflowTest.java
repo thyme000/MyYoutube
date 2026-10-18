@@ -35,8 +35,10 @@ class PreparationWorkflowTest {
     @Autowired MediaTaskDispatcher dispatcher;
     @Autowired TransactionTemplate transaction;
     @Autowired DataSource dataSource;
+    @Autowired cn.diaojiahong.myyoutube.common.observability.PipelineObservationProperties observations;
     PreparationRegistry registry;
     MediaPreparationProperties properties;
+    FrameProcessingSettings frameSettings;
     JdbcTemplate jdbc;
     PreparationStorage storage;
     PreparedImageWriter images;
@@ -44,6 +46,7 @@ class PreparationWorkflowTest {
     S3StorageUtil urls;
     PrepareTaskExecutor executor;
     Map<String, PreparationStorage.Source> objects;
+    io.micrometer.core.instrument.simple.SimpleMeterRegistry samplingMetrics;
 
     Request request() {
         var media = new DynamicMedia("horizontal", 1920, 1080, "cut", 0,
@@ -54,14 +57,18 @@ class PreparationWorkflowTest {
     @BeforeEach void setup() throws Exception {
         reset(dispatcher);
         jdbc = new JdbcTemplate(dataSource);
+        observations.getRecording().setEnabled(false);
+        OutboxTestDatabase.reset(jdbc);
         for (var table : List.of("media_preparation_item", "media_preparation", "media_task", "media_pipeline"))
             jdbc.execute("DROP TABLE IF EXISTS " + table);
         new ResourceDatabasePopulator(new ClassPathResource("pipeline-schema.sql")).execute(dataSource);
         properties = new MediaPreparationProperties();
-        registry = new PreparationRegistry(preparations, items, taskRows, tasks, transaction, properties);
+        frameSettings = new FrameProcessingSettings();
+        registry = new PreparationRegistry(preparations, items, taskRows, tasks, transaction, properties, frameSettings);
         storage = mock(PreparationStorage.class); images = mock(PreparedImageWriter.class);
         videos = mock(PreparedVideoReader.class); urls = mock(S3StorageUtil.class);
-        executor = new PrepareTaskExecutor(registry, storage, images, videos, properties, urls);
+        samplingMetrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        executor = new PrepareTaskExecutor(registry, storage, images, videos, properties, urls, frameSettings, samplingMetrics);
         objects = new HashMap<>();
         for (var key : List.of("upload/a", "upload/b", "upload/video"))
             objects.put(key, new PreparationStorage.Source(key, "v1", "source-etag", 10));
@@ -102,10 +109,15 @@ class PreparationWorkflowTest {
         return registry.view(101L).manifest();
     }
     @Test void registrationIsIdempotentBoundedAndDoesNoMediaIo() {
+        observations.getRecording().setEnabled(true);
         registry.start(request()); registry.start(request());
         assertEquals(1, tasks.listByDraft(101L).size());
         assertEquals("PREPARE", tasks.listByDraft(101L).get(0).getTaskType());
         assertEquals("READY", registry.view(101L).status());
+        var event = StructuredJson.object(jdbc.queryForObject("SELECT payload FROM pipeline_event_outbox", String.class));
+        assertEquals("1", event.get("draftId").getAsString());
+        assertEquals("101", event.get("preparationId").getAsString());
+        assertEquals("0", event.get("mediaVersion").getAsString());
         verify(dispatcher, times(1)).dispatch(any()); verifyNoInteractions(storage, images, videos, urls);
         var changed = new Request(101L, 1L, 1, 9L, request().media(), "upload/a");
         assertThrows(IllegalStateException.class, () -> registry.start(changed));
@@ -200,17 +212,18 @@ class PreparationWorkflowTest {
         assertTrue(view.parametersChanged()); assertEquals("SUCCESS", view.status());
         assertEquals(manifest, view.manifest()); assertNull(view.errorMessage());
     }
-    @Test void videoPartialFailureRecoversExactlyEightFramesWithoutTranscodeOrRepeatedSuccessfulFrames() throws Exception {
+    @Test void videoPartialFailureRecoversPlannedFramesWithoutTranscodeOrRepeatedSuccessfulFrames() throws Exception {
         var request = new Request(101L, 1L, 0, 9L, new ContentMedia("video", new VideoMedia("upload/video", 0), null), null);
         registry.start(request);
         when(urls.signGetUrl(anyString(), anyLong())).thenReturn("protected-source");
         when(urls.readHeadBytes(anyString(), anyInt())).thenReturn(new byte[10]);
-        when(videos.probe(anyString(), any())).thenReturn(new PreparedVideoReader.Probe(1000, 320, 180, 0, false, "High", 42, 30));
+        var probe = new PreparedVideoReader.Probe(30000, 320, 180, 0, false, "High", 42, 30);
+        when(videos.probe(anyString(), any())).thenReturn(probe);
         var failed = new AtomicBoolean(); var decoded = new ArrayList<Integer>();
         doAnswer(call -> {
-            Path work = call.getArgument(2); java.util.function.IntPredicate skip = call.getArgument(3);
-            PreparedVideoReader.FrameConsumer consumer = call.getArgument(4);
-            for (int i = 0; i < 8; i++) {
+            Path work = call.getArgument(2); java.util.function.IntPredicate skip = call.getArgument(4);
+            PreparedVideoReader.FrameConsumer consumer = call.getArgument(5);
+            for (int i = 0; i < probe.sampleCount(); i++) {
                 if (skip.test(i)) continue;
                 if (i == 2 && failed.compareAndSet(false, true)) throw new IllegalStateException("frame unavailable");
                 decoded.add(i); Path frame = work.resolve("frame.jpg"); Files.write(frame, new byte[4]);
@@ -218,13 +231,154 @@ class PreparationWorkflowTest {
                         new PreparedImageWriter.Result(320, 180, 320, 180, 1, 4)));
             }
             return null;
-        }).when(videos).frames(anyString(), any(), any(), any(), any());
+        }).when(videos).frames(anyString(), any(), any(), any(VideoFrameSampling.Plan.class), any(), any());
         var first = claim(); assertThrows(IllegalStateException.class, () -> executor.execute(first));
         tasks.completeAndAdvance(first, null, "frame unavailable"); due();
-        var manifest = succeed(claim()); assertEquals(9, manifest.items().size());
-        assertEquals(List.of(0, 1, 2, 3, 4, 5, 6, 7), decoded);
-        assertEquals(710, manifest.items().get(8).timeMs()); verify(storage, times(8)).upload(any(), anyString());
+        var manifest = succeed(claim()); assertEquals(7, manifest.items().size());
+        assertEquals(6, manifest.videoFrameCount());
+        assertEquals(List.of(0, 1, 2, 3, 4, 5), decoded);
+        assertEquals(510, manifest.items().get(6).timeMs()); verify(storage, times(6)).upload(any(), anyString());
         verifyNoInteractions(images); assertFalse(manifest.hasAudio());
+    }
+    @Test void onlySamplingUpdatesChangePreparationFingerprint() {
+        String original = registry.parameterVersion();
+        frameSettings.replace("interval-seconds: 5\nmax-frames: 10\nmin-success-percent: 80\ncover-max-candidates: 3\nocr-batch-size: 1\nreview-batch-size: 2");
+        assertEquals(original, registry.parameterVersion());
+        frameSettings.replace("interval-seconds: 10\nmax-frames: 3\nmin-success-percent: 80\ncover-max-candidates: 3\nocr-batch-size: 1\nreview-batch-size: 2");
+        assertNotEquals(original, registry.parameterVersion());
+    }
+
+    void mockVideoSamples(Set<Integer> missing, List<Integer> decoded) throws Exception {
+        registry.start(new Request(101L, 1L, 0, 9L, new ContentMedia("video", new VideoMedia("upload/video", 0), null), null));
+        when(urls.signGetUrl(anyString(), anyLong())).thenReturn("protected-source");
+        when(urls.readHeadBytes(anyString(), anyInt())).thenReturn(new byte[10]);
+        when(videos.probe(anyString(), any())).thenReturn(new PreparedVideoReader.Probe(50000, 320, 180, 0, false, "High", 42, 30));
+        doAnswer(call -> {
+            Path work = call.getArgument(2); VideoFrameSampling.Plan plan = call.getArgument(3);
+            java.util.function.IntPredicate skip = call.getArgument(4);
+            PreparedVideoReader.FrameConsumer consumer = call.getArgument(5);
+            for (int i = 0; i < plan.targetCount(); i++) {
+                if (skip.test(i) || missing.contains(i)) continue;
+                decoded.add(i);
+                Path frame = work.resolve("frame.jpg"); Files.write(frame, new byte[4]);
+                consumer.accept(new PreparedVideoReader.Frame(i, i * 5000L, frame,
+                        new PreparedImageWriter.Result(320, 180, 320, 180, 1, 4)));
+            }
+            return null;
+        }).when(videos).frames(anyString(), any(), any(), any(VideoFrameSampling.Plan.class), any(), any());
+    }
+
+    @Test void toleratedVideoFreezesActualSlotsAndSurvivesStricterConfiguration() throws Exception {
+        mockVideoSamples(Set.of(2, 7), new ArrayList<>());
+        var manifest = succeed(claim());
+        assertEquals(10, manifest.videoSampling().targetCount());
+        assertEquals(8, manifest.videoSampling().minimumCount());
+        assertEquals(8, manifest.videoFrameCount());
+        assertEquals(List.of(0, 1, 3, 4, 5, 6, 8, 9), PreparedMedia.videoFrames(manifest).stream().map(Item::index).toList());
+        frameSettings.replace("interval-seconds: 5\nmax-frames: 10\nmin-success-percent: 100\ncover-max-candidates: 8\nocr-batch-size: 2\nreview-batch-size: 4");
+        assertTrue(registry.view(101L).parametersChanged());
+        assertEquals(manifest, registry.view(101L).manifest());
+        assertNotNull(PreparedMedia.freeze(new Request(101L, 1L, 0, 9L,
+                new ContentMedia("video", new VideoMedia("upload/video", 0), null), null), manifest));
+        assertEquals(1, samplingMetrics.get("media.video.sampling.attempts").tag("outcome", "TOLERATED").counter().count());
+        verify(storage, times(8)).upload(any(), anyString());
+    }
+
+    @Test void insufficientVideoRetriesOnlyMissingSlotsAndKeepsOriginalIndices() throws Exception {
+        var missing = new HashSet<>(Set.of(2, 5, 7)); var decoded = new ArrayList<Integer>();
+        mockVideoSamples(missing, decoded);
+        var first = claim();
+        var error = assertThrows(VideoFrameSampling.Rejected.class, () -> executor.execute(first));
+        assertEquals("INSUFFICIENT_FRAMES", error.reason());
+        assertNull(registry.view(101L).manifest());
+        tasks.completeAndAdvance(first, null, error.getMessage());
+        assertEquals("RETRY_WAIT", registry.view(101L).status());
+        missing.remove(5); due();
+        var manifest = succeed(claim());
+        assertEquals(List.of(0, 1, 3, 4, 6, 8, 9, 5), decoded);
+        assertEquals(List.of(0, 1, 3, 4, 5, 6, 8, 9), PreparedMedia.videoFrames(manifest).stream().map(Item::index).toList());
+        verify(storage, times(8)).upload(any(), anyString());
+        assertEquals(1, samplingMetrics.get("media.video.sampling.attempts").tag("outcome", "INSUFFICIENT_FRAMES").counter().count());
+        assertEquals(2, registry.view(101L).attempt());
+    }
+
+    @Test void coverageFailureCannotFreezeEightFramesAndCanRecoverWithoutReupload() throws Exception {
+        var missing = new HashSet<>(Set.of(2, 3)); var decoded = new ArrayList<Integer>();
+        mockVideoSamples(missing, decoded);
+        var first = claim();
+        var error = assertThrows(VideoFrameSampling.Rejected.class, () -> executor.execute(first));
+        assertEquals("COVERAGE_GAP", error.reason());
+        tasks.completeAndAdvance(first, null, error.getMessage());
+        missing.remove(2); due();
+        var manifest = succeed(claim());
+        assertEquals(9, manifest.videoFrameCount());
+        assertEquals(2, decoded.get(decoded.size() - 1));
+        verify(storage, times(9)).upload(any(), anyString());
+        assertEquals(1, samplingMetrics.get("media.video.sampling.attempts").tag("outcome", "COVERAGE_GAP").counter().count());
+    }
+
+    @Test void successRatioChangesPreparationFingerprintEvenWhenTargetIsUnchanged() {
+        String before = registry.parameterVersion();
+        frameSettings.replace("interval-seconds: 5\nmax-frames: 10\nmin-success-percent: 90\ncover-max-candidates: 8\nocr-batch-size: 2\nreview-batch-size: 4");
+        assertNotEquals(before, registry.parameterVersion());
+    }
+
+    @Test void videoUploadFailureCannotFreezeEvenAfterMinimumFramesWereUploaded() throws Exception {
+        mockVideoSamples(Set.of(2), new ArrayList<>());
+        doAnswer(call -> {
+            String key = call.getArgument(1);
+            if (jdbc.queryForObject("SELECT item_index FROM media_preparation_item WHERE object_key=?", Integer.class, key) == 9)
+                throw new IllegalStateException("storage unavailable");
+            objects.put(key, new PreparationStorage.Source(key, null, "output-etag", Files.size(call.getArgument(0))));
+            return null;
+        }).when(storage).upload(any(), anyString());
+        var task = claim();
+        var error = assertThrows(IllegalStateException.class, () -> executor.execute(task));
+        assertEquals("storage unavailable", error.getMessage());
+        assertEquals(8, jdbc.queryForObject("SELECT COUNT(*) FROM media_preparation_item WHERE role='FRAME' AND status='READY'", Integer.class));
+        assertNull(registry.view(101L).manifest());
+        tasks.completeAndAdvance(task, null, error.getMessage());
+        assertEquals("RETRY_WAIT", registry.view(101L).status());
+    }
+
+    @Test void retirementReclaimsPlannedObjectOmittedFromToleratedManifest() throws Exception {
+        mockVideoSamples(Set.of(2, 7), new ArrayList<>());
+        var task = claim();
+        var pending = registry.reserve(task, "FRAME", 2, null);
+        registry.planned(task, pending, "{\"bytes\":4,\"timeMs\":10000,\"width\":320,\"height\":180}");
+        objects.put(pending.getObjectKey(), new PreparationStorage.Source(pending.getObjectKey(), null, "late-upload", 4));
+        var manifest = succeed(task);
+        assertEquals(8, manifest.videoFrameCount());
+        assertFalse(manifest.items().stream().anyMatch(item -> item.objectKey().equals(pending.getObjectKey())));
+        var cleaner = reclaimer(released()); cleaner.reclaim();
+        reclaimDue(true); cleaner.reclaim();
+        verify(storage).delete(pending.getObjectKey());
+        assertEquals("DELETED", registry.find(101L, "FRAME", 2).getStatus());
+    }
+    @Test void runningVideoAttemptRetainsCapturedPlanDuringHotUpdate() throws Exception {
+        registry.start(new Request(101L, 1L, 0, 9L, new ContentMedia("video", new VideoMedia("upload/video", 0), null), null));
+        when(urls.signGetUrl(anyString(), anyLong())).thenReturn("protected-source");
+        when(urls.readHeadBytes(anyString(), anyInt())).thenReturn(new byte[10]);
+        when(videos.probe(anyString(), any())).thenAnswer(call -> {
+            frameSettings.replace("interval-seconds: 10\nmax-frames: 2\nmin-success-percent: 80\ncover-max-candidates: 3\nocr-batch-size: 1\nreview-batch-size: 2");
+            return new PreparedVideoReader.Probe(120000, 320, 180, 0, false, "High", 42, 30);
+        });
+        doAnswer(call -> {
+            assertEquals(10, ((VideoFrameSampling.Plan) call.getArgument(3)).targetCount());
+            Path work = call.getArgument(2);
+            PreparedVideoReader.FrameConsumer consumer = call.getArgument(5);
+            for (int i = 0; i < 10; i++) {
+                Path frame = work.resolve("frame.jpg"); Files.write(frame, new byte[4]);
+                consumer.accept(new PreparedVideoReader.Frame(i, i * 100L, frame,
+                        new PreparedImageWriter.Result(320, 180, 320, 180, 1, 4)));
+            }
+            return null;
+        }).when(videos).frames(anyString(), any(), any(), any(VideoFrameSampling.Plan.class), any(), any());
+        var manifest = succeed(claim());
+        assertEquals(10, manifest.videoFrameCount());
+        assertEquals(2, frameSettings.snapshot().maxFrames());
+        assertTrue(registry.view(101L).parametersChanged());
+        assertEquals("SUCCESS", registry.view(101L).status());
     }
     @Test void changedPreparedObjectCannotBecomeSuccessfulManifest() throws Exception {
         registry.start(request()); var first = claim();
@@ -257,7 +411,7 @@ class PreparationWorkflowTest {
     }
     PreparationReclaimer reclaimer(cn.diaojiahong.myyoutube.video.api.MediaDraftPort video) {
         return new PreparationReclaimer(preparations, items, taskRows, pipelines,
-                new PreparationLifecycle(preparations), video, storage, transaction);
+                new PreparationLifecycle(preparations), video, storage, transaction, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
     cn.diaojiahong.myyoutube.video.api.MediaDraftPort released() {
         var video = mock(cn.diaojiahong.myyoutube.video.api.MediaDraftPort.class);

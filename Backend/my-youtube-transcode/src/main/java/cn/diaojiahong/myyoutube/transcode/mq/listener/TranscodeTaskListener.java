@@ -41,10 +41,12 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
             return;
         }
         TranscodeTask task = taskService.getById(msg.getTaskId());
-        if (task == null || TranscodeTaskVO.STATUS_DONE.equals(task.getStatus())
-                || TranscodeTaskVO.STATUS_FAILED.equals(task.getStatus())) {
-            log.info("转码任务不存在或已终态, 跳过 taskId={} status={}",
-                    msg.getTaskId(), task == null ? "null" : task.getStatus());
+        if (task == null) {
+            log.warn("转码任务不存在, 消息已丢弃 taskId={}", msg.getTaskId());
+            return;
+        }
+        if (TranscodeTaskVO.STATUS_DONE.equals(task.getStatus()) || TranscodeTaskVO.STATUS_FAILED.equals(task.getStatus())) {
+            log.debug("转码任务已终态, 跳过重复投递 taskId={} status={}", msg.getTaskId(), task.getStatus());
             return;
         }
         var lock = taskService.artifactLock(task.getTaskKey());
@@ -66,6 +68,8 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
             var affected = taskService.listInflightByKey(task.getTaskKey());
             taskService.completeByKey(task.getTaskKey(), cached.getResultObjectKey());
             notifier.notifyAffected(affected, "TRANSCODE_DONE");
+            log.info("动态成片复用已完成产物 taskId={} taskKey={} objectKey={} affected={}",
+                    task.getId(), task.getTaskKey(), cached.getResultObjectKey(), affected.size());
             return;
         }
         // 认领: PENDING -> PROCESSING, 抢不到说明同任务正被处理
@@ -73,17 +77,20 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
         claim.setStatus(TranscodeTaskVO.STATUS_PROCESSING);
         boolean claimed = taskService.updateByIdWithStatus(task.getId(), claim, TranscodeTaskVO.STATUS_PENDING);
         if (!claimed && !TranscodeTaskVO.STATUS_PROCESSING.equals(task.getStatus())) {
+            log.debug("动态成片认领失败, 跳过 taskId={} status={}", task.getId(), task.getStatus());
             return;
         }
 
         // 准备/下载/合成/上传/完成全在链上, 步骤见 transcode.chain.dynamic;
         // 任一步失败统一落失败终态 + SSE, finally 兜底清理临时目录
         TranscodeContext ctx = TranscodeContext.of(task);
+        long startedAt = System.currentTimeMillis();
         try {
             chainRegistry.execute(DynamicTranscodeChain.GROUP, ctx);
         } catch (Exception e) {
-            log.error("动态成片生成失败 taskId={}", task.getId(), e);
             List<TranscodeTask> affected = taskService.listInflightByKey(task.getTaskKey());
+            log.error("动态成片生成失败 taskId={} taskKey={} affected={} elapsedMs={}",
+                    task.getId(), task.getTaskKey(), affected.size(), System.currentTimeMillis() - startedAt, e);
             taskService.failByKey(task.getTaskKey(), e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
             notifier.notifyAffected(affected, "TRANSCODE_FAILED");
         } finally {
