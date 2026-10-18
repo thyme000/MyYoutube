@@ -1,0 +1,6 @@
+interval-seconds: 5
+max-frames: 10
+min-success-percent: 80
+cover-max-candidates: 8
+ocr-batch-size: 2
+review-batch-size: 4

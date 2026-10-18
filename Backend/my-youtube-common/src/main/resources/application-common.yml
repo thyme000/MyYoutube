@@ -37,6 +37,8 @@ mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   type-aliases-package: cn.diaojiahong.myyoutube
 
+management.endpoints.web.exposure.include: ${OBSERVABILITY_ACTUATOR_ENDPOINTS:health}
+
 my-youtube:
   # 网关与下游共享的内部密钥, 置空则不启用来源校验; 生产务必通过 INTERNAL_TOKEN 设置
   internal-token: ${INTERNAL_TOKEN:}
@@ -50,3 +52,36 @@ my-youtube.prompts.nacos:
   password: ${NACOS_PASSWORD:}
   data-id: ${PROMPTS_NACOS_DATA_ID:model-prompts.yaml}
   group: ${PROMPTS_NACOS_GROUP:PROMPTS_GROUP}
+
+my-youtube.frame-processing:
+  interval-seconds: ${VIDEO_FRAME_INTERVAL_SECONDS:5}
+  max-frames: ${VIDEO_FRAME_MAX_COUNT:10}
+  min-success-percent: ${VIDEO_FRAME_MIN_SUCCESS_PERCENT:80}
+  cover-max-candidates: ${COVER_MAX_CANDIDATES:8}
+  ocr-batch-size: ${OCR_BATCH_SIZE:2}
+  review-batch-size: ${CONTENT_REVIEW_FRAME_BATCH_SIZE:4}
+  nacos:
+    enabled: ${FRAME_SETTINGS_NACOS_ENABLED:false}
+    server-addr: ${NACOS_ADDR:localhost:8848}
+    namespace: ${NACOS_NAMESPACE:}
+    username: ${NACOS_USERNAME:}
+    password: ${NACOS_PASSWORD:}
+    data-id: ${FRAME_SETTINGS_NACOS_DATA_ID:frame-processing.yaml}
+    group: ${FRAME_SETTINGS_NACOS_GROUP:MEDIA_GROUP}
+
+my-youtube.observability:
+  recording.enabled: ${PIPELINE_EVENT_RECORDING_ENABLED:false}
+  delivery.enabled: ${PIPELINE_EVENT_DELIVERY_ENABLED:false}
+  cleanup.enabled: ${PIPELINE_EVENT_CLEANUP_ENABLED:false}
+  scan-interval-ms: ${PIPELINE_EVENT_SCAN_INTERVAL_MS:250}
+  cleanup-interval-ms: ${PIPELINE_EVENT_CLEANUP_INTERVAL_MS:60000}
+  batching:
+    claim-limit: ${PIPELINE_EVENT_CLAIM_LIMIT:200}
+    max-events: ${PIPELINE_EVENT_BATCH_MAX_EVENTS:100}
+    max-bytes: ${PIPELINE_EVENT_BATCH_MAX_BYTES:262144}
+    lease-seconds: ${PIPELINE_EVENT_LEASE_SECONDS:30}
+    cleanup-page-size: ${PIPELINE_EVENT_CLEANUP_PAGE_SIZE:200}
+  monitoring:
+    enabled: ${PIPELINE_MONITORING_ENABLED:false}
+    interval-ms: ${PIPELINE_METRICS_INTERVAL_MS:30000}
+    page-limit: ${PIPELINE_METRICS_PAGE_LIMIT:2000}
