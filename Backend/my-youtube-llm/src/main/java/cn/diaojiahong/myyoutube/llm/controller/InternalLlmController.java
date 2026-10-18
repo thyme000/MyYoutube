@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.llm.controller;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.llm.LlmClient;
+import cn.diaojiahong.myyoutube.llm.LlmRequestMetrics;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.llm.embedding.EmbeddingOrchestrator;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class InternalLlmController {
     private final cn.diaojiahong.myyoutube.llm.LlmProperties properties;
     private final LlmClient llmClient;
     private final EmbeddingOrchestrator embeddingOrchestrator;
+    private final LlmRequestMetrics metrics;
 
     @PostMapping("/chat")
     public LlmPort.ChatResponse chat(@RequestBody LlmPort.ChatRequest request) {
@@ -37,8 +39,8 @@ public class InternalLlmController {
         if (messages.isEmpty()) {
             throw new BizException(BizException.BIZ_ERROR, "messages 不能为空");
         }
-        return llmClient.chatDetailed(messages, request.getModel(), request.getTemperature(),
-                request.getMaxTokens(), request.getResponseFormat());
+        return metrics.record("chat", () -> llmClient.chatDetailed(messages, request.getModel(), request.getTemperature(),
+                request.getMaxTokens(), request.getResponseFormat()));
     }
 
     @PostMapping("/embeddings")
@@ -46,7 +48,11 @@ public class InternalLlmController {
         if (request == null || request.getTexts() == null || request.getTexts().isEmpty()) {
             throw new BizException(BizException.BIZ_ERROR, "texts 不能为空");
         }
-        EmbeddingOrchestrator.EmbeddingResult result = embeddingOrchestrator.embedAll(request.getTexts());
+        return metrics.record("embeddings", () -> embed(request.getTexts()));
+    }
+
+    private LlmPort.EmbeddingsResponse embed(List<String> texts) {
+        EmbeddingOrchestrator.EmbeddingResult result = embeddingOrchestrator.embedAll(texts);
         List<List<Float>> vectors = result.vectors().stream()
                 .map(vec -> {
                     List<Float> list = new java.util.ArrayList<>(vec.length);

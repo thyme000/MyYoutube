@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.like.service.impl;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
@@ -74,6 +76,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
     @Override
     @Transactional
+    @ObservedBusiness(BusinessOperation.LIKE_CONTENT)
     public void likeContent(Long contentId) {
         // 获取用户id
         Long userId = getUserId();
@@ -133,6 +136,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
     @Override
     @Transactional
+    @ObservedBusiness(BusinessOperation.UNLIKE_CONTENT)
     public void cancelLikeContent(Long contentId) {
         // 获取用户id
         Long userId = getUserId();
@@ -163,6 +167,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.DISLIKE_CONTENT)
     public void dislikeContent(Long contentId) {
         Long userId = getUserId();
         access.readable(contentId, userId);
@@ -234,6 +239,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.LIKE_COMMENT)
     public void likeComment(Long commentId) {
         // 获取用户id
         Long userId = getUserId();
@@ -276,6 +282,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.UNLIKE_COMMENT)
     public void cancelLikeComment(Long commentId) {
         // 获取用户id
         Long userId = getUserId();

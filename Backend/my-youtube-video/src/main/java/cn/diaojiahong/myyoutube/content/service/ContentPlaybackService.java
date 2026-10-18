@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPlaybackDTO;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentPlaybackVO;
@@ -23,6 +25,7 @@ public class ContentPlaybackService {
     }
 
     @Transactional
+    @ObservedBusiness(BusinessOperation.SAVE_PLAYBACK)
     public void save(Long contentId, Long viewer, ContentPlaybackDTO state) {
         var content = access.requireReadable(access.locked(contentId), viewer);
         var now = System.currentTimeMillis();

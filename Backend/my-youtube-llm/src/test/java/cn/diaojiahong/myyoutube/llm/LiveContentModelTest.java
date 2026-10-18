@@ -58,7 +58,8 @@ class LiveContentModelTest {
         }
         @Bean LlmClient client(LlmProperties p) { return new LlmClient(p); }
         @Bean InternalLlmController controller(LlmProperties p, LlmClient client) {
-            return new InternalLlmController(p, client, mock(EmbeddingOrchestrator.class));
+            return new InternalLlmController(p, client, mock(EmbeddingOrchestrator.class),
+                    new LlmRequestMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         }
     }
 

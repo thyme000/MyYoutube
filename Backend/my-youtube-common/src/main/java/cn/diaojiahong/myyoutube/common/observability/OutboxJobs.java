@@ -1,0 +1,49 @@
+package cn.diaojiahong.myyoutube.common.observability;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
+
+@Slf4j
+public final class OutboxJobs {
+    private final OutboxStore store;
+    private final OutboxPublisher publisher;
+    private final PipelineObservationProperties properties;
+    private final MeterRegistry metrics;
+    public OutboxJobs(OutboxStore store, OutboxPublisher publisher, PipelineObservationProperties properties, MeterRegistry metrics) {
+        this.store = store; this.publisher = publisher; this.properties = properties; this.metrics = metrics;
+    }
+    @Scheduled(fixedDelayString = "${my-youtube.observability.scan-interval-ms:250}")
+    public void deliver() {
+        if (!properties.getDelivery().isEnabled()) return;
+        try {
+            var settings = properties.getBatching();
+            var split = OutboxBatches.split(store.claim(), settings.getMaxEvents(), settings.getMaxBytes());
+            for (var row : split.oversized()) if (store.quarantine(row, "MESSAGE_TOO_LARGE")) {
+                metrics.counter("pipeline.outbox.quarantined", "reason", "MESSAGE_TOO_LARGE").increment();
+                log.error("Outbox event quarantined eventId={} reason=MESSAGE_TOO_LARGE", row.id());
+            }
+            for (var batch : split.batches()) try {
+                if (!store.renew(batch.entries())) continue;
+                publisher.send(batch.body());
+                int sent = store.sent(batch.entries());
+                metrics.counter("pipeline.outbox.sent").increment(sent);
+            } catch (Exception error) {
+                metrics.counter("pipeline.outbox.delivery.failures").increment();
+                log.warn("Outbox batch deferred until lease expiry error={}", error.getClass().getSimpleName());
+            }
+        } catch (Exception error) {
+            metrics.counter("pipeline.outbox.scan.failures").increment();
+            log.warn("Outbox scan failed error={}", error.getClass().getSimpleName());
+        }
+    }
+    @Scheduled(fixedDelayString = "${my-youtube.observability.cleanup-interval-ms:60000}")
+    public void cleanup() {
+        if (!properties.getCleanup().isEnabled()) return;
+        try { metrics.counter("pipeline.outbox.cleaned").increment(store.cleanup()); }
+        catch (Exception error) {
+            metrics.counter("pipeline.outbox.cleanup.failures").increment();
+            log.warn("Outbox cleanup failed error={}", error.getClass().getSimpleName());
+        }
+    }
+}

@@ -1,0 +1,105 @@
+{
+  "dynamic": "strict",
+  "properties": {
+    "pipelineId": {
+      "type": "keyword"
+    },
+    "contentId": {
+      "type": "keyword"
+    },
+    "taskId": {
+      "type": "keyword"
+    },
+    "draftId": {
+      "type": "keyword"
+    },
+    "preparationId": {
+      "type": "keyword"
+    },
+    "mediaVersion": {
+      "type": "keyword"
+    },
+    "@timestamp": {
+      "type": "date_nanos"
+    },
+    "service": {
+      "properties": {
+        "name": {
+          "type": "keyword"
+        }
+      }
+    },
+    "event": {
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "code": {
+          "type": "keyword"
+        },
+        "sequence": {
+          "type": "long"
+        }
+      }
+    },
+    "aggregate": {
+      "properties": {
+        "type": {
+          "type": "keyword"
+        },
+        "id": {
+          "type": "keyword"
+        }
+      }
+    },
+    "trace": {
+      "properties": {
+        "id": {
+          "type": "keyword"
+        }
+      }
+    },
+    "attempt": {
+      "type": "integer"
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "terminal": {
+      "type": "boolean"
+    },
+    "nextAttempt": {
+      "type": "integer"
+    },
+    "nextRetryAt": {
+      "type": "date_nanos"
+    },
+    "state": {
+      "properties": {
+        "from": {
+          "type": "keyword"
+        },
+        "to": {
+          "type": "keyword"
+        }
+      }
+    },
+    "failure": {
+      "properties": {
+        "code": {
+          "type": "keyword"
+        }
+      }
+    },
+    "ingest": {
+      "properties": {
+        "digest": {
+          "type": "keyword"
+        },
+        "schemaVersion": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

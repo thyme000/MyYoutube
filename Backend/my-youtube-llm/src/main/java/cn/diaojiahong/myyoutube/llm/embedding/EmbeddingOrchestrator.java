@@ -49,7 +49,11 @@ public class EmbeddingOrchestrator {
                 return embeddingProvider.embed(batch);
             } catch (IllegalStateException e) {
                 last = e;
-                log.warn("Embedding 批量调用失败(第 {} 次): {}", attempt, e.getMessage());
+                // 仅剩的尝试不再记 WARN: 最终失败由调用方统一上报, 避免同一异常重复打印
+                if (attempt < BATCH_RETRY) {
+                    log.warn("Embedding 批量调用失败, 将重试 attempt={}/{} batchSize={} error={}",
+                            attempt, BATCH_RETRY, batch.size(), e.getMessage());
+                }
             }
         }
         throw last;

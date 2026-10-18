@@ -46,6 +46,7 @@ frontend-admin/
 # ===== Python (ocr-svc) =====
 .venv/
 __pycache__/
+.runtime/
 node_modules/
 
 docs/*
@@ -57,3 +58,8 @@ resources/migrations
 *.md
 !docker/rustfs/README.md
 !docker/content-integration/README.md
+# Machine-specific observability service selection.
+docker/observability/services.local.json
+
+/resources/skywalking-agent
+/resources/skywalking-python-agent/

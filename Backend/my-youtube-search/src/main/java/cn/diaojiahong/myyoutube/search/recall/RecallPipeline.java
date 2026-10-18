@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.search.recall;
 import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -26,6 +27,7 @@ public class RecallPipeline {
     private final ContentVectorService contentVectorService;
     private final VectorProperties vectorProperties;
     private final ThreadPoolTaskExecutor recallExecutor;
+    private final MeterRegistry metrics;
 
     public RecallPipeline(List<RecallStrategy> strategies,
                           RrfFuser rrfFuser,
@@ -33,6 +35,7 @@ public class RecallPipeline {
                           FollowPort followPort,
                           ContentVectorService contentVectorService,
                           VectorProperties vectorProperties,
+                          MeterRegistry metrics,
                           @Qualifier("recallExecutor") ThreadPoolTaskExecutor recallExecutor) {
         this.strategies = strategies;
         this.rrfFuser = rrfFuser;
@@ -40,6 +43,7 @@ public class RecallPipeline {
         this.followPort = followPort;
         this.contentVectorService = contentVectorService;
         this.vectorProperties = vectorProperties;
+        this.metrics = metrics;
         this.recallExecutor = recallExecutor;
     }
 
@@ -60,6 +64,7 @@ public class RecallPipeline {
         try {
             return strategy.recall(ctx);
         } catch (Exception e) {
+            metrics.counter("myyoutube.search.recall.failures", "strategy", strategy.getClass().getSimpleName()).increment();
             log.warn("{} 召回失败, 该路降级: {}", strategy.getClass().getSimpleName(), e.getMessage());
             return List.of();
         }

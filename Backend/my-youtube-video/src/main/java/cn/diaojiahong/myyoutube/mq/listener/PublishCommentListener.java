@@ -27,7 +27,10 @@ public class PublishCommentListener implements RocketMQListener<CommentMessage> 
 
     @Override
     public void onMessage(CommentMessage message) {
-        log.info("收到发布评论消息: {}", message);
+        // 逐条消费, 评论正文不进日志
+        log.debug("Comment published notification received receiverId={} senderId={} contentComment={} refId={}",
+                message.getReceiverId(), message.getSenderId(), message.getIsContentComment(),
+                message.getIsContentComment() ? message.getContentId() : message.getCommentId());
         // 落库 + 门铃由门面收口, 失败降级不影响消息消费
         notificationPublisher.publish(getUserNotification(message));
     }

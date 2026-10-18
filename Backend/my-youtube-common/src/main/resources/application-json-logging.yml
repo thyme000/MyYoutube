@@ -1,0 +1,8 @@
+logging:
+  file.name: ${OBSERVABILITY_LOG_DIRECTORY:logs/observability}/${spring.application.name}.log
+  structured.format.file: cn.diaojiahong.myyoutube.common.observability.PipelineLogFormatter
+  logback.rollingpolicy:
+    max-file-size: 10MB
+    max-history: 7
+    total-size-cap: 100MB
+    file-name-pattern: ${LOG_FILE}.%d{yyyy-MM-dd}.%i.log

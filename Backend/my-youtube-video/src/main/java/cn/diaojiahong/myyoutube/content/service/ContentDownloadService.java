@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
@@ -20,6 +22,7 @@ public class ContentDownloadService {
     private final S3StorageUtil storage;
     public record Download(String contentId, String taskId, String status, String downloadUrl, String errorMessage) {}
 
+    @ObservedBusiness(BusinessOperation.CREATE_DOWNLOAD)
     public Download create(Long id, Long viewer) {
         var content = access.readable(id, viewer);
         var media = strategies.get(content.getType()).loadMedia(List.of(id)).get(id);

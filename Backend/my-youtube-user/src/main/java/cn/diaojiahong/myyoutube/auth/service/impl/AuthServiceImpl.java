@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.auth.service.impl;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.auth.chain.register.RegisterChain;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
@@ -49,6 +51,7 @@ public class AuthServiceImpl implements IAuthService {
             RedisScript.of(new ClassPathResource("lua/refresh-rotate.lua"), String.class);
 
     @Override
+    @ObservedBusiness(BusinessOperation.LOGIN)
     public LoginResponseDTO login(LoginRequestDTO loginRequestDTO) {
         String username = loginRequestDTO.getUsername();
         String rawPassword = loginRequestDTO.getPassword();
@@ -72,11 +75,12 @@ public class AuthServiceImpl implements IAuthService {
         String refreshToken = UUID.randomUUID().toString();
         saveRefreshToken(refreshToken, user.getId());
 
-        log.info("用户 [{}] 登录成功", username);
+        log.info("用户 [{}] 登录成功 userId={}", username, user.getId());
         return new LoginResponseDTO(accessToken, refreshToken);
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.REFRESH)
     public LoginResponseDTO refresh(RefreshTokenDTO refreshTokenDTO) {
         String refreshToken = refreshTokenDTO == null ? null : refreshTokenDTO.getRefreshToken();
         if (refreshToken == null || refreshToken.isBlank()) {
@@ -95,17 +99,23 @@ public class AuthServiceImpl implements IAuthService {
 
         // USED=已用过/不存在; REVOKED=被 token-ver 作废(改密码/封号)
         if (userId == null || userId.equals("USED") || userId.equals("REVOKED")) {
+            // USED 意味着同一刷新凭证被二次使用, 属可关注的安全信号; 其余是正常过期
+            if ("USED".equals(userId)) log.warn("刷新凭证被重复使用, 已按失效处理");
+            else log.debug("刷新凭证无效 reason={}", userId == null ? "NOT_FOUND_OR_EXPIRED" : "REVOKED_BY_TOKEN_VERSION");
             throw new BizException(BizException.BIZ_ERROR, "登录已过期，请重新登录!");
         }
 
+        log.debug("刷新凭证轮换成功 userId={}", userId);
         return new LoginResponseDTO(JwtUtil.sign(Long.parseLong(userId)), newRefreshToken);
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.LOGOUT)
     public void logout(RefreshTokenDTO refreshTokenDTO) {
         String refreshToken = refreshTokenDTO == null ? null : refreshTokenDTO.getRefreshToken();
         if (refreshToken != null && !refreshToken.isBlank()) {
             redisTemplate.delete(RedisConstants.USER_REFRESH_TOKEN + refreshToken);
+            log.debug("登出已删除刷新凭证");
         }
         return;
     }
@@ -118,6 +128,7 @@ public class AuthServiceImpl implements IAuthService {
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.REGISTER)
     public void register(RegisterRequestDTO registerRequestDTO) {
         // 格式/规范化/唯一性校验全部在链上, 步骤见 auth.chain.register
         chainRegistry.execute(RegisterChain.GROUP, registerRequestDTO);
@@ -141,11 +152,12 @@ public class AuthServiceImpl implements IAuthService {
         // 发送消息,用于创建/更新用户ES文档(延迟 5s, 短时间多次变更消费端合并)
         esSyncPublisher.syncUserDoc(user.getId());
 
-        log.info("用户 [{}] 注册成功", registerRequestDTO.getUsername());
+        log.info("用户 [{}] 注册成功 userId={}", registerRequestDTO.getUsername(), user.getId());
         return;
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.RESET_PASSWORD)
     public void forgetPassword(ForgetPasswordDTO forgetPasswordDTO) {
         // 校验字段
         String newPassword = forgetPasswordDTO.getNewPassword();
@@ -173,7 +185,7 @@ public class AuthServiceImpl implements IAuthService {
                 String.valueOf(System.currentTimeMillis()),
                 RedisConstants.USER_REFRESH_TOKEN_EXPIRE, TimeUnit.HOURS);
 
-        log.info("用户 [{}] 重置密码成功", forgetPasswordDTO.getUsername());
+        log.info("用户 [{}] 重置密码成功 userId={}, 已签发凭证全部作废", forgetPasswordDTO.getUsername(), user.getId());
         return;
     }
 }

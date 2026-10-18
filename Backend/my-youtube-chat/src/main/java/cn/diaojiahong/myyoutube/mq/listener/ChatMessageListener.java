@@ -31,18 +31,24 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
 
     @Override
     public void onMessage(ChatMessageMessage chatMessageMessage) {
-        log.info("收到消息: {}", chatMessageMessage);
+        // 逐条消费, 只留结构化字段; content 是消息正文, 不进日志
+        log.debug("Chat message received conversationId={} messageId={} senderId={} contentType={} event={}",
+                chatMessageMessage.getConversationId(), chatMessageMessage.getMessageId(),
+                chatMessageMessage.getSenderId(), chatMessageMessage.getContentType(),
+                chatMessageMessage.getEvent());
         Optional<ChatConversationDoc> opt =
                 chatConversationService.getById(chatMessageMessage.getConversationId());
         if (opt.isEmpty()) {
-            log.warn("会话不存在: {}", chatMessageMessage.getConversationId());
+            log.warn("会话不存在, 通知已丢弃 conversationId={} messageId={}",
+                    chatMessageMessage.getConversationId(), chatMessageMessage.getMessageId());
             return;
         }
         ChatConversationDoc conversation = opt.get();
         UserSummary user = userPort.getUser(chatMessageMessage.getSenderId());
         ConversationNotifyStrategy strategy = notifyRegistry.get(conversation.getType());
         if (strategy == null) {
-            log.warn("会话 {} 通知类型未注册: {}", conversation.getId(), conversation.getType());
+            log.warn("会话通知类型未注册, 通知已丢弃 conversationId={} type={} messageId={}",
+                    conversation.getId(), conversation.getType(), chatMessageMessage.getMessageId());
             return;
         }
         strategy.notify(conversation, chatMessageMessage, user);

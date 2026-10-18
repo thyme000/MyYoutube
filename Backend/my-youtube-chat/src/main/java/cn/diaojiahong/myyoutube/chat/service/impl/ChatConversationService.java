@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.CreateConversationDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.AnnouncementPublishVO;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
@@ -63,6 +65,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         this.mongoTransactionTemplate = mongoTransactionTemplate;
     }
 
+    @ObservedBusiness(BusinessOperation.CREATE_CONVERSATION)
     public ConversationVO createConversation(CreateConversationDTO createConversationDTO) {
         Long userId = getUserId();
         // 判断是否是互关用户 -> 不是互关用户则返回错误; Feign 守卫在事务外, 事务里只做纯写
@@ -139,6 +142,8 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         conversationVO.setType(createConversationDTO.getType());
         conversationVO.setMemberIds(memberIds);
         conversationVO.setName(createConversationDTO.getName());
+        log.info("Conversation created conversationId={} type={} creatorId={} memberCount={}",
+                chatConversationDoc.getId(), createConversationDTO.getType(), userId, memberIds.size());
         return conversationVO;
     }
 
@@ -236,9 +241,11 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             throw new IllegalArgumentException("不是会话成员");
         }
         Criteria c = Criteria.where("conversationId").is(conversationId);
+        boolean dissolved = false;
         if (chatConversationDoc.getType() == ConversationTypeEnum.GROUP) {
             // 判断是否是创建人 -> 解散群
             if (chatConversationDoc.getCreatedBy().equals(userId)) {
+                dissolved = true;
                 // 把群成员的会话状态设置为已删除
                 Update update = new Update().set("deleted", true);
                 mongoTemplate.updateMulti(new Query(c), update, ChatUserConversationDoc.class);
@@ -257,6 +264,8 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             Update update = new Update().set("deleted", true);
             mongoTemplate.updateMulti(new Query(c), update, ChatUserConversationDoc.class);
         }
+        log.info("Conversation deleted conversationId={} type={} operatorId={} dissolved={}",
+                conversationId, chatConversationDoc.getType(), userId, dissolved);
         return "删除成功";
     }
 

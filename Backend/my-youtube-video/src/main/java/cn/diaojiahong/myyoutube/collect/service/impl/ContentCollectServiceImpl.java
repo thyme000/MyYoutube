@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.collect.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.collect.domain.po.ContentCollect;
 import cn.diaojiahong.myyoutube.collect.domain.vo.CollectVO;
 import cn.diaojiahong.myyoutube.collect.mapper.ContentCollectMapper;
@@ -56,6 +58,7 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
     private final NotificationPublisher notificationPublisher;
 
     @Override
+    @ObservedBusiness(BusinessOperation.COLLECT)
     public void collect(Long contentId) {
         Long userId = getUserId();
         Content content = access.readable(contentId, userId);
@@ -88,6 +91,7 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.UNCOLLECT)
     public void cancelCollect(Long contentId) {
         Long userId = getUserId();
         // 只有行存在才减计数, 防重复取消把计数减穿

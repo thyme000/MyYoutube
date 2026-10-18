@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.common.constants;
 
 public class MqConstants {
+    public static final String TOPIC_PIPELINE_EVENTS = "pipeline_event_topic";
     public static final String TOPIC_CONTENT_SUBMITTED = "content_submitted_topic";
     public static final String TOPIC_CONTENT_UNDERSTOOD = "content_understood_topic";
 

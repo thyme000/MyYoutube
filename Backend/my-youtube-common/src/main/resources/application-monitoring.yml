@@ -1,0 +1,5 @@
+my-youtube.observability.monitoring.enabled: ${PIPELINE_MONITORING_ENABLED:true}
+management.metrics.distribution.percentiles-histogram:
+  media.node.wait: true
+  media.pipeline.duration: true
+  pipeline.ingest.bulk.duration: true

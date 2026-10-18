@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.comment.service.impl;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.comment.cache.CommentListCache;
 import cn.diaojiahong.myyoutube.comment.cursor.CommentCursor;
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentDTO;
@@ -77,6 +79,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
     private final CommentListCache commentListCache;
 
     @Override
+    @ObservedBusiness(BusinessOperation.COMMENT)
     public void publishComment(CommentDTO commentDTO) {
         Long parentId = commentDTO.getParentId() == null ? 0L : commentDTO.getParentId();
         Long userId = getUserId();
@@ -152,6 +155,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.DELETE_COMMENT)
     public void deleteComment(Long commentId) {
         ContentComment comment = getById(commentId);
         if (comment == null) {

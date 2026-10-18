@@ -12,6 +12,7 @@
 	<description>API 网关: 统一入口/路由/鉴权</description>
 
 	<dependencies>
+        <dependency><groupId>cn.diaojiahong</groupId><artifactId>my-youtube-telemetry-skywalking</artifactId><version>${project.version}</version></dependency>
 		<!-- 网关是 WebFlux 响应式栈, 不能引入 starter-web (父 pom 已不含 web) -->
 		<dependency>
 			<groupId>org.springframework.cloud</groupId>

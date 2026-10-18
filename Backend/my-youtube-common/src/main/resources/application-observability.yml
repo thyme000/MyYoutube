@@ -1,0 +1,4 @@
+my-youtube.observability:
+  recording.enabled: ${PIPELINE_EVENT_RECORDING_ENABLED:true}
+  delivery.enabled: ${PIPELINE_EVENT_DELIVERY_ENABLED:true}
+  cleanup.enabled: ${PIPELINE_EVENT_CLEANUP_ENABLED:true}

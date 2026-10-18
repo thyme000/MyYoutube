@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.other.service.impl;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -32,6 +34,7 @@ public class OtherService implements IOtherService {
     private final MediaDraftPort mediaDraftPort;
 
     @Override
+    @ObservedBusiness(BusinessOperation.PRESIGN_UPLOAD)
     public StoragePresignVO presignUpload(String bizType, String filename, Long fileSize, String contentType) {
         String biz = BIZ_DIRS.get(bizType);
         if (biz == null) {
@@ -60,6 +63,7 @@ public class OtherService implements IOtherService {
             String url = storageUtil.presignPutUrl(objectKey, PRESIGN_EXPIRE_SECONDS);
             vo.setUploadType("put");
             vo.setUrl(url);
+            log.debug("上传凭证已发放 userId={} biz={} objectKey={}", userId, biz, objectKey);
         }
         return vo;
     }

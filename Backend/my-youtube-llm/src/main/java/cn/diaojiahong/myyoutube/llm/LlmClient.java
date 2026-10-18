@@ -100,6 +100,7 @@ public class LlmClient {
         }
         HttpRequest request = builder.build();
 
+        long startedAt = System.currentTimeMillis();
         try {
             HttpResponse<String> resp = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) {
@@ -112,9 +113,11 @@ public class LlmClient {
             var usage = root.has("usage") && root.get("usage").isJsonObject() ? root.getAsJsonObject("usage") : new JsonObject();
             var tokens = new cn.diaojiahong.myyoutube.llm.api.LlmPort.Usage(
                     tokenCount(usage, "prompt_tokens"), tokenCount(usage, "completion_tokens"), tokenCount(usage, "total_tokens"));
-            log.info("LLM completed model={} maxTokens={} finishReason={} promptTokens={} completionTokens={} totalTokens={}",
+            // 只记用量与结束原因, 不落提示词/回复正文
+            log.info("LLM completed model={} maxTokens={} finishReason={} promptTokens={} completionTokens={} totalTokens={} elapsedMs={}",
                     body.get("model").getAsString(), body.get("max_tokens").getAsInt(), finish,
-                    tokens.promptTokens(), tokens.completionTokens(), tokens.totalTokens());
+                    tokens.promptTokens(), tokens.completionTokens(), tokens.totalTokens(),
+                    System.currentTimeMillis() - startedAt);
             return new cn.diaojiahong.myyoutube.llm.api.LlmPort.ChatResponse(
                     choice.getAsJsonObject("message").get("content").getAsString(),
                     body.get("model").getAsString(), finish, tokens);
@@ -122,7 +125,7 @@ public class LlmClient {
             throw e;
         } catch (Exception e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            throw new IllegalStateException("LLM 调用失败: " + e.getClass().getSimpleName());
+            throw new IllegalStateException("LLM 调用失败: " + e.getClass().getSimpleName(), e);
         }
     }
 

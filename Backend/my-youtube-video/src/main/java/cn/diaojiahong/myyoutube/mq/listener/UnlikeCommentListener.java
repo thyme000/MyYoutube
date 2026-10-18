@@ -29,7 +29,7 @@ public class UnlikeCommentListener implements RocketMQListener<LikeCommentMessag
      */
     @Override
     public void onMessage(LikeCommentMessage lc) {
-        log.info("handleUnlikeCommentMessage: {}", lc);
+        log.debug("Comment unlike notification received commentId={} senderId={}", lc.getCommentId(), lc.getSenderId());
         userNotificationService.remove(new LambdaQueryWrapper<UserNotification>()
                 .eq(UserNotification::getType, NotificationTypeEnum.COMMENT_LIKE.getCode())
                 .eq(UserNotification::getSenderId, lc.getSenderId())

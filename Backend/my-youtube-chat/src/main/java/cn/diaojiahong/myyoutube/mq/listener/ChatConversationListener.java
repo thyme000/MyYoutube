@@ -30,15 +30,15 @@ public class ChatConversationListener implements RocketMQListener<GroupDeletedMe
 
     @Override
     public void onMessage(GroupDeletedMessage message) {
-        log.info("收到通知群成员删除消息: {}", message);
         String conversationId = message.getConversationId();
         List<Long> memberIds = message.getUserIds();
         if (memberIds.isEmpty() || conversationId == null) {
+            log.debug("群解散通知跳过: 会话或成员为空 conversationId={}", conversationId);
             return;
         }
         Optional<ChatConversationDoc> opt = chatConversationService.getById(conversationId);
         if (opt.isEmpty()) {
-            log.warn("群聊不存在: {}", conversationId);
+            log.warn("群聊不存在, 解散通知已丢弃 conversationId={} memberCount={}", conversationId, memberIds.size());
             return;
         }
         ChatConversationDoc conversation = opt.get();
@@ -49,5 +49,6 @@ public class ChatConversationListener implements RocketMQListener<GroupDeletedMe
                     RefTypeEnum.CHAT.getCode(), null, conversationId));
             // 门铃由 video 端 NotificationPublisher 统一发, 这里不再自补
         }
+        log.info("群解散通知已发放 conversationId={} notified={}", conversationId, memberIds.size());
     }
 }

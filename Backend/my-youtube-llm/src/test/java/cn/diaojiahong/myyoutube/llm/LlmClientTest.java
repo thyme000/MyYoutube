@@ -11,6 +11,7 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.InetSocketAddress;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -113,6 +114,23 @@ class LlmClientTest {
         assertEquals(20, result.getUsage().promptTokens());
         assertEquals(3, result.getUsage().completionTokens());
         assertEquals(23, result.getUsage().totalTokens());
+    }
+
+    @Test
+    void requestTimeoutRetainsCauseForMonitoring() {
+        server.removeContext("/v1/chat/completions");
+        server.createContext("/v1/chat/completions", exchange -> {
+            try {
+                Thread.sleep(1500);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        properties.setTimeoutSeconds(1);
+        var failure = assertThrows(IllegalStateException.class, this::chat);
+        assertInstanceOf(HttpTimeoutException.class, failure.getCause());
     }
 
     private String chat() {

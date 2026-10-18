@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.service.impl;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -63,6 +65,7 @@ public class SearchServiceImpl implements ISearchService {
     private static final int STORAGE_EXPIRE_SECONDS = 3600 * 10;
 
     @Override
+    @ObservedBusiness(BusinessOperation.SEARCH_CONTENT)
     public PageResult<SearchVideoVO> searchVideo(SearchVideoPageQuery pageQuery) {
         Long userId = getUserId();
         SearchContext ctx = SearchContext.of(pageQuery, userId);
@@ -74,10 +77,14 @@ public class SearchServiceImpl implements ISearchService {
         var page = readable.subList(from, Math.min(from + pageQuery.getPageSize(), readable.size()));
         PageResult<SearchVideoVO> result = buildPageResult(page, readable.size(), pageQuery.getPageSize(), ctx.getFollowIds());
         loadForHotSearch(userId, ctx.getKeyword());
+        // 逐次检索, 只留召回量/可读量便于核对降级是否发生
+        log.debug("Search completed userId={} keyword={} sortByLatest={} recallHits={} readable={} pageNo={}",
+                userId, ctx.getKeyword(), pageQuery.isSortByLatest(), fused.size(), readable.size(), pageQuery.getPageNo());
         return result;
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.SEARCH_USER)
     public PageResult<SearchUserVO> searchUser(SearchUserPageQuery pageQuery) {
         Long userId = getUserId();
         // 获取关键字
@@ -221,7 +228,7 @@ public class SearchServiceImpl implements ISearchService {
 
             return merged.stream().limit(10).toList();
         } catch (Exception e) {
-            log.error("提示查询失败,请稍后重试", e);
+            log.error("搜索提示查询失败 keyword={} errorType={}", q, e.getClass().getSimpleName(), e);
             throw new BizException(BizException.BIZ_ERROR, "系统繁忙,请稍后再试");
         }
     }
@@ -249,6 +256,7 @@ public class SearchServiceImpl implements ISearchService {
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.SEARCH_TAG)
     public PageResult<SearchVideoVO> searchByTag(SearchVideoByTagPageQuery pageQuery) {
         Long userId = getUserId();
         String tagName = pageQuery.getTagName() == null ? "" : pageQuery.getTagName().trim();

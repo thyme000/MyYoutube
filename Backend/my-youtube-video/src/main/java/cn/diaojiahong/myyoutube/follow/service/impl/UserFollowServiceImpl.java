@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.follow.service.impl;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
@@ -48,6 +50,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     private static final long STORAGE_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
     @Override
+    @ObservedBusiness(BusinessOperation.FOLLOW)
     public void follow(Long authorId) {
         Long userId = getUserId();
         if (userId.equals(authorId)) {
@@ -66,7 +69,6 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         }
         // 延迟同步 ES 用户文档, 短时间多次变更天然合并(消费端以 MySQL 为准)
         esSyncPublisher.syncUserDoc(authorId);
-        return;
     }
 
     /** 计数器尽力而为: 关注关系已落库, 远程计数失败只记日志, 不把 HTTP 调用拖进 DB 连接持有期 */
@@ -75,7 +77,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         try {
             userPort.adjustCounters(adjustments);
         } catch (Exception e) {
-            log.error("关注计数同步失败: {}", adjustments, e);
+            log.warn("关注计数同步失败, 计数已丢弃(无补偿, 计数为最终一致值) adjustments={}", adjustments, e);
         }
     }
 
@@ -90,6 +92,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     }
 
     @Override
+    @ObservedBusiness(BusinessOperation.UNFOLLOW)
     public void cancelFollow(Long authorId) {
         Long userId = getUserId();
         // 取消关注

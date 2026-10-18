@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.notification.service;
 
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -21,23 +22,28 @@ public class NotificationPublisher {
 
     private final IUserNotificationService userNotificationService;
     private final PushFanoutPublisher pushFanoutPublisher;
+    private final MeterRegistry metrics;
 
     public void publish(UserNotification notification) {
         for (int attempt = 0; ; attempt++) {
             try {
-                userNotificationService.save(notification);
+                if (!userNotificationService.save(notification)) throw new IllegalStateException("Notification not saved");
                 break;
             } catch (Exception e) {
                 if (attempt >= 2) {
-                    log.warn("通知落库失败(降级不影响主流程), receiver={}, type={}",
-                            notification.getReceiverId(), notification.getType(), e);
+                    metrics.counter("myyoutube.notification.delivery.failures", "stage", "store").increment();
+                    log.warn("通知落库失败(降级不影响主流程, 前端拉模式兜底), receiver={}, type={}, attempts={}",
+                            notification.getReceiverId(), notification.getType(), attempt + 1, e);
                     return;
                 }
             }
         }
+        metrics.counter("myyoutube.notification.delivery.successes", "stage", "store").increment();
         try {
             pushFanoutPublisher.pushSseSignal(notification.getReceiverId(), NOTIFY_DIRTY_SIGNAL);
+            metrics.counter("myyoutube.notification.delivery.successes", "stage", "signal").increment();
         } catch (Exception e) {
+            metrics.counter("myyoutube.notification.delivery.failures", "stage", "signal").increment();
             log.warn("通知门铃发送失败(前端拉模式兜底), receiver={}", notification.getReceiverId(), e);
         }
     }

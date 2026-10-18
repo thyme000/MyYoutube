@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.comment.service.impl;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentReportDTO;
 import cn.diaojiahong.myyoutube.video.api.enums.CommentReportStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.po.CommentReport;
@@ -25,6 +27,7 @@ import java.util.List;
 public class CommentReportServiceImpl extends ServiceImpl<CommentReportMapper, CommentReport> implements ICommentReportService {
 
     @Override
+    @ObservedBusiness(BusinessOperation.REPORT_COMMENT)
     public void reportComment(CommentReportDTO commentReportDTO) {
         String userId = UserContext.getUserId();
         if (userId == null || userId.isEmpty()) {

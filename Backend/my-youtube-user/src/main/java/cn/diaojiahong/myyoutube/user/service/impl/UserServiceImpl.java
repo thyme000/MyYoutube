@@ -84,7 +84,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         try {
             bytes = file.getBytes();
         } catch (IOException e) {
-            log.error("更新头像或背景图片失败...", e);
+            log.warn("读取上传文件内容失败 bizPrefix={} filename={}", bizPrefix, file.getOriginalFilename(), e);
         }
         return storageUtil.uploadForObjectKey(bytes, file.getOriginalFilename(),
                 getUserId(), bizPrefix);
@@ -126,7 +126,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 同步 ES 文档: 发消息, 由 search 侧以 MySQL 为准重建
         esSyncPublisher.syncUserDoc(user.getId());
 
-        log.info("用户{},更新用户资料成功...", id);
+        log.info("用户资料更新成功 userId={}", id);
         return "修改成功";
     }
 

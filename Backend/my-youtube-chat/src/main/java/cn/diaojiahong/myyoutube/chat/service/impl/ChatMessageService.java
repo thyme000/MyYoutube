@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.chat.chain.message.MessageSendChain;
 import cn.diaojiahong.myyoutube.chat.chain.message.MessageSendContext;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageDTO;
@@ -117,6 +119,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return page(q, PageRequest.of(0, size));
     }
 
+    @ObservedBusiness(BusinessOperation.SEND_MESSAGE)
     public ChatMessageAckDTO send(ChatMessageDTO chatMessageDTO) {
         // 类型校验/会话与成员守卫/禁言/幂等/互关频控全部在链上, 步骤见 chat.chain.message
         MessageSendContext ctx = MessageSendContext.of(chatMessageDTO, getUserId());
@@ -190,6 +193,8 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             }
         }
         rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
+        log.debug("Chat message sent conversationId={} messageId={} seq={} senderId={} contentType={}",
+                conversationId, chatMessageDoc.getId(), chatMessageDoc.getSeq(), userId, chatMessageDoc.getContentType());
         return chatMessageAckDTO;
     }
 
@@ -215,6 +220,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return userId;
     }
 
+    @ObservedBusiness(BusinessOperation.WITHDRAW_MESSAGE)
     public ChatMessageAckDTO withdraw(ChatMessageWithdrawDTO chatMessageWithdrawDTO) {
         String userId = getUserId();
         if (chatMessageWithdrawDTO.getClientMsgId() == null) {
@@ -274,6 +280,9 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                 .recallType(recallTypeForMq)
                 .serviceTime(recallTime).event("withdraw").build();
         rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
+        log.debug("Chat message withdrawn conversationId={} messageId={} seq={} operatorId={} recallType={}",
+                chatMessageDoc.getConversationId(), chatMessageDoc.getId(), chatMessageDoc.getSeq(),
+                userId, recallTypeForMq);
         return getAck(chatMessageDoc, MessageStatusEnum.WITHDRAWN);
     }
 
@@ -336,6 +345,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return vo;
     }
 
+    @ObservedBusiness(BusinessOperation.READ_MESSAGE)
     public void read(String conversationId, Long lastReadSeq) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         // 判断是否是会话成员
@@ -461,9 +471,9 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private void incrementShareCountQuietly(Long contentId, Long viewerId) {
         try {
             if (!contentInternalPort.incrementShareCount(contentId, viewerId))
-                log.error("更新内容分享数失败,内容id:{}", contentId);
+                log.warn("更新内容分享数失败, 计数已丢弃 contentId={}", contentId);
         } catch (Exception e) {
-            log.error("更新内容分享数异常,内容id:{}", contentId, e);
+            log.warn("更新内容分享数异常, 计数已丢弃 contentId={}", contentId, e);
         }
     }
 }

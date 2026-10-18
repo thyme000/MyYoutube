@@ -1,0 +1,37 @@
+spring:
+  task.scheduling.pool.size: 3
+  application.name: my-youtube-observability
+  autoconfigure.exclude:
+    - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+    - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+    - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+    - org.apache.rocketmq.spring.autoconfigure.RocketMQAutoConfiguration
+    - cn.diaojiahong.myyoutube.common.idempotent.IdempotentAutoConfiguration
+server:
+  address: ${INGEST_BIND_ADDRESS:127.0.0.1}
+  port: ${INGEST_PORT:8091}
+management.endpoints.web.exposure.include: health,prometheus
+logging:
+  file.name: ${INGEST_LOG_FILE:logs/observability/ingest.log}
+  structured.format.file: cn.diaojiahong.myyoutube.common.observability.PipelineLogFormatter
+  logback.rollingpolicy:
+    max-file-size: 10MB
+    max-history: 7
+    total-size-cap: 100MB
+    file-name-pattern: ${LOG_FILE}.%d{yyyy-MM-dd}.%i.log
+my-youtube.ingest:
+  elasticsearch: ${INGEST_ELASTICSEARCH:http://127.0.0.1:19200}
+  nameserver: ${INGEST_NAMESERVER:127.0.0.1:9876}
+  group: ${INGEST_GROUP:myyoutube-pipeline-ingest}
+  index-prefix: ${INGEST_INDEX_PREFIX:myyoutube-pipeline-events-}
+  marker-directory: ${INGEST_MARKER_DIRECTORY:logs/observability/pending-dlq}
+  max-reconsume-times: ${INGEST_MAX_RECONSUME_TIMES:16}
+
+my-youtube.monitor:
+  enabled: ${PIPELINE_MONITORING_ENABLED:false}
+  interval-ms: ${PIPELINE_METRICS_INTERVAL_MS:30000}
+  logs-enabled: ${MONITOR_LOGS_ENABLED:true}
+  filebeat: ${MONITOR_FILEBEAT:http://127.0.0.1:15066}
+media.monitor.dlq-groups: ${MONITOR_DLQ_GROUPS:${INGEST_GROUP:myyoutube-pipeline-ingest},transcode_draft_worker,transcode_content_worker,transcode_review_worker,transcode_content_submitted,transcode_review_requested,transcode_media_upload_event_group,video_content_understood,video_review_result,video_publication_count,video_publication_search,video_publication_notice}
+rocketmq.name-server: ${INGEST_NAMESERVER:127.0.0.1:9876}
+management.metrics.distribution.percentiles-histogram.pipeline.ingest.bulk.duration: true

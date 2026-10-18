@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentDetailVO;
@@ -23,6 +25,7 @@ public class ContentReadService {
     private final ContentUnderstandingService understanding;
     private final S3StorageUtil storage;
 
+    @ObservedBusiness(BusinessOperation.CONTENT_DETAIL)
     public ContentDetailVO detail(Long id, Long viewer) {
         var content = access.readable(id, viewer);
         var media = strategies.get(content.getType()).loadMedia(List.of(id)).get(id);
@@ -37,6 +40,7 @@ public class ContentReadService {
         }
         return detail;
     }
+    @ObservedBusiness(BusinessOperation.SUBTITLES)
     public String subtitles(Long id, Long viewer) {
         access.readable(id, viewer);
         var row = understanding.get(id);

@@ -12,6 +12,8 @@
 	<description>管理后台: 跨服务聚合编排, 无自有数据库</description>
 
 	<dependencies>
+        <dependency><groupId>cn.diaojiahong</groupId><artifactId>my-youtube-transcode-api</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>cn.diaojiahong</groupId><artifactId>my-youtube-telemetry-skywalking</artifactId><version>${project.version}</version></dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>

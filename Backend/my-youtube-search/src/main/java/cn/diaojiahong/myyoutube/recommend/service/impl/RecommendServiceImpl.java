@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.recommend.service.impl;
 
 
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.video.api.CfRecommendPort;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
@@ -53,6 +55,7 @@ public class RecommendServiceImpl implements IRecommendService {
     private final StringRedisTemplate redisTemplate;
     private final FollowPort followPort;
     private final CfRecommendPort cfRecommendPort;
+    private final io.micrometer.core.instrument.MeterRegistry metrics;
 
     /** CF 路开关: 关闭后退回 tag+热度两路 */
     @Value("${my-youtube.recommend.cf.enabled:true}")
@@ -80,6 +83,7 @@ public class RecommendServiceImpl implements IRecommendService {
      * @return 推荐内容ID列表
      */
     @Override
+    @ObservedBusiness(BusinessOperation.RECOMMEND)
     public List<Long> recommend(Long userId, String type, String category, int page, int size) {
         // 客户端分页参数不可信: page<1 会让 PageRequest.of 抛参数异常
         int safePage = Math.max(1, page);
@@ -108,6 +112,7 @@ public class RecommendServiceImpl implements IRecommendService {
                 cfAlgorithm = candidates.getAlgorithm();
                 cfRoute = filterCfCandidates(candidates.getContentIds(), userId, type, category, excludeIds);
             } catch (Exception e) {
+                metrics.counter("myyoutube.recommend.fallbacks", "strategy", "cf").increment();
                 log.warn("CF 召回失败, 本轮退回 tag+热度两路 userId={}", userId, e);
             }
         }
@@ -176,7 +181,7 @@ public class RecommendServiceImpl implements IRecommendService {
             inHot += (mask & SOURCE_HOT) > 0 ? 1 : 0;
             inCf += (mask & SOURCE_CF) > 0 ? 1 : 0;
         }
-        log.info("推荐融合 userId={} type={} page={} tag路{}条 热度路{}条 CF路{}条(algo={}) 融合后{}条 来源命中 tag={} hot={} cf={}",
+        log.debug("推荐融合 userId={} type={} page={} tag路{}条 热度路{}条 CF路{}条(algo={}) 融合后{}条 来源命中 tag={} hot={} cf={}",
                 userId, type == null || type.isBlank() ? "mixed" : type, page,
                 tagRoute.size(), hotRoute.size(), cfRoute.size(), cfAlgorithm,
                 ordered.size(), inTag, inHot, inCf);
@@ -303,6 +308,7 @@ public class RecommendServiceImpl implements IRecommendService {
      * 关注流: 从被关注用户的内容中召回(tag 偏好加权), 动态与视频同池
      */
     @Override
+    @ObservedBusiness(BusinessOperation.RECOMMEND_FOLLOW)
     public List<Long> recommendForFollow(List<Long> followIds, Long userId, int page, int size) {
         // 没有关注的人，直接返回空
         if (followIds == null || followIds.isEmpty()) {

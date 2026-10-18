@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.handler;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.push.PushEnvelope;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.Message;
@@ -23,6 +24,7 @@ public class LocalPushDispatcher implements MessageListener {
 
     private final ChatWebSocketHandler chatWebSocketHandler;
     private final SseEmitterRegistry sseEmitterRegistry;
+    private final MeterRegistry metrics;
 
     @Override
     public void onMessage(Message message, byte[] pattern) {
@@ -52,7 +54,10 @@ public class LocalPushDispatcher implements MessageListener {
                 }
             }
         } catch (Exception e) {
-            log.warn("推送事件处理失败, channel={}, body={}", channel, body, e);
+            String kind = RedisConstants.PUSH_CHANNEL_WS.equals(channel) ? "ws"
+                    : RedisConstants.PUSH_CHANNEL_SSE.equals(channel) ? "sse" : "other";
+            metrics.counter("myyoutube.push.delivery.failures", "channel", kind).increment();
+            log.warn("推送事件处理失败, channel={} errorType={}", kind, e.getClass().getSimpleName());
         }
     }
 }
