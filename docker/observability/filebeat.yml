@@ -1,0 +1,54 @@
+filebeat.inputs:
+  - type: filestream
+    id: myyoutube-json
+    enabled: true
+    paths:
+      - /logs/java/*.log
+      - /logs/asr/*.log*
+      - /logs/ocr/*.log*
+    prospector.scanner.check_interval: 1s
+    file_identity.native: ~
+    parsers:
+      - ndjson:
+          target: ""
+          overwrite_keys: true
+          add_error_key: true
+    processors:
+      - timestamp:
+          field: '@timestamp'
+          layouts: ['2006-01-02T15:04:05.999999999Z07:00']
+      - add_fields:
+          target: event
+          fields:
+            dataset: myyoutube.application
+      # Filebeat 8.19 遇到自定义元数据时会跳过默认管道选择器。
+      - script:
+          lang: javascript
+          source: >
+            function process(event) {
+              if (event.Get('error.type') === 'json') {
+                var path = event.Get('log.file.path') || '';
+                var name = path.match(/\/([^/]+)\.log(?:\..*)?$/);
+                event.Put('service.name', name ? name[1] : 'unknown');
+                event.Put('event.dataset', 'myyoutube.application.unparsed');
+                event.Put('message', '[unparsed log line omitted]');
+              }
+              event.Put('@metadata.op_type', 'create');
+              event.Put('@metadata.pipeline', 'myyoutube-log-timing');
+            }
+setup.ilm.enabled: false
+setup.template.enabled: false
+output.elasticsearch:
+  hosts: ['http://observability-elasticsearch:9200']
+  index: logs-myyoutube-default
+  pipeline: myyoutube-log-timing
+  bulk_max_size: 100
+  worker: 1
+  timeout: 5s
+queue.mem:
+  events: 2048
+  flush.min_events: 100
+  flush.timeout: 1s
+logging.level: warning
+http.enabled: true
+http.host: 0.0.0.0

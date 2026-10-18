@@ -1,0 +1,86 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Apache SkyWalking 11.0.0 defaults with local LLM latency thresholds.
+rules:
+  service_resp_time_rule:
+    expression: sum(service_resp_time > 1000) >= 3
+    exclude-names: [my-youtube-llm-service]
+    period: 10
+    silence-period: 5
+    recovery-observation-period: 3
+    message: "{name} 最近 10 分钟有至少 3 个分钟桶平均耗时超过 1 秒"
+  service_sla_rule:
+    expression: sum(service_sla < 8000) >= 2
+    period: 10
+    silence-period: 3
+    recovery-observation-period: 2
+    message: "{name} 最近 10 分钟有至少 2 个分钟桶成功率低于 80%"
+  service_resp_time_percentile_rule:
+    expression: sum(service_percentile{p='50,75,90,95,99'} > 1000) >= 3
+    exclude-names: [my-youtube-llm-service]
+    period: 10
+    silence-period: 5
+    recovery-observation-period: 3
+    message: "{name} 最近 10 分钟有至少 3 个分钟桶响应时间分位数超过 1 秒"
+  service_instance_resp_time_rule:
+    expression: sum(service_instance_resp_time > 1000) >= 2
+    exclude-names-regex: '^.* of my-youtube-llm-service$'
+    period: 10
+    silence-period: 5
+    recovery-observation-period: 2
+    message: "{name} 最近 10 分钟有至少 2 个分钟桶平均耗时超过 1 秒"
+  database_access_resp_time_rule:
+    expression: sum(database_access_resp_time > 1000) >= 2
+    period: 10
+    message: "{name} 最近 10 分钟有至少 2 个分钟桶数据库访问耗时超过 1 秒"
+  endpoint_relation_resp_time_rule:
+    expression: sum(endpoint_relation_resp_time > 1000) >= 2
+    exclude-names-regex: '^.* in my-youtube-llm-service(?: to .*)?$'
+    period: 10
+    message: "{name} 最近 10 分钟有至少 2 个分钟桶端点关系耗时超过 1 秒"
+  llm_service_resp_time_rule:
+    expression: sum(service_resp_time > 30000) >= 2
+    include-names: [my-youtube-llm-service]
+    period: 10
+    silence-period: 5
+    recovery-observation-period: 2
+    tags: {level: WARNING}
+    message: "{name} 最近 10 分钟有至少 2 个分钟桶平均推理耗时超过 30 秒；结合失败率、超时率和积压排查"
+  llm_service_percentile_rule:
+    expression: sum(service_percentile{p='95,99'} > 60000) >= 2
+    include-names: [my-youtube-llm-service]
+    period: 10
+    silence-period: 5
+    recovery-observation-period: 2
+    tags: {level: WARNING}
+    message: "{name} 最近 10 分钟有至少 2 个分钟桶 P95 或 P99 推理耗时超过 60 秒"
+  llm_instance_resp_time_rule:
+    expression: sum(service_instance_resp_time > 30000) >= 2
+    include-names-regex: '^.* of my-youtube-llm-service$'
+    period: 10
+    silence-period: 5
+    recovery-observation-period: 2
+    tags: {level: WARNING}
+    message: "{name} 最近 10 分钟有至少 2 个分钟桶平均推理耗时超过 30 秒"
+  llm_endpoint_relation_resp_time_rule:
+    expression: sum(endpoint_relation_resp_time > 30000) >= 2
+    include-names-regex: '^.* in my-youtube-llm-service(?: to .*)?$'
+    period: 10
+    silence-period: 5
+    recovery-observation-period: 2
+    tags: {level: WARNING}
+    message: "{name} 最近 10 分钟有至少 2 个分钟桶端点关系耗时超过 30 秒"

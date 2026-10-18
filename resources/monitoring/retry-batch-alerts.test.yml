@@ -1,0 +1,30 @@
+rule_files:
+  - pipeline-alerts.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'media_retry_batch_age_seconds{job="transcode",instance="local"}'
+        values: '3000+0x10'
+      - series: 'pipeline_metrics_sample_success{job="transcode",instance="local",component="retry-batches",group="all",kind="all"}'
+        values: '1+0x10'
+      - series: 'pipeline_metrics_sample_enabled{job="transcode",instance="local",component="retry-batches",group="all",kind="all"}'
+        values: '1+0x10'
+      - series: 'pipeline_metrics_sample_age_seconds{job="transcode",instance="local",component="retry-batches",group="all",kind="all"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: PipelineRetryBatchDelayed
+        exp_alerts:
+          - exp_labels: {severity: warning, job: transcode, instance: local}
+            exp_annotations: {summary: '人工补跑批次活动超过 30 分钟；检查正常任务积压、模型恢复、批次状态与日志'}
+  - interval: 1m
+    input_series:
+      - series: 'media_model_terminal_total{type="ASR",reason="MODEL_CIRCUIT_OPEN"}'
+        values: '0 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PipelineModelStoppedForManualRetry
+        exp_alerts:
+          - exp_labels: {severity: warning, type: ASR, reason: MODEL_CIRCUIT_OPEN}
+            exp_annotations: {summary: 'ASR 因 MODEL_CIRCUIT_OPEN 停止自动执行，修复模型后通过管理端批次补跑'}

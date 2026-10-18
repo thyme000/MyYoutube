@@ -1,0 +1,140 @@
+services:
+  observability-elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.0
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.ml.enabled: "false"
+      ES_JAVA_OPTS: ${OBSERVABILITY_ES_JAVA_OPTS:--Xms512m -Xmx512m -XX:ActiveProcessorCount=2}
+    mem_limit: ${OBSERVABILITY_ES_MEMORY_LIMIT:-2g}
+    ports:
+      - "127.0.0.1:19200:9200"
+    volumes:
+      - observability-es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+  skywalking-oap:
+    image: apache/skywalking-oap-server:11.0.0
+    profiles: [tracing, full]
+    environment:
+      SW_STORAGE: elasticsearch
+      SW_STORAGE_ES_CLUSTER_NODES: observability-elasticsearch:9200
+      SW_NAMESPACE: myyoutube-traces
+      SW_CORE_RECORD_DATA_TTL: "3"
+      SW_CORE_METRICS_DATA_TTL: "3"
+      SW_STORAGE_ES_INDEX_SHARDS_NUMBER: "1"
+      SW_STORAGE_ES_INDEX_REPLICAS_NUMBER: "0"
+      SW_STORAGE_ES_SUPER_DATASET_INDEX_SHARDS_FACTOR: "1"
+      SW_STORAGE_ES_CONCURRENT_REQUESTS: "2"
+      SW_ADMIN_SERVER: default
+      JAVA_OPTS: ${OAP_JAVA_OPTS:--Xms512m -Xmx512m -XX:ActiveProcessorCount=2}
+    mem_limit: ${OAP_MEMORY_LIMIT:-1g}
+    ports:
+      - "127.0.0.1:11800:11800"
+      - "127.0.0.1:12800:12800"
+      - "127.0.0.1:17128:17128"
+    volumes:
+      - ./observability/skywalking/alarm-settings.yml:/skywalking/config/alarm-settings.yml:ro
+    depends_on:
+      observability-elasticsearch:
+        condition: service_healthy
+  horizon:
+    image: apache/skywalking-ui:horizon-1.0.1
+    profiles: [tracing, full]
+    environment:
+      HORIZON_OAP_QUERY_URL: http://skywalking-oap:12800
+      HORIZON_OAP_ADMIN_URL: http://skywalking-oap:17128
+      HORIZON_OAP_ZIPKIN_URL: http://skywalking-oap:12800/zipkin
+      HORIZON_TEMPLATES_MODE: live
+      HORIZON_AUTH_LOCAL_USERS: ${HORIZON_AUTH_LOCAL_USERS:-[]}
+    ports:
+      - "127.0.0.1:18081:8081"
+    mem_limit: ${HORIZON_MEMORY_LIMIT:-512m}
+    depends_on:
+      - skywalking-oap
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.19.0
+    profiles: [logging, full]
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://observability-elasticsearch:9200"]'
+      TELEMETRY_ENABLED: "false"
+      NODE_OPTIONS: --max-old-space-size=768
+    mem_limit: ${KIBANA_MEMORY_LIMIT:-1g}
+    ports: ["127.0.0.1:15601:5601"]
+    depends_on:
+      observability-elasticsearch:
+        condition: service_healthy
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.19.0
+    profiles: [logging, full]
+    ports: ["127.0.0.1:15066:5066"]
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    mem_limit: ${FILEBEAT_MEMORY_LIMIT:-256m}
+    volumes:
+      - ./observability/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ${OBSERVABILITY_LOG_DIRECTORY:-../logs/observability}:/logs/java:ro
+      - ${ASR_LOG_DIRECTORY:-../asr-svc/logs}:/logs/asr:ro
+      - ${OCR_LOG_DIRECTORY:-../ocr-svc/logs}:/logs/ocr:ro
+      - observability-filebeat-data:/usr/share/filebeat/data
+    depends_on:
+      observability-elasticsearch:
+        condition: service_healthy
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [monitoring, full]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d", "--storage.tsdb.retention.size=1GB"]
+    ports: ["127.0.0.1:19090:9090"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    mem_limit: ${PROMETHEUS_MEMORY_LIMIT:-512m}
+    volumes:
+      - ./observability/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${PROMETHEUS_JAVA_TARGETS_FILE:-./observability/monitoring/targets/java-local.yml}:/etc/prometheus/targets/java.yml:ro
+      - ${PROMETHEUS_MODEL_TARGETS_FILE:-./observability/monitoring/targets/models-local.yml}:/etc/prometheus/targets/models.yml:ro
+      - ../resources/monitoring:/etc/prometheus/rules:ro
+      - observability-prometheus-data:/prometheus
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    profiles: [monitoring, full]
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager", "--cluster.listen-address="]
+    ports: ["127.0.0.1:19093:9093"]
+    mem_limit: ${ALERTMANAGER_MEMORY_LIMIT:-128m}
+    volumes:
+      - ./observability/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - observability-alertmanager-data:/alertmanager
+  local-webhook:
+    image: python:3.13-slim
+    profiles: [monitoring, full]
+    command: ["python", "/app/receiver.py"]
+    ports: ["127.0.0.1:18095:8095"]
+    mem_limit: 64m
+    volumes:
+      - ./observability/monitoring/receiver.py:/app/receiver.py:ro
+      - observability-webhook-data:/data
+  grafana:
+    image: grafana/grafana:12.1.0
+    profiles: [monitoring, full]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_CHECK_FOR_UPDATES: "false"
+    ports: ["127.0.0.1:13000:3000"]
+    mem_limit: ${GRAFANA_MEMORY_LIMIT:-256m}
+    volumes:
+      - ./observability/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - observability-grafana-data:/var/lib/grafana
+volumes:
+  observability-es-data:
+  observability-filebeat-data:
+  observability-prometheus-data:
+  observability-alertmanager-data:
+  observability-webhook-data:
+  observability-grafana-data:

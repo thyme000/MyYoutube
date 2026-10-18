@@ -1,0 +1,57 @@
+rule_files:
+  - pipeline-alerts.yml
+evaluation_interval: 15s
+tests:
+  - name: queue-size-two-can-saturate
+    interval: 15s
+    input_series:
+      - series: 'model_queue_depth{service="ocr"}'
+        values: '2+0x8'
+      - series: 'model_queue_capacity{service="ocr"}'
+        values: '2+0x8'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ModelQueueSaturated
+        exp_alerts:
+          - exp_labels: {service: ocr, severity: warning}
+            exp_annotations: {summary: "ocr 等待队列持续满载"}
+  - name: queue-size-ten-does-not-saturate-at-four
+    interval: 15s
+    input_series:
+      - series: 'model_queue_depth{service="ocr"}'
+        values: '4+0x8'
+      - series: 'model_queue_capacity{service="ocr"}'
+        values: '10+0x8'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ModelQueueSaturated
+        exp_alerts: []
+  - name: no-waiting-queue-is-not-always-saturated
+    interval: 15s
+    input_series:
+      - series: 'model_queue_depth{service="asr"}'
+        values: '0+0x8'
+      - series: 'model_queue_capacity{service="asr"}'
+        values: '0+0x8'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ModelQueueSaturated
+        exp_alerts: []
+  - name: workers-remain-unavailable-during-recovery
+    interval: 15s
+    input_series:
+      - series: 'model_healthy_workers{service="ocr"}'
+        values: '0+0x8'
+      - series: 'model_failed_workers{service="ocr"}'
+        values: '1+0x8'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ModelWorkersUnavailable
+        exp_alerts:
+          - exp_labels: {service: ocr, severity: critical}
+            exp_annotations: {summary: "ocr 无健康模型 worker，检查恢复状态"}
+      - eval_time: 2m
+        alertname: ModelWorkerRecoveryExhausted
+        exp_alerts:
+          - exp_labels: {service: ocr, severity: critical}
+            exp_annotations: {summary: "ocr 模型 worker 恢复预算已耗尽"}

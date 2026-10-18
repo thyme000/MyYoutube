@@ -1,0 +1,18 @@
+- targets: ["host.docker.internal:8080"]
+  labels: {service: "my-youtube-gateway"}
+- targets: ["host.docker.internal:8081"]
+  labels: {service: "my-youtube-user-service"}
+- targets: ["host.docker.internal:8082"]
+  labels: {service: "my-youtube-video-service"}
+- targets: ["host.docker.internal:8083"]
+  labels: {service: "my-youtube-chat-service"}
+- targets: ["host.docker.internal:8084"]
+  labels: {service: "my-youtube-search-service"}
+- targets: ["host.docker.internal:8085"]
+  labels: {service: "my-youtube-admin-service"}
+- targets: ["host.docker.internal:8086"]
+  labels: {service: "my-youtube-transcode-service"}
+- targets: ["host.docker.internal:8087"]
+  labels: {service: "my-youtube-llm-service"}
+- targets: ["host.docker.internal:8091"]
+  labels: {service: "my-youtube-observability"}

@@ -1,69 +1,147 @@
 groups:
   - name: content-pipeline
     rules:
-      - alert: PipelineDeadLetters
-        expr: mq_dlq_retained > 0
+      - record: pipeline:sample:fresh
+        expr: (pipeline_metrics_sample_success == 1) and on(job,instance,component,group,kind) (pipeline_metrics_sample_age_seconds < 90) and on(job,instance,component,group,kind) (pipeline_metrics_sample_enabled == 1)
+      - alert: PipelineSampleUnavailable
+        expr: (pipeline_metrics_sample_success == 0 or pipeline_metrics_sample_age_seconds > 90) and on(job,instance,component,group,kind) (pipeline_metrics_sample_enabled == 1)
         for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "消费组 {{ $labels.group }} 存在死信，需人工保留证据并处理"
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} / {{ $labels.component }} 采样失败或过期，保留值不能视为已恢复"}
+      - alert: PipelineOutboxDelayed
+        expr: pipeline_outbox_oldest_seconds > 30 and on(job,instance) (pipeline_outbox_monitoring_enabled == 1) and on(job,instance) (pipeline:sample:fresh{component="outbox"} == 1)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} outbox 未发送记录超过 30 秒；检查投递开关及 MQ，长期故障应手动暂停清理"}
+      - alert: PipelineOutboxQuarantined
+        expr: pipeline_outbox_backlog{status="QUARANTINED"} > 0 and on(job,instance) (pipeline:sample:fresh{component="outbox"} == 1)
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "{{ $labels.service }} outbox 存在隔离记录，需人工处理并保留原文"}
+      - alert: PipelineDeadLetters
+        expr: mq_dlq_retained > 0 and on(job,instance) (pipeline:sample:fresh{component="dlq"} == 1)
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "消费组 {{ $labels.group }} 存在死信，需人工保留证据并处理"}
+      - alert: PipelineMqBacklog
+        expr: mq_consumer_oldest_seconds > 30 and on(job,instance,group,kind) (pipeline:sample:fresh{component="mq"} == 1)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "消费组 {{ $labels.group }} / {{ $labels.kind }} 待消费消息超过 30 秒"}
+      - alert: PipelineIngestPermanentFailure
+        expr: increase(pipeline_ingest_dlq_classified_total[5m]) > 0
+        labels: {severity: critical}
+        annotations: {summary: "事件摄取永久故障 {{ $labels.reason }}，检查 DLQ 转存与本地待处理标记"}
+      - alert: PipelineIngestUnavailable
+        expr: increase(pipeline_ingest_failures_total{reason="UNAVAILABLE"}[5m]) > 0
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "事件摄取持续遇到暂时故障，检查 ES 和 MQ 积压"}
+      - alert: PipelineLogDelayed
+        expr: pipeline_logs_delivery_seconds > 60 and on(job,instance) (pipeline:sample:fresh{component="logs"} == 1)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "普通日志入库延迟超过 60 秒；核对主机时钟和 Filebeat 积压"}
+      - alert: PipelineLogOutputStalled
+        expr: pipeline_logs_stalled_seconds > 60 and pipeline_logs_pending > 0 and on(job,instance) (pipeline:sample:fresh{component="logs"} == 1)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "Filebeat 有待确认日志但超过 60 秒无输出确认"}
+      - alert: PipelineRetryBatchDelayed
+        expr: media_retry_batch_age_seconds > 1800 and on(job,instance) (pipeline:sample:fresh{component="retry-batches"} == 1)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "人工补跑批次活动超过 30 分钟；检查正常任务积压、模型恢复、批次状态与日志"}
+      - alert: PipelineModelStoppedForManualRetry
+        expr: increase(media_model_terminal_total[5m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.type }} 因 {{ $labels.reason }} 停止自动执行，修复模型后通过管理端批次补跑"}
       - alert: PipelineGraphAnomaly
         expr: increase(media_pipeline_graph_errors_total[5m]) > 0
-        labels:
-          severity: critical
-        annotations:
-          summary: "加工依赖图无法推进，检查 pipelineId 日志"
+        labels: {severity: critical}
+        annotations: {summary: "加工依赖图无法推进，检查 pipelineId 日志"}
+      - alert: PipelineNoRunnableNodes
+        expr: media_pipeline_inactive_lowerbound > 0 and on(job,instance) (pipeline:sample:fresh{component="tasks"} == 1)
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "有 PROCESSING 流程没有可执行、运行中或待重试的加工节点，检查依赖图"}
+      - alert: PipelineReadyDelayed
+        expr: media_ready_oldest_seconds > 120 and on(job,instance) (pipeline:sample:fresh{component="tasks"} == 1)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "READY 节点等待超过 2 分钟，检查 worker 和 MQ"}
+      - alert: PipelineNeedsArtifacts
+        expr: sum by(job,instance,phase) (media_tasks{status="DEAD"}) > 0 and on(job,instance) (pipeline:sample:fresh{component="tasks"} == 1)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.phase }} 存在重试耗尽节点，需人工处理"}
+      - alert: PipelineResultDeliveryStalled
+        expr: media_result_delivery_oldest_seconds > 600 and on(job,instance) (pipeline:sample:fresh{component="tasks"} == 1)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "加工结果已完成但超过 10 分钟未收到落库确认"}
+      - alert: PublicationEffectsStalled
+        expr: media_publication_oldest_seconds > 600 and on(job,instance) (pipeline:sample:fresh{component="review"} == 1)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "发布副作用超过 10 分钟未完成"}
       - alert: ModelCircuitOpen
         expr: increase(model_circuit_transitions_total{state="OPEN"}[5m]) > 0
-        labels:
-          severity: warning
-        annotations:
-          summary: "模型资源 {{ $labels.resource }} 熔断"
+        labels: {severity: warning}
+        annotations: {summary: "模型资源 {{ $labels.resource }} 熔断"}
       - alert: ModelQueueSaturated
-        expr: model_queue_depth >= 4
-        for: 2m
-        labels:
-          severity: warning
-        annotations:
-          summary: "{{ $labels.service }} 等待队列持续满载"
-      - alert: ModelDiscoveryUnavailable
-        expr: model_discovery_registered == 0 and on (job, instance, service) model_discovery_enabled == 1
+        expr: model_queue_depth >= model_queue_capacity and model_queue_capacity > 0
         for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: "{{ $labels.service }} Nacos 注册未就绪，检查模型服务的连接恢复日志"
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 等待队列持续满载"}
+      - alert: ModelWorkersUnavailable
+        expr: model_healthy_workers == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "{{ $labels.service }} 无健康模型 worker，检查恢复状态"}
+      - alert: ModelDependencyWaitExhausted
+        expr: increase(media_model_unavailable_exhausted_total[5m]) > 0
+        labels: {severity: critical}
+        annotations: {summary: "{{ $labels.type }} 任务因模型持续不可用耗尽等待预算，检查失败任务"}
+      - alert: ModelWorkerRecoveryExhausted
+        expr: model_failed_workers > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "{{ $labels.service }} 模型 worker 恢复预算已耗尽"}
+      - alert: ModelDiscoveryUnavailable
+        expr: model_discovery_registered == 0 and on(job,instance,service) model_discovery_enabled == 1
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} Nacos 注册未就绪"}
       - alert: ModelOverload
         expr: increase(model_overload_total[5m]) > 5
-        labels:
-          severity: warning
-        annotations:
-          summary: "{{ $labels.service }} 发生容量拒绝"
-      - alert: PipelineReadyBacklog
-        expr: sum by (phase) (media_tasks{status="READY"}) > 100
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "{{ $labels.phase }} READY 节点持续积压"
-      - alert: PipelineNeedsArtifacts
-        expr: sum(media_tasks{phase="CONTENT",status="DEAD"}) > 0
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 发生容量拒绝"}
+  - name: llm-service
+    rules:
+      - record: llm:requests:completed10m
+        expr: sum by(job,instance,service,operation) (increase(llm_request_duration_seconds_count[10m]))
+      - record: llm:requests:failed10m
+        expr: sum by(job,instance,service,operation) (increase(llm_request_duration_seconds_count{outcome=~"error|timeout"}[10m]))
+      - record: llm:requests:timeout10m
+        expr: sum by(job,instance,service,operation) (increase(llm_request_duration_seconds_count{outcome="timeout"}[10m]))
+      - alert: LlmFailureRateHigh
+        expr: (llm:requests:failed10m / llm:requests:completed10m > 0.05) and (llm:requests:completed10m >= 10)
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} / {{ $labels.operation }} 最近 10 分钟失败率超过 5%（含超时，至少 10 次完成请求）"}
+      - alert: LlmTimeoutRateHigh
+        expr: (llm:requests:timeout10m / llm:requests:completed10m > 0.01) and (llm:requests:completed10m >= 10)
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} / {{ $labels.operation }} 最近 10 分钟超时率超过 1%（至少 10 次完成请求）"}
+      - alert: LlmRepeatedFailures
+        expr: (llm:requests:failed10m >= 3) and (llm:requests:completed10m < 10)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} / {{ $labels.operation }} 低流量下最近 10 分钟已有至少 3 次失败（含超时）"}
+      - alert: LlmTaskBacklog
+        expr: sum by(job,instance,service) (media_tasks{type=~"SUMMARY|TAG|REVIEW",status=~"READY|RETRY_WAIT"}) > 10 and on(job,instance) (pipeline:sample:fresh{component="tasks"} == 1)
         for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "存在重试耗尽的加工节点，请检查资料待补齐队列"
-      - alert: PublicationEffectsStalled
-        expr: media_publication_pending > 0
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "发布副作用超过兜底周期仍未收敛"
-      - alert: DeadLetterProbeUnavailable
-        expr: increase(mq_dlq_probe_failures_total[5m]) > 0
-        labels:
-          severity: warning
-        annotations:
-          summary: "无法读取 MQ 死信指标"
+        labels: {severity: warning}
+        annotations: {summary: "推理相关 SUMMARY/TAG/REVIEW 节点待执行或退避数量持续超过 10；检查模型容量、失败和重试"}

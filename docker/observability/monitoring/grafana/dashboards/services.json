@@ -1,0 +1,82 @@
+{
+  "uid": "myyoutube-services",
+  "title": "MyYoutube 服务总览",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "timezone": "browser",
+  "time": {"from": "now-30m", "to": "now"},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "抓取状态（1 为正常）",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "myyoutube-prometheus"},
+      "targets": [{"refId": "A", "expr": "up{job=~\"myyoutube.*\"}", "legendFormat": "{{service}} {{instance}}"}],
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 2,
+      "title": "请求速率",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "myyoutube-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by(service) (rate(http_server_requests_seconds_count{job=\"myyoutube-java\"}[5m]) or rate(model_http_request_duration_seconds_count{job=\"myyoutube-models\"}[5m]))", "legendFormat": "{{service}}"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 3,
+      "title": "5xx 请求速率",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "myyoutube-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by(service) (rate(http_server_requests_seconds_count{job=\"myyoutube-java\",status=~\"5..\"}[5m]) or rate(model_http_request_duration_seconds_count{job=\"myyoutube-models\",status=~\"5..\"}[5m]))", "legendFormat": "{{service}}"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 4,
+      "title": "平均请求耗时",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "myyoutube-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by(service) (rate(http_server_requests_seconds_sum{job=\"myyoutube-java\"}[5m]) or rate(model_http_request_duration_seconds_sum{job=\"myyoutube-models\"}[5m])) / clamp_min(sum by(service) (rate(http_server_requests_seconds_count{job=\"myyoutube-java\"}[5m]) or rate(model_http_request_duration_seconds_count{job=\"myyoutube-models\"}[5m])), 0.000001)", "legendFormat": "{{service}}"}],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 5,
+      "title": "搜索召回降级（近 5 分钟）",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 16, "w": 8, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "myyoutube-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by(strategy) (increase(myyoutube_search_recall_failures_total[5m]))", "legendFormat": "{{strategy}}"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 6,
+      "title": "通知降级（近 5 分钟）",
+      "type": "timeseries",
+      "gridPos": {"x": 8, "y": 16, "w": 8, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "myyoutube-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by(stage) (increase(myyoutube_notification_delivery_failures_total[5m]))", "legendFormat": "{{stage}}"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 7,
+      "title": "实时推送失败（近 5 分钟）",
+      "type": "timeseries",
+      "gridPos": {"x": 16, "y": 16, "w": 8, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "myyoutube-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by(channel) (increase(myyoutube_push_delivery_failures_total[5m]))", "legendFormat": "{{channel}}"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    }
+  ]
+}

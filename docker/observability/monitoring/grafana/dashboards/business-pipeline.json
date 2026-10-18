@@ -1,0 +1,410 @@
+{
+  "uid": "myyoutube-business-pipeline",
+  "title": "MyYoutube 内容加工",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "timezone": "browser",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "tags": [
+    "MyYoutube",
+    "业务"
+  ],
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "业务总览",
+      "url": "/d/myyoutube-business-overview",
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "各链路看板",
+      "type": "dashboards",
+      "tags": [
+        "业务"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "内容单笔事件",
+      "url": "http://127.0.0.1:15601/app/dashboards#/view/myyoutube-business-flow",
+      "targetBlank": true
+    },
+    {
+      "title": "上传准备单笔事件",
+      "url": "http://127.0.0.1:15601/app/dashboards#/view/myyoutube-upload-flow",
+      "targetBlank": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "label": "实例",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "myyoutube-prometheus"
+        },
+        "query": "label_values(up{job=\"myyoutube-java\"}, instance)",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "口径与排障入口",
+      "type": "text",
+      "options": {
+        "mode": "markdown",
+        "content": "COVER ∥ ASR/OCR；ASR ∥ OCR → SUMMARY → TAG；全部加工节点成功才 COMPLETED。空 ASR/OCR 可合法成功，缺产物不可。\n\n统计单位为操作调用/尝试，包含重试和幂等重放，不是去重用户数、内容数或端到端成功率。无流量、未接入、采样失败或过期显示无数据，不补零。\n\nsuccess=正常返回；empty=返回空列表/空页；no_change=条件未命中；business_error=BizException（含业务校验，也可能包装基础设施故障）；failure=其他异常或事务回滚。"
+      },
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 6
+      }
+    },
+    {
+      "title": "加工任务状态存量",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by(type,status) (media_tasks{job=\"myyoutube-java\",instance=~\"$instance\",phase=\"CONTENT\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"} <= 90))",
+          "legendFormat": "{{type}} · {{status}}"
+        }
+      ],
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "提交到加工完成 P95",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le) (rate(media_pipeline_duration_seconds_bucket{job=\"myyoutube-java\",instance=~\"$instance\"}[$__rate_interval])))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 3,
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "READY 最老等待",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max (media_ready_oldest_seconds{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"} <= 90))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 4,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "各节点认领等待 P95",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le,type) (rate(media_node_wait_seconds_bucket{job=\"myyoutube-java\",instance=~\"$instance\"}[$__rate_interval])))",
+          "legendFormat": "{{type}}"
+        }
+      ],
+      "id": 5,
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "加工完成后产物最老待投递时间",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max (media_result_delivery_oldest_seconds{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"} <= 90))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 6,
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "任务图异常次数",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(media_pipeline_graph_errors_total{job=\"myyoutube-java\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 7,
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "采样开关、结果及新鲜度请同时查看",
+      "type": "timeseries",
+      "description": "0 为采样失败；无数据表示未接入。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 8,
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "距最近成功采样",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 9,
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "后台采样启用状态",
+      "type": "timeseries",
+      "description": "1 已启用，0 关闭。数据面板仅采用已启用、成功且不超过 90 秒的样本。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"tasks\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 10,
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      }
+    }
+  ]
+}

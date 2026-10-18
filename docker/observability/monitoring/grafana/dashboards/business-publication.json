@@ -1,0 +1,698 @@
+{
+  "uid": "myyoutube-business-publication",
+  "title": "MyYoutube 审核与发布",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "timezone": "browser",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "tags": [
+    "MyYoutube",
+    "业务"
+  ],
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "业务总览",
+      "url": "/d/myyoutube-business-overview",
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "各链路看板",
+      "type": "dashboards",
+      "tags": [
+        "业务"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "内容单笔事件",
+      "url": "http://127.0.0.1:15601/app/dashboards#/view/myyoutube-business-flow",
+      "targetBlank": true
+    },
+    {
+      "title": "上传准备单笔事件",
+      "url": "http://127.0.0.1:15601/app/dashboards#/view/myyoutube-upload-flow",
+      "targetBlank": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "label": "实例",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "myyoutube-prometheus"
+        },
+        "query": "label_values(up{job=\"myyoutube-java\"}, instance)",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "口径与排障入口",
+      "type": "text",
+      "options": {
+        "mode": "markdown",
+        "content": "加工产物落库 → 自动/人工审核 → 作者计数、内容文档、通知三个独立分支。审核拒绝是业务决定；方法正常返回不表示审核通过。\n\n统计单位为操作调用/尝试，包含重试和幂等重放，不是去重用户数、内容数或端到端成功率。无流量、未接入、采样失败或过期显示无数据，不补零。\n\nsuccess=正常返回；empty=返回空列表/空页；no_change=条件未命中；business_error=BizException（含业务校验，也可能包装基础设施故障）；failure=其他异常或事务回滚。"
+      },
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 6
+      }
+    },
+    {
+      "title": "业务操作接入状态",
+      "type": "timeseries",
+      "description": "1 表示此实例已登记业务埋点；同时检查服务抓取状态。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "myyoutube_business_operation_enabled{job=\"myyoutube-java\",instance=~\"$instance\",chain=\"publication\"}",
+          "legendFormat": "{{operation}} · {{instance}}"
+        }
+      ],
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "各操作完成速率及结果",
+      "type": "timeseries",
+      "description": "统计单位为操作调用/尝试，包含重试和幂等重放，不是去重用户数、内容数或端到端成功率。无流量、未接入、采样失败或过期显示无数据，不补零。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(operation,outcome) (rate(myyoutube_business_operations_total{job=\"myyoutube-java\",instance=~\"$instance\",chain=\"publication\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}} · {{outcome}}"
+        }
+      ],
+      "id": 3,
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "所选时段调用完成量",
+      "type": "timeseries",
+      "description": "按计数器增量统计，自动处理进程重启；窗口开始前需要有抓取样本。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(operation,outcome) (increase(myyoutube_business_operations_total{job=\"myyoutube-java\",instance=~\"$instance\",chain=\"publication\"}[$__range]))",
+          "legendFormat": "{{operation}} · {{outcome}}"
+        }
+      ],
+      "id": 4,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "正常返回比例（含空结果和条件未命中）",
+      "type": "timeseries",
+      "description": "无调用时没有有效比例；不是整条链路成功率。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(operation) (increase(myyoutube_business_operations_total{job=\"myyoutube-java\",instance=~\"$instance\",chain=\"publication\",outcome=~\"success|empty|no_change\"}[$__rate_interval])) / sum by(operation) (increase(myyoutube_business_operations_total{job=\"myyoutube-java\",instance=~\"$instance\",chain=\"publication\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "id": 5,
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "操作耗时 P95",
+      "type": "timeseries",
+      "description": "同步方法调用至事务最终完成；不包含后续异步业务耗时。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le,operation) (rate(myyoutube_business_duration_seconds_bucket{job=\"myyoutube-java\",instance=~\"$instance\",chain=\"publication\"}[$__rate_interval])))",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "id": 6,
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "当前在途调用",
+      "type": "timeseries",
+      "description": "包含等待外层事务完成的操作。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(operation) (myyoutube_business_inflight{job=\"myyoutube-java\",instance=~\"$instance\",chain=\"publication\"})",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "id": 7,
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "业务异常与系统异常",
+      "type": "timeseries",
+      "description": "success=正常返回；empty=返回空列表/空页；no_change=条件未命中；business_error=BizException（含业务校验，也可能包装基础设施故障）；failure=其他异常或事务回滚。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(operation,outcome) (increase(myyoutube_business_operations_total{job=\"myyoutube-java\",instance=~\"$instance\",chain=\"publication\",outcome=~\"business_error|failure\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}} · {{outcome}}"
+        }
+      ],
+      "id": 8,
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "自动审核和人工审核待处理",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by(mode) (media_review_queue{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"review\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"review\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"review\"} <= 90))",
+          "legendFormat": "{{mode}}"
+        }
+      ],
+      "id": 9,
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "发布三个分支待完成量（有界下限）",
+      "type": "timeseries",
+      "description": "count=作者计数及用户文档同步投递；search=内容文档；notice=审核通知落库。采样前 2000 个未完成事件，同一事件可同时属于多个分支，不能相加作为内容数。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by(branch) (myyoutube_business_publication_pending_lowerbound{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"} <= 90))",
+          "legendFormat": "{{branch}}"
+        }
+      ],
+      "id": 10,
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "发布各分支最老等待",
+      "type": "timeseries",
+      "description": "采用数据库时钟；截断且未见到某分支时返回未知。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by(branch) (myyoutube_business_publication_oldest_seconds{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"} <= 90))",
+          "legendFormat": "{{branch}}"
+        }
+      ],
+      "id": 11,
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "发布分支采样是否截断",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max (myyoutube_business_publication_capped{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"} <= 90))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "采样开关、结果及新鲜度请同时查看",
+      "type": "timeseries",
+      "description": "0 为采样失败；无数据表示未接入。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 13,
+      "gridPos": {
+        "x": 12,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "距最近成功采样",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 14,
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "后台采样启用状态",
+      "type": "timeseries",
+      "description": "1 已启用，0 关闭。数据面板仅采用已启用、成功且不超过 90 秒的样本。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"business_backlog\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 15,
+      "gridPos": {
+        "x": 12,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "采样开关、结果及新鲜度请同时查看",
+      "type": "timeseries",
+      "description": "0 为采样失败；无数据表示未接入。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"review\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 16,
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "距最近成功采样",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"review\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 17,
+      "gridPos": {
+        "x": 12,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "后台采样启用状态",
+      "type": "timeseries",
+      "description": "1 已启用，0 关闭。数据面板仅采用已启用、成功且不超过 90 秒的样本。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"review\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 18,
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 12,
+        "h": 8
+      }
+    }
+  ]
+}

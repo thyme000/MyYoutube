@@ -1,0 +1,77 @@
+groups:
+  - name: service-baseline
+    rules:
+      # 保留原告警身份，移动分组时不改变 Alertmanager 的去重键。
+      - alert: PipelineTargetUnavailable
+        expr: up{job=~"myyoutube.*"} == 0
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 指标端点不可达"}
+      - record: service:http:completed5m
+        expr: sum by(job,instance,service) (increase(http_server_requests_seconds_count{job="myyoutube-java",uri!~"/actuator.*"}[5m]))
+      - record: service:http:failed5m
+        expr: sum by(job,instance,service) (increase(http_server_requests_seconds_count{job="myyoutube-java",uri!~"/actuator.*",status=~"5.."}[5m]))
+      - alert: ServiceHttpErrorRateHigh
+        expr: (service:http:failed5m / service:http:completed5m > 0.05) and (service:http:completed5m >= 20)
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 最近 5 分钟 HTTP 5xx 比例超过 5%（至少 20 次完成请求）"}
+      - alert: ServiceHttpRepeatedErrors
+        expr: (service:http:failed5m >= 3) and (service:http:completed5m < 20)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 低流量下最近 5 分钟已有至少 3 次 HTTP 5xx"}
+      - alert: ServiceHttpLatencyHigh
+        expr: |
+          (sum by(job,instance,service) (rate(http_server_requests_seconds_sum{job="myyoutube-java",service!~"my-youtube-(llm-service|gateway)",uri!~"/actuator.*|/sse.*|/ws.*"}[5m]))
+          / sum by(job,instance,service) (rate(http_server_requests_seconds_count{job="myyoutube-java",service!~"my-youtube-(llm-service|gateway)",uri!~"/actuator.*|/sse.*|/ws.*"}[5m])) > 1)
+          and (sum by(job,instance,service) (increase(http_server_requests_seconds_count{job="myyoutube-java",service!~"my-youtube-(llm-service|gateway)",uri!~"/actuator.*|/sse.*|/ws.*"}[5m])) >= 20)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 最近 5 分钟普通 HTTP 请求平均耗时超过 1 秒（至少 20 次完成请求）"}
+      # 网关 HTTP uri=UNKNOWN；用固定路由标签隔离包含 SSE/WS 的聊天路由。
+      - alert: GatewayRouteLatencyHigh
+        expr: |
+          (sum by(job,instance,service,routeId) (rate(spring_cloud_gateway_requests_seconds_sum{job="myyoutube-java",routeId!~"chat-service|chat-ws|.*llm.*"}[5m]))
+          / sum by(job,instance,service,routeId) (rate(spring_cloud_gateway_requests_seconds_count{job="myyoutube-java",routeId!~"chat-service|chat-ws|.*llm.*"}[5m])) > 1)
+          and (sum by(job,instance,service,routeId) (increase(spring_cloud_gateway_requests_seconds_count{job="myyoutube-java",routeId!~"chat-service|chat-ws|.*llm.*"}[5m])) >= 20)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} / {{ $labels.routeId }} 最近 5 分钟平均耗时超过 1 秒（至少 20 次完成请求）"}
+  - name: jvm-runtime
+    rules:
+      # G1 年轻代的 max=-1 表示未定义；使用所有堆池的 used 和正数 max。
+      - alert: JvmHeapUsageHigh
+        expr: |
+          (sum by(job,instance,service) (jvm_memory_used_bytes{job="myyoutube-java",area="heap"})
+          / sum by(job,instance,service) (jvm_memory_max_bytes{job="myyoutube-java",area="heap"} > 0) > 0.85)
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} JVM 堆使用率持续 10 分钟超过 85%，检查堆配置、分配速率和 GC"}
+      - alert: JvmGcOverheadHigh
+        expr: sum by(job,instance,service) (rate(jvm_gc_pause_seconds_sum{job="myyoutube-java"}[5m])) > 0.10
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 最近 5 分钟 GC 暂停累计时间占比超过 10%，持续 5 分钟"}
+      - alert: ServiceCpuUsageHigh
+        expr: process_cpu_usage{job="myyoutube-java"} > 0.90
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} JVM 进程 CPU 使用率持续 10 分钟超过 90%"}
+      - alert: ServiceFileDescriptorsHigh
+        expr: (process_files_open_files{job="myyoutube-java"} / process_files_max_files{job="myyoutube-java"} > 0.80) and (process_files_max_files{job="myyoutube-java"} > 0)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 文件句柄使用率持续 5 分钟超过 80%"}
+  - name: database-pool
+    rules:
+      - alert: DatabasePoolSaturated
+        expr: (hikaricp_connections_active{job="myyoutube-java"} / hikaricp_connections_max{job="myyoutube-java"} > 0.90) and (hikaricp_connections_pending{job="myyoutube-java"} > 0) and (hikaricp_connections_max{job="myyoutube-java"} > 0)
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} / {{ $labels.pool }} 数据库连接池使用率超过 90% 且有线程等待，持续 2 分钟"}
+      - alert: DatabaseConnectionTimeouts
+        expr: increase(hikaricp_connections_timeout_total{job="myyoutube-java"}[5m]) >= 3
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} / {{ $labels.pool }} 最近 5 分钟至少 3 次获取数据库连接超时"}

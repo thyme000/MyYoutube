@@ -1,0 +1,4 @@
+- targets: ["host.docker.internal:8089"]
+  labels: {service: "asr-svc"}
+- targets: ["host.docker.internal:8088"]
+  labels: {service: "ocr-svc"}

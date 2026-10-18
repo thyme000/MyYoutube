@@ -1,0 +1,803 @@
+{
+  "uid": "myyoutube-pipeline",
+  "title": "MyYoutube 内容管线",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "timezone": "browser",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "采样成功状态（0 为失败）",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_success",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "距上次成功采样",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_age_seconds",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Outbox 最老未发送年龄",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_outbox_oldest_seconds",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Outbox 积压（可能达到采样上限）",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_outbox_backlog",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Outbox 是否达到计数上限",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_outbox_backlog_capped",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "MQ 待消费消息（含重试队列）",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "mq_consumer_pending",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "MQ 最老待消费年龄",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "mq_consumer_oldest_seconds",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "MQ 保留死信数",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by(group) (mq_dlq_retained)",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "ES Bulk P95",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le) (rate(pipeline_ingest_bulk_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "ES 失败速率",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(reason) (rate(pipeline_ingest_failures_total[5m]))",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "409 核验结果速率",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(result) (rate(pipeline_ingest_duplicates_total[5m]))",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "DLQ 转存确认速率",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(pipeline_ingest_dlq_transfers_total[5m])",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "READY 最老等待年龄",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "media_ready_oldest_seconds",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "成功认领时的等待 P95",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le,type) (rate(media_node_wait_seconds_bucket[5m])))",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "任务状态存量",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(phase,type,status) (media_tasks)",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "结果／发布副作用最老投递年龄",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"media_result_delivery_oldest_seconds|media_publication_oldest_seconds\"}",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "普通日志入库延迟（近 1 分钟；空闲无值）",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_logs_delivery_seconds",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Filebeat 待确认数量／停滞时间",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_logs_pending",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        },
+        {
+          "refId": "B",
+          "expr": "pipeline_logs_stalled_seconds",
+          "legendFormat": "无确认持续秒数"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "图异常速率",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(media_pipeline_graph_errors_total[5m])",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "模型等待 P95",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 72,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le,service) (rate(model_wait_seconds_bucket[5m])))",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "模型父进程包装执行 P95",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 80,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le,service) (rate(model_execution_seconds_bucket[5m])))",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "目标可用状态",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 80,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=~\"myyoutube.*\"}",
+          "legendFormat": "{{service}} {{component}} {{group}} {{status}} {{type}} {{kind}} {{reason}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "PROCESSING 无活跃节点流程（有界下限）",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 88,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "media_pipeline_inactive_lowerbound",
+          "legendFormat": "已发现异常流程"
+        },
+        {
+          "refId": "B",
+          "expr": "media_pipeline_inactive_capped",
+          "legendFormat": "候选达到采样上限"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    }
+  ]
+}
