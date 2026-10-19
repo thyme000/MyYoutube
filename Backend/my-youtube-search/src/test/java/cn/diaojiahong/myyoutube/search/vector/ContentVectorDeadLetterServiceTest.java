@@ -108,8 +108,26 @@ class ContentVectorDeadLetterServiceTest {
         verifyNoInteractions(client);
     }
 
+    @Test void recoveryRequiresRequestedVersionAndReplayPreservesItsIdentity() throws Exception {
+        var targeted = new ContentVectorDeadLetters.Entry(reference, "message", 1L, 100L, 3, "model:2", "write failed");
+        when(reader.query(null, 20)).thenReturn(new ContentVectorDeadLetters.Page(List.of(targeted), null));
+        when(reader.find(reference)).thenReturn(targeted);
+        ContentDoc old = content(); old.setVectorVersion("model:1");
+        ContentDoc current = content(); current.setVectorVersion("model:2");
+        when(client.mget(any(Function.class), eq(ContentDoc.class))).thenReturn(response(old), response(old), response(current));
+        Item item = service.query(null, 20).items().get(0);
+        assertEquals(State.UNRECOVERED, item.state());
+        assertEquals("TARGET_VERSION_MISMATCH", item.reason());
+        assertEquals("model:2", item.targetVersion());
+        assertEquals("write failed", item.failureReason());
+        assertEquals(ReplayStatus.ACCEPTED, service.replay(reference, 1L).status());
+        verify(publisher).publishRecovery(1L, "model:2", "write failed");
+        assertEquals(ReplayStatus.ALREADY_COMPLETED, service.replay(reference, 1L).status());
+        verify(publisher, never()).publish(anyLong());
+    }
+
     private ContentVectorDeadLetters.Entry entry(Long id) {
-        return new ContentVectorDeadLetters.Entry(reference, "message", id, 100L, 3);
+        return new ContentVectorDeadLetters.Entry(reference, "message", id, 100L, 3, null, null);
     }
 
     private ContentDoc content() {

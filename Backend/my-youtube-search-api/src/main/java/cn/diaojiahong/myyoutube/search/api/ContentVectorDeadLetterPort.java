@@ -17,7 +17,7 @@ public interface ContentVectorDeadLetterPort {
 
     record Reference(String brokerName, Integer queueId, Long offset) {}
     record Item(Reference reference, String messageId, Long contentId, long storedAt, int reconsumeTimes,
-                State state, String reason, String vectorVersion) {}
+                State state, String reason, String vectorVersion, String targetVersion, String failureReason) {}
     record Page(List<Item> items, String nextCursor, boolean enabled) {}
     record ReplayResult(ReplayStatus status, Long contentId, String message) {}
 

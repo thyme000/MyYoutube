@@ -46,4 +46,15 @@ class ContentVectorPublisherTest {
         publisher.publish(1L);
         verifyNoInteractions(mq);
     }
+
+    @Test void recoveryCarriesVersionAndFailureAndRequiresDeliveryConfirmation() {
+        var result = new SendResult(); result.setSendStatus(SendStatus.SEND_OK);
+        when(mq.syncSend(eq(MqConstants.TOPIC_CONTENT_VECTOR), any(Message.class))).thenReturn(result);
+        publisher.publishRecovery(1L, "model:2", "write failed");
+        var message = ArgumentCaptor.forClass(Message.class);
+        verify(mq).syncSend(eq(MqConstants.TOPIC_CONTENT_VECTOR), message.capture());
+        assertEquals(new ContentVectorMessage(1L, "model:2", "write failed"), message.getValue().getPayload());
+        properties.setEnabled(false);
+        assertThrows(IllegalStateException.class, () -> publisher.publishRecovery(1L, "model:2", "write failed"));
+    }
 }

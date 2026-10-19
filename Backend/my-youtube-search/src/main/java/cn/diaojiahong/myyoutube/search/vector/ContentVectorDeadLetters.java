@@ -30,7 +30,8 @@ public class ContentVectorDeadLetters {
     private final ObjectMapper mapper;
     private boolean started;
 
-    record Entry(Reference reference, String messageId, Long contentId, long storedAt, int reconsumeTimes) {}
+    record Entry(Reference reference, String messageId, Long contentId, long storedAt, int reconsumeTimes,
+                 String targetVersion, String failureReason) {}
     record Page(List<Entry> entries, String nextCursor) {}
 
     @Autowired
@@ -126,14 +127,21 @@ public class ContentVectorDeadLetters {
 
     private Entry entry(MessageQueue queue, MessageExt message) {
         Long contentId = null;
+        String targetVersion = null;
+        String failureReason = null;
         try {
             ContentVectorMessage payload = mapper.readValue(message.getBody(), ContentVectorMessage.class);
-            if (payload != null && payload.contentId() != null && payload.contentId() > 0) contentId = payload.contentId();
+            if (payload != null && payload.contentId() != null && payload.contentId() > 0
+                    && (payload.targetVersion() == null || !payload.targetVersion().isBlank())) {
+                contentId = payload.contentId();
+                targetVersion = payload.targetVersion();
+                failureReason = payload.failureReason();
+            }
         } catch (IOException | IllegalArgumentException ignored) {
             // 损坏消息仍需展示，但禁止重投。
         }
         return new Entry(reference(queue, message.getQueueOffset()), message.getMsgId(), contentId,
-                message.getStoreTimestamp(), message.getReconsumeTimes());
+                message.getStoreTimestamp(), message.getReconsumeTimes(), targetVersion, failureReason);
     }
 
     private String encode(Reference reference) throws IOException {

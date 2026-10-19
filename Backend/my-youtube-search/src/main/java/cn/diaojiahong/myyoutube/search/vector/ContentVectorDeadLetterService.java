@@ -34,9 +34,9 @@ public class ContentVectorDeadLetterService implements ContentVectorDeadLetterPo
         Map<Long, Recovery> states = states(ids);
         List<Item> items = page.entries().stream().map(entry -> {
             Recovery recovery = entry.contentId() == null ? new Recovery(State.INVALID_MESSAGE, "INVALID_MESSAGE", null)
-                    : states.getOrDefault(entry.contentId(), UNKNOWN);
+                    : recovery(entry, states);
             return new Item(entry.reference(), entry.messageId(), entry.contentId(), entry.storedAt(), entry.reconsumeTimes(),
-                    recovery.state(), recovery.reason(), recovery.version());
+                    recovery.state(), recovery.reason(), recovery.version(), entry.targetVersion(), entry.failureReason());
         }).toList();
         return new Page(items, page.nextCursor(), properties.isEnabled());
     }
@@ -56,18 +56,28 @@ public class ContentVectorDeadLetterService implements ContentVectorDeadLetterPo
 
     private ReplayResult replay(ContentVectorDeadLetters.Entry entry) {
         Long contentId = entry.contentId();
-        Recovery recovery = states(List.of(contentId)).getOrDefault(contentId, UNKNOWN);
+        Recovery recovery = recovery(entry, states(List.of(contentId)));
         if (recovery.state() == State.RECOVERED) return new ReplayResult(ReplayStatus.ALREADY_COMPLETED, contentId, "已有向量，无需重投");
         if (recovery.state() == State.UNKNOWN) return new ReplayResult(ReplayStatus.STATE_UNAVAILABLE, contentId, "当前内容状态不可用，请稍后重试");
         if (recovery.state() == State.INELIGIBLE) return new ReplayResult(ReplayStatus.INELIGIBLE, contentId, recovery.reason());
         if (!properties.isEnabled()) return new ReplayResult(ReplayStatus.DISABLED, contentId, "向量功能已关闭");
         try {
-            publisher.publish(contentId);
+            if (entry.targetVersion() == null) publisher.publish(contentId);
+            else publisher.publishRecovery(contentId, entry.targetVersion(), entry.failureReason());
             return new ReplayResult(ReplayStatus.ACCEPTED, contentId, "MQ 已接收，等待后台构建");
         } catch (Exception error) {
             log.warn("Content vector replay delivery unconfirmed contentId={}", contentId, error);
             return new ReplayResult(ReplayStatus.DELIVERY_UNCONFIRMED, contentId, "未获得 MQ 成功确认；消息可能已送达，可查询结果后重试");
         }
+    }
+
+    private Recovery recovery(ContentVectorDeadLetters.Entry entry, Map<Long, Recovery> states) {
+        Recovery current = states.getOrDefault(entry.contentId(), UNKNOWN);
+        if (current.state() == State.RECOVERED && entry.targetVersion() != null
+                && !entry.targetVersion().equals(current.version())) {
+            return new Recovery(State.UNRECOVERED, "TARGET_VERSION_MISMATCH", current.version());
+        }
+        return current;
     }
 
     private Map<Long, Recovery> states(List<Long> ids) {
@@ -92,9 +102,10 @@ public class ContentVectorDeadLetterService implements ContentVectorDeadLetterPo
         String version = content.getVectorVersion();
         if (!"published".equals(content.getStatus())) return new Recovery(State.INELIGIBLE, "NOT_PUBLISHED", version);
         if (!"public".equals(content.getVisibility())) return new Recovery(State.INELIGIBLE, "NOT_PUBLIC", version);
-        if (version != null && !version.isBlank()) return new Recovery(State.RECOVERED, null, version);
         boolean empty = Stream.of(content.getTitle(), content.getDescription(), content.getSummary())
                 .allMatch(text -> text == null || text.isBlank());
-        return empty ? new Recovery(State.INELIGIBLE, "EMPTY_TEXT", null) : new Recovery(State.UNRECOVERED, null, null);
+        if (empty) return new Recovery(State.INELIGIBLE, "EMPTY_TEXT", version);
+        return version != null && !version.isBlank() ? new Recovery(State.RECOVERED, null, version)
+                : new Recovery(State.UNRECOVERED, null, null);
     }
 }

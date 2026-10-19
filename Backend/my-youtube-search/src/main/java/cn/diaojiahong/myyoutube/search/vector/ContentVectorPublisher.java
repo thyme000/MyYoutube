@@ -17,11 +17,21 @@ public class ContentVectorPublisher {
 
     public void publish(Long contentId) {
         if (!properties.isEnabled()) return;
-        var message = MessageBuilder.withPayload(new ContentVectorMessage(contentId))
-                .setHeader(RocketMQHeaders.KEYS, contentId.toString()).build();
+        send(new ContentVectorMessage(contentId));
+    }
+
+    public void publishRecovery(Long contentId, String targetVersion, String failureReason) {
+        if (!properties.isEnabled()) throw new IllegalStateException("向量功能已关闭，恢复任务未登记");
+        if (targetVersion == null || targetVersion.isBlank()) throw new IllegalArgumentException("恢复任务缺少目标版本");
+        send(new ContentVectorMessage(contentId, targetVersion, failureReason));
+    }
+
+    private void send(ContentVectorMessage payload) {
+        var message = MessageBuilder.withPayload(payload)
+                .setHeader(RocketMQHeaders.KEYS, payload.contentId().toString()).build();
         var result = mq.syncSend(MqConstants.TOPIC_CONTENT_VECTOR, message);
         if (result == null || result.getSendStatus() != SendStatus.SEND_OK) {
-            throw new IllegalStateException("向量任务未获 Broker 成功确认, contentId=" + contentId);
+            throw new IllegalStateException("向量任务未获 Broker 成功确认, contentId=" + payload.contentId());
         }
     }
 }
