@@ -7,7 +7,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * 短窗口幂等: Redis 占位防重复。不提供跨重启能力, 持久化幂等走任务表+唯一约束。
+ * Redis 执行占位与短窗口完成缓存；业务持久化结果仍由调用方校验。
  * 切面在事务外层, 故占位先于开事务、失败释放发生在回滚之后。
  */
 @Target(ElementType.METHOD)
@@ -21,8 +21,11 @@ public @interface Idempotent {
      */
     String key();
 
-    /** 占位存活秒数, 必须大于方法最坏执行耗时, 否则占位提前过期防不住并发 */
+    /** 成功结果缓存秒数；0 表示仅在执行期间互斥。 */
     long ttl() default 300;
+
+    /** 执行占位秒数，执行期间自动续期。 */
+    long leaseSeconds() default IdempotentGuard.DEFAULT_LEASE_SECONDS;
 
     /** 重复请求的处置策略 */
     DuplicatePolicy policy() default DuplicatePolicy.THROW;
