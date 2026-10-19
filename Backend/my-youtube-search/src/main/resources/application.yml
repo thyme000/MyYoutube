@@ -32,6 +32,9 @@ my-youtube:
     vector:
       # 总开关, 关闭即回退纯关键词搜索
       enabled: true
+      # 整次 LLM RPC 的读取超时；批量包含多轮子批次及失败隔离
+      single-read-timeout-seconds: ${EMBEDDING_SINGLE_READ_TIMEOUT_SECONDS:130}
+      batch-read-timeout-seconds: ${EMBEDDING_BATCH_READ_TIMEOUT_SECONDS:600}
       # RRF 平滑常数
       rrf-k: 60
       # 每路召回深度

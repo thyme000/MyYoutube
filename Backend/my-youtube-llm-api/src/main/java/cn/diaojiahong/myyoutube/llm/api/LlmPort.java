@@ -21,7 +21,7 @@ public interface LlmPort {
     ChatResponse chat(@RequestBody ChatRequest request);
 
     @PostMapping("/embeddings")
-    EmbeddingsResponse embeddings(@RequestBody EmbeddingsRequest request);
+    EmbeddingsResponse embeddings(@RequestBody EmbeddingsRequest request, feign.Request.Options options);
 
     @Data
     @NoArgsConstructor

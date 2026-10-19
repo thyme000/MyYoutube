@@ -27,7 +27,7 @@ class ContentVectorBuilderTest {
     final ContentVectorPublisher publisher = mock(ContentVectorPublisher.class);
     final IdempotentGuard guard = mock(IdempotentGuard.class);
     final IdempotentGuard.Lease lease = mock(IdempotentGuard.Lease.class);
-    final ContentVectorBuilder builder = new ContentVectorBuilder(llm, es, publisher, guard);
+    final ContentVectorBuilder builder = new ContentVectorBuilder(llm, es, publisher, guard, new VectorProperties());
     final Map<Long, Map<String, Object>> documents = new HashMap<>();
     final Map<Long, Long> sequences = new HashMap<>();
     final List<Long> writes = new ArrayList<>();
@@ -37,7 +37,7 @@ class ContentVectorBuilderTest {
     @BeforeEach void setup() throws Exception {
         when(lease.acquired()).thenReturn(true);
         when(guard.acquireAll(anyList(), anyLong())).thenReturn(lease);
-        when(llm.embeddings(any())).thenAnswer(call -> vectors(call.getArgument(0)));
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenAnswer(call -> vectors(call.getArgument(0)));
         when(es.get(any(Function.class), eq(Map.class))).thenAnswer(call -> {
             Function<GetRequest.Builder, ObjectBuilder<GetRequest>> factory = call.getArgument(0);
             Long id = Long.valueOf(factory.apply(new GetRequest.Builder()).build().id());
@@ -99,7 +99,7 @@ class ContentVectorBuilderTest {
         assertEquals(new ContentVectorBuilder.Counts(1, 1, 4, 0), builder.batch(List.of(1L, 2L, 3L, 4L, 5L, 6L), "model:2"));
         assertEquals(List.of(6L), writes);
         var request = ArgumentCaptor.forClass(LlmPort.EmbeddingsRequest.class);
-        verify(llm).embeddings(request.capture());
+        verify(llm).embeddings(request.capture(), any(feign.Request.Options.class));
         assertEquals(List.of("valid"), request.getValue().getTexts());
         verify(guard).acquireAll(List.of("{content-vector}:1", "{content-vector}:2", "{content-vector}:3",
                 "{content-vector}:4", "{content-vector}:5", "{content-vector}:6"), 30);
@@ -115,27 +115,27 @@ class ContentVectorBuilderTest {
     @Test void partialInferenceWritesGoodItemsAndRegistersOnlyFailedItemsWithoutRecomputing() {
         content(1, "good"); content(2, "bad");
         doReturn(new LlmPort.EmbeddingsResponse(List.of(new LlmPort.EmbeddingItem(0, List.of(1f, 2f), null),
-                new LlmPort.EmbeddingItem(1, null, "bad text")), 2, "model:2", null)).when(llm).embeddings(any());
+                new LlmPort.EmbeddingItem(1, null, "bad text")), 2, "model:2", null)).when(llm).embeddings(any(), any(feign.Request.Options.class));
         assertEquals(new ContentVectorBuilder.Counts(1, 0, 0, 1), builder.batch(List.of(1L, 2L), "model:2"));
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
         verify(publisher).publishRecovery(eq(2L), eq("model:2"), contains("bad text"));
         assertEquals(List.of(1L), writes);
     }
 
     @Test void knownModelOutageAbortsWithoutFiftyIndividualCalls() {
         content(1, "good"); content(2, "good");
-        doThrow(new ModelUnavailable("LLM", "MODEL_CIRCUIT_OPEN", 30, null)).when(llm).embeddings(any());
+        doThrow(new ModelUnavailable("LLM", "MODEL_CIRCUIT_OPEN", 30, null)).when(llm).embeddings(any(), any(feign.Request.Options.class));
         assertThrows(ModelUnavailable.class, () -> builder.batch(List.of(1L, 2L), "model:2"));
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
         verifyNoInteractions(publisher);
         assertTrue(writes.isEmpty());
     }
 
     @Test void modelVersionChangeAbortsWithoutWritingOldVersionStamp() {
         content(1, "good");
-        doReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1f, 2f)), 2, "model:3")).when(llm).embeddings(any());
+        doReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1f, 2f)), 2, "model:3")).when(llm).embeddings(any(), any(feign.Request.Options.class));
         assertThrows(IllegalStateException.class, () -> builder.batch(List.of(1L), "model:2"));
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
         verifyNoInteractions(publisher);
         assertTrue(writes.isEmpty());
     }
@@ -143,7 +143,7 @@ class ContentVectorBuilderTest {
     @Test void writeRetryReusesModelResultAndDoesNotRewriteEarlierItems() throws Exception {
         content(1, "first"); content(2, "second"); content(3, "third"); failedWrites.put(2L, 1);
         assertEquals(new ContentVectorBuilder.Counts(3, 0, 0, 0), builder.batch(List.of(1L, 2L, 3L), "model:2"));
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
         assertEquals(List.of(1L, 2L, 3L, 2L), writes);
         assertEquals(List.of(List.of("1", "2", "3"), List.of("2")), bulkRequests);
         verify(es, never()).update(any(Function.class), eq(Void.class));
@@ -153,7 +153,7 @@ class ContentVectorBuilderTest {
     @Test void exhaustedWriteRegistersRecoveryAndStillProcessesOtherItems() {
         content(1, "bad write"); content(2, "good write"); failedWrites.put(1L, 3);
         assertEquals(new ContentVectorBuilder.Counts(1, 0, 0, 1), builder.batch(List.of(1L, 2L), "model:2"));
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
         assertEquals(List.of(1L, 2L, 1L, 1L), writes);
         verify(publisher).publishRecovery(eq(1L), eq("model:2"), anyString());
     }
@@ -184,7 +184,7 @@ class ContentVectorBuilderTest {
         assertEquals(new ContentVectorBuilder.Counts(0, 1, 0, 0), builder.batch(List.of(1L), "model:2"));
         assertEquals(List.of(9f, 9f), documents.get(1L).get("vector"));
         verify(es).bulk(any(BulkRequest.class));
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
     }
 
     @Test void visibilityChangeDuringWriteRetryIsSkippedWithoutOverwritingMetadata() throws Exception {
@@ -216,12 +216,12 @@ class ContentVectorBuilderTest {
         builder.single(1L, "model:2", lease);
         assertEquals("model:2", documents.get(1L).get("vectorVersion"));
         builder.single(1L, "model:2", lease);
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
     }
 
     @Test void malformedVectorsAreNeverWritten() {
         content(1, "good");
-        doReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(Float.NaN, 1f)), 2, "model:2")).when(llm).embeddings(any());
+        doReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(Float.NaN, 1f)), 2, "model:2")).when(llm).embeddings(any(), any(feign.Request.Options.class));
         assertEquals(new ContentVectorBuilder.Counts(0, 0, 0, 1), builder.batch(List.of(1L), "model:2"));
         assertTrue(writes.isEmpty());
         verify(publisher).publishRecovery(eq(1L), eq("model:2"), anyString());
@@ -235,7 +235,7 @@ class ContentVectorBuilderTest {
         assertEquals(50, bulkRequests.get(0).size());
         verify(es).bulk(any(BulkRequest.class));
         verify(es, never()).update(any(Function.class), eq(Void.class));
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
     }
 
     @Test void unknownBulkOutcomeRereadsAndOnlyRetriesUnconfirmedItems() throws Exception {
@@ -254,7 +254,7 @@ class ContentVectorBuilderTest {
         assertEquals(new ContentVectorBuilder.Counts(1, 1, 0, 0), builder.batch(List.of(1L, 2L), "model:2"));
         assertEquals(List.of(List.of("2")), bulkRequests);
         verify(es, times(2)).bulk(any(BulkRequest.class));
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
     }
 
     @Test void definitiveMappingFailureIsRegisteredWithoutRetryingOtherItems() throws Exception {
@@ -271,16 +271,16 @@ class ContentVectorBuilderTest {
     @Test void malformedVectorDoesNotDiscardItsValidNeighbor() {
         content(1, "good"); content(2, "bad");
         doReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1f, 2f), List.of(Float.NaN, 1f)), 2, "model:2"))
-                .when(llm).embeddings(any());
+                .when(llm).embeddings(any(), any(feign.Request.Options.class));
         assertEquals(new ContentVectorBuilder.Counts(1, 0, 0, 1), builder.batch(List.of(1L, 2L), "model:2"));
         assertEquals(List.of(1L), writes);
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
     }
 
     @Test void indexedResponseCanBeReorderedWithoutCrossingVectors() {
         content(1, "first"); content(2, "second");
         doReturn(new LlmPort.EmbeddingsResponse(List.of(new LlmPort.EmbeddingItem(1, List.of(3f, 4f), null),
-                new LlmPort.EmbeddingItem(0, List.of(1f, 2f), null)), 2, "model:2", null)).when(llm).embeddings(any());
+                new LlmPort.EmbeddingItem(0, List.of(1f, 2f), null)), 2, "model:2", null)).when(llm).embeddings(any(), any(feign.Request.Options.class));
         assertEquals(new ContentVectorBuilder.Counts(2, 0, 0, 0), builder.batch(List.of(1L, 2L), "model:2"));
         assertEquals(List.of(1f, 2f), documents.get(1L).get("vector"));
         assertEquals(List.of(3f, 4f), documents.get(2L).get("vector"));
@@ -290,10 +290,10 @@ class ContentVectorBuilderTest {
         content(1, "good"); content(2, "not attempted");
         doReturn(new LlmPort.EmbeddingsResponse(List.of(new LlmPort.EmbeddingItem(0, List.of(1f, 2f), null),
                 new LlmPort.EmbeddingItem(1, null, "unavailable")), 2, "model:2", "upstream unavailable"))
-                .when(llm).embeddings(any());
+                .when(llm).embeddings(any(), any(feign.Request.Options.class));
         assertThrows(ModelUnavailable.class, () -> builder.batch(List.of(1L, 2L), "model:2"));
         assertEquals(List.of(1L), writes);
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
         verifyNoInteractions(publisher);
         verify(lease, never()).complete(anyString(), anyLong());
     }
@@ -301,10 +301,10 @@ class ContentVectorBuilderTest {
     @Test void duplicateInputIndexesAbortWithoutGuessingOrRecomputing() {
         content(1, "first"); content(2, "second");
         doReturn(new LlmPort.EmbeddingsResponse(List.of(new LlmPort.EmbeddingItem(0, List.of(1f, 2f), null),
-                new LlmPort.EmbeddingItem(0, List.of(3f, 4f), null)), 2, "model:2", null)).when(llm).embeddings(any());
+                new LlmPort.EmbeddingItem(0, List.of(3f, 4f), null)), 2, "model:2", null)).when(llm).embeddings(any(), any(feign.Request.Options.class));
         assertThrows(IllegalStateException.class, () -> builder.batch(List.of(1L, 2L), "model:2"));
         assertTrue(writes.isEmpty());
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
         verifyNoInteractions(publisher);
     }
 

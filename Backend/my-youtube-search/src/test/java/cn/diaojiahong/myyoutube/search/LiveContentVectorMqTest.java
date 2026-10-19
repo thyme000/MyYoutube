@@ -88,7 +88,7 @@ class LiveContentVectorMqTest {
             var llm = mock(LlmPort.class);
             var failPersistentTask = new AtomicBoolean(true);
             var vector = new java.util.ArrayList<>(Collections.nCopies(4096, 0.0f)); vector.set(0, 1.0f);
-            when(llm.embeddings(any())).thenAnswer(call -> {
+            when(llm.embeddings(any(), any(feign.Request.Options.class))).thenAnswer(call -> {
                 String text = call.<LlmPort.EmbeddingsRequest>getArgument(0).getTexts().get(0);
                 int attempt = attempts.computeIfAbsent(text, key -> new AtomicInteger()).incrementAndGet();
                 if (text.equals("暂时失败\n简介\n摘要") && attempt == 1) throw new IllegalStateException("temporary model failure");
@@ -96,7 +96,7 @@ class LiveContentVectorMqTest {
                 return new LlmPort.EmbeddingsResponse(List.of(vector), 4096, "vector-it:4096");
             });
             var raw = spy(new ContentVectorService(llm, client, redis, properties, rebuildExecutor, guard,
-                    new cn.diaojiahong.myyoutube.search.vector.ContentVectorBuilder(llm, client, publisher, guard)));
+                    new cn.diaojiahong.myyoutube.search.vector.ContentVectorBuilder(llm, client, publisher, guard, new VectorProperties())));
             doAnswer(call -> {
                 deliveries.computeIfAbsent(call.getArgument(0), key -> new AtomicInteger()).incrementAndGet();
                 return call.callRealMethod();
@@ -161,7 +161,7 @@ class LiveContentVectorMqTest {
                         .mapToObj(position -> poison.get() && texts.get(position).startsWith("重建毒数据")
                                 ? new LlmPort.EmbeddingItem(position, null, "isolated poison input")
                                 : new LlmPort.EmbeddingItem(position, vector, null)).toList(), 4096, "vector-it-v2:4096", null);
-            }).when(llm).embeddings(any());
+            }).when(llm).embeddings(any(), any(feign.Request.Options.class));
             operations.indexOps(ContentDoc.class).refresh();
             assertTrue(vectors.startRebuild());
             await(() -> vectors.rebuildReport() != null && vectors.rebuildReport().scanCompleted()

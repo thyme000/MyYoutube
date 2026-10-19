@@ -52,7 +52,7 @@ public class ContentVectorService {
             return null;
         }
         try {
-            LlmPort.EmbeddingsResponse resp = llmPort.embeddings(new LlmPort.EmbeddingsRequest(List.of(keyword)));
+            LlmPort.EmbeddingsResponse resp = llmPort.embeddings(new LlmPort.EmbeddingsRequest(List.of(keyword)), vectorProperties.embeddingOptions(1));
             var item = resp.getItems().get(0);
             if (resp.getUnavailableReason() != null || item.index() != 0 || item.error() != null
                     || item.vector() == null || item.vector().isEmpty()) return null;

@@ -52,24 +52,24 @@ class LiveContentSearchTest {
         var llm = mock(cn.diaojiahong.myyoutube.llm.api.LlmPort.class);
         var computed = new java.util.ArrayList<>(java.util.Collections.nCopies(4096, 0f)); computed.set(0, 1f);
         var winner = new java.util.ArrayList<>(java.util.Collections.nCopies(4096, 0f)); winner.set(1, 1f);
-        when(llm.embeddings(any())).thenAnswer(call -> {
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenAnswer(call -> {
             client.update(update -> update.index("content").id("1").doc(Map.of("vector", winner, "vectorVersion", "target:4096")), Void.class);
             return new cn.diaojiahong.myyoutube.llm.api.LlmPort.EmbeddingsResponse(List.of(computed), 4096, "target:4096");
         });
         var builder = new cn.diaojiahong.myyoutube.search.vector.ContentVectorBuilder(llm, client,
-                mock(ContentVectorPublisher.class), mock(cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard.class));
+                mock(ContentVectorPublisher.class), mock(cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard.class), new VectorProperties());
         builder.single(1L, "target:4096", mock(cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard.Lease.class));
         var actual = client.get(get -> get.index("content").id("1"), Map.class).source();
         List<Number> vector = (List<Number>) actual.get("vector");
         assertEquals(0f, vector.get(0).floatValue()); assertEquals(1f, vector.get(1).floatValue());
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
     }
     @Test void bulkWriteKeepsConcurrentWinnerAndSkipsNewlyPrivateItem() throws Exception {
         for (long id : List.of(1L, 2L, 3L)) writer.write(message(id));
         var llm = mock(cn.diaojiahong.myyoutube.llm.api.LlmPort.class);
         var vector = new java.util.ArrayList<>(java.util.Collections.nCopies(4096, 0f)); vector.set(0, 1f);
         var winner = new java.util.ArrayList<>(java.util.Collections.nCopies(4096, 0f)); winner.set(1, 1f);
-        when(llm.embeddings(any())).thenAnswer(call -> {
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenAnswer(call -> {
             client.update(update -> update.index("content").id("1").doc(Map.of("vector", winner, "vectorVersion", "target:4096")), Void.class);
             client.update(update -> update.index("content").id("2").doc(Map.of("visibility", "private")), Void.class);
             return new cn.diaojiahong.myyoutube.llm.api.LlmPort.EmbeddingsResponse(List.of(vector, vector, vector), 4096, "target:4096");
@@ -78,7 +78,7 @@ class LiveContentSearchTest {
         var lease = mock(cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard.Lease.class);
         when(guard.acquireAll(anyList(), anyLong())).thenReturn(lease); when(lease.acquired()).thenReturn(true);
         var observed = spy(client);
-        var builder = new cn.diaojiahong.myyoutube.search.vector.ContentVectorBuilder(llm, observed, mock(ContentVectorPublisher.class), guard);
+        var builder = new cn.diaojiahong.myyoutube.search.vector.ContentVectorBuilder(llm, observed, mock(ContentVectorPublisher.class), guard, new VectorProperties());
         assertEquals(new cn.diaojiahong.myyoutube.search.vector.ContentVectorBuilder.Counts(1, 1, 1, 0),
                 builder.batch(List.of(1L, 2L, 3L), "target:4096"));
         assertEquals(winner, repository.findById(1L).orElseThrow().getVector());
@@ -86,7 +86,7 @@ class LiveContentSearchTest {
         assertNull(repository.findById(2L).orElseThrow().getVector());
         assertEquals(vector, repository.findById(3L).orElseThrow().getVector());
         verify(observed).bulk(any(co.elastic.clients.elasticsearch.core.BulkRequest.class));
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
     }
 
     @Test void bulkItemMappingFailureDoesNotUndoItsSuccessfulNeighbor() throws Exception {
@@ -94,21 +94,21 @@ class LiveContentSearchTest {
         var llm = mock(cn.diaojiahong.myyoutube.llm.api.LlmPort.class);
         var zero = new java.util.ArrayList<>(java.util.Collections.nCopies(4096, 0f));
         var vector = new java.util.ArrayList<>(zero); vector.set(0, 1f);
-        when(llm.embeddings(any())).thenReturn(new cn.diaojiahong.myyoutube.llm.api.LlmPort.EmbeddingsResponse(
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenReturn(new cn.diaojiahong.myyoutube.llm.api.LlmPort.EmbeddingsResponse(
                 List.of(zero, vector), 4096, "target:4096"));
         var guard = mock(cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard.class);
         var lease = mock(cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard.Lease.class);
         when(guard.acquireAll(anyList(), anyLong())).thenReturn(lease); when(lease.acquired()).thenReturn(true);
         var publisher = mock(ContentVectorPublisher.class);
         var observed = spy(client);
-        var builder = new cn.diaojiahong.myyoutube.search.vector.ContentVectorBuilder(llm, observed, publisher, guard);
+        var builder = new cn.diaojiahong.myyoutube.search.vector.ContentVectorBuilder(llm, observed, publisher, guard, new VectorProperties());
         assertEquals(new cn.diaojiahong.myyoutube.search.vector.ContentVectorBuilder.Counts(1, 0, 0, 1),
                 builder.batch(List.of(1L, 2L), "target:4096"));
         assertNull(repository.findById(1L).orElseThrow().getVector());
         assertEquals(vector, repository.findById(2L).orElseThrow().getVector());
         verify(publisher).publishRecovery(eq(1L), eq("target:4096"), contains("status=400"));
         verify(observed).bulk(any(co.elastic.clients.elasticsearch.core.BulkRequest.class));
-        verify(llm).embeddings(any());
+        verify(llm).embeddings(any(), any(feign.Request.Options.class));
     }
 
     ContentDocMessage message(long id) {

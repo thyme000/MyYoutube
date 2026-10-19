@@ -43,7 +43,7 @@ class ContentVectorServiceTest {
     final IdempotentGuard guard = mock(IdempotentGuard.class);
     final ContentVectorPublisher publisher = mock(ContentVectorPublisher.class);
     final IdempotentGuard.Lease lease = mock(IdempotentGuard.Lease.class);
-    final ContentVectorBuilder builder = new ContentVectorBuilder(llm, client, publisher, guard);
+    final ContentVectorBuilder builder = new ContentVectorBuilder(llm, client, publisher, guard, new VectorProperties());
     final ContentVectorService service = new ContentVectorService(llm, client, redis, properties, executor, guard, builder);
     final Map<String, String> checkpoints = new java.util.HashMap<>();
     final ValueOperations<String, String> values = mock(ValueOperations.class);
@@ -73,12 +73,12 @@ class ContentVectorServiceTest {
 
     @Test void consumerCompletesAllThreeFieldsAndWritesOnlyVectorFieldsBeforeReturning() throws Exception {
         storedContent(Map.of("status", "published", "visibility", "public", "title", " 标题 ", "description", " 简介 ", "summary", " 内容摘要 "));
-        when(llm.embeddings(any())).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1.0f, 2.0f)), 2, "model:2"));
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1.0f, 2.0f)), 2, "model:2"));
         new ContentVectorListener(service).onMessage(new ContentVectorMessage(1L));
         verifyNoInteractions(executor);
 
         var input = ArgumentCaptor.forClass(LlmPort.EmbeddingsRequest.class);
-        verify(llm).embeddings(input.capture());
+        verify(llm).embeddings(input.capture(), any(feign.Request.Options.class));
         assertEquals(List.of("标题\n简介\n内容摘要"), input.getValue().getTexts());
         var update = captureUpdate();
         assertEquals("content", update.index());
@@ -90,10 +90,10 @@ class ContentVectorServiceTest {
 
     @Test void emptySummaryIsAllowedAndModelFailureReachesMqListener() throws Exception {
         storedContent(Map.of("status", "published", "visibility", "public", "title", "标题", "summary", " "));
-        when(llm.embeddings(any())).thenThrow(new IllegalStateException("model unavailable"));
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenThrow(new IllegalStateException("model unavailable"));
         assertThrows(IllegalStateException.class, () -> new ContentVectorListener(service).onMessage(new ContentVectorMessage(1L)));
         var input = ArgumentCaptor.forClass(LlmPort.EmbeddingsRequest.class);
-        verify(llm).embeddings(input.capture());
+        verify(llm).embeddings(input.capture(), any(feign.Request.Options.class));
         assertEquals(List.of("标题"), input.getValue().getTexts());
         verify(client, never()).update(any(Function.class), eq(Void.class));
     }
@@ -124,7 +124,7 @@ class ContentVectorServiceTest {
         when(stored.primaryTerm()).thenReturn(1L);
         when(stored.source()).thenReturn(Map.of("status", "published", "visibility", "public", "title", "标题"));
         doReturn(stored).when(client).get(any(Function.class), eq(Map.class));
-        when(llm.embeddings(any())).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1.0f)), 1, "model:1"));
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1.0f)), 1, "model:1"));
         when(client.update(any(Function.class), eq(Void.class))).thenThrow(new IOException("ES write failed"), new IOException("ES write failed"), new IOException("ES write failed")).thenReturn(null);
         assertThrows(IllegalStateException.class, () -> listener.onMessage(new ContentVectorMessage(1L)));
         assertDoesNotThrow(() -> listener.onMessage(new ContentVectorMessage(1L)));
@@ -154,7 +154,7 @@ class ContentVectorServiceTest {
     }
 
     @Test void failedQueryItemFallsBackToKeywordSearch() {
-        when(llm.embeddings(any())).thenReturn(new LlmPort.EmbeddingsResponse(
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenReturn(new LlmPort.EmbeddingsResponse(
                 List.of(new LlmPort.EmbeddingItem(0, null, "invalid input")), 2, "model:2", null));
         assertNull(service.embedQuery("keyword"));
     }
@@ -169,7 +169,7 @@ class ContentVectorServiceTest {
     }
 
     @Test void rebuildUsesStoredSummaryAndSelectsOnlyPublishedPublicDocuments() throws Exception {
-        when(llm.embeddings(any())).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1.0f)), 1, "model:1"));
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1.0f)), 1, "model:1"));
         SearchResponse<Void> batch = SearchResponse.of(s -> s.took(0).timedOut(false)
                 .shards(shards -> shards.total(1).successful(1).failed(0))
                 .hits(hits -> hits.hits(hit -> hit.index("content").id("1"))));
@@ -189,7 +189,7 @@ class ContentVectorServiceTest {
         runQueuedTask();
         assertFalse(service.isRebuildRunning());
         var input = ArgumentCaptor.forClass(LlmPort.EmbeddingsRequest.class);
-        verify(llm, times(2)).embeddings(input.capture());
+        verify(llm, times(2)).embeddings(input.capture(), any(feign.Request.Options.class));
         assertEquals(List.of("标题\n简介\n摘要"), input.getAllValues().get(1).getTexts());
         ArgumentCaptor<Function<SearchRequest.Builder, ObjectBuilder<SearchRequest>>> requests = ArgumentCaptor.forClass(Function.class);
         verify(client, times(2)).search(requests.capture(), eq(Void.class));
@@ -227,7 +227,7 @@ class ContentVectorServiceTest {
     }
 
     private void failedInferenceRebuild() throws Exception {
-        when(llm.embeddings(any())).thenAnswer(call -> {
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenAnswer(call -> {
             LlmPort.EmbeddingsRequest request = call.getArgument(0);
             if (request.getTexts().equals(List.of("向量空间版本探测"))) {
                 return new LlmPort.EmbeddingsResponse(List.of(List.of(1f)), 1, "model:1");

@@ -30,6 +30,9 @@ public class LlmProperties {
         require(model, "my-youtube.llm.model");
         require(embedding.baseUrl, "my-youtube.llm.embedding.base-url");
         require(embedding.model, "my-youtube.llm.embedding.model");
+        if (embedding.singleTimeoutSeconds <= 0 || embedding.batchTimeoutSeconds <= 0) {
+            throw new IllegalStateException("embedding 单条和批量超时必须大于 0");
+        }
     }
 
     private static void require(String value, String key) {
@@ -53,7 +56,8 @@ public class LlmProperties {
         /** 向量空间版本标识; 不填按 model:dims 自动派生 */
         private String version;
         private int batchSize = 16;
-        private int timeoutSeconds = 60;
+        private int singleTimeoutSeconds = 60;
+        private int batchTimeoutSeconds = 120;
 
         public String effectiveVersion() {
             return version != null && !version.isBlank()

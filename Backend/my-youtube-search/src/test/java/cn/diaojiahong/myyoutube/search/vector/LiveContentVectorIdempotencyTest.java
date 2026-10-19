@@ -108,7 +108,7 @@ class LiveContentVectorIdempotencyTest {
                     new co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem.Builder<Map>().result(result ->
                             result.index("content").id(id).found(documents.containsKey(id)).source(documents.get(id)).seqNo(0L).primaryTerm(1L)).build()).toList()));
         });
-        when(llm.embeddings(any())).thenAnswer(call -> response(call.getArgument(0)));
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenAnswer(call -> response(call.getArgument(0)));
         when(es.search(any(Function.class), eq(Void.class))).thenReturn(batch(), empty());
     }
 
@@ -188,7 +188,7 @@ class LiveContentVectorIdempotencyTest {
             LlmPort.EmbeddingsRequest request = call.getArgument(0);
             if (!isProbe(request)) redis.opsForValue().set(contentKey(firstId), "RUNNING:replacement", Duration.ofSeconds(10));
             return response(request);
-        }).when(llm).embeddings(any());
+        }).when(llm).embeddings(any(), any(feign.Request.Options.class));
         assertTrue(vectors.startRebuild());
         rebuild.get().run();
         assertEquals(1, inferenceCalls.get());
@@ -229,7 +229,7 @@ class LiveContentVectorIdempotencyTest {
             return call.callRealMethod();
         }).when(template).execute(any(org.springframework.data.redis.core.script.RedisScript.class), anyList(), any(Object[].class));
         var interrupted = new ContentVectorService(llm, es, template, new VectorProperties(), executor, guard,
-                new ContentVectorBuilder(llm, es, mock(ContentVectorPublisher.class), guard));
+                new ContentVectorBuilder(llm, es, mock(ContentVectorPublisher.class), guard, new VectorProperties()));
         when(es.search(any(Function.class), eq(Void.class))).thenReturn(batch(), batch(), empty());
         assertTrue(interrupted.startRebuild()); rebuild.get().run();
         assertEquals(0, interrupted.rebuildCursor());
@@ -261,7 +261,7 @@ class LiveContentVectorIdempotencyTest {
             LlmPort.EmbeddingsRequest request = call.getArgument(0);
             if (!isProbe(request)) redis.opsForValue().set("idempotent:{content-vector}:rebuild", "RUNNING:replacement", Duration.ofSeconds(10));
             return response(request);
-        }).when(llm).embeddings(any());
+        }).when(llm).embeddings(any(), any(feign.Request.Options.class));
         assertTrue(vectors.startRebuild()); rebuild.get().run();
         assertEquals(0, vectors.rebuildCursor());
         assertEquals("RUNNING:replacement", redis.opsForValue().get("idempotent:{content-vector}:rebuild"));
@@ -269,7 +269,7 @@ class LiveContentVectorIdempotencyTest {
     }
 
     private ContentVectorService proxy(IdempotentGuard instanceGuard) {
-        var target = new ContentVectorService(llm, es, redis, new VectorProperties(), executor, instanceGuard, new ContentVectorBuilder(llm, es, mock(ContentVectorPublisher.class), instanceGuard));
+        var target = new ContentVectorService(llm, es, redis, new VectorProperties(), executor, instanceGuard, new ContentVectorBuilder(llm, es, mock(ContentVectorPublisher.class), instanceGuard, new VectorProperties()));
         var factory = new AspectJProxyFactory(target);
         factory.addAspect(new IdempotentAspect(instanceGuard));
         return factory.getProxy();
@@ -283,7 +283,7 @@ class LiveContentVectorIdempotencyTest {
                 assertTrue(release.await(5, TimeUnit.SECONDS));
             }
             return response(request);
-        }).when(llm).embeddings(any());
+        }).when(llm).embeddings(any(), any(feign.Request.Options.class));
     }
 
     private LlmPort.EmbeddingsResponse response(LlmPort.EmbeddingsRequest request) {

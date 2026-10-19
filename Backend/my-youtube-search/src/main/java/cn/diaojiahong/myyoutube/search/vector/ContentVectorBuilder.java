@@ -32,6 +32,7 @@ public class ContentVectorBuilder {
     private final ElasticsearchClient es;
     private final ContentVectorPublisher publisher;
     private final IdempotentGuard guard;
+    private final VectorProperties vectorProperties;
 
     enum Outcome { SUCCEEDED, EXISTING, SKIPPED }
     private record Snapshot(Long id, Map<String, Object> source, long seqNo, long primaryTerm) {}
@@ -105,7 +106,7 @@ public class ContentVectorBuilder {
     }
 
     private LlmPort.EmbeddingsResponse generate(List<String> texts, String targetVersion) {
-        var response = llm.embeddings(new LlmPort.EmbeddingsRequest(texts));
+        var response = llm.embeddings(new LlmPort.EmbeddingsRequest(texts), vectorProperties.embeddingOptions(texts.size()));
         if (response == null || response.getVersion() == null || response.getVersion().isBlank()
                 || response.getDims() == null || response.getDims() <= 0 || response.getItems() == null
                 || response.getItems().size() != texts.size()) throw new IllegalStateException("模型向量响应结构不完整");

@@ -43,7 +43,7 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(conf.getBaseUrl() + "/embeddings"))
-                .timeout(Duration.ofSeconds(conf.getTimeoutSeconds()))
+                .timeout(Duration.ofSeconds(texts.size() > 1 ? conf.getBatchTimeoutSeconds() : conf.getSingleTimeoutSeconds()))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + (conf.getApiKey() == null ? "" : conf.getApiKey()))
                 .POST(HttpRequest.BodyPublishers.ofString(JsonUtil.toJson(body)))

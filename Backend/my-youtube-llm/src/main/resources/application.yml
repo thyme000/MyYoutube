@@ -37,4 +37,6 @@ my-youtube:
       # 不填按 model:dims 自动派生
       version: ${EMBEDDING_VERSION:}
       batch-size: ${EMBEDDING_BATCH_SIZE:16}
-      timeout-seconds: ${EMBEDDING_TIMEOUT_SECONDS:60}
+      # 单次模型 HTTP 请求；子批次仅含一条或逐条隔离时使用单条配置
+      single-timeout-seconds: ${EMBEDDING_SINGLE_TIMEOUT_SECONDS:60}
+      batch-timeout-seconds: ${EMBEDDING_BATCH_TIMEOUT_SECONDS:120}
