@@ -10,6 +10,9 @@ import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
 import cn.diaojiahong.myyoutube.search.service.ContentDocumentWriter;
 import cn.diaojiahong.myyoutube.search.vector.ContentVectorPublisher;
 import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
+import cn.diaojiahong.myyoutube.search.vector.ContentVectorDeadLetters;
+import cn.diaojiahong.myyoutube.search.vector.ContentVectorDeadLetterService;
+import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,6 +40,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -49,11 +53,12 @@ class LiveContentVectorMqTest {
     @Test void brokerRetainsTasksRetriesFailuresAndPreservesDeadLettersAcrossConsumerRestarts() throws Exception {
         var client = ElasticsearchClients.createImperative(ClientConfiguration.builder().connectedTo(ES_ADDRESS).build());
         var suffix = UUID.randomUUID().toString().replace("-", "");
-        var group = "vector_it_" + suffix;
+        String group = MqConstants.GROUP_CONTENT_VECTOR;
         long recoverableId = System.currentTimeMillis();
         long deadLetterId = recoverableId + 1, privateId = recoverableId + 2, restartId = recoverableId + 3;
         var template = new RocketMQTemplate();
         var probe = new DefaultMQPullConsumer("vector_probe_" + suffix);
+        var deadLetters = new ContentVectorDeadLetters(NAMESERVER, new ObjectMapper());
         DefaultRocketMQListenerContainer consumer = null;
         try {
             assertEquals("content-it", client.info().clusterName());
@@ -74,12 +79,13 @@ class LiveContentVectorMqTest {
             var attempts = new ConcurrentHashMap<String, AtomicInteger>();
             var deliveries = new ConcurrentHashMap<Long, AtomicInteger>();
             var llm = mock(LlmPort.class);
+            var failPersistentTask = new AtomicBoolean(true);
             var vector = new java.util.ArrayList<>(Collections.nCopies(4096, 0.0f)); vector.set(0, 1.0f);
             when(llm.embeddings(any())).thenAnswer(call -> {
                 String text = call.<LlmPort.EmbeddingsRequest>getArgument(0).getTexts().get(0);
                 int attempt = attempts.computeIfAbsent(text, key -> new AtomicInteger()).incrementAndGet();
                 if (text.equals("暂时失败\n简介\n摘要") && attempt == 1) throw new IllegalStateException("temporary model failure");
-                if (text.equals("永久失败\n简介\n摘要")) throw new IllegalStateException("persistent model failure");
+                if (text.equals("永久失败\n简介\n摘要") && failPersistentTask.get()) throw new IllegalStateException("persistent model failure");
                 return new LlmPort.EmbeddingsResponse(List.of(vector), 4096, "vector-it:4096");
             });
             var vectors = spy(new ContentVectorService(llm, client, mock(StringRedisTemplate.class), properties,
@@ -106,6 +112,19 @@ class LiveContentVectorMqTest {
             assertEquals(4, attempts.get("永久失败\n简介\n摘要").get());
             assertNull(repository.findById(deadLetterId).orElseThrow().getVector());
 
+            var recovery = new ContentVectorDeadLetterService(deadLetters, client, publisher, properties);
+            ContentVectorDeadLetterPort.Item failed = recoveryItem(recovery, deadLetterId);
+            assertEquals(ContentVectorDeadLetterPort.State.UNRECOVERED, failed.state());
+            assertEquals(failed.reference(), recoveryItem(recovery, deadLetterId).reference());
+            assertTrue(deadLetterContains(probe, group, deadLetterId));
+            failPersistentTask.set(false);
+            assertEquals(ContentVectorDeadLetterPort.ReplayStatus.ACCEPTED, recovery.replay(failed.reference(), 1L).status());
+            await(() -> "vector-it:4096".equals(repository.findById(deadLetterId).orElseThrow().getVectorVersion()), "manual replay must recover the vector");
+            assertEquals(5, attempts.get("永久失败\n简介\n摘要").get());
+            assertEquals(ContentVectorDeadLetterPort.ReplayStatus.ALREADY_COMPLETED, recovery.replay(failed.reference(), 1L).status());
+            assertEquals(ContentVectorDeadLetterPort.State.RECOVERED, recoveryItem(recovery, deadLetterId).state());
+            assertTrue(deadLetterContains(probe, group, deadLetterId));
+
             consumer.destroy(); consumer = null;
             var privateDocument = document(privateId, "已转私密"); writer.write(privateDocument);
             privateDocument.setVisibilityCode("private"); writer.write(privateDocument);
@@ -118,8 +137,20 @@ class LiveContentVectorMqTest {
             assertNull(repository.findById(privateId).orElseThrow().getVector());
         } finally {
             if (consumer != null) consumer.destroy();
-            probe.shutdown(); template.destroy(); client._transport().close();
+            deadLetters.close(); probe.shutdown(); template.destroy(); client._transport().close();
         }
+    }
+
+    private ContentVectorDeadLetterPort.Item recoveryItem(ContentVectorDeadLetterService service, Long contentId) {
+        String cursor = null;
+        do {
+            ContentVectorDeadLetterPort.Page page = service.query(cursor, 50);
+            for (ContentVectorDeadLetterPort.Item item : page.items()) {
+                if (contentId.equals(item.contentId())) return item;
+            }
+            cursor = page.nextCursor();
+        } while (cursor != null);
+        throw new AssertionError("dead letter not found for content " + contentId);
     }
 
     private DefaultRocketMQListenerContainer startConsumer(String group, ContentVectorListener listener) throws Exception {
