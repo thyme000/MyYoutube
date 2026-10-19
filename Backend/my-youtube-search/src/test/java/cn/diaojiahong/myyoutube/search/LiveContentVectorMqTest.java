@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.search;
 
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
+import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
@@ -60,6 +61,12 @@ class LiveContentVectorMqTest {
         var probe = new DefaultMQPullConsumer("vector_probe_" + suffix);
         var deadLetters = new ContentVectorDeadLetters(NAMESERVER, new ObjectMapper());
         DefaultRocketMQListenerContainer consumer = null;
+        var connection = new org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory("127.0.0.1", Integer.getInteger("idempotent.redis.port", 19379));
+        connection.afterPropertiesSet();
+        var redis = new StringRedisTemplate(connection);
+        var scheduler = new org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler(); scheduler.initialize();
+        var guard = new IdempotentGuard(redis, scheduler);
+        var rebuildExecutor = new cn.diaojiahong.myyoutube.search.vector.VectorConfig().vectorRebuildExecutor();
         try {
             assertEquals("content-it", client.info().clusterName());
             var operations = new ElasticsearchTemplate(client);
@@ -88,12 +95,15 @@ class LiveContentVectorMqTest {
                 if (text.equals("永久失败\n简介\n摘要") && failPersistentTask.get()) throw new IllegalStateException("persistent model failure");
                 return new LlmPort.EmbeddingsResponse(List.of(vector), 4096, "vector-it:4096");
             });
-            var vectors = spy(new ContentVectorService(llm, client, mock(StringRedisTemplate.class), properties,
-                    mock(ThreadPoolTaskExecutor.class)));
+            var raw = spy(new ContentVectorService(llm, client, redis, properties, rebuildExecutor, guard,
+                    new cn.diaojiahong.myyoutube.search.vector.ContentVectorBuilder(llm, client, publisher, guard)));
             doAnswer(call -> {
                 deliveries.computeIfAbsent(call.getArgument(0), key -> new AtomicInteger()).incrementAndGet();
                 return call.callRealMethod();
-            }).when(vectors).embedContent(anyLong());
+            }).when(raw).embedContent(anyLong(), nullable(String.class));
+            var factory = new org.springframework.aop.aspectj.annotation.AspectJProxyFactory(raw);
+            factory.addAspect(new cn.diaojiahong.myyoutube.common.idempotent.IdempotentAspect(guard));
+            ContentVectorService vectors = factory.getProxy();
             var listener = new ContentVectorListener(vectors);
 
             writer.write(document(recoverableId, "暂时失败"));
@@ -135,9 +145,51 @@ class LiveContentVectorMqTest {
             assertFalse(attempts.containsKey("已转私密\n简介\n摘要"));
             assertEquals("private", repository.findById(privateId).orElseThrow().getVisibility());
             assertNull(repository.findById(privateId).orElseThrow().getVector());
+
+            consumer.destroy(); consumer = null;
+            long rebuildBadId = restartId + 1, rebuildGoodId = restartId + 2, rebuildEmptyId = restartId + 3;
+            writer.write(document(rebuildBadId, "重建毒数据"));
+            client.update(update -> update.index("content").id(Long.toString(rebuildBadId))
+                    .doc(Map.of("vector", vector, "vectorVersion", "vector-it:4096")), Void.class);
+            writer.write(document(rebuildGoodId, "重建正常"));
+            var empty = document(rebuildEmptyId, " "); empty.setDescription(" "); empty.setSummary(" "); writer.write(empty);
+            var poison = new AtomicBoolean(true);
+            doAnswer(call -> {
+                List<String> texts = call.<LlmPort.EmbeddingsRequest>getArgument(0).getTexts();
+                assertTrue(texts.stream().noneMatch(String::isBlank));
+                return new LlmPort.EmbeddingsResponse(java.util.stream.IntStream.range(0, texts.size())
+                        .mapToObj(position -> poison.get() && texts.get(position).startsWith("重建毒数据")
+                                ? new LlmPort.EmbeddingItem(position, null, "isolated poison input")
+                                : new LlmPort.EmbeddingItem(position, vector, null)).toList(), 4096, "vector-it-v2:4096", null);
+            }).when(llm).embeddings(any());
+            operations.indexOps(ContentDoc.class).refresh();
+            assertTrue(vectors.startRebuild());
+            await(() -> vectors.rebuildReport() != null && vectors.rebuildReport().scanCompleted()
+                    && !vectors.isRebuildRunning(), "scan must finish despite isolated poison content");
+            assertEquals(1, vectors.rebuildReport().counts().pendingRecovery());
+            assertEquals(1, vectors.rebuildReport().counts().skipped());
+            assertEquals("vector-it-v2:4096", repository.findById(rebuildGoodId).orElseThrow().getVectorVersion());
+            assertEquals("vector-it:4096", repository.findById(rebuildBadId).orElseThrow().getVectorVersion());
+            assertNull(repository.findById(rebuildEmptyId).orElseThrow().getVector());
+            consumer = startConsumer(group, listener);
+            await(() -> deadLetterContains(probe, group, rebuildBadId), "targeted recovery must reach the existing DLQ");
+            var rebuildFailure = recoveryItem(recovery, rebuildBadId);
+            assertEquals("vector-it-v2:4096", rebuildFailure.targetVersion());
+            assertNotNull(rebuildFailure.failureReason());
+            assertEquals(ContentVectorDeadLetterPort.State.UNRECOVERED, rebuildFailure.state());
+            assertEquals("TARGET_VERSION_MISMATCH", rebuildFailure.reason());
+            poison.set(false);
+            assertEquals(ContentVectorDeadLetterPort.ReplayStatus.ACCEPTED, recovery.replay(rebuildFailure.reference(), 1L).status());
+            await(() -> "vector-it-v2:4096".equals(repository.findById(rebuildBadId).orElseThrow().getVectorVersion()),
+                    "manual replay must build the requested version instead of skipping the old vector");
+            assertEquals(ContentVectorDeadLetterPort.State.RECOVERED, recoveryItem(recovery, rebuildBadId).state());
+            assertTrue(deadLetterContains(probe, group, rebuildBadId));
         } finally {
             if (consumer != null) consumer.destroy();
-            deadLetters.close(); probe.shutdown(); template.destroy(); client._transport().close();
+            deadLetters.close(); probe.shutdown(); template.destroy(); rebuildExecutor.shutdown();
+            scheduler.shutdown();
+            redis.delete("search:{content-vector}:rebuild");
+            connection.destroy(); client._transport().close();
         }
     }
 

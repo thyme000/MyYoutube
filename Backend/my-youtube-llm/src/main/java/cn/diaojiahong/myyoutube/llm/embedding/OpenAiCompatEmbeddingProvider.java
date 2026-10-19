@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.llm.embedding;
 
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
 import cn.diaojiahong.myyoutube.llm.LlmProperties;
 import com.google.gson.JsonObject;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +52,9 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
         try {
             HttpResponse<String> resp = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) {
+                if (resp.statusCode() == 429 || resp.statusCode() >= 500) {
+                    throw new ModelUnavailable("LLM", "MODEL_UPSTREAM_UNAVAILABLE", 30, null);
+                }
                 String detail = resp.body() == null ? "" : resp.body().substring(0, Math.min(resp.body().length(), 300));
                 throw new IllegalStateException("Embedding 响应 " + resp.statusCode() + ": " + detail);
             }
@@ -61,17 +65,30 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
             for (int i = 0; i < texts.size(); i++) {
                 vectors.add(null);
             }
+            boolean[] seen = new boolean[texts.size()];
             for (int i = 0; i < data.size(); i++) {
                 JsonObject item = data.get(i).getAsJsonObject();
                 int index = item.has("index") ? item.get("index").getAsInt() : i;
-                var arr = item.getAsJsonArray("embedding");
-                float[] vec = new float[arr.size()];
-                for (int j = 0; j < arr.size(); j++) {
-                    vec[j] = arr.get(j).getAsFloat();
+                if (index < 0 || index >= texts.size() || seen[index]) {
+                    throw new IllegalStateException("Embedding 响应位置重复或越界");
                 }
-                vectors.set(index, vec);
+                seen[index] = true;
+                try {
+                    var arr = item.getAsJsonArray("embedding");
+                    float[] vec = new float[arr.size()];
+                    for (int j = 0; j < arr.size(); j++) vec[j] = arr.get(j).getAsFloat();
+                    vectors.set(index, vec);
+                } catch (RuntimeException invalidVector) {
+                    // 保留其他输入的有效结果，缺失项交由编排层隔离。
+                    log.warn("Embedding 响应向量解析失败 index={}", index);
+                }
             }
             return vectors;
+        } catch (java.io.IOException e) {
+            throw new ModelUnavailable("LLM", "MODEL_CONNECTION_UNAVAILABLE", 30, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ModelUnavailable("LLM", "MODEL_CALL_INTERRUPTED", 30, e);
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {

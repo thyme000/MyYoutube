@@ -24,6 +24,9 @@ public class ContentVectorListener implements RocketMQListener<ContentVectorMess
         if (message == null || message.contentId() == null || message.contentId() <= 0) {
             throw new IllegalArgumentException("Invalid content vector message");
         }
-        vectors.embedContent(message.contentId());
+        if (message.targetVersion() != null && message.targetVersion().isBlank()) {
+            throw new IllegalArgumentException("Invalid content vector target version");
+        }
+        vectors.embedContent(message.contentId(), message.targetVersion());
     }
 }

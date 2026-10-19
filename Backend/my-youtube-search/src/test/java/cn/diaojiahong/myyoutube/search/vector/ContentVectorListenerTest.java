@@ -26,6 +26,13 @@ class ContentVectorListenerTest {
         assertThrows(IllegalArgumentException.class, () -> listener.onMessage(null));
         assertThrows(IllegalArgumentException.class, () -> listener.onMessage(new ContentVectorMessage(null)));
         assertThrows(IllegalArgumentException.class, () -> listener.onMessage(new ContentVectorMessage(0L)));
+        assertThrows(IllegalArgumentException.class, () -> listener.onMessage(new ContentVectorMessage(1L, " ", null)));
         verifyNoInteractions(service);
+    }
+
+    @Test void passesRecoveryTargetToTheExistingConsumerService() {
+        var service = mock(ContentVectorService.class);
+        new ContentVectorListener(service).onMessage(new ContentVectorMessage(1L, "model:2", "model failure"));
+        verify(service).embedContent(1L, "model:2");
     }
 }

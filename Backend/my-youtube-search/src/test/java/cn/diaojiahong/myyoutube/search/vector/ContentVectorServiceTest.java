@@ -1,9 +1,14 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
+import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
 import cn.diaojiahong.myyoutube.mq.listener.ContentVectorListener;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.core.BulkRequest;
+import co.elastic.clients.elasticsearch.core.BulkResponse;
+import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
+import co.elastic.clients.elasticsearch.core.bulk.OperationType;
 import co.elastic.clients.elasticsearch.core.GetResponse;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
@@ -11,6 +16,7 @@ import co.elastic.clients.elasticsearch.core.UpdateRequest;
 import co.elastic.clients.json.JsonData;
 import co.elastic.clients.util.ObjectBuilder;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -34,7 +40,36 @@ class ContentVectorServiceTest {
     final StringRedisTemplate redis = mock(StringRedisTemplate.class);
     final VectorProperties properties = new VectorProperties();
     final ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
-    final ContentVectorService service = new ContentVectorService(llm, client, redis, properties, executor);
+    final IdempotentGuard guard = mock(IdempotentGuard.class);
+    final ContentVectorPublisher publisher = mock(ContentVectorPublisher.class);
+    final IdempotentGuard.Lease lease = mock(IdempotentGuard.Lease.class);
+    final ContentVectorBuilder builder = new ContentVectorBuilder(llm, client, publisher, guard);
+    final ContentVectorService service = new ContentVectorService(llm, client, redis, properties, executor, guard, builder);
+    final Map<String, String> checkpoints = new java.util.HashMap<>();
+    final ValueOperations<String, String> values = mock(ValueOperations.class);
+
+    @BeforeEach void leases() throws Exception {
+        when(client.bulk(any(BulkRequest.class))).thenAnswer(call -> {
+            BulkRequest request = call.getArgument(0);
+            return BulkResponse.of(response -> response.took(1).errors(false)
+                    .items(request.operations().stream().map(operation -> BulkResponseItem.of(
+                            item -> item.operationType(OperationType.Update)
+                                    .index("content").id(operation.update().id()).status(200))).toList()));
+        });
+        when(lease.acquired()).thenReturn(true);
+        when(lease.token()).thenReturn("RUNNING:test");
+        when(guard.acquire(anyString(), anyLong())).thenReturn(lease);
+        when(guard.acquireAll(anyList(), anyLong())).thenReturn(lease);
+        when(guard.currentLease()).thenReturn(lease);
+        when(redis.opsForValue()).thenReturn(values);
+        when(values.get(anyString())).thenAnswer(call -> checkpoints.get(call.getArgument(0)));
+        doAnswer(call -> {
+            List<String> keys = call.getArgument(1);
+            Object[] args = (Object[]) call.getRawArguments()[2];
+            checkpoints.put(keys.get(1), args[1].toString());
+            return 1L;
+        }).when(redis).execute(any(org.springframework.data.redis.core.script.RedisScript.class), anyList(), any(Object[].class));
+    }
 
     @Test void consumerCompletesAllThreeFieldsAndWritesOnlyVectorFieldsBeforeReturning() throws Exception {
         storedContent(Map.of("status", "published", "visibility", "public", "title", " 标题 ", "description", " 简介 ", "summary", " 内容摘要 "));
@@ -85,13 +120,15 @@ class ContentVectorServiceTest {
         verifyNoInteractions(llm);
         GetResponse<Map> stored = mock(GetResponse.class);
         when(stored.found()).thenReturn(true);
+        when(stored.seqNo()).thenReturn(0L);
+        when(stored.primaryTerm()).thenReturn(1L);
         when(stored.source()).thenReturn(Map.of("status", "published", "visibility", "public", "title", "标题"));
         doReturn(stored).when(client).get(any(Function.class), eq(Map.class));
         when(llm.embeddings(any())).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1.0f)), 1, "model:1"));
-        when(client.update(any(Function.class), eq(Void.class))).thenThrow(new IOException("ES write failed")).thenReturn(null);
+        when(client.update(any(Function.class), eq(Void.class))).thenThrow(new IOException("ES write failed"), new IOException("ES write failed"), new IOException("ES write failed")).thenReturn(null);
         assertThrows(IllegalStateException.class, () -> listener.onMessage(new ContentVectorMessage(1L)));
         assertDoesNotThrow(() -> listener.onMessage(new ContentVectorMessage(1L)));
-        verify(client, times(2)).update(any(Function.class), eq(Void.class));
+        verify(client, times(4)).update(any(Function.class), eq(Void.class));
     }
 
     @Test void rejectedManualRebuildDoesNotRemainRunning() throws Exception {
@@ -105,7 +142,7 @@ class ContentVectorServiceTest {
                 catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
             });
             assertTrue(started.await(5, TimeUnit.SECONDS));
-            var rebuild = new ContentVectorService(llm, client, redis, properties, rebuildExecutor);
+            var rebuild = new ContentVectorService(llm, client, redis, properties, rebuildExecutor, guard, builder);
             assertFalse(rebuild.startRebuild());
             assertFalse(rebuild.isRebuildRunning());
             assertFalse(rebuild.startRebuild());
@@ -114,6 +151,12 @@ class ContentVectorServiceTest {
             release.countDown();
             rebuildExecutor.shutdown();
         }
+    }
+
+    @Test void failedQueryItemFallsBackToKeywordSearch() {
+        when(llm.embeddings(any())).thenReturn(new LlmPort.EmbeddingsResponse(
+                List.of(new LlmPort.EmbeddingItem(0, null, "invalid input")), 2, "model:2", null));
+        assertNull(service.embedQuery("keyword"));
     }
 
     @Test void knnFiltersPublicationVisibilityCategoryAndModelVersion() throws Exception {
@@ -126,8 +169,6 @@ class ContentVectorServiceTest {
     }
 
     @Test void rebuildUsesStoredSummaryAndSelectsOnlyPublishedPublicDocuments() throws Exception {
-        ValueOperations<String, String> values = mock(ValueOperations.class);
-        when(redis.opsForValue()).thenReturn(values);
         when(llm.embeddings(any())).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1.0f)), 1, "model:1"));
         SearchResponse<Void> batch = SearchResponse.of(s -> s.took(0).timedOut(false)
                 .shards(shards -> shards.total(1).successful(1).failed(0))
@@ -135,9 +176,15 @@ class ContentVectorServiceTest {
         when(client.search(any(Function.class), eq(Void.class))).thenReturn(batch, emptySearch());
         GetResponse<Map> stored = mock(GetResponse.class);
         when(stored.found()).thenReturn(true);
-        when(stored.source()).thenReturn(Map.of("title", "标题", "description", "简介", "summary", "摘要"));
+        when(stored.seqNo()).thenReturn(0L);
+        when(stored.primaryTerm()).thenReturn(1L);
+        when(stored.source()).thenReturn(Map.of("status", "published", "visibility", "public", "title", "标题", "description", "简介", "summary", "摘要"));
         when(client.get(any(Function.class), eq(Map.class))).thenReturn(stored);
 
+        when(client.mget(any(Function.class), eq(Map.class))).thenReturn(co.elastic.clients.elasticsearch.core.MgetResponse.of(response ->
+                response.docs(item -> item.result(result -> result.index("content").id("1").found(true)
+                        .source(Map.of("status", "published", "visibility", "public", "title", "标题", "description", "简介", "summary", "摘要"))
+                        .seqNo(0L).primaryTerm(1L)))));
         assertTrue(service.startRebuild());
         runQueuedTask();
         assertFalse(service.isRebuildRunning());
@@ -149,8 +196,9 @@ class ContentVectorServiceTest {
         var query = requests.getAllValues().get(0).apply(new SearchRequest.Builder()).build().query().bool();
         assertEquals(Map.of("status", "published", "visibility", "public"), query.filter().stream()
                 .collect(Collectors.toMap(term -> term.term().field(), term -> term.term().value().stringValue())));
-        verify(values).set("search:vector:rebuild:last_id", "1");
-        verify(redis).delete("search:vector:rebuild:last_id");
+        assertTrue(service.rebuildReport().scanCompleted());
+        assertEquals(1, service.rebuildCursor());
+        assertEquals(1, service.rebuildReport().counts().succeeded());
     }
 
     private void runQueuedTask() {
@@ -159,9 +207,48 @@ class ContentVectorServiceTest {
         task.getValue().run();
     }
 
+    @Test void registeredFailureAdvancesCursorButReportDoesNotClaimSuccess() throws Exception {
+        failedInferenceRebuild();
+        assertTrue(service.startRebuild()); runQueuedTask();
+        assertTrue(service.rebuildReport().scanCompleted());
+        assertEquals(1, service.rebuildCursor());
+        assertEquals(new ContentVectorBuilder.Counts(0, 0, 0, 1), service.rebuildReport().counts());
+        verify(publisher).publishRecovery(eq(1L), eq("model:1"), contains("bad input"));
+    }
+
+    @Test void unconfirmedRecoveryKeepsPreviousCheckpointAndReportsInterruption() throws Exception {
+        failedInferenceRebuild();
+        doThrow(new IllegalStateException("delivery unconfirmed")).when(publisher).publishRecovery(anyLong(), anyString(), anyString());
+        assertTrue(service.startRebuild()); runQueuedTask();
+        assertFalse(service.rebuildReport().scanCompleted());
+        assertEquals(0, service.rebuildCursor());
+        assertEquals(0, service.rebuildReport().counts().pendingRecovery());
+        assertTrue(service.rebuildReport().error().contains("delivery unconfirmed"));
+    }
+
+    private void failedInferenceRebuild() throws Exception {
+        when(llm.embeddings(any())).thenAnswer(call -> {
+            LlmPort.EmbeddingsRequest request = call.getArgument(0);
+            if (request.getTexts().equals(List.of("向量空间版本探测"))) {
+                return new LlmPort.EmbeddingsResponse(List.of(List.of(1f)), 1, "model:1");
+            }
+            return new LlmPort.EmbeddingsResponse(List.of(new LlmPort.EmbeddingItem(0, null, "bad input")), 1, "model:1", null);
+        });
+        SearchResponse<Void> batch = SearchResponse.of(response -> response.took(0).timedOut(false)
+                .shards(shards -> shards.total(1).successful(1).failed(0))
+                .hits(hits -> hits.hits(hit -> hit.index("content").id("1"))));
+        when(client.search(any(Function.class), eq(Void.class))).thenReturn(batch, emptySearch());
+        when(client.mget(any(Function.class), eq(Map.class))).thenReturn(co.elastic.clients.elasticsearch.core.MgetResponse.<Map>of(response ->
+                response.docs(item -> item.result(result -> result.index("content").id("1").found(true)
+                        .source(Map.of("status", "published", "visibility", "public", "title", "bad input"))
+                        .seqNo(0L).primaryTerm(1L)))));
+    }
+
     private void storedContent(Map<String, Object> content) throws Exception {
         GetResponse<Map> stored = mock(GetResponse.class);
         when(stored.found()).thenReturn(true);
+        when(stored.seqNo()).thenReturn(0L);
+        when(stored.primaryTerm()).thenReturn(1L);
         when(stored.source()).thenReturn(content);
         when(client.get(any(Function.class), eq(Map.class))).thenReturn(stored);
     }

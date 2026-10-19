@@ -1,45 +1,110 @@
 package cn.diaojiahong.myyoutube.llm.embedding;
 
+import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
 import cn.diaojiahong.myyoutube.llm.LlmProperties;
+import cn.diaojiahong.myyoutube.llm.api.LlmPort.EmbeddingItem;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
-/**
- * 向量化编排门面: 批量拆分/逐批重试/维度校验/版本盖戳全部收口在此,
- * 调用方拿到的向量必带 version 戳, 保证文档向量与查询向量同一向量空间
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class EmbeddingOrchestrator {
-
     private static final int BATCH_RETRY = 2;
-
     private final EmbeddingProvider embeddingProvider;
     private final LlmProperties properties;
 
     public EmbeddingResult embedAll(List<String> texts) {
-        if (texts == null || texts.isEmpty()) {
-            throw new IllegalArgumentException("texts 不能为空");
+        if (texts == null || texts.isEmpty()) throw new IllegalArgumentException("texts 不能为空");
+        var conf = properties.getEmbedding();
+        int dims = conf.getDims();
+        String version = conf.effectiveVersion();
+        int batchSize = Math.max(conf.getBatchSize(), 1);
+        List<EmbeddingItem> items = new ArrayList<>(Collections.nCopies(texts.size(), null));
+        String unavailable = null;
+        boolean hasResults = false;
+        for (int from = 0; from < texts.size(); from += batchSize) {
+            List<String> batch = texts.subList(from, Math.min(from + batchSize, texts.size()));
+            try {
+                List<float[]> vectors;
+                try {
+                    vectors = embedWithRetry(batch);
+                } catch (ModelUnavailable error) {
+                    throw error;
+                } catch (IllegalStateException error) {
+                    if (batch.size() == 1) {
+                        items.set(from, new EmbeddingItem(from, null, reason(error)));
+                        hasResults = true;
+                        continue;
+                    }
+                    log.warn("Embedding 子批次失败，仅隔离本批 {} 项", batch.size());
+                    for (int i = 0; i < batch.size(); i++) {
+                        items.set(from + i, isolate(from + i, batch.get(i), dims));
+                        hasResults = true;
+                    }
+                    continue;
+                }
+                // 先保留本批所有有效向量，避免隔离中断丢失后续已返回结果。
+                for (int i = 0; i < batch.size(); i++) {
+                    float[] vector = vectors == null || vectors.size() != batch.size() ? null : vectors.get(i);
+                    if (valid(vector, dims)) {
+                        items.set(from + i, success(from + i, vector));
+                        hasResults = true;
+                    }
+                }
+                for (int i = 0; i < batch.size(); i++) {
+                    if (items.get(from + i) == null) {
+                        items.set(from + i, batch.size() == 1 ? new EmbeddingItem(from, null, "模型向量维度或数值非法")
+                                : isolate(from + i, batch.get(i), dims));
+                        hasResults = true;
+                    }
+                }
+            } catch (ModelUnavailable error) {
+                if (!hasResults) throw error;
+                unavailable = reason(error);
+                for (int index = from; index < texts.size(); index++) {
+                    if (items.get(index) == null) items.set(index, new EmbeddingItem(index, null, unavailable));
+                }
+                break;
+            }
         }
-        LlmProperties.Embedding conf = properties.getEmbedding();
-        List<float[]> vectors = new ArrayList<>(texts.size());
-        for (int from = 0; from < texts.size(); from += Math.max(conf.getBatchSize(), 1)) {
-            List<String> batch = texts.subList(from, Math.min(from + conf.getBatchSize(), texts.size()));
-            vectors.addAll(embedWithRetry(batch));
-        }
+        return new EmbeddingResult(items, dims, version, unavailable);
+    }
 
-        int dims = vectors.get(0).length;
-        if (dims != conf.getDims()) {
-            throw new IllegalStateException(
-                    "向量维度不符: 模型返回 " + dims + ", 配置 " + conf.getDims()
-                            + ", 请检查 my-youtube.llm.embedding.dims 与 content 索引映射");
+    private EmbeddingItem isolate(int index, String text, int dims) {
+        try {
+            // 子批次重试已耗尽或已返回坏向量，逐条隔离仅再调用一次。
+            List<float[]> vectors = embeddingProvider.embed(List.of(text));
+            float[] vector = vectors != null && vectors.size() == 1 ? vectors.get(0) : null;
+            return valid(vector, dims) ? success(index, vector)
+                    : new EmbeddingItem(index, null, "模型向量维度或数值非法");
+        } catch (ModelUnavailable error) {
+            throw error;
+        } catch (IllegalStateException error) {
+            return new EmbeddingItem(index, null, reason(error));
         }
-        return new EmbeddingResult(vectors, dims, conf.effectiveVersion());
+    }
+
+    private boolean valid(float[] vector, int dims) {
+        if (vector == null || vector.length != dims) return false;
+        for (float value : vector) if (!Float.isFinite(value)) return false;
+        return true;
+    }
+
+    private EmbeddingItem success(int index, float[] vector) {
+        List<Float> values = new ArrayList<>(vector.length);
+        for (float value : vector) values.add(value);
+        return new EmbeddingItem(index, values, null);
+    }
+
+    private String reason(RuntimeException error) {
+        String reason = error.getClass().getSimpleName() + ": " + error.getMessage();
+        return reason.substring(0, Math.min(500, reason.length()));
     }
 
     private List<float[]> embedWithRetry(List<String> batch) {
@@ -47,18 +112,16 @@ public class EmbeddingOrchestrator {
         for (int attempt = 1; attempt <= BATCH_RETRY; attempt++) {
             try {
                 return embeddingProvider.embed(batch);
-            } catch (IllegalStateException e) {
-                last = e;
-                // 仅剩的尝试不再记 WARN: 最终失败由调用方统一上报, 避免同一异常重复打印
-                if (attempt < BATCH_RETRY) {
-                    log.warn("Embedding 批量调用失败, 将重试 attempt={}/{} batchSize={} error={}",
-                            attempt, BATCH_RETRY, batch.size(), e.getMessage());
-                }
+            } catch (ModelUnavailable error) {
+                throw error;
+            } catch (IllegalStateException error) {
+                last = error;
+                if (attempt < BATCH_RETRY) log.warn("Embedding 批量调用失败，将重试 attempt={}/{} batchSize={} error={}",
+                        attempt, BATCH_RETRY, batch.size(), error.getMessage());
             }
         }
         throw last;
     }
 
-    public record EmbeddingResult(List<float[]> vectors, int dims, String version) {
-    }
+    public record EmbeddingResult(List<EmbeddingItem> items, int dims, String version, String unavailableReason) {}
 }

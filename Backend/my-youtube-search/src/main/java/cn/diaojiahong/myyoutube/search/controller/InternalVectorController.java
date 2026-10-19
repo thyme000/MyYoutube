@@ -31,6 +31,7 @@ public class InternalVectorController {
         Map<String, Object> status = new java.util.HashMap<>();
         status.put("running", contentVectorService.isRebuildRunning());
         status.put("cursor", contentVectorService.rebuildCursor());
+        status.put("report", contentVectorService.rebuildReport());
         return status;
     }
 }

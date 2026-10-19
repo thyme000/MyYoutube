@@ -93,7 +93,7 @@ public interface LlmPort {
     @NoArgsConstructor
     @AllArgsConstructor
     class EmbeddingsRequest {
-        /** 批量文本, 顺序与返回向量一一对应 */
+        /** 批量文本，响应通过 index 对应输入位置。 */
         private List<String> texts;
     }
 
@@ -101,10 +101,20 @@ public interface LlmPort {
     @NoArgsConstructor
     @AllArgsConstructor
     class EmbeddingsResponse {
-        private List<List<Float>> vectors;
+        private List<EmbeddingItem> items;
         /** 向量维度, 与服务端 embedding 配置一致 */
         private Integer dims;
         /** 向量空间版本: 模型/维度/版本为一组配置, 文档向量与查询向量必须同 version 才可比较 */
         private String version;
+        /** 非空表示模型不可用，已有成功项仍有效，其余输入停止执行。 */
+        private String unavailableReason;
+
+        public EmbeddingsResponse(List<List<Float>> vectors, Integer dims, String version) {
+            this(java.util.stream.IntStream.range(0, vectors.size())
+                    .mapToObj(index -> new EmbeddingItem(index, vectors.get(index), null)).toList(), dims, version, null);
+        }
     }
+
+    /** 每个输入恰好一项，vector 与 error 二选一。 */
+    record EmbeddingItem(int index, List<Float> vector, String error) {}
 }

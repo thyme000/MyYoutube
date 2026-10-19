@@ -53,16 +53,7 @@ public class InternalLlmController {
 
     private LlmPort.EmbeddingsResponse embed(List<String> texts) {
         EmbeddingOrchestrator.EmbeddingResult result = embeddingOrchestrator.embedAll(texts);
-        List<List<Float>> vectors = result.vectors().stream()
-                .map(vec -> {
-                    List<Float> list = new java.util.ArrayList<>(vec.length);
-                    for (float v : vec) {
-                        list.add(v);
-                    }
-                    return list;
-                })
-                .toList();
-        return new LlmPort.EmbeddingsResponse(vectors, result.dims(), result.version());
+        return new LlmPort.EmbeddingsResponse(result.items(), result.dims(), result.version(), result.unavailableReason());
     }
 
     private LlmClient.Message toClientMessage(LlmPort.Message m) {
