@@ -91,7 +91,7 @@ public class LlmClient {
         if (responseFormat != null) body.add("response_format", JsonUtil.GSON.toJsonTree(responseFormat));
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(properties.getBaseUrl() + "/chat/completions"))
+                .uri(URI.create(properties.getBaseUrl().replaceAll("/+$", "") + "/chat/completions"))
                 .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(JsonUtil.toJson(body)));

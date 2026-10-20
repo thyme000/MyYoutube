@@ -64,6 +64,15 @@ class LlmClientTest {
         assertNull(authorization.get());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"", "/", "///"})
+    void baseUrlTrailingSlashesDoNotChangeChatEndpoint(String suffix) {
+        properties.setBaseUrl(properties.getBaseUrl() + suffix);
+
+        assertEquals("完成", chat());
+        assertNotNull(requestBody.get());
+    }
+
     @Test
     void multimodalRequestUsesConfiguredEffortAndKeepsOverridesAndAuthentication() {
         properties.setCloud(true);
