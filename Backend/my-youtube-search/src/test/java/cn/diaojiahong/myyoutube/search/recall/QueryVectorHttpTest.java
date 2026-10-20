@@ -74,7 +74,7 @@ class QueryVectorHttpTest {
         try (var es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort()))
                 .setHttpClientConfigCallback(builder -> builder.setMaxConnTotal(1).setMaxConnPerRoute(1)).build()) {
             var port = port(server.getAddress().getPort());
-            var vector = new VectorRecallStrategy(new QueryVectorRecall(port, new RecallSearchClient(es), properties), properties);
+            var vector = new VectorRecallStrategy(new QueryVectorRecall(port, new RecallSearchClient(es), properties, new RecallRanking(new RecallRankingProperties())), properties);
             var keyword = mock(KeywordRecallStrategy.class);
             when(keyword.shouldRun(any())).thenReturn(true);
             when(keyword.executorName()).thenReturn("recallExecutor");
@@ -92,13 +92,26 @@ class QueryVectorHttpTest {
             assertTrue(idle.get(1, TimeUnit.SECONDS));
             if (!blockedStage.equals("rpc")) assertTrue(peerClosed.await(2, TimeUnit.SECONDS));
             recallProperties.setWaitMillis(1500);
-            assertEquals(List.of("keyword", "vector"), pipeline.execute(RecallPipelineTest.context()));
+            var ctx = SearchContext.of(RecallPipelineTest.context().getQuery(), 7L, List.of(11L, 12L));
+            ctx.getQuery().setCategory("music");
+            assertEquals(List.of("keyword", "vector"), pipeline.execute(ctx));
             var body = JsonUtil.GSON.fromJson(requestBody.get(), com.google.gson.JsonObject.class);
-            assertTrue(body.has("knn"));
+            var score = body.getAsJsonObject("query").getAsJsonObject("function_score");
+            var knn = score.getAsJsonObject("query").getAsJsonObject("knn");
+            assertEquals("multiply", score.get("boost_mode").getAsString());
+            assertEquals(1.2, score.get("max_boost").getAsDouble());
+            assertEquals(100, knn.get("k").getAsInt());
+            assertEquals(300, knn.get("num_candidates").getAsInt());
+            assertEquals(50, body.get("size").getAsInt());
+            var followed = score.getAsJsonArray("functions").get(1).getAsJsonObject();
+            assertEquals(0.08, followed.get("weight").getAsDouble());
+            assertEquals("[11,12]", followed.getAsJsonObject("filter").getAsJsonObject("terms")
+                    .getAsJsonArray("authorId").toString());
+            assertTrue(knn.get("filter").toString().contains("music"));
             assertTrue(requestBody.get().contains("published"));
             assertTrue(requestBody.get().contains("public"));
             assertTrue(requestBody.get().contains("test:4096"));
-            assertEquals(4096, body.getAsJsonArray("knn").get(0).getAsJsonObject().getAsJsonArray("query_vector").size());
+            assertEquals(4096, knn.getAsJsonArray("query_vector").size());
             assertTrue(timeout.get().contains("timeout="));
             assertEquals(2, calls.get());
         } finally {

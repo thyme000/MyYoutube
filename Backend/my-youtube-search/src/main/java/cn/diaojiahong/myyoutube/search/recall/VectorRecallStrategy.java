@@ -29,6 +29,6 @@ public class VectorRecallStrategy implements RecallStrategy {
 
     @Override
     public List<String> recall(SearchContext ctx, long deadlineNanos) throws Exception {
-        return queryVectorRecall.recall(ctx.getKeyword(), ctx.getCategory(), deadlineNanos);
+        return queryVectorRecall.recall(ctx, deadlineNanos);
     }
 }

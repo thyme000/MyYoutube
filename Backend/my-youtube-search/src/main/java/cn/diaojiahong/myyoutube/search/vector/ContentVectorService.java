@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.FieldValue;
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
@@ -95,16 +96,20 @@ public class ContentVectorService {
                             .queryVector(queryVector.vector())
                             .k(size)
                             .numCandidates(Math.max(size * 3, 100))
-                            .filter(f -> f.bool(b -> {
-                                b.must(m -> m.term(t -> t.field("status").value("published")));
-                                b.must(m -> m.term(t -> t.field("visibility").value("public")));
-                                if (category != null && !category.isBlank()) {
-                                    b.must(m -> m.term(t -> t.field("category").value(category)));
-                                }
-                                b.must(m -> m.term(t -> t.field("vectorVersion").value(queryVector.version())));
-                                return b;
-                            }))
+                            .filter(knnFilter(queryVector, category))
                     ));
+    }
+
+    static Query knnFilter(QueryVector queryVector, String category) {
+        return Query.of(f -> f.bool(b -> {
+            b.must(m -> m.term(t -> t.field("status").value("published")));
+            b.must(m -> m.term(t -> t.field("visibility").value("public")));
+            if (category != null && !category.isBlank()) {
+                b.must(m -> m.term(t -> t.field("category").value(category)));
+            }
+            b.must(m -> m.term(t -> t.field("vectorVersion").value(queryVector.version())));
+            return b;
+        }));
     }
 
     public boolean startRebuild() {

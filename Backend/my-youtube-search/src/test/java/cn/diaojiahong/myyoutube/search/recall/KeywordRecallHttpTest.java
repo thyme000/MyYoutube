@@ -35,7 +35,7 @@ class KeywordRecallHttpTest {
         });
         server.start();
         try (var es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
-            var keyword = new KeywordRecallStrategy(new RecallSearchClient(es), new VectorProperties());
+            var keyword = new KeywordRecallStrategy(new RecallSearchClient(es), new VectorProperties(), new RecallRanking(new RecallRankingProperties()));
             var ctx = SearchContext.of(RecallPipelineTest.context().getQuery(), 7L, List.of(7L));
             ctx.getQuery().setCategory("music");
             assertEquals(List.of("42"), keyword.recall(ctx, System.nanoTime() + TimeUnit.SECONDS.toNanos(2)));
@@ -50,16 +50,18 @@ class KeywordRecallHttpTest {
             assertTrue(filters.toString().contains("public"));
             assertTrue(filters.toString().contains("music"));
             assertTrue(filters.toString().contains("title^5"));
-            assertEquals(3, score.getAsJsonArray("functions").size());
-            assertEquals(5, score.getAsJsonArray("functions").get(0).getAsJsonObject().get("weight").getAsInt());
+            assertEquals(4, score.getAsJsonArray("functions").size());
+            assertEquals(1.0, score.getAsJsonArray("functions").get(0).getAsJsonObject().get("weight").getAsDouble());
+            assertEquals(0.2, score.getAsJsonArray("functions").get(1).getAsJsonObject().get("weight").getAsDouble());
+            assertEquals("multiply", score.get("boost_mode").getAsString());
+            assertEquals(1.5, score.get("max_boost").getAsDouble());
             assertTrue(score.toString().contains("authorId"));
             assertTrue(score.toString().contains("playCount"));
             assertTrue(score.toString().contains("likeCount"));
             ctx.getQuery().setSortByLatest(true);
             keyword.recall(ctx, System.nanoTime() + TimeUnit.SECONDS.toNanos(2));
             var latest = JsonUtil.GSON.fromJson(body.get(), JsonObject.class);
-            assertEquals(2, latest.getAsJsonObject("query").getAsJsonObject("function_score")
-                    .getAsJsonArray("functions").size());
+            assertFalse(latest.getAsJsonObject("query").has("function_score"));
         } finally { server.stop(0); }
     }
 
@@ -82,9 +84,9 @@ class KeywordRecallHttpTest {
         var keywordExecutor = config.recallExecutor(); var vectorExecutor = config.queryVectorExecutor(properties);
         try (var es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort()))
                 .setHttpClientConfigCallback(builder -> builder.setMaxConnTotal(1).setMaxConnPerRoute(1)).build()) {
-            var keyword = new KeywordRecallStrategy(new RecallSearchClient(es), properties);
+            var keyword = new KeywordRecallStrategy(new RecallSearchClient(es), properties, new RecallRanking(new RecallRankingProperties()));
             var vectors = mock(QueryVectorRecall.class);
-            when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+            when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
                 assertTrue(entered.await(1, TimeUnit.SECONDS)); return List.of("vector");
             });
             var pipeline = new RecallPipeline(List.of(keyword, new VectorRecallStrategy(vectors, properties)),

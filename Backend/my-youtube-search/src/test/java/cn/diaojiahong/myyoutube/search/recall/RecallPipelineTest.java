@@ -50,7 +50,7 @@ class RecallPipelineTest {
     @Test void blockedVectorDoesNotDelayKeywordAndItsSlotCanBeReused() throws Exception {
         var entered = new CountDownLatch(1);
         var stopped = new CountDownLatch(1);
-        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+        when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
             entered.countDown();
             try { new CountDownLatch(1).await(); return List.of("late"); }
             finally { stopped.countDown(); }
@@ -63,13 +63,13 @@ class RecallPipelineTest {
         assertEquals(List.of("keyword"), pipeline.execute(context()));
         assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 600);
         assertTrue(stopped.await(1, TimeUnit.SECONDS));
-        doReturn(List.of("fresh")).when(vectors).recall(anyString(), any(), anyLong());
+        doReturn(List.of("fresh")).when(vectors).recall(any(), anyLong());
         assertEquals(List.of("keyword", "fresh"), pipeline.execute(context()));
     }
 
     @Test void timelyResultsUseRrfAndDeduplicate() throws Exception {
         when(keyword.recall(any(), anyLong())).thenReturn(List.of("k", "shared"));
-        when(vectors.recall(anyString(), any(), anyLong())).thenReturn(List.of("v", "shared"));
+        when(vectors.recall(any(), anyLong())).thenReturn(List.of("v", "shared"));
         assertEquals(List.of("shared", "k", "v"), pipeline.execute(context()));
     }
 
@@ -113,7 +113,7 @@ class RecallPipelineTest {
             try { new CountDownLatch(1).await(); return List.of(); }
             finally { stopped.countDown(); }
         });
-        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+        when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
             Thread.sleep(140); return List.of("late-vector");
         });
         assertEquals(List.of("late-vector"), pipeline.execute(context()));
@@ -127,7 +127,7 @@ class RecallPipelineTest {
             try { new CountDownLatch(1).await(); return List.of(); }
             finally { stopped.countDown(); }
         });
-        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+        when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
             assertTrue(entered.await(1, TimeUnit.SECONDS)); return List.of("vector");
         });
         assertEquals(List.of("vector"), pipeline.execute(context()));
@@ -141,7 +141,7 @@ class RecallPipelineTest {
         when(keyword.recall(any(), anyLong())).thenAnswer(call -> {
             Thread.sleep(140); return List.of("late-keyword");
         });
-        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+        when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
             try { new CountDownLatch(1).await(); return List.of(); }
             finally { stopped.countDown(); }
         });
@@ -152,7 +152,7 @@ class RecallPipelineTest {
     @Test void emptyOrFailedRouteDoesNotHideLaterCandidates() throws Exception {
         recallProperties.setWaitMillis(50);
         when(keyword.recall(any(), anyLong())).thenReturn(List.of()).thenThrow(new IllegalStateException("ES unavailable"));
-        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+        when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
             Thread.sleep(100); return List.of("vector");
         });
         assertEquals(List.of("vector"), pipeline.execute(context()));
@@ -161,7 +161,7 @@ class RecallPipelineTest {
 
     @Test void allEmptyRoutesReturnWithoutWaitingForHardTimeout() throws Exception {
         when(keyword.recall(any(), anyLong())).thenReturn(List.of());
-        when(vectors.recall(anyString(), any(), anyLong())).thenReturn(List.of());
+        when(vectors.recall(any(), anyLong())).thenReturn(List.of());
         assertEquals(List.of(), pipeline.execute(context()));
     }
 
@@ -173,7 +173,7 @@ class RecallPipelineTest {
             try { new CountDownLatch(1).await(); return List.of(); }
             finally { stopped.countDown(); }
         });
-        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+        when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
             entered.countDown();
             try { new CountDownLatch(1).await(); return List.of(); }
             finally { stopped.countDown(); }
@@ -229,7 +229,7 @@ class RecallPipelineTest {
         Runnable blocker = () -> { try { release.await(); } catch (InterruptedException error) { Thread.currentThread().interrupt(); } };
         int capacity = keywordExecutor.getMaxPoolSize() + keywordExecutor.getThreadPoolExecutor().getQueue().remainingCapacity();
         for (int i = 0; i < capacity; i++) keywordExecutor.execute(blocker);
-        when(vectors.recall(anyString(), any(), anyLong())).thenReturn(List.of("vector"));
+        when(vectors.recall(any(), anyLong())).thenReturn(List.of("vector"));
         try {
             assertEquals(List.of("vector"), pipeline.execute(context()));
             verify(keyword, never()).recall(any(), anyLong());
@@ -240,7 +240,7 @@ class RecallPipelineTest {
         var entered = new CountDownLatch(1);
         var stopped = new CountDownLatch(1);
         when(keyword.recall(any(), anyLong())).thenReturn(List.of("keyword"));
-        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+        when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
             entered.countDown();
             try { new CountDownLatch(1).await(); return List.of(); }
             finally { stopped.countDown(); }
@@ -255,7 +255,7 @@ class RecallPipelineTest {
     }
 
     @Test void searchServiceReturnsKeywordPageWhileVectorIsBlocked() throws Exception {
-        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+        when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
             new CountDownLatch(1).await(); return List.of("late");
         });
         when(keyword.recall(any(), anyLong())).thenReturn(List.of("1"));
@@ -281,7 +281,7 @@ class RecallPipelineTest {
             try { new CountDownLatch(1).await(); return List.of(); }
             finally { stopped.countDown(); }
         });
-        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+        when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
             assertTrue(entered.await(1, TimeUnit.SECONDS)); return List.of("1");
         });
         var search = searchService();
