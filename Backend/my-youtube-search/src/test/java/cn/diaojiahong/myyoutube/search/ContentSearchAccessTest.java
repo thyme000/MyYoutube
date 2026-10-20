@@ -12,11 +12,16 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.data.elasticsearch.core.*;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -27,7 +32,8 @@ class ContentSearchAccessTest {
     final ElasticsearchClient client = mock(ElasticsearchClient.class);
     final ElasticsearchOperations operations = mock(ElasticsearchOperations.class);
     final RecallPipeline recall = mock(RecallPipeline.class);
-    final SearchServiceImpl search = new SearchServiceImpl(operations,mock(FollowPort.class),mock(ContentInternalPort.class),
+    final FollowPort follows = mock(FollowPort.class);
+    final SearchServiceImpl search = new SearchServiceImpl(operations,follows,mock(ContentInternalPort.class),
             summaries,mock(UserPort.class),mock(S3StorageUtil.class),mock(StringRedisTemplate.class),client,recall);
 
     @BeforeEach void user() { UserContext.setUser("7"); }
@@ -48,6 +54,78 @@ class ContentSearchAccessTest {
         assertEquals(List.of("3"),page.getList().stream().map(s -> s.getId()).toList());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void allSortsReuseRequiredFollowSnapshotForRecallAndResponse(boolean latest) {
+        when(follows.getFollowIds(7L)).thenReturn(List.of(7L));
+        when(recall.execute(any())).thenAnswer(call -> {
+            cn.diaojiahong.myyoutube.search.recall.SearchContext ctx = call.getArgument(0);
+            assertEquals(List.of(7L), ctx.getFollowIds());
+            return List.of("1", "2");
+        });
+        var other = summary(2); other.setAuthorId(8L);
+        when(summaries.listByIdsOrdered(any())).thenReturn(List.of(summary(1), other));
+        var query = new SearchVideoPageQuery(); query.setSortByLatest(latest);
+        var page = search.searchVideo(query);
+        assertEquals(List.of(true, false), page.getList().stream().map(item -> item.getIsFollow()).toList());
+        verify(follows, times(1)).getFollowIds(7L);
+    }
+
+    @Test void emptyFollowListExplicitlyMarksAuthorsAsNotFollowed() {
+        when(follows.getFollowIds(7L)).thenReturn(List.of());
+        when(recall.execute(any())).thenReturn(List.of("1"));
+        when(summaries.listByIdsOrdered(any())).thenReturn(List.of(summary(1)));
+        var page = search.searchVideo(new SearchVideoPageQuery());
+        assertEquals(Boolean.FALSE, page.getList().get(0).getIsFollow());
+        verify(follows, times(1)).getFollowIds(7L);
+    }
+
+    @Test void failedFollowLookupFailsSearchBeforeRecall() {
+        var failure = new IllegalStateException("follow unavailable");
+        when(follows.getFollowIds(7L)).thenThrow(failure);
+        assertSame(failure, assertThrows(IllegalStateException.class,
+                () -> search.searchVideo(new SearchVideoPageQuery())));
+        verify(follows, times(1)).getFollowIds(7L);
+        verifyNoInteractions(recall, summaries);
+    }
+
+    @Test void nullFollowResponseIsNotTreatedAsEmpty() {
+        when(follows.getFollowIds(7L)).thenReturn(null);
+        assertThrows(NullPointerException.class, () -> search.searchVideo(new SearchVideoPageQuery()));
+        verifyNoInteractions(recall, summaries);
+    }
+
+    @Test
+    @Timeout(5)
+    void slowFollowLookupMustCompleteBeforeRecallAndResponse() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        when(follows.getFollowIds(7L)).thenAnswer(call -> {
+            entered.countDown();
+            assertTrue(release.await(2, TimeUnit.SECONDS));
+            return List.of(7L);
+        });
+        when(recall.execute(any())).thenReturn(List.of("1"));
+        when(summaries.listByIdsOrdered(any())).thenReturn(List.of(summary(1)));
+        var caller = Executors.newSingleThreadExecutor();
+        try {
+            var response = caller.submit(() -> {
+                UserContext.setUser("7");
+                try { return search.searchVideo(new SearchVideoPageQuery()); }
+                finally { UserContext.removeUser(); }
+            });
+            assertTrue(entered.await(1, TimeUnit.SECONDS));
+            assertFalse(response.isDone());
+            verifyNoInteractions(recall, summaries);
+            release.countDown();
+            assertEquals(Boolean.TRUE, response.get(2, TimeUnit.SECONDS).getList().get(0).getIsFollow());
+            verify(follows, times(1)).getFollowIds(7L);
+        } finally {
+            release.countDown();
+            caller.shutdownNow();
+        }
+    }
+
     @Test void tagResultsDoNotApplyPageOffsetToAnAlreadyPaginatedEsResponse() {
         SearchHits<ContentDoc> hits = mock(SearchHits.class);
         SearchHit<ContentDoc> hit = mock(SearchHit.class);
@@ -60,6 +138,7 @@ class ContentSearchAccessTest {
         var query = new SearchVideoByTagPageQuery(); query.setPageNo(2); query.setPageSize(10);
         var result = search.searchByTag(query);
         assertEquals(11,result.getTotal()); assertEquals(List.of("12"),result.getList().stream().map(s -> s.getId()).toList());
+        assertEquals(Boolean.FALSE, result.getList().get(0).getIsFollow());
     }
 
     @Test void stalePrivateContentCannotLeakThroughCompletionSuggestions() throws Exception {

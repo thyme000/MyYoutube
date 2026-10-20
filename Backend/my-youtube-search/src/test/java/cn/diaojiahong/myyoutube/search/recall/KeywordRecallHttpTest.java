@@ -4,7 +4,6 @@ import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.config.RecallConfig;
 import cn.diaojiahong.myyoutube.search.vector.QueryVectorRecall;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
-import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import com.google.gson.JsonObject;
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -37,8 +36,8 @@ class KeywordRecallHttpTest {
         server.start();
         try (var es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
             var keyword = new KeywordRecallStrategy(new RecallSearchClient(es), new VectorProperties());
-            var ctx = RecallPipelineTest.context(); ctx.getQuery().setCategory("music");
-            ctx.prepareFollowIds(() -> List.of(7L)); ctx.loadFollowIds();
+            var ctx = SearchContext.of(RecallPipelineTest.context().getQuery(), 7L, List.of(7L));
+            ctx.getQuery().setCategory("music");
             assertEquals(List.of("42"), keyword.recall(ctx, System.nanoTime() + TimeUnit.SECONDS.toNanos(2)));
             var query = JsonUtil.GSON.fromJson(body.get(), JsonObject.class);
             assertEquals(100, query.get("size").getAsInt());
@@ -56,6 +55,11 @@ class KeywordRecallHttpTest {
             assertTrue(score.toString().contains("authorId"));
             assertTrue(score.toString().contains("playCount"));
             assertTrue(score.toString().contains("likeCount"));
+            ctx.getQuery().setSortByLatest(true);
+            keyword.recall(ctx, System.nanoTime() + TimeUnit.SECONDS.toNanos(2));
+            var latest = JsonUtil.GSON.fromJson(body.get(), JsonObject.class);
+            assertEquals(2, latest.getAsJsonObject("query").getAsJsonObject("function_score")
+                    .getAsJsonArray("functions").size());
         } finally { server.stop(0); }
     }
 
@@ -83,16 +87,15 @@ class KeywordRecallHttpTest {
             when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
                 assertTrue(entered.await(1, TimeUnit.SECONDS)); return List.of("vector");
             });
-            var follows = mock(FollowPort.class); when(follows.getFollowIds(any())).thenReturn(List.of());
             var pipeline = new RecallPipeline(List.of(keyword, new VectorRecallStrategy(vectors, properties)),
-                    new RrfFuser(properties), mock(LatestFuser.class), follows, recallProperties, new SimpleMeterRegistry(),
+                    new RrfFuser(properties), mock(LatestFuser.class), recallProperties, new SimpleMeterRegistry(),
                     Map.of("recallExecutor", keywordExecutor, "queryVectorExecutor", vectorExecutor));
             long start = System.nanoTime();
             assertEquals(List.of("vector"), pipeline.execute(RecallPipelineTest.context()));
             long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
             assertTrue(elapsed < 1000, "keyword fallback took " + elapsed + "ms");
             assertTrue(closed.await(2, TimeUnit.SECONDS));
-            var ctx = RecallPipelineTest.context(); ctx.prepareFollowIds(List::of); ctx.loadFollowIds();
+            var ctx = RecallPipelineTest.context();
             assertEquals(List.of("42"), keyword.recall(ctx, System.nanoTime() + TimeUnit.SECONDS.toNanos(2)));
             assertEquals(2, calls.get());
         } finally {

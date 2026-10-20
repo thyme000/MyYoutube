@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
-import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -24,18 +23,16 @@ public class RecallPipeline {
     private final List<RecallStrategy> strategies;
     private final RrfFuser rrfFuser;
     private final LatestFuser latestFuser;
-    private final FollowPort followPort;
     private final RecallProperties properties;
     private final Map<String, ThreadPoolTaskExecutor> executors;
     private final MeterRegistry metrics;
 
     public RecallPipeline(List<RecallStrategy> strategies, RrfFuser rrfFuser, LatestFuser latestFuser,
-                          FollowPort followPort, RecallProperties properties, MeterRegistry metrics,
+                          RecallProperties properties, MeterRegistry metrics,
                           Map<String, ThreadPoolTaskExecutor> executors) {
         this.strategies = strategies;
         this.rrfFuser = rrfFuser;
         this.latestFuser = latestFuser;
-        this.followPort = followPort;
         this.properties = properties;
         this.metrics = metrics;
         this.executors = executors;
@@ -45,7 +42,6 @@ public class RecallPipeline {
         long waitDeadline = ctx.getStartedNanos() + TimeUnit.MILLISECONDS.toNanos(properties.getWaitMillis());
         long deadline = ctx.getStartedNanos() + TimeUnit.MILLISECONDS.toNanos(properties.getTimeoutMillis());
         List<RecallStrategy> active = strategies.stream().filter(strategy -> strategy.shouldRun(ctx)).toList();
-        ctx.prepareFollowIds(() -> ctx.isSortByLatest() ? List.of() : followPort.getFollowIds(ctx.getUserId()));
         BlockingQueue<FutureTask<RecallResult>> completed = new LinkedBlockingQueue<>();
         List<RunningRecall> tasks = new ArrayList<>();
         List<List<String>> recalls = new ArrayList<>(Collections.nCopies(active.size(), List.of()));
@@ -101,8 +97,6 @@ public class RecallPipeline {
 
     private List<String> recallQuietly(RecallStrategy strategy, SearchContext ctx, long deadline) {
         try {
-            if (System.nanoTime() >= deadline) return List.of();
-            if (strategy.needsFollowIds()) ctx.loadFollowIds();
             if (System.nanoTime() >= deadline) return List.of();
             return strategy.recall(ctx, deadline);
         }

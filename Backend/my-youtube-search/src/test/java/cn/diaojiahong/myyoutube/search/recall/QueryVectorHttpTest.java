@@ -6,7 +6,6 @@ import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
 import cn.diaojiahong.myyoutube.config.RecallConfig;
 import cn.diaojiahong.myyoutube.search.vector.QueryVectorRecall;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
-import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import feign.Feign;
@@ -82,9 +81,8 @@ class QueryVectorHttpTest {
             when(keyword.recall(any(), anyLong())).thenAnswer(call -> {
                 assertTrue(stageStarted.await(2, TimeUnit.SECONDS)); return List.of("keyword");
             });
-            var follows = mock(FollowPort.class); when(follows.getFollowIds(any())).thenReturn(List.of());
             var pipeline = new RecallPipeline(List.of(keyword, vector), new RrfFuser(properties), mock(LatestFuser.class),
-                    follows, recallProperties, new SimpleMeterRegistry(), Map.of("recallExecutor", keywordExecutor, "queryVectorExecutor", vectorExecutor));
+                    recallProperties, new SimpleMeterRegistry(), Map.of("recallExecutor", keywordExecutor, "queryVectorExecutor", vectorExecutor));
             long start = System.nanoTime();
             assertEquals(List.of("keyword"), pipeline.execute(RecallPipelineTest.context()));
             long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);

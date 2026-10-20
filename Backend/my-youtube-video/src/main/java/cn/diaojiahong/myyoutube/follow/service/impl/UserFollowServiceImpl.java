@@ -186,7 +186,6 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 .eq(UserFollow::getFollowerId, userId)
                 .eq(UserFollow::getIsDeleted, false)
                 .orderByDesc(UserFollow::getUpdateTime)
-                .last("LIMIT 200")
                 .select(UserFollow::getFolloweeId)
                 .list().stream().map(UserFollow::getFolloweeId).toList();
     }

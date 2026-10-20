@@ -39,10 +39,9 @@ class RecallPipelineTest {
         vectorExecutor = new RecallConfig().queryVectorExecutor(properties);
         when(keyword.shouldRun(any())).thenReturn(true);
         when(keyword.executorName()).thenReturn("recallExecutor");
-        when(keyword.needsFollowIds()).thenReturn(true);
         when(follows.getFollowIds(any())).thenReturn(List.of());
         pipeline = new RecallPipeline(List.of(keyword, new VectorRecallStrategy(vectors, properties)),
-                new RrfFuser(properties), mock(LatestFuser.class), follows, recallProperties, new SimpleMeterRegistry(),
+                new RrfFuser(properties), mock(LatestFuser.class), recallProperties, new SimpleMeterRegistry(),
                 Map.of("recallExecutor", keywordExecutor, "queryVectorExecutor", vectorExecutor));
     }
 
@@ -199,12 +198,11 @@ class RecallPipelineTest {
         assertEquals(List.of("keyword"), pipeline.execute(context()));
         properties.setEnabled(true);
         var query = new SearchVideoPageQuery(); query.setKeyword("  ");
-        assertEquals(List.of("keyword"), pipeline.execute(SearchContext.of(query, 7L)));
+        assertEquals(List.of("keyword"), pipeline.execute(SearchContext.of(query, 7L, List.of())));
         verifyNoInteractions(vectors);
     }
 
     @Test void multipleDependentStrategiesShareOneFollowSnapshot() throws Exception {
-        when(follows.getFollowIds(7L)).thenReturn(List.of(11L, 12L));
         var entered = new CountDownLatch(2);
         RecallStrategy first = dependent(ctx -> {
             entered.countDown(); assertTrue(entered.await(1, TimeUnit.SECONDS));
@@ -214,47 +212,16 @@ class RecallPipelineTest {
             entered.countDown(); assertTrue(entered.await(1, TimeUnit.SECONDS));
             assertEquals(List.of(11L, 12L), ctx.getFollowIds()); return List.of("second");
         });
-        var ctx = context();
+        var followIds = new java.util.ArrayList<>(List.of(11L, 12L));
+        var ctx = SearchContext.of(context().getQuery(), 7L, followIds);
+        followIds.clear();
+        assertThrows(UnsupportedOperationException.class, () -> ctx.getFollowIds().add(13L));
         assertEquals(List.of("first", "second"), pipeline(List.of(first, second)).execute(ctx));
         assertEquals(List.of(11L, 12L), ctx.getFollowIds());
-        verify(follows, times(1)).getFollowIds(7L);
     }
 
-    @Test void failedFollowLookupIsNotRetriedByOtherStrategies() {
-        when(follows.getFollowIds(7L)).thenThrow(new IllegalStateException("follow unavailable"));
-        RecallStrategy first = dependent(ctx -> { fail("failed dependency must skip recall"); return List.of(); });
-        RecallStrategy second = dependent(ctx -> { fail("failed dependency must skip recall"); return List.of(); });
-        assertEquals(List.of(), pipeline(List.of(first, second)).execute(context()));
-        verify(follows, times(1)).getFollowIds(7L);
-    }
-
-    @Test void blockedFollowLookupDoesNotDelayVectorOrResponseSnapshot() throws Exception {
-        var entered = new CountDownLatch(1); var stopped = new CountDownLatch(1);
-        when(follows.getFollowIds(7L)).thenAnswer(call -> {
-            entered.countDown();
-            try { new CountDownLatch(1).await(); return List.of(11L); }
-            finally { stopped.countDown(); }
-        });
-        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
-            assertTrue(entered.await(1, TimeUnit.SECONDS)); return List.of("vector");
-        });
-        var ctx = context();
-        assertEquals(List.of("vector"), pipeline.execute(ctx));
-        assertEquals(List.of(), ctx.getFollowIds());
-        assertTrue(stopped.await(1, TimeUnit.SECONDS));
-        verify(keyword, never()).recall(any(), anyLong());
-        verify(follows, times(1)).getFollowIds(7L);
-    }
-
-    @Test void latestSortSkipsFollowRpcAndNoActiveStrategiesReturnEmpty() {
-        RecallStrategy strategy = dependent(ctx -> {
-            assertEquals(List.of(), ctx.getFollowIds()); return List.of();
-        });
-        var ctx = context(); ctx.getQuery().setSortByLatest(true);
-        assertTrue(ctx.isSortByLatest());
-        pipeline(List.of(strategy)).execute(ctx);
+    @Test void noActiveStrategiesReturnEmpty() {
         assertEquals(List.of(), pipeline(List.of()).execute(context()));
-        verifyNoInteractions(follows);
     }
 
     @Test void saturatedKeywordPoolRejectsWithoutBlockingVector() throws Exception {
@@ -292,6 +259,43 @@ class RecallPipelineTest {
             new CountDownLatch(1).await(); return List.of("late");
         });
         when(keyword.recall(any(), anyLong())).thenReturn(List.of("1"));
+        var search = searchService();
+        cn.diaojiahong.myyoutube.common.utils.UserContext.setUser("7");
+        try {
+            long start = System.nanoTime();
+            var page = search.searchVideo(context().getQuery());
+            assertEquals(List.of("1"), page.getList().stream().map(item -> item.getId()).toList());
+            assertEquals(Boolean.FALSE, page.getList().get(0).getIsFollow());
+            verify(follows, times(1)).getFollowIds(7L);
+            assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 600);
+        } finally { cn.diaojiahong.myyoutube.common.utils.UserContext.removeUser(); }
+    }
+
+    @Test void vectorOnlyResponseKeepsFollowStateAfterKeywordCancellation() throws Exception {
+        when(follows.getFollowIds(7L)).thenReturn(List.of(7L));
+        var entered = new CountDownLatch(1); var stopped = new CountDownLatch(1);
+        when(keyword.recall(any(), anyLong())).thenAnswer(call -> {
+            SearchContext ctx = call.getArgument(0);
+            assertEquals(List.of(7L), ctx.getFollowIds());
+            entered.countDown();
+            try { new CountDownLatch(1).await(); return List.of(); }
+            finally { stopped.countDown(); }
+        });
+        when(vectors.recall(anyString(), any(), anyLong())).thenAnswer(call -> {
+            assertTrue(entered.await(1, TimeUnit.SECONDS)); return List.of("1");
+        });
+        var search = searchService();
+        cn.diaojiahong.myyoutube.common.utils.UserContext.setUser("7");
+        try {
+            var page = search.searchVideo(context().getQuery());
+            assertEquals(List.of("1"), page.getList().stream().map(item -> item.getId()).toList());
+            assertEquals(Boolean.TRUE, page.getList().get(0).getIsFollow());
+            assertTrue(stopped.await(1, TimeUnit.SECONDS));
+            verify(follows, times(1)).getFollowIds(7L);
+        } finally { cn.diaojiahong.myyoutube.common.utils.UserContext.removeUser(); }
+    }
+
+    private cn.diaojiahong.myyoutube.search.service.impl.SearchServiceImpl searchService() {
         var summaries = mock(cn.diaojiahong.myyoutube.video.api.ContentSummaryPort.class);
         var summary = new cn.diaojiahong.myyoutube.video.api.dto.ContentSummary();
         summary.setId(1L); summary.setAuthorId(7L); summary.setType("dynamic"); summary.setTitle("关键词命中");
@@ -300,27 +304,20 @@ class RecallPipelineTest {
         org.springframework.data.redis.core.SetOperations<String, String> searches = mock(org.springframework.data.redis.core.SetOperations.class);
         when(redis.opsForSet()).thenReturn(searches);
         when(searches.isMember(anyString(), anyString())).thenReturn(true);
-        var search = new cn.diaojiahong.myyoutube.search.service.impl.SearchServiceImpl(
+        return new cn.diaojiahong.myyoutube.search.service.impl.SearchServiceImpl(
                 mock(org.springframework.data.elasticsearch.core.ElasticsearchOperations.class), follows,
                 mock(cn.diaojiahong.myyoutube.video.api.ContentInternalPort.class), summaries,
                 mock(cn.diaojiahong.myyoutube.user.api.UserPort.class), mock(cn.diaojiahong.myyoutube.common.utils.S3StorageUtil.class),
                 redis, mock(co.elastic.clients.elasticsearch.ElasticsearchClient.class), pipeline);
-        cn.diaojiahong.myyoutube.common.utils.UserContext.setUser("7");
-        try {
-            long start = System.nanoTime();
-            var page = search.searchVideo(context().getQuery());
-            assertEquals(List.of("1"), page.getList().stream().map(item -> item.getId()).toList());
-            assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 600);
-        } finally { cn.diaojiahong.myyoutube.common.utils.UserContext.removeUser(); }
     }
 
     static SearchContext context() {
         var query = new SearchVideoPageQuery(); query.setKeyword("搜索");
-        return SearchContext.of(query, 7L);
+        return SearchContext.of(query, 7L, List.of());
     }
 
     RecallPipeline pipeline(List<RecallStrategy> strategies) {
-        return new RecallPipeline(strategies, new RrfFuser(properties), mock(LatestFuser.class), follows,
+        return new RecallPipeline(strategies, new RrfFuser(properties), mock(LatestFuser.class),
                 recallProperties, new SimpleMeterRegistry(),
                 Map.of("recallExecutor", keywordExecutor, "queryVectorExecutor", vectorExecutor));
     }
@@ -330,7 +327,6 @@ class RecallPipelineTest {
     static RecallStrategy dependent(RecallCall call) {
         return new RecallStrategy() {
             @Override public boolean shouldRun(SearchContext ctx) { return true; }
-            @Override public boolean needsFollowIds() { return true; }
             @Override public List<String> recall(SearchContext ctx, long deadline) throws Exception { return call.run(ctx); }
         };
     }

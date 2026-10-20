@@ -68,8 +68,8 @@ public class SearchServiceImpl implements ISearchService {
     @ObservedBusiness(BusinessOperation.SEARCH_CONTENT)
     public PageResult<SearchVideoVO> searchVideo(SearchVideoPageQuery pageQuery) {
         Long userId = getUserId();
-        SearchContext ctx = SearchContext.of(pageQuery, userId);
-        // 关键词与向量独立召回，向量只在请求预算内参与融合。
+        // 关注状态是响应必需数据，最新排序与任一单路返回也必须取得；失败交由接口报错。
+        SearchContext ctx = SearchContext.of(pageQuery, userId, followPort.getFollowIds(userId));
         List<String> fused = recallPipeline.execute(ctx);
         // total 用融合结果真实长度: 召回以 recall-size 封顶, 深分页不可达就不虚报
         var readable = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(fused, null));
@@ -326,6 +326,8 @@ public class SearchServiceImpl implements ISearchService {
         long pages = (total + pageSize - 1) / pageSize;
         if (videos.isEmpty()) return PageResult.of(total, pages, List.of());
         List<SearchVideoVO> result = BeanUtil.copyToList(videos, SearchVideoVO.class);
+        Set<Long> followedAuthors = new HashSet<>(followIds);
+        result.forEach(vo -> vo.setIsFollow(followedAuthors.contains(vo.getAuthorId())));
         // 填充用户昵称和头像url(一次批量取摘要, 本地投影)
         List<UserSummary> authors = userPort.listByIds(videos.stream().map(ContentSummary::getAuthorId).collect(Collectors.toList()));
         Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(authors);
@@ -348,13 +350,6 @@ public class SearchServiceImpl implements ISearchService {
             Map<Long, Boolean> isLikes = likedIds.stream().collect(Collectors.toMap(id -> id, id -> true));
             result.forEach(vo -> {
                 vo.setIsLike(isLikes.getOrDefault(Long.valueOf(vo.getId()), false));
-            });
-        }
-        // 填充是否关注
-        if (followIds != null && !followIds.isEmpty()) {
-            Map<Long, Boolean> isFollows = followIds.stream().collect(Collectors.toMap(id -> id, id -> true));
-            result.forEach(vo -> {
-                vo.setIsFollow(isFollows.getOrDefault(vo.getAuthorId(), false));
             });
         }
         return PageResult.of(total, pages, result);

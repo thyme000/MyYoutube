@@ -13,8 +13,6 @@ public interface RecallStrategy {
 
     default String executorName() { return "recallExecutor"; }
 
-    default boolean needsFollowIds() { return false; }
-
-    /** 按相关性降序返回 id；deadlineNanos 是包含排队与依赖查询的单调时钟硬截止时间。 */
+    /** 按相关性降序返回 id；deadlineNanos 是包含排队与召回依赖查询的单调时钟硬截止时间。 */
     List<String> recall(SearchContext ctx, long deadlineNanos) throws Exception;
 }

@@ -31,9 +31,6 @@ public class KeywordRecallStrategy implements RecallStrategy {
     }
 
     @Override
-    public boolean needsFollowIds() { return true; }
-
-    @Override
     public List<String> recall(SearchContext ctx, long deadlineNanos) throws Exception {
         // 任一路可能单独返回，关键词保留原单路的召回深度。
         int size = vectorProperties.getRecallSize() * 2;
@@ -70,10 +67,12 @@ public class KeywordRecallStrategy implements RecallStrategy {
     /** 关注作者加权 + 播放量/获赞对数加权 */
     private List<FunctionScore> boostFunctions(SearchContext ctx) {
         List<FunctionScore> functions = new ArrayList<>();
-        for (Long fid : ctx.getFollowIds()) {
-            functions.add(FunctionScore.of(f -> f
-                    .filter(fq -> fq.term(t -> t.field("authorId").value(fid)))
-                    .weight(5.0)));
+        if (!ctx.isSortByLatest()) {
+            for (Long fid : ctx.getFollowIds()) {
+                functions.add(FunctionScore.of(f -> f
+                        .filter(fq -> fq.term(t -> t.field("authorId").value(fid)))
+                        .weight(5.0)));
+            }
         }
         functions.add(fieldValueFactor("playCount"));
         functions.add(fieldValueFactor("likeCount"));

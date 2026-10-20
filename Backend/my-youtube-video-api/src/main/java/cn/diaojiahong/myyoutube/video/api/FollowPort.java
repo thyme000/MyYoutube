@@ -18,7 +18,7 @@ import java.util.List;
         path = "/internal/follow", url = "${my-youtube.video-service.url:}")
 public interface FollowPort {
 
-    /** 用户的关注列表 id */
+    /** 用户当前完整的关注列表 id，供排序与关注状态回填共用。 */
     @GetMapping("/follow-ids")
     List<Long> getFollowIds(@RequestParam("userId") Long userId);
 
