@@ -1,7 +1,8 @@
 # 本地开发示例：Java 服务在宿主机运行，中间件使用 docker/docker-compose.yml。
-# 在项目根目录执行（已有 application-local.yml 时请手动合并）：
-# cp -n application-local.example.yml Backend/my-youtube-common/src/main/resources/application-local.yml
-# 所有 Java 启动模块（含 gateway）依赖 common，均会通过已有 classpath import 加载此文件。
+# 在项目根目录执行（已有公共本地配置时请手动合并）：
+# cp -n application-local.example.yml Backend/my-youtube-common/src/main/resources/application-common-local.yml
+# 公共本地配置由 application-common.yml 导入，gateway 单独显式导入。
+# 各服务自己的 application-local.yml 仍用于覆盖本服务配置，不要放进 common 模块。
 # 无需激活 local profile；根目录 .env 不会被 Spring Boot 自动读取。
 # ${变量:默认值} 可由 IDE/进程环境变量覆盖；以下账号和密钥仅用于本机开发。
 # 不设置 server.port、spring.application.name 或 my-youtube.db-name，保留各服务自己的值。

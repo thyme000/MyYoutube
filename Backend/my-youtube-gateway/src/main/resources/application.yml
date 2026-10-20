@@ -11,7 +11,9 @@ spring:
       - com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration
       - org.apache.rocketmq.spring.autoconfigure.RocketMQAutoConfiguration
   config:
-    import: optional:classpath:application-local.yml
+    import:
+      - optional:classpath:application-common-local.yml
+      - optional:classpath:application-local.yml
   application:
     name: my-youtube-gateway
   cloud:

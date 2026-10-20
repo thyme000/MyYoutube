@@ -39,6 +39,7 @@ frontend-admin/
 .env
 !.env.example
 **/application-local.yml
+**/application-common-local.yml
 
 # workbuddy-ai 工作区数据
 .workbuddy-ai/

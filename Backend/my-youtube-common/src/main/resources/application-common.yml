@@ -1,6 +1,8 @@
 # 各服务共享基础配置(由各服务 spring.config.import 引入)。
-# 服务特有项写在各自 application.yml, 本地覆盖写 application-local.yml(gitignore, 最后 import 优先级最高)。
+# 公共本地覆盖使用独立文件名，避免被服务自己的 application-local.yml 遮蔽。
 spring:
+  config:
+    import: optional:classpath:application-common-local.yml
   cloud:
     nacos:
       username: ${NACOS_USERNAME:}
