@@ -160,9 +160,11 @@ class ContentVectorServiceTest {
     }
 
     @Test void knnFiltersPublicationVisibilityCategoryAndModelVersion() throws Exception {
-        when(client.search(any(Function.class), eq(Void.class))).thenReturn(emptySearch());
+        when(client.search(any(SearchRequest.class), eq(Void.class))).thenReturn(emptySearch());
         assertEquals(List.of(), service.knnSearch(new ContentVectorService.QueryVector(List.of(1.0f), "model:1"), "tech", 5));
-        var request = captureSearch();
+        var captured = ArgumentCaptor.forClass(SearchRequest.class);
+        verify(client).search(captured.capture(), eq(Void.class));
+        var request = captured.getValue();
         var terms = request.knn().get(0).filter().get(0).bool().must().stream()
                 .collect(Collectors.toMap(query -> query.term().field(), query -> query.term().value().stringValue()));
         assertEquals(Map.of("status", "published", "visibility", "public", "category", "tech", "vectorVersion", "model:1"), terms);

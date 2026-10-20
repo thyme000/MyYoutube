@@ -15,6 +15,8 @@ public class VectorProperties {
 
     /** 总开关, 关闭即回退纯关键词搜索 */
     private boolean enabled = true;
+    private int queryMaxConcurrent = 2;
+    private int queryQueueCapacity = 4;
     /** RRF 平滑常数 */
     private int rrfK = 60;
     /** 双路各取的召回深度 */
@@ -30,8 +32,9 @@ public class VectorProperties {
 
     @PostConstruct
     void validate() {
-        if (singleReadTimeoutSeconds <= 0 || batchReadTimeoutSeconds <= 0) {
-            throw new IllegalStateException("向量 RPC 单条和批量超时必须大于 0");
+        if (queryMaxConcurrent <= 0 || queryQueueCapacity < 0
+                || singleReadTimeoutSeconds <= 0 || batchReadTimeoutSeconds <= 0) {
+            throw new IllegalStateException("向量超时和查询并发必须大于 0，查询队列容量不能为负");
         }
     }
 }

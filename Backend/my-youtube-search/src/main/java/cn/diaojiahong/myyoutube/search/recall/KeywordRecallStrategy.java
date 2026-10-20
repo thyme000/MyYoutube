@@ -1,17 +1,14 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
-import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier;
+import co.elastic.clients.elasticsearch._types.SortOrder;
+import co.elastic.clients.elasticsearch.core.SearchRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.elasticsearch.client.elc.NativeQuery;
-import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -25,7 +22,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class KeywordRecallStrategy implements RecallStrategy {
 
-    private final ElasticsearchOperations elasticsearchOperations;
+    private final RecallSearchClient searchClient;
     private final VectorProperties vectorProperties;
 
     @Override
@@ -34,13 +31,14 @@ public class KeywordRecallStrategy implements RecallStrategy {
     }
 
     @Override
-    public List<String> recall(SearchContext ctx) {
-        // 纯关键词单路时加大召回深度, 兜住融合结果上的应用层深分页
-        int size = ctx.getQueryVector() == null
-                ? vectorProperties.getRecallSize() * 2
-                : vectorProperties.getRecallSize();
-        NativeQuery query = NativeQuery.builder()
-                .withQuery(q -> q.functionScore(fs -> fs
+    public boolean needsFollowIds() { return true; }
+
+    @Override
+    public List<String> recall(SearchContext ctx, long deadlineNanos) throws Exception {
+        // 任一路可能单独返回，关键词保留原单路的召回深度。
+        int size = vectorProperties.getRecallSize() * 2;
+        SearchRequest query = new SearchRequest.Builder().index("content")
+                .query(q -> q.functionScore(fs -> fs
                         .query(inner -> inner.bool(b -> {
                             b.must(m -> m.term(t -> t.field("status").value("published")));
                             b.must(m -> m.term(t -> t.field("visibility").value("public")));
@@ -61,15 +59,15 @@ public class KeywordRecallStrategy implements RecallStrategy {
                         .scoreMode(FunctionScoreMode.Sum)
                         .boostMode(FunctionBoostMode.Sum)
                 ))
-                .withSort(Sort.by(Sort.Order.desc("_score"), Sort.Order.desc("createTime")))
-                .withPageable(PageRequest.of(0, size))
+                .sort(s -> s.score(score -> score.order(SortOrder.Desc)))
+                .sort(s -> s.field(field -> field.field("createTime").order(SortOrder.Desc)))
+                .size(size)
+                .source(source -> source.fetch(false))
                 .build();
-        return elasticsearchOperations.search(query, ContentDoc.class).getSearchHits().stream()
-                .map(hit -> hit.getContent().getId().toString())
-                .toList();
+        return searchClient.search(query, deadlineNanos);
     }
 
-    /** 关注作者加权 + 播放量/获赞对数加权, followIds 由 prep 统一解析挂 ctx */
+    /** 关注作者加权 + 播放量/获赞对数加权 */
     private List<FunctionScore> boostFunctions(SearchContext ctx) {
         List<FunctionScore> functions = new ArrayList<>();
         for (Long fid : ctx.getFollowIds()) {

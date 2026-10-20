@@ -29,9 +29,14 @@ my-youtube:
   llm-service:
     url: ${LLM_SERVICE_URL:http://localhost:8087}
   search:
+    recall:
+      wait-millis: ${SEARCH_RECALL_WAIT_MILLIS:1000}
+      timeout-millis: ${SEARCH_RECALL_TIMEOUT_MILLIS:10000}
     vector:
       # 总开关, 关闭即回退纯关键词搜索
       enabled: true
+      query-max-concurrent: ${SEARCH_QUERY_VECTOR_MAX_CONCURRENT:2}
+      query-queue-capacity: ${SEARCH_QUERY_VECTOR_QUEUE_CAPACITY:4}
       # 整次 LLM RPC 的读取超时；批量包含多轮子批次及失败隔离
       single-read-timeout-seconds: ${EMBEDDING_SINGLE_READ_TIMEOUT_SECONDS:130}
       batch-read-timeout-seconds: ${EMBEDDING_BATCH_READ_TIMEOUT_SECONDS:600}

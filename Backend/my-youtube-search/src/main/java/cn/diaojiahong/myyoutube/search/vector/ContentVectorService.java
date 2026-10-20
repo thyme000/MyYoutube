@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.FieldValue;
+import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import lombok.RequiredArgsConstructor;
@@ -46,7 +47,7 @@ public class ContentVectorService {
     public record RebuildReport(String targetVersion, long cursor, ContentVectorBuilder.Counts counts,
                                 boolean scanCompleted, String error) {}
 
-    /** 查询向量: 失败返回 null, 调用方降级纯关键词 */
+    /** 后台重建探测向量空间，沿用内容构建的 RPC 规则。 */
     public QueryVector embedQuery(String keyword) {
         if (!vectorProperties.isEnabled() || keyword == null || keyword.isBlank()) {
             return null;
@@ -77,7 +78,16 @@ public class ContentVectorService {
     /** kNN 语义召回: 只召回与查询向量同版本的已发布内容; 失败返回空, 调用方降级 */
     public List<String> knnSearch(QueryVector queryVector, String category, int size) {
         try {
-            SearchResponse<Void> resp = elasticsearchClient.search(s -> s
+            SearchResponse<Void> resp = elasticsearchClient.search(knnRequest(queryVector, category, size), Void.class);
+            return resp.hits().hits().stream().map(Hit::id).toList();
+        } catch (Exception e) {
+            log.warn("向量召回失败, 该路降级: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    static SearchRequest knnRequest(QueryVector queryVector, String category, int size) {
+        return SearchRequest.of(s -> s
                     .index(CONTENT_INDEX)
                     .size(size)
                     .knn(k -> k
@@ -94,12 +104,7 @@ public class ContentVectorService {
                                 b.must(m -> m.term(t -> t.field("vectorVersion").value(queryVector.version())));
                                 return b;
                             }))
-                    ), Void.class);
-            return resp.hits().hits().stream().map(Hit::id).toList();
-        } catch (Exception e) {
-            log.warn("向量召回失败, 该路降级: {}", e.getMessage());
-            return List.of();
-        }
+                    ));
     }
 
     public boolean startRebuild() {

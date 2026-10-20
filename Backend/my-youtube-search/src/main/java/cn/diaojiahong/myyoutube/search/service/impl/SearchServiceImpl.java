@@ -69,7 +69,7 @@ public class SearchServiceImpl implements ISearchService {
     public PageResult<SearchVideoVO> searchVideo(SearchVideoPageQuery pageQuery) {
         Long userId = getUserId();
         SearchContext ctx = SearchContext.of(pageQuery, userId);
-        // 策略并行召回 + 按排序模式融合, 策略数无关; 共享输入(关注列表/查询向量)在 pipeline prep 里只算一次
+        // 关键词与向量独立召回，向量只在请求预算内参与融合。
         List<String> fused = recallPipeline.execute(ctx);
         // total 用融合结果真实长度: 召回以 recall-size 封顶, 深分页不可达就不虚报
         var readable = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(fused, null));

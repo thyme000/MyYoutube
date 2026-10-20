@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
-import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
+import cn.diaojiahong.myyoutube.search.vector.QueryVectorRecall;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
@@ -16,17 +16,19 @@ import java.util.List;
 @RequiredArgsConstructor
 public class VectorRecallStrategy implements RecallStrategy {
 
-    private final ContentVectorService contentVectorService;
+    private final QueryVectorRecall queryVectorRecall;
     private final VectorProperties vectorProperties;
 
     @Override
     public boolean shouldRun(SearchContext ctx) {
-        return ctx.getQueryVector() != null;
+        return vectorProperties.isEnabled() && !ctx.getKeyword().isEmpty();
     }
 
     @Override
-    public List<String> recall(SearchContext ctx) {
-        return contentVectorService.knnSearch(ctx.getQueryVector(), ctx.getCategory(),
-                vectorProperties.getRecallSize());
+    public String executorName() { return "queryVectorExecutor"; }
+
+    @Override
+    public List<String> recall(SearchContext ctx, long deadlineNanos) throws Exception {
+        return queryVectorRecall.recall(ctx.getKeyword(), ctx.getCategory(), deadlineNanos);
     }
 }
