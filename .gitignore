@@ -63,3 +63,5 @@ docker/observability/services.local.json
 
 /resources/skywalking-agent
 /resources/skywalking-python-agent/
+
+.archify
