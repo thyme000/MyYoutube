@@ -8,13 +8,18 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * OpenAI 兼容 /v1/embeddings 实现: ollama/百炼/硅基流动/OpenAI 等一个协议通吃;
@@ -33,6 +38,15 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
 
     @Override
     public List<float[]> embed(List<String> texts) {
+        return embed(texts, null);
+    }
+
+    @Override
+    public List<float[]> embedQuery(String text, Duration timeout) {
+        return embed(List.of(text), timeout);
+    }
+
+    private List<float[]> embed(List<String> texts, Duration queryTimeout) {
         LlmProperties.Embedding conf = properties.getEmbedding();
 
         JsonObject body = new JsonObject();
@@ -43,14 +57,16 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(conf.getBaseUrl() + "/embeddings"))
-                .timeout(Duration.ofSeconds(texts.size() > 1 ? conf.getBatchTimeoutSeconds() : conf.getSingleTimeoutSeconds()))
+                .timeout(queryTimeout != null ? queryTimeout : Duration.ofSeconds(
+                        texts.size() > 1 ? conf.getBatchTimeoutSeconds() : conf.getSingleTimeoutSeconds()))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + (conf.getApiKey() == null ? "" : conf.getApiKey()))
                 .POST(HttpRequest.BodyPublishers.ofString(JsonUtil.toJson(body)))
                 .build();
 
         try {
-            HttpResponse<String> resp = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> resp = queryTimeout == null
+                    ? HTTP.send(request, HttpResponse.BodyHandlers.ofString()) : sendQuery(request, queryTimeout);
             if (resp.statusCode() != 200) {
                 if (resp.statusCode() == 429 || resp.statusCode() >= 500) {
                     throw new ModelUnavailable("LLM", "MODEL_UPSTREAM_UNAVAILABLE", 30, null);
@@ -84,7 +100,7 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
                 }
             }
             return vectors;
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             throw new ModelUnavailable("LLM", "MODEL_CONNECTION_UNAVAILABLE", 30, e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -93,6 +109,20 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
             throw e;
         } catch (Exception e) {
             throw new IllegalStateException("Embedding 调用失败: " + e.getMessage(), e);
+        }
+    }
+
+    private HttpResponse<String> sendQuery(HttpRequest request, Duration timeout)
+            throws IOException, InterruptedException {
+        var pending = HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        try {
+            return pending.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException error) {
+            throw new HttpTimeoutException("查询向量模型预算耗尽");
+        } catch (ExecutionException error) {
+            throw new IOException("查询向量模型调用失败", error.getCause());
+        } finally {
+            pending.cancel(true);
         }
     }
 }

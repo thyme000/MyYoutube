@@ -29,6 +29,8 @@ my-youtube:
     reasoning-effort: ${LLM_REASONING_EFFORT:none}
     # 向量化: 模型/维度/版本一组配置, 切换即换向量空间, 需触发 search 服务 rebuild 重算存量
     embedding:
+      query-timeout-millis: ${QUERY_EMBEDDING_MODEL_TIMEOUT_MILLIS:10000}
+      query-max-concurrent: ${QUERY_EMBEDDING_MODEL_MAX_CONCURRENT:2}
       api-key: ${EMBEDDING_API_KEY:''}
       base-url: ${EMBEDDING_BASE_URL:http://localhost:11434/v1}
       model: ${EMBEDDING_MODEL:qwen3-embedding:8b}

@@ -16,7 +16,7 @@ import java.util.function.Supplier;
 public class LlmRequestMetrics {
     private final MeterRegistry registry;
     private final Map<String, AtomicInteger> active = Map.of(
-            "chat", new AtomicInteger(), "embeddings", new AtomicInteger());
+            "chat", new AtomicInteger(), "embeddings", new AtomicInteger(), "query-embedding", new AtomicInteger());
 
     public LlmRequestMetrics(MeterRegistry registry) {
         this.registry = registry;

@@ -30,8 +30,9 @@ public class LlmProperties {
         require(model, "my-youtube.llm.model");
         require(embedding.baseUrl, "my-youtube.llm.embedding.base-url");
         require(embedding.model, "my-youtube.llm.embedding.model");
-        if (embedding.singleTimeoutSeconds <= 0 || embedding.batchTimeoutSeconds <= 0) {
-            throw new IllegalStateException("embedding 单条和批量超时必须大于 0");
+        if (embedding.queryTimeoutMillis <= 0 || embedding.queryMaxConcurrent <= 0
+                || embedding.singleTimeoutSeconds <= 0 || embedding.batchTimeoutSeconds <= 0) {
+            throw new IllegalStateException("embedding 超时和查询并发必须大于 0");
         }
     }
 
@@ -56,6 +57,9 @@ public class LlmProperties {
         /** 向量空间版本标识; 不填按 model:dims 自动派生 */
         private String version;
         private int batchSize = 16;
+        private int queryTimeoutMillis = 10000;
+        /** 每个 LLM 实例的查询准入额度，不代表共享模型的集群额度。 */
+        private int queryMaxConcurrent = 2;
         private int singleTimeoutSeconds = 60;
         private int batchTimeoutSeconds = 120;
 

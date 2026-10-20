@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.llm.embedding;
 
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -12,4 +13,6 @@ public interface EmbeddingProvider {
      * @return 向量列表
      */
     List<float[]> embed(List<String> texts);
+
+    List<float[]> embedQuery(String text, Duration timeout);
 }
