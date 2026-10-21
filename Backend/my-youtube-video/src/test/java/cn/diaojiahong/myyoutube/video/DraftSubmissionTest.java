@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.video;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
 import cn.diaojiahong.myyoutube.content.service.ContentSubmissionService;
 import cn.diaojiahong.myyoutube.content.strategy.*;
 import cn.diaojiahong.myyoutube.transcode.api.MediaTaskPort;
@@ -26,7 +27,7 @@ class DraftSubmissionTest {
     final ContentUnderstandingService understanding = mock(ContentUnderstandingService.class);
     final TransactionTemplate tx = mock(TransactionTemplate.class);
     final ContentSubmissionService service = new ContentSubmissionService(drafts, contents,
-            new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos))), understanding, tx);
+            new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos))), understanding, tx, new ContentSubmissionRules("content-moderation/blocked.txt"));
     MediaDraft draft;
     @BeforeEach void setup() {
         draft = new MediaDraft().setId(1L).setUserId(9L).setType(ContentTypeEnum.VIDEO).setTitle("标题")

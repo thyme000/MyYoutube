@@ -22,6 +22,8 @@ server:
 # 全部服务已注册进 Nacos, 置空走负载均衡
 my-youtube:
   db-name: video_db
+  content-moderation:
+    blocked-location: ${CONTENT_BLOCKED_LOCATION:content-moderation/blocked.txt}
   s3:
     video-upload-notification-enabled: ${S3_VIDEO_UPLOAD_NOTIFICATION_ENABLED:true}
     video-upload-notification-queue-arn: ${S3_VIDEO_UPLOAD_NOTIFICATION_QUEUE_ARN:arn:rustfs:sqs::primary:webhook}

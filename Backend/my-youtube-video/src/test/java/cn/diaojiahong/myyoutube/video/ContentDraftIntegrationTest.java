@@ -2,11 +2,14 @@ package cn.diaojiahong.myyoutube.video;
 
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts;
 import cn.diaojiahong.myyoutube.common.media.StructuredJson;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.content.controller.ContentDraftController;
+import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
 import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.strategy.*;
 import cn.diaojiahong.myyoutube.transcode.api.MediaTaskPort;
@@ -26,6 +29,7 @@ import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.*;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
@@ -35,6 +39,8 @@ import java.util.concurrent.CompletableFuture;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringJUnitConfig(ContentDraftIntegrationTest.Config.class)
 class ContentDraftIntegrationTest {
@@ -62,8 +68,9 @@ class ContentDraftIntegrationTest {
             return new DynamicMediaPreparationService(new SyncChainStepRegistry(List.of(
                     new ItemsCountStep(), new CanvasStyleStep(), new AudioReferenceStep(audio), new ItemsPrepareStep())));
         }
+        @Bean ContentSubmissionRules rules() { return new ContentSubmissionRules("content-moderation/blocked.txt"); }
         @Bean ContentDraftService drafts(MediaDraftMapper rows, DynamicMediaPreparationService preparation, cn.diaojiahong.myyoutube.video.service.DraftObservation observation) {
-            return new ContentDraftService(rows, preparation, observation);
+            return new ContentDraftService(rows, preparation, observation, rules());
         }
         @Bean cn.diaojiahong.myyoutube.video.service.DraftPreparationService coordinator(MediaDraftMapper rows, MediaTaskPort tasks, cn.diaojiahong.myyoutube.video.service.DraftObservation observation) {
             return new cn.diaojiahong.myyoutube.video.service.DraftPreparationService(rows, tasks, observation);
@@ -73,7 +80,7 @@ class ContentDraftIntegrationTest {
                                             DynamicMapper dynamics, DynamicMediaPreparationService preparation,
                                             ContentMapper contents, ContentUnderstandingService understanding, TransactionTemplate tx) {
             var strategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos), new DynamicContentStrategy(dynamics)));
-            return new ContentSubmissionService(drafts, contents, strategies, understanding, tx);
+            return new ContentSubmissionService(drafts, contents, strategies, understanding, tx, rules());
         }
     }
 
@@ -187,6 +194,121 @@ class ContentDraftIntegrationTest {
         assertEquals("更新", drafts.get(created.draftId(), 9L).title());
     }
 
+    @Test void blockedDynamicCreationDoesNotPrepareOrPersistAnything() {
+        var dto = dynamic(); dto.setTitle("裸聊加微信");
+        assertEquals("标题包含不允许的内容，请修改", assertThrows(BizException.class,
+                () -> drafts.saveDynamic(null, 9L, dto)).getMessage());
+        dto.setTitle("正常标题"); dto.setDescription("网赌充值送彩金");
+        assertEquals("简介包含不允许的内容，请修改", assertThrows(BizException.class,
+                () -> drafts.saveDynamic(null, 9L, dto)).getMessage());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM media_draft", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM pipeline_event_outbox", Integer.class));
+        verifyNoInteractions(audio, storage, tasks, understanding);
+    }
+
+    @Test void blockedDynamicAndMetadataEditsPreserveTheSavedDraft() {
+        observations.getRecording().setEnabled(true);
+        var created = drafts.saveDynamic(null, 9L, dynamic());
+        var original = rows.selectById(created.draftId());
+        int eventCount = jdbc.queryForObject("SELECT COUNT(*) FROM pipeline_event_outbox", Integer.class);
+        var dto = dynamic(); dto.setTitle("裸聊加微信");
+        assertThrows(BizException.class, () -> drafts.saveDynamic(created.draftId(), 9L, dto));
+        dto.setTitle("更新标题"); dto.setDescription("网赌充值送彩金");
+        assertThrows(BizException.class, () -> drafts.saveDynamic(created.draftId(), 9L, dto));
+        var metadata = new ContentMetadataDTO(); metadata.setTitle("更新标题"); metadata.setDescription("代考替考包过");
+        assertThrows(BizException.class, () -> drafts.saveMetadata(created.draftId(), 9L, metadata));
+        metadata.setTitle("裸聊加微信"); metadata.setDescription(null);
+        assertThrows(BizException.class, () -> drafts.saveMetadata(created.draftId(), 9L, metadata));
+        var current = rows.selectById(created.draftId());
+        assertEquals(original.getTitle(), current.getTitle());
+        assertEquals(original.getDescription(), current.getDescription());
+        assertEquals(original.getRevision(), current.getRevision());
+        assertEquals(original.getPreparationId(), current.getPreparationId());
+        assertEquals(original.getExpiresAt(), current.getExpiresAt());
+        assertEquals(original.getEventSequence(), current.getEventSequence());
+        assertEquals(eventCount, jdbc.queryForObject("SELECT COUNT(*) FROM pipeline_event_outbox", Integer.class));
+    }
+
+    @Test void submissionRechecksPersistedVideoAndDynamicTextWithoutFreezingOrEnrollment() {
+        for (boolean dynamic : new boolean[]{false, true}) {
+            Long id;
+            if (dynamic) {
+                id = drafts.saveDynamic(null, 9L, dynamic()).draftId(); ready(id);
+            } else id = readyVideo();
+            var original = rows.selectById(id);
+            clearInvocations(understanding, tasks);
+            jdbc.update("UPDATE media_draft SET title='裸聊加微信' WHERE id=?", id);
+            assertEquals("标题包含不允许的内容，请修改", assertThrows(BizException.class, () -> publish.submit(id, 9L)).getMessage());
+            jdbc.update("UPDATE media_draft SET title='正常标题',description='网赌充值送彩金' WHERE id=?", id);
+            assertEquals("简介包含不允许的内容，请修改", assertThrows(BizException.class, () -> publish.submit(id, 9L)).getMessage());
+            assertEquals(MediaDraftStatusEnum.READY, rows.selectById(id).getStatus());
+            assertEquals(original.getRevision(), rows.selectById(id).getRevision());
+            assertEquals(original.getEventSequence(), rows.selectById(id).getEventSequence());
+            assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));
+            assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM video", Integer.class));
+            assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM dynamic", Integer.class));
+            verifyNoInteractions(understanding, tasks);
+        }
+    }
+
+    @Test void contextualTextKeepsItsOriginalCharactersAndStillEntersReview() {
+        var dto = dynamic(); dto.setTitle("奉劝大家不要赌博 ＡＢＣ\u200b");
+        dto.setDescription("警方打击出售个人信息的行为\n保留  原始格式与全角２０２６");
+        Long id = drafts.saveDynamic(null, 9L, dto).draftId(); ready(id);
+        publish.submit(id, 9L);
+        assertEquals(dto.getTitle(), rows.selectById(id).getTitle());
+        assertEquals(dto.getDescription(), rows.selectById(id).getDescription());
+        assertEquals(dto.getTitle(), contentRows.selectById(id).getTitle());
+        assertEquals(dto.getDescription(), contentRows.selectById(id).getDescription());
+        assertEquals("review", contentRows.selectById(id).getStatus());
+        verify(understanding).enroll(argThat(c -> c.getTitle().equals(dto.getTitle()) && c.getDescription().equals(dto.getDescription())), any());
+    }
+
+    @Test void httpRoutesRejectStandaloneGamblingAtCreationMetadataEditAndSubmission() throws Exception {
+        var mvc = MockMvcBuilders.standaloneSetup(new ContentDraftController(drafts, publish, tasks, coordinator))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+        var input = dynamic(); input.setTitle("赌博");
+        mvc.perform(post("/contents/drafts/dynamic").contentType("application/json")
+                        .content(cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(input)))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value("标题包含不允许的内容，请修改"));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM media_draft", Integer.class));
+        for (boolean dynamic : new boolean[]{false, true}) {
+            Long id;
+            if (dynamic) {
+                id = drafts.saveDynamic(null, 9L, dynamic()).draftId(); ready(id);
+                mvc.perform(put("/contents/drafts/{id}/dynamic", id).contentType("application/json")
+                                .content(cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(input)))
+                        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value("标题包含不允许的内容，请修改"));
+            } else id = readyVideo();
+            var original = rows.selectById(id);
+            clearInvocations(tasks, understanding);
+            for (String field : new String[]{"title", "description"}) {
+                var metadata = new ContentMetadataDTO(); metadata.setTitle(field.equals("title") ? "赌博" : "正常标题");
+                metadata.setDescription(field.equals("description") ? "赌博" : null);
+                String message = (field.equals("title") ? "标题" : "简介") + "包含不允许的内容，请修改";
+                mvc.perform(put("/contents/drafts/{id}/metadata", id).contentType("application/json")
+                                .content(cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(metadata)))
+                        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(message));
+                assertEquals(original.getRevision(), rows.selectById(id).getRevision());
+                assertEquals(original.getTitle(), rows.selectById(id).getTitle());
+                assertEquals(original.getDescription(), rows.selectById(id).getDescription());
+            }
+            jdbc.update("UPDATE media_draft SET title='赌博',description=NULL WHERE id=?", id);
+            mvc.perform(post("/contents/drafts/{id}/submit", id)).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("标题包含不允许的内容，请修改"));
+            jdbc.update("UPDATE media_draft SET title='正常标题',description='赌博' WHERE id=?", id);
+            mvc.perform(post("/contents/drafts/{id}/submit", id)).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("简介包含不允许的内容，请修改"));
+            assertEquals(MediaDraftStatusEnum.READY, rows.selectById(id).getStatus());
+            assertEquals(original.getRevision(), rows.selectById(id).getRevision());
+            assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));
+            verifyNoInteractions(understanding, tasks);
+            mvc.perform(put("/contents/drafts/{id}/metadata", id).contentType("application/json")
+                            .content("{\"title\":\"奉劝大家不要赌博\",\"description\":\"警方打击赌博平台\",\"allowComment\":1}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.data.title").value("奉劝大家不要赌博"));
+        }
+    }
+
     void reconcileDue() {
         jdbc.update("UPDATE media_draft SET preparation_after=? WHERE status='processing'", java.time.LocalDateTime.now().minusSeconds(1));
         coordinator.reconcile();
@@ -283,7 +405,7 @@ class ContentDraftIntegrationTest {
             metadata.setTitle("更新"); drafts.saveMetadata(id, 9L, metadata); return media;
         });
         var racing = new ContentSubmissionService(mediaDrafts, contentRows,
-                new ContentTypeStrategyRegistry(List.of(strategy)), understanding, transaction);
+                new ContentTypeStrategyRegistry(List.of(strategy)), understanding, transaction, new ContentSubmissionRules("content-moderation/blocked.txt"));
         assertThrows(BizException.class, () -> racing.submit(id, 9L));
         assertEquals("更新", rows.selectById(id).getTitle());
         assertEquals(MediaDraftStatusEnum.READY, rows.selectById(id).getStatus());

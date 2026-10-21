@@ -27,6 +27,7 @@ public class ContentDraftService {
     private final MediaDraftMapper drafts;
     private final DynamicMediaPreparationService preparation;
     private final cn.diaojiahong.myyoutube.video.service.DraftObservation observation;
+    private final ContentSubmissionRules rules;
 
     @ObservedBusiness(BusinessOperation.SAVE_DYNAMIC)
     public ContentDraftVO saveDynamic(Long draftId, Long userId, DynamicDraftDTO dto) {
@@ -36,10 +37,10 @@ public class ContentDraftService {
         if (dto == null) throw new BizException(BizException.BIZ_ERROR, "草稿不能为空");
         var draft = new MediaDraft().setId(draftId == null ? IdWorker.getId() : draftId).setUserId(userId)
                 .setType(ContentTypeEnum.DYNAMIC).setStatus(MediaDraftStatusEnum.PROCESSING)
-                .setTitle(ContentSubmissionRules.title(dto.getTitle()))
-                .setDescription(ContentSubmissionRules.description(dto.getDescription()))
+                .setTitle(rules.title(dto.getTitle()))
+                .setDescription(rules.description(dto.getDescription()))
                 .setVisibility("public")
-                .setAllowComment(ContentSubmissionRules.allowComment(dto.getAllowComment()));
+                .setAllowComment(rules.allowComment(dto.getAllowComment()));
         var prepared = preparation.prepare(dto, userId);
         var media = prepared.media();
         draft.setMediaJson(JsonUtil.toJson(media)).setDurationMs(media.exportDurationMs())
@@ -76,10 +77,10 @@ public class ContentDraftService {
         owned(draftId, userId);
         if (dto == null) throw new BizException(BizException.BIZ_ERROR, "草稿不能为空");
         int changed = drafts.update(null, editable(draftId, userId)
-                .set(MediaDraft::getTitle, ContentSubmissionRules.title(dto.getTitle()))
-                .set(MediaDraft::getDescription, ContentSubmissionRules.description(dto.getDescription()))
+                .set(MediaDraft::getTitle, rules.title(dto.getTitle()))
+                .set(MediaDraft::getDescription, rules.description(dto.getDescription()))
                 .set(MediaDraft::getVisibility, "public")
-                .set(MediaDraft::getAllowComment, ContentSubmissionRules.allowComment(dto.getAllowComment()))
+                .set(MediaDraft::getAllowComment, rules.allowComment(dto.getAllowComment()))
                 .set(MediaDraft::getExpiresAt, LocalDateTime.now().plusDays(7)).setIncrBy(MediaDraft::getRevision, 1));
         if (changed == 0) throw new BizException(BizException.BIZ_ERROR, "草稿已提交或状态已变化");
         return get(draftId, userId);

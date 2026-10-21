@@ -25,6 +25,7 @@ public class ContentSubmissionService {
     private final ContentTypeStrategyRegistry strategies;
     private final ContentUnderstandingService understanding;
     private final TransactionTemplate transaction;
+    private final ContentSubmissionRules rules;
 
     public record Receipt(Long contentId, Long pipelineId, String draftStatus) {}
 
@@ -38,10 +39,10 @@ public class ContentSubmissionService {
         }
         if (draft.getStatus() != MediaDraftStatusEnum.READY) throw new BizException(BizException.BIZ_ERROR, "草稿尚未准备完成");
         var content = new Content().setId(draftId).setType(draft.getType()).setAuthorId(userId)
-                .setTitle(ContentSubmissionRules.title(draft.getTitle()))
-                .setDescription(ContentSubmissionRules.description(draft.getDescription()))
+                .setTitle(rules.title(draft.getTitle()))
+                .setDescription(rules.description(draft.getDescription()))
                 .setVisibility("public")
-                .setAllowComment(ContentSubmissionRules.allowComment(draft.getAllowComment()))
+                .setAllowComment(rules.allowComment(draft.getAllowComment()))
                 .setCoverObjectKey(draft.getPreparedCoverObjectKey()).setStatus("review").setIsDelete(0).setCreateTime(LocalDateTime.now());
         var strategy = strategies.get(draft.getType());
         if (strategy == null) throw new BizException(BizException.BIZ_ERROR, "不支持的内容类型");
