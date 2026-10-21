@@ -21,12 +21,18 @@ class HotSearchFilterTest {
     @TempDir Path directory;
 
     @ParameterizedTest
-    @ValueSource(strings = {"", " ", "\u200b", ".,.,", "!!!", "1111", "０００００", "😀😀", "asdfghjkl", "QWERTYUIOP"})
+    @ValueSource(strings = {"", " ", "\u200b", ".,.,", "!!!", "1111", "０００００", "😀😀"})
     void rejectsNoiseAndExcludedQueries(String text) { assertNull(filter.eligible(text)); }
 
     @ParameterizedTest
-    @ValueSource(strings = {"12306", "2026", "1984", "C++", "C#", "猫", "𠮷", "1111教程", "Java 入门", "重置qwertyuiop键盘"})
+    @ValueSource(strings = {"12306", "2026", "1984", "C++", "C#", "猫", "𠮷", "1111教程", "Java 入门", "重置qwertyuiop键盘", "asdfghjkl", "QWERTYUIOP",
+            "奉劝大家不要赌博", "警惕网赌骗局", "个人信息保护", "网络安全防护", "如何防范跑分兼职骗局"})
     void preservesUsefulNumbersSymbolsAndShortQueries(String text) { assertEquals(text, filter.eligible(text)); }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"约炮", "网赌", "社工库", "地下赌场", "洗钱跑分", "冰毒交易", "假币交易", "开盒接单",
+            "寻找同城约炮加微信", "全新网赌充值送彩金入口", "便宜个人信息数据库出售", "盗\u200b号接单加微信", "代考替考包过"})
+    void rejectsExistingAndExpandedRiskTerms(String text) { assertNull(filter.eligible(text)); }
 
     @Test void checksUnicodeLengthWithoutTruncatingOrRewritingQueries() {
         assertNull(filter.eligible(null));
