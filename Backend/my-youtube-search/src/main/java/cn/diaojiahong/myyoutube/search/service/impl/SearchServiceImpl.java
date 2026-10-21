@@ -2,12 +2,10 @@ package cn.diaojiahong.myyoutube.search.service.impl;
 
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
-import cn.diaojiahong.myyoutube.common.utils.StrUtils;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
@@ -18,6 +16,7 @@ import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchUserVO;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
 import cn.diaojiahong.myyoutube.search.service.ISearchService;
+import cn.diaojiahong.myyoutube.search.hot.HotSearchService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
@@ -41,11 +40,9 @@ import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.data.elasticsearch.core.SearchHits;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -59,7 +56,7 @@ public class SearchServiceImpl implements ISearchService {
     private final ContentSummaryPort contentSummaryPort;
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
-    private final StringRedisTemplate redisTemplate;
+    private final HotSearchService hotSearchService;
     private final ElasticsearchClient elasticsearchClient;
     private final RecallPipeline recallPipeline;
     private static final int STORAGE_EXPIRE_SECONDS = 3600 * 10;
@@ -76,7 +73,9 @@ public class SearchServiceImpl implements ISearchService {
         int from = Math.min((pageQuery.getPageNo() - 1) * pageQuery.getPageSize(), readable.size());
         var page = readable.subList(from, Math.min(from + pageQuery.getPageSize(), readable.size()));
         PageResult<SearchVideoVO> result = buildPageResult(page, readable.size(), pageQuery.getPageSize(), ctx.getFollowIds());
-        loadForHotSearch(userId, ctx.getKeyword());
+        if (pageQuery.getPageNo() == 1 && !result.getList().isEmpty()) {
+            hotSearchService.record(userId, ctx.getKeyword());
+        }
         // 逐次检索, 只留召回量/可读量便于核对降级是否发生
         log.debug("Search completed userId={} keyword={} sortByLatest={} recallHits={} readable={} pageNo={}",
                 userId, ctx.getKeyword(), pageQuery.isSortByLatest(), fused.size(), readable.size(), pageQuery.getPageNo());
@@ -163,7 +162,6 @@ public class SearchServiceImpl implements ISearchService {
             vo.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(vo.getId()), STORAGE_EXPIRE_SECONDS));
         });
 
-        loadForHotSearch(userId, keyword);
         // 判断是否关注过
         Map<Long, Boolean> isFollows = followIds.stream().collect(Collectors.toMap(id -> id, id -> true));
         result.forEach(vo -> {
@@ -173,26 +171,6 @@ public class SearchServiceImpl implements ISearchService {
         long total = hits.getTotalHits();
         long pages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
         return PageResult.of(total, pages, result);
-    }
-
-    private void loadForHotSearch(Long userId, String keyword) {
-        if (keyword == null || keyword.isEmpty()) {
-            return;
-        }
-        String userSearchKeywordKey = RedisConstants.USER_SEARCH_KEYWORD + userId;
-        // 标准化关键词
-        String dedupKeyword = StrUtils.normalizeDedupKeyword(keyword);
-        String displayKeyword = StrUtils.normalizeDisplayKeyword(keyword);
-        Boolean search = redisTemplate.opsForSet().isMember(userSearchKeywordKey, dedupKeyword);
-        if (search == null || !search) {
-            // 搜索成功, 给这个关键词加分
-            String hotSearchKey = RedisConstants.HOT_SEARCH;
-            redisTemplate.opsForZSet().incrementScore(hotSearchKey, displayKeyword, 1);
-            redisTemplate.expire(hotSearchKey, RedisConstants.HOT_SEARCH_EXPIRE, TimeUnit.DAYS);
-            // 记录用户搜索过的关键词
-            redisTemplate.opsForSet().add(userSearchKeywordKey, dedupKeyword);
-            redisTemplate.expire(userSearchKeywordKey, RedisConstants.USER_SEARCH_KEYWORD_EXPIRE, TimeUnit.MINUTES);
-        }
     }
 
     @Override
@@ -292,25 +270,12 @@ public class SearchServiceImpl implements ISearchService {
 
         // 3. 执行查询
         PageResult<SearchVideoVO> result = getSearchPageResult(query, pageQuery.getPageNo(), pageQuery.getPageSize(), boost.followIds());
-        loadForHotSearch(userId, tagName);
         return result;
     }
 
     @Override
     public List<String> hot() {
-        // 倒序获取热门搜索的前七个
-        Set<String> hotSearches = redisTemplate.opsForZSet()
-                .reverseRangeByScore(
-                        RedisConstants.HOT_SEARCH,  // 键名
-                        Double.NEGATIVE_INFINITY,    // 最小分数（负无穷）
-                        Double.POSITIVE_INFINITY,    // 最大分数（正无穷）
-                        0,                           // 偏移量（从第0个开始）
-                        7                            // 数量（取前7个）
-                );
-        if (hotSearches == null || hotSearches.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return hotSearches.stream().toList();
+        return hotSearchService.hot();
     }
 
     private PageResult<SearchVideoVO> getSearchPageResult(NativeQuery query, int pageNo, int pageSize, List<Long> followIds) {

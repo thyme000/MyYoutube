@@ -300,15 +300,12 @@ class RecallPipelineTest {
         var summary = new cn.diaojiahong.myyoutube.video.api.dto.ContentSummary();
         summary.setId(1L); summary.setAuthorId(7L); summary.setType("dynamic"); summary.setTitle("关键词命中");
         when(summaries.listByIdsOrdered(any())).thenReturn(List.of(summary));
-        var redis = mock(org.springframework.data.redis.core.StringRedisTemplate.class);
-        org.springframework.data.redis.core.SetOperations<String, String> searches = mock(org.springframework.data.redis.core.SetOperations.class);
-        when(redis.opsForSet()).thenReturn(searches);
-        when(searches.isMember(anyString(), anyString())).thenReturn(true);
+        var hot = mock(cn.diaojiahong.myyoutube.search.hot.HotSearchService.class);
         return new cn.diaojiahong.myyoutube.search.service.impl.SearchServiceImpl(
                 mock(org.springframework.data.elasticsearch.core.ElasticsearchOperations.class), follows,
                 mock(cn.diaojiahong.myyoutube.video.api.ContentInternalPort.class), summaries,
                 mock(cn.diaojiahong.myyoutube.user.api.UserPort.class), mock(cn.diaojiahong.myyoutube.common.utils.S3StorageUtil.class),
-                redis, mock(co.elastic.clients.elasticsearch.ElasticsearchClient.class), pipeline);
+                hot, mock(co.elastic.clients.elasticsearch.ElasticsearchClient.class), pipeline);
     }
 
     static SearchContext context() {

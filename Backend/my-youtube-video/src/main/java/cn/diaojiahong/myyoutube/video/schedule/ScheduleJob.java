@@ -23,7 +23,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * video 域定时任务: 计数落库与对账 / 播放量落库 / 观看历史清理 / MySQL→ES 计数同步 / 热搜清理
+ * video 域定时任务: 计数落库与对账 / 播放量落库 / 观看历史清理 / MySQL→ES 计数同步
  */
 @Slf4j
 @Component
@@ -169,11 +169,4 @@ public class ScheduleJob {
         }
     }
 
-    /**
-     * 每周一0点0分清空热搜榜
-     */
-    @Scheduled(cron = "0 0 0 * * 1")
-    public void clearHotSearch() {
-        redisTemplate.delete(RedisConstants.HOT_SEARCH);
-    }
 }

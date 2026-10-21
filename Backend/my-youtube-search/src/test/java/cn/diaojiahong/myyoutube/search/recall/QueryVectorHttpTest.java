@@ -74,7 +74,7 @@ class QueryVectorHttpTest {
         try (var es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort()))
                 .setHttpClientConfigCallback(builder -> builder.setMaxConnTotal(1).setMaxConnPerRoute(1)).build()) {
             var port = port(server.getAddress().getPort());
-            var vector = new VectorRecallStrategy(new QueryVectorRecall(port, new RecallSearchClient(es), properties, new RecallRanking(new RecallRankingProperties())), properties);
+            var vector = new VectorRecallStrategy(new QueryVectorRecall(port, new RecallSearchClient(es), properties, new RecallRanking(new RecallRankingProperties()), mock(cn.diaojiahong.myyoutube.search.hot.HotSearchService.class)), properties);
             var keyword = mock(KeywordRecallStrategy.class);
             when(keyword.shouldRun(any())).thenReturn(true);
             when(keyword.executorName()).thenReturn("recallExecutor");

@@ -16,7 +16,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.data.elasticsearch.core.*;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
-import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -33,8 +32,9 @@ class ContentSearchAccessTest {
     final ElasticsearchOperations operations = mock(ElasticsearchOperations.class);
     final RecallPipeline recall = mock(RecallPipeline.class);
     final FollowPort follows = mock(FollowPort.class);
+    final cn.diaojiahong.myyoutube.search.hot.HotSearchService hot = mock(cn.diaojiahong.myyoutube.search.hot.HotSearchService.class);
     final SearchServiceImpl search = new SearchServiceImpl(operations,follows,mock(ContentInternalPort.class),
-            summaries,mock(UserPort.class),mock(S3StorageUtil.class),mock(StringRedisTemplate.class),client,recall);
+            summaries,mock(UserPort.class),mock(S3StorageUtil.class),hot,client,recall);
 
     @BeforeEach void user() { UserContext.setUser("7"); }
     @AfterEach void clear() { UserContext.removeUser(); }
@@ -42,6 +42,23 @@ class ContentSearchAccessTest {
     ContentSummary summary(long id) {
         var result = new ContentSummary(); result.setId(id); result.setTitle("标题"+id);
         result.setAuthorId(7L); result.setType("dynamic"); return result;
+    }
+
+    @Test void recordsOnlySuccessfulNonemptyFirstPages() {
+        when(recall.execute(any())).thenReturn(List.of("1"));
+        when(summaries.listByIdsOrdered(any())).thenReturn(List.of(summary(1)));
+        var query = new SearchVideoPageQuery(); query.setKeyword("搜索词");
+        search.searchVideo(query);
+        verify(hot).record(7L, "搜索词");
+        clearInvocations(hot); query.setPageNo(2); search.searchVideo(query); verifyNoInteractions(hot);
+        query.setPageNo(1); when(summaries.listByIdsOrdered(any())).thenReturn(List.of());
+        search.searchVideo(query); verifyNoInteractions(hot);
+        when(recall.execute(any())).thenThrow(new IllegalStateException("search failed"));
+        assertThrows(IllegalStateException.class, () -> search.searchVideo(query)); verifyNoInteractions(hot);
+    }
+
+    @Test void hotEndpointDelegatesToTheNewSnapshot() {
+        when(hot.hot()).thenReturn(List.of("组名")); assertEquals(List.of("组名"), search.hot());
     }
 
     @Test void keywordResultsRecheckPublicStateBeforePagination() {
@@ -139,6 +156,7 @@ class ContentSearchAccessTest {
         var result = search.searchByTag(query);
         assertEquals(11,result.getTotal()); assertEquals(List.of("12"),result.getList().stream().map(s -> s.getId()).toList());
         assertEquals(Boolean.FALSE, result.getList().get(0).getIsFollow());
+        verifyNoInteractions(hot);
     }
 
     @Test void stalePrivateContentCannotLeakThroughCompletionSuggestions() throws Exception {
