@@ -6,6 +6,7 @@ import feign.Response;
 import feign.Retryer;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.context.annotation.Bean;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
@@ -27,6 +28,10 @@ public interface QueryEmbeddingPort {
     @PostMapping("/query-embedding")
     LlmPort.EmbeddingsResponse embed(@RequestBody Query request, Request.Options options);
 
+    @GetMapping("/embedding-info")
+    Info info(Request.Options options);
+
+    record Info(String version, int dims) {}
     record Query(String text, long deadlineEpochMillis) {}
 
     class Configuration {

@@ -11,6 +11,18 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class LlmControllerContractTest {
+    @Test void embeddingMetadataIsReadOnlyAndDoesNotCallModels() throws Exception {
+        var service = mock(cn.diaojiahong.myyoutube.llm.embedding.QueryEmbeddingService.class);
+        when(service.info()).thenReturn(new cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort.Info("current", 4096));
+        var controller = new cn.diaojiahong.myyoutube.llm.controller.QueryEmbeddingController(service,
+                new LlmRequestMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+        MockMvcBuilders.standaloneSetup(controller).build().perform(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/internal/llm/embedding-info"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.version").value("current"))
+                .andExpect(jsonPath("$.dims").value(4096));
+        verify(service).info(); verifyNoMoreInteractions(service);
+    }
+
     @Test void jsonContractCarriesSchemaBudgetFinishReasonAndUsage() throws Exception {
         var client = mock(LlmClient.class);
         when(client.chatDetailed(anyList(),isNull(),eq(0.1),eq(1500),anyMap()))

@@ -24,6 +24,11 @@ public class QueryEmbeddingService {
         this.slots = new Semaphore(properties.getEmbedding().getQueryMaxConcurrent());
     }
 
+    public QueryEmbeddingPort.Info info() {
+        var conf = properties.getEmbedding();
+        return new QueryEmbeddingPort.Info(conf.effectiveVersion(), conf.getDims());
+    }
+
     public LlmPort.EmbeddingsResponse embed(QueryEmbeddingPort.Query query) {
         if (query == null || query.text() == null || query.text().isBlank()) {
             throw new IllegalArgumentException("查询文本不能为空");

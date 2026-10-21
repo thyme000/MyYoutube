@@ -22,6 +22,17 @@ import static org.mockito.Mockito.*;
 
 @org.junit.jupiter.api.Timeout(10)
 class QueryEmbeddingTest {
+    @Test void metadataReturnsCurrentVersionWithoutStartingModels() {
+        var properties = new LlmProperties(); properties.getEmbedding().setModel("model");
+        properties.getEmbedding().setDims(2);
+        var provider = mock(EmbeddingProvider.class);
+        var service = new QueryEmbeddingService(provider, properties);
+        assertEquals(new QueryEmbeddingPort.Info("model:2", 2), service.info());
+        properties.getEmbedding().setVersion("new-version");
+        assertEquals(new QueryEmbeddingPort.Info("new-version", 2), service.info());
+        verifyNoInteractions(provider);
+    }
+
     @Test void expiredRequestsDoNotStartModels() {
         var provider = mock(EmbeddingProvider.class);
         var service = new QueryEmbeddingService(provider, new LlmProperties());

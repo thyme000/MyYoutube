@@ -20,6 +20,9 @@ public interface LlmPort {
     @PostMapping("/chat")
     ChatResponse chat(@RequestBody ChatRequest request);
 
+    @PostMapping("/chat")
+    ChatResponse chat(@RequestBody ChatRequest request, feign.Request.Options options);
+
     @PostMapping("/embeddings")
     EmbeddingsResponse embeddings(@RequestBody EmbeddingsRequest request, feign.Request.Options options);
 
