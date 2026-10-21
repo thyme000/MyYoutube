@@ -66,4 +66,17 @@ class PromptTemplatesTest {
         }
         writer.join();
     }
+
+    @Test void hotSearchGroupingRequiresItsTemplateAndRejectsVariables() throws Exception {
+        var registry = new PromptTemplates();
+        var before = registry.snapshot();
+        String yaml = defaults();
+        assertTrue(before.render("hot-search-group-system").contains("中文查询必须用中文"));
+        String withoutHotSearch = yaml.substring(0, yaml.indexOf("  hot-search-group-system:"));
+        assertThrows(IllegalArgumentException.class, () -> registry.replace(withoutHotSearch));
+        assertSame(before, registry.snapshot());
+        assertThrows(IllegalArgumentException.class,
+                () -> registry.replace(yaml.replace("将本批搜索词按语义分组", "{{query}}将本批搜索词按语义分组")));
+        assertSame(before, registry.snapshot());
+    }
 }

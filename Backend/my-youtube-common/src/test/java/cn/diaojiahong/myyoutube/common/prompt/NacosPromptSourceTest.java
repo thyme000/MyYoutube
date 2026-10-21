@@ -35,9 +35,10 @@ class NacosPromptSourceTest {
                         var listener = ArgumentCaptor.forClass(Listener.class);
                         verify(client).getConfigAndSignListener(eq("model-prompts.yaml"), eq("PROMPTS_GROUP"), eq(5000L), listener.capture());
                         String before = registry.snapshot().version();
-                        listener.getValue().receiveConfigInfo(defaults.replace("你是内容审核者", "请按审核标准审查"));
+                        listener.getValue().receiveConfigInfo(defaults.replace("将本批搜索词按语义分组", "请将本批搜索词按搜索意图分组"));
                         var accepted = registry.snapshot();
                         assertNotEquals(before, accepted.version());
+                        assertTrue(accepted.render("hot-search-group-system").startsWith("请将本批搜索词按搜索意图分组"));
                         listener.getValue().receiveConfigInfo("templates: {}");
                         listener.getValue().receiveConfigInfo(null);
                         assertSame(accepted, registry.snapshot());

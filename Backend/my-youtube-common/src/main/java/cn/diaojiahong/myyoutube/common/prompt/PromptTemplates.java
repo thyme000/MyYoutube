@@ -21,7 +21,8 @@ public class PromptTemplates {
             "summary-no-chapters", Set.of(),
             "tagging-system", Set.of("categories", "tagPool"),
             "cover-user", Set.of("candidateCount"),
-            "review-system", Set.of());
+            "review-system", Set.of(),
+            "hot-search-group-system", Set.of());
     private volatile Snapshot current;
 
     public PromptTemplates() {

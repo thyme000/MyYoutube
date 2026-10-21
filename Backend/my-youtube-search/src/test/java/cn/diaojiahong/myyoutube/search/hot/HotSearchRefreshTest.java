@@ -1,0 +1,351 @@
+package cn.diaojiahong.myyoutube.search.hot;
+
+import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
+import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
+import cn.diaojiahong.myyoutube.llm.api.LlmPort;
+import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+class HotSearchRefreshTest {
+    final long now = Instant.parse("2026-10-20T10:00:00Z").toEpochMilli();
+    final QueryEmbeddingPort.Info info = new QueryEmbeddingPort.Info("v1", 2);
+    final HotSearchGroup group = new HotSearchGroup("existing", "已有组", List.of(1f, 0f), "v1");
+    final HotSearchStore store = mock(HotSearchStore.class);
+    final HotSearchModel model = mock(HotSearchModel.class);
+    final HotSearchProperties properties = new HotSearchProperties();
+    final IdempotentGuard guard = mock(IdempotentGuard.class);
+    final List<HotSearchStore.Event> pending = new ArrayList<>();
+
+    @BeforeEach void setup() {
+        properties.setMinUsers(1);
+        var lease = mock(IdempotentGuard.Lease.class);
+        when(guard.acquire(anyString(), anyLong())).thenReturn(lease);
+        when(lease.acquired()).thenReturn(true);
+        when(model.info()).thenReturn(info);
+        when(store.groups(now)).thenReturn(List.of(group));
+        when(store.pending(now)).thenAnswer(call -> List.copyOf(pending));
+        doAnswer(call -> { pending.remove(call.getArgument(0)); return null; }).when(store).remove(any());
+        when(store.contribute(eq(group), any(), eq(now))).thenReturn(true);
+        when(store.ranking(group, now)).thenReturn(new HotSearchStore.Ranking(group, 2, 1));
+    }
+
+    @Test void failedEmbeddingBatchStillProcessesCachedTermsAndRetriesOthersOnTheNextRefresh() {
+        var cached = event("缓存词", 1);
+        var unknown = event("新词", 2);
+        pending.addAll(List.of(cached, unknown));
+        when(store.alias("缓存词", "v1")).thenReturn(group);
+        when(model.vectors(List.of("新词"), info)).thenThrow(new IllegalStateException("unavailable"));
+        var service = service(model);
+
+        service.refresh();
+
+        assertEquals(List.of(unknown), pending);
+        verify(store).contribute(group, cached, now);
+        verify(store, never()).contribute(group, unknown, now);
+        verify(store).publish(List.of("已有组"));
+        verify(model).vectors(List.of("新词"), info);
+        verify(model, never()).group(anyList());
+
+        doReturn(Map.of("新词", List.of(1f, 0f))).when(model).vectors(List.of("新词"), info);
+        service.refresh();
+
+        assertTrue(pending.isEmpty());
+        verify(store).contribute(group, unknown, now);
+        verify(model, times(2)).vectors(List.of("新词"), info);
+    }
+
+    @Test void duplicateIndexOnlyDefersItsOwnEventsAndRemainingInputIsReindexedNextRound() {
+        var bad = event("坏项", 1);
+        var good = event("好项", 2);
+        pending.addAll(List.of(bad, good));
+        var queries = mock(QueryEmbeddingPort.class);
+        var llm = mock(LlmPort.class);
+        when(queries.info(any())).thenReturn(info);
+        when(llm.embeddings(any(), any())).thenReturn(new LlmPort.EmbeddingsResponse(List.of(
+                        new LlmPort.EmbeddingItem(0, List.of(1f, 0f), null),
+                        new LlmPort.EmbeddingItem(1, List.of(1f, 0f), null),
+                        new LlmPort.EmbeddingItem(0, List.of(0f, 1f), null)), 2, "v1", null))
+                .thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1f, 0f)), 2, "v1"));
+        var service = service(new HotSearchModel(llm, queries, properties, new PromptTemplates()));
+
+        service.refresh();
+
+        assertEquals(List.of(bad), pending);
+        verify(store).contribute(group, good, now);
+        verify(store, never()).remove(bad);
+
+        service.refresh();
+
+        assertTrue(pending.isEmpty());
+        verify(store).contribute(group, bad, now);
+        var requests = org.mockito.ArgumentCaptor.forClass(LlmPort.EmbeddingsRequest.class);
+        verify(llm, times(2)).embeddings(requests.capture(), any());
+        assertEquals(List.of("坏项", "好项"), requests.getAllValues().get(0).getTexts());
+        assertEquals(List.of("坏项"), requests.getAllValues().get(1).getTexts());
+        verify(llm, never()).chat(any(), any());
+    }
+
+    @Test void failedBatchWithNoCacheHitsRetainsAllInputsAndTheExistingSnapshot() {
+        var event = event("新词", 1); pending.add(event);
+        when(model.vectors(anyList(), any())).thenThrow(new IllegalStateException("unavailable"));
+
+        service(model).refresh();
+
+        assertEquals(List.of(event), pending);
+        verify(store, never()).remove(any());
+        verify(store, never()).publish(anyList());
+        verify(model).vectors(List.of("新词"), info);
+    }
+
+    @Test void incompatibleResponseMetadataStillAllowsCacheHitsButDefersUnknownTerms() {
+        var cached = event("缓存词", 1);
+        var unknown = event("新词", 2);
+        pending.addAll(List.of(cached, unknown));
+        when(store.alias("缓存词", "v1")).thenReturn(group);
+        var queries = mock(QueryEmbeddingPort.class);
+        var llm = mock(LlmPort.class);
+        when(queries.info(any())).thenReturn(info);
+        when(llm.embeddings(any(), any())).thenReturn(new LlmPort.EmbeddingsResponse(List.of(List.of(1f, 0f)), 2, "v2"));
+
+        service(new HotSearchModel(llm, queries, properties, new PromptTemplates())).refresh();
+
+        assertEquals(List.of(unknown), pending);
+        verify(store).contribute(group, cached, now);
+        verify(store, never()).contribute(group, unknown, now);
+        verify(llm, never()).chat(any(), any());
+    }
+
+    @Test void groupingFailureRetainsAllUnmatchedTermsAndStillProcessesCacheHits() {
+        var failed = event("需要命名", 1);
+        var second = event("另一个主题", 2);
+        var cached = event("缓存词", 3);
+        pending.addAll(List.of(failed, second, cached));
+        when(store.alias("缓存词", "v1")).thenReturn(group);
+        when(model.vectors(List.of("需要命名", "另一个主题"), info)).thenReturn(Map.of(
+                "需要命名", List.of(0f, 1f), "另一个主题", List.of(0f, 1f)));
+        when(model.group(List.of("需要命名", "另一个主题"))).thenThrow(new IllegalStateException("invalid JSON"));
+
+        service(model).refresh();
+
+        assertEquals(List.of(failed, second), pending);
+        verify(store).contribute(group, cached, now);
+        verify(model).group(List.of("需要命名", "另一个主题"));
+        verify(store, never()).remove(failed);
+        verify(store, never()).remove(second);
+        verify(store).publish(List.of("已有组"));
+    }
+
+    @Test void submitsOnlyUnmatchedTermsTogetherAndEmbedsAllNewNamesInOneBatch() {
+        var first = event("首个搜索词", 1);
+        var second = event("同义搜索词", 2);
+        var other = event("另一主题", 3);
+        var matched = event("已知主题", 4);
+        var cached = event("缓存词", 5);
+        pending.addAll(List.of(first, second, other, matched, cached));
+        when(store.alias("缓存词", "v1")).thenReturn(group);
+        when(model.vectors(List.of("首个搜索词", "同义搜索词", "另一主题", "已知主题"), info)).thenReturn(Map.of(
+                "首个搜索词", List.of(0f, 1f), "同义搜索词", List.of(0f, 1f),
+                "另一主题", List.of(0f, -1f), "已知主题", List.of(1f, 0f)));
+        when(model.group(List.of("首个搜索词", "同义搜索词", "另一主题"))).thenReturn(List.of(
+                new HotSearchModel.Grouping("新组名", List.of("首个搜索词", "同义搜索词")),
+                new HotSearchModel.Grouping("其他组名", List.of("另一主题"))));
+        when(model.vectors(List.of("新组名", "其他组名"), info)).thenReturn(Map.of(
+                "新组名", List.of(1f, 0f), "其他组名", List.of(0f, -1f)));
+        var created = created("新组名", List.of(1f, 0f));
+        var otherGroup = created("其他组名", List.of(0f, -1f));
+        accept(created); accept(otherGroup);
+
+        service(model).refresh();
+
+        assertTrue(pending.isEmpty());
+        verify(store).contribute(created, first, now);
+        verify(store).contribute(created, second, now);
+        verify(store).contribute(otherGroup, other, now);
+        verify(store).contribute(group, matched, now);
+        verify(store).contribute(group, cached, now);
+        verify(store).remember("首个搜索词", created);
+        verify(store).remember("同义搜索词", created);
+        verify(model).group(anyList());
+        verify(model, times(2)).vectors(anyList(), eq(info));
+        verify(model).vectors(List.of("新组名", "其他组名"), info);
+    }
+
+    @Test void newGroupBudgetAppliesToGroupsAndKeepsAllMembersOfDeferredGroups() {
+        properties.setMaxNewGroupsPerRound(1);
+        var first = event("首个搜索词", 1);
+        var second = event("同义搜索词", 2);
+        var deferred = event("另一主题", 3);
+        pending.addAll(List.of(first, second, deferred));
+        when(model.vectors(anyList(), eq(info))).thenReturn(Map.of("首个搜索词", List.of(0f, 1f),
+                "同义搜索词", List.of(0f, 1f), "另一主题", List.of(0f, -1f)));
+        when(model.vectors(List.of("新组名"), info)).thenReturn(Map.of("新组名", List.of(0f, 1f)));
+        when(model.group(anyList())).thenReturn(List.of(
+                new HotSearchModel.Grouping("新组名", List.of("首个搜索词", "同义搜索词")),
+                new HotSearchModel.Grouping("其他组名", List.of("另一主题"))));
+        var created = created("新组名", List.of(0f, 1f)); accept(created);
+
+        service(model).refresh();
+
+        assertEquals(List.of(deferred), pending);
+        verify(store).contribute(created, first, now);
+        verify(store).contribute(created, second, now);
+        verify(model).group(List.of("首个搜索词", "同义搜索词", "另一主题"));
+        verify(model).vectors(List.of("新组名"), info);
+        verify(store, never()).remove(deferred);
+    }
+
+    @Test void groupCapacityStillAllowsExistingMatchesAndSkipsNewGrouping() {
+        properties.setGroupLimit(1);
+        var matched = event("已知主题", 1);
+        var deferred = event("另一主题", 2);
+        pending.addAll(List.of(matched, deferred));
+        when(model.vectors(anyList(), eq(info))).thenReturn(Map.of("已知主题", List.of(1f, 0f), "另一主题", List.of(0f, 1f)));
+
+        service(model).refresh();
+
+        assertEquals(List.of(deferred), pending);
+        verify(store).contribute(group, matched, now);
+        verify(model, never()).group(anyList());
+    }
+
+    @Test void invalidGeneratedNameRetainsAllEventsForRetry() {
+        var first = event("同一个词", 1);
+        var second = event("同一个词", 2);
+        pending.addAll(List.of(first, second));
+        when(model.vectors(List.of("同一个词"), info)).thenReturn(Map.of("同一个词", List.of(0f, 1f)));
+        when(model.group(List.of("同一个词"))).thenReturn(List.of(new HotSearchModel.Grouping("!!!", List.of("同一个词"))));
+
+        service(model).refresh();
+
+        assertEquals(List.of(first, second), pending);
+        verify(model).group(List.of("同一个词"));
+        verify(model, times(1)).vectors(anyList(), any());
+        verify(store, never()).remove(any());
+        verify(store, never()).contribute(any(), any(), anyLong());
+        verify(store, never()).remember(anyString(), any());
+    }
+
+    @Test void partialNameVectorsOnlyDeferTheirOwnGroups() {
+        var first = event("首个搜索词", 1);
+        var second = event("另一主题", 2);
+        pending.addAll(List.of(first, second));
+        when(model.vectors(List.of("首个搜索词", "另一主题"), info)).thenReturn(Map.of(
+                "首个搜索词", List.of(0f, 1f), "另一主题", List.of(0f, -1f)));
+        when(model.group(anyList())).thenReturn(List.of(
+                new HotSearchModel.Grouping("新组名", List.of("首个搜索词")),
+                new HotSearchModel.Grouping("其他组名", List.of("另一主题"))));
+        when(model.vectors(List.of("新组名", "其他组名"), info)).thenReturn(Map.of("新组名", List.of(0f, 1f)));
+        var created = created("新组名", List.of(0f, 1f)); accept(created);
+
+        service(model).refresh();
+
+        assertEquals(List.of(second), pending);
+        verify(store).contribute(created, first, now);
+        verify(store, never()).remove(second);
+    }
+
+    @Test void failedNameEmbeddingBatchStillReusesOriginalVectorsAndExistingNames() {
+        var first = event("原词组名", 1);
+        var second = event("另一主题", 2);
+        var third = event("已有组的另一说法", 3);
+        pending.addAll(List.of(first, second, third));
+        when(model.vectors(List.of("原词组名", "另一主题", "已有组的另一说法"), info)).thenReturn(Map.of(
+                "原词组名", List.of(0f, 1f), "另一主题", List.of(0f, -1f), "已有组的另一说法", List.of(0f, 1f)));
+        when(model.group(anyList())).thenReturn(List.of(
+                new HotSearchModel.Grouping("原词组名", List.of("原词组名")),
+                new HotSearchModel.Grouping("其他组名", List.of("另一主题")),
+                new HotSearchModel.Grouping("已有组", List.of("已有组的另一说法"))));
+        when(model.vectors(List.of("其他组名"), info)).thenThrow(new IllegalStateException("unavailable"));
+        var created = created("原词组名", List.of(0f, 1f)); accept(created);
+
+        service(model).refresh();
+
+        assertEquals(List.of(second), pending);
+        verify(store).contribute(created, first, now);
+        verify(store).contribute(group, third, now);
+        verify(model).vectors(List.of("其他组名"), info);
+    }
+
+    @Test void repeatedNamesShareOneGroupAndDoNotConsumeExtraCapacity() {
+        properties.setMaxNewGroupsPerRound(1);
+        var first = event("首个搜索词", 1);
+        var second = event("同义搜索词", 2);
+        pending.addAll(List.of(first, second));
+        when(model.vectors(List.of("首个搜索词", "同义搜索词"), info)).thenReturn(Map.of(
+                "首个搜索词", List.of(0f, 1f), "同义搜索词", List.of(0f, 1f)));
+        when(model.group(anyList())).thenReturn(List.of(
+                new HotSearchModel.Grouping("新组名", List.of("首个搜索词")),
+                new HotSearchModel.Grouping("新组名", List.of("同义搜索词"))));
+        when(model.vectors(List.of("新组名"), info)).thenReturn(Map.of("新组名", List.of(0f, 1f)));
+        var created = created("新组名", List.of(0f, 1f)); accept(created);
+
+        service(model).refresh();
+
+        assertTrue(pending.isEmpty());
+        verify(store).contribute(created, first, now);
+        verify(store).contribute(created, second, now);
+        verify(model).vectors(List.of("新组名"), info);
+    }
+
+    @Test void partialLlmResultsContributeValidGroupsAndLeaveOnlyUnassignedEventsPending() {
+        var first = event("首个搜索词", 1);
+        var second = event("未分配搜索词", 2);
+        var third = event("另一个搜索词", 3);
+        pending.addAll(List.of(first, second, third));
+        var queries = mock(QueryEmbeddingPort.class);
+        var llm = mock(LlmPort.class);
+        when(queries.info(any())).thenReturn(info);
+        when(llm.embeddings(any(), any())).thenReturn(new LlmPort.EmbeddingsResponse(
+                List.of(List.of(0f, 1f), List.of(0f, 1f), List.of(0f, -1f)), 2, "v1"));
+        var response = new LlmPort.ChatResponse("""
+                {"groups":[{"name":"首个搜索词","members":[0,0]},
+                           {"name":"坏组","members":[1,"bad"]},
+                           {"name":"另一个搜索词","members":[0,2]}]}
+                """);
+        response.setFinishReason("stop"); when(llm.chat(any(), any())).thenReturn(response);
+        var firstGroup = created("首个搜索词", List.of(0f, 1f)); accept(firstGroup);
+        var thirdGroup = created("另一个搜索词", List.of(0f, -1f)); accept(thirdGroup);
+
+        service(new HotSearchModel(llm, queries, properties, new PromptTemplates())).refresh();
+
+        assertEquals(List.of(second), pending);
+        verify(store).contribute(firstGroup, first, now);
+        verify(store).contribute(thirdGroup, third, now);
+        verify(store, never()).remove(second);
+        verify(store).remember("首个搜索词", firstGroup);
+        verify(store).remember("另一个搜索词", thirdGroup);
+        verify(llm).chat(any(), any());
+        verify(llm).embeddings(any(), any());
+    }
+
+    private HotSearchGroup created(String name, List<Float> vector) {
+        return new HotSearchGroup(HotSearchStore.digest("v1\n" + name), name, vector, "v1");
+    }
+
+    private void accept(HotSearchGroup created) {
+        when(store.contribute(eq(created), any(), eq(now))).thenReturn(true);
+        when(store.ranking(created, now)).thenReturn(new HotSearchStore.Ranking(created, 1, 1));
+    }
+
+    private HotSearchService service(HotSearchModel selected) {
+        return new HotSearchService(store, selected, new HotSearchFilter(properties), properties, guard,
+                mock(ThreadPoolTaskExecutor.class), Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
+    }
+
+    private HotSearchStore.Event event(String text, long userId) {
+        return new HotSearchStore.Event("event-" + userId, text, userId, now);
+    }
+}

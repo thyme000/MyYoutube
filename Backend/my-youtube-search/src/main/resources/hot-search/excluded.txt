@@ -1,0 +1,3 @@
+# exact: 整词匹配；phrase: 明确的短语包含匹配。随部署更新，仅影响热搜。
+exact:asdfghjkl
+exact:qwertyuiop

@@ -29,6 +29,24 @@ my-youtube:
   llm-service:
     url: ${LLM_SERVICE_URL:http://localhost:8087}
   search:
+    hot:
+      enabled: ${HOT_SEARCH_ENABLED:true}
+      excluded-location: ${HOT_SEARCH_EXCLUDED_LOCATION:hot-search/excluded.txt}
+      refresh-millis: ${HOT_SEARCH_REFRESH_MILLIS:300000}
+      # 初值需使用当前 embedding 的中文搜索样例校准。
+      similarity-threshold: ${HOT_SEARCH_SIMILARITY_THRESHOLD:0.82}
+      min-users: ${HOT_SEARCH_MIN_USERS:2}
+      max-length: 64
+      alias-ttl-seconds: 86400
+      snapshot-ttl-seconds: 900
+      batch-size: 200
+      max-distinct-per-round: 32
+      max-new-groups-per-round: 8
+      pending-limit: 10000
+      group-limit: 500
+      contribution-limit: 10000
+      model-timeout-seconds: ${HOT_SEARCH_MODEL_TIMEOUT_SECONDS:30}
+      round-budget-seconds: 120
     ranking:
       fields:
         title: ${SEARCH_TITLE_WEIGHT:5}
