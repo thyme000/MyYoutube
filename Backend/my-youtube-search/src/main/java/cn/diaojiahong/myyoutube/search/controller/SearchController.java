@@ -70,7 +70,7 @@ public class SearchController {
     }
 
     /**
-     * 热搜榜(top7)
+     * 热搜榜
      * @return
      */
     @Operation(summary = "热搜榜")

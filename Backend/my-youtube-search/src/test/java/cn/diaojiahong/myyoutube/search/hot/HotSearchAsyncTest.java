@@ -3,10 +3,13 @@ package cn.diaojiahong.myyoutube.search.hot;
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Clock;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -23,6 +26,16 @@ class HotSearchAsyncTest {
                 mock(IdempotentGuard.class), executor, Clock.systemUTC());
     }
     @AfterEach void close() { executor.shutdown(); }
+
+    @ParameterizedTest
+    @ValueSource(ints = {3, 7, 10})
+    void readsOnlineSnapshotUsingTheConfiguredTopLimit(int limit) throws Exception {
+        properties.setTopLimit(limit);
+        var names = IntStream.range(0, 12).mapToObj(i -> "正常主题" + i).toList();
+        when(store.hot()).thenReturn(names);
+
+        assertEquals(names.subList(0, limit), service().hot());
+    }
 
     @Test void recordingNeverWaitsForRedisAndNoiseNeverReachesIt() throws Exception {
         var entered = new CountDownLatch(1); var release = new CountDownLatch(1);

@@ -60,7 +60,7 @@ public class HotSearchService {
     public List<String> hot() {
         if (!properties.isEnabled()) return List.of();
         return read(store::hot, List.<String>of(), System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50))
-                .stream().filter(name -> filter.eligible(name) != null).limit(7).toList();
+                .stream().filter(name -> filter.eligible(name) != null).limit(properties.getTopLimit()).toList();
     }
 
     public HotSearchGroup cachedGroup(String text, long deadlineNanos) {
@@ -340,7 +340,7 @@ public class HotSearchService {
         }
         List<String> names = rankings.stream().sorted(Comparator.comparingLong(HotSearchStore.Ranking::score).reversed()
                         .thenComparing(value -> value.group().id()))
-                .map(value -> value.group().name()).distinct().limit(7).toList();
+                .map(value -> value.group().name()).distinct().limit(properties.getTopLimit()).toList();
         lease.assertOwned();
         store.publish(names);
         return names.size();

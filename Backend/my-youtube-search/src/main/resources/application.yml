@@ -34,6 +34,7 @@ my-youtube:
   search:
     hot:
       enabled: ${HOT_SEARCH_ENABLED:true}
+      top-limit: ${HOT_SEARCH_TOP_LIMIT:7}
       excluded-location: ${HOT_SEARCH_EXCLUDED_LOCATION:hot-search/excluded.txt}
       refresh-millis: ${HOT_SEARCH_REFRESH_MILLIS:300000}
       # 初值需使用当前 embedding 的中文搜索样例校准。

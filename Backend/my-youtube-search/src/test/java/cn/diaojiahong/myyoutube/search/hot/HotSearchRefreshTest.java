@@ -6,6 +6,8 @@ import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.time.Clock;
@@ -17,6 +19,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -70,6 +73,23 @@ class HotSearchRefreshTest {
             Collection<HotSearchGroup> groups = call.getArgument(0);
             return groups.stream().map(target -> rankings.get(target.id())).toList();
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {3, 7, 10})
+    void publishesRankedSnapshotUsingTheConfiguredTopLimit(int limit) {
+        properties.setTopLimit(limit);
+        var groups = IntStream.range(0, 12)
+                .mapToObj(i -> new HotSearchGroup("g" + i, "正常主题" + i, List.of(1f, 0f), "v1")).toList();
+        when(store.groups(now)).thenReturn(groups);
+        for (int i = 0; i < groups.size(); i++) {
+            var target = groups.get(i);
+            rankings.put(target.id(), new HotSearchStore.Ranking(target, 100 - i, 1));
+        }
+
+        service(model).refresh();
+
+        verify(store).publish(groups.subList(0, limit).stream().map(HotSearchGroup::name).toList());
     }
 
     @Test void closedDatesMoveToTheFixedOpenDateWhileKeepingTheOriginalEventTime() {

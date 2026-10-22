@@ -35,17 +35,30 @@ class HotSearchWiringTest {
                 .withConfiguration(AutoConfigurations.of(ConfigurationPropertiesAutoConfiguration.class))
                 .withPropertyValues("my-youtube.search.hot.enabled=false", "my-youtube.search.hot.similarity-threshold=0.83",
                         "my-youtube.search.hot.partition-count=7",
+                        "my-youtube.search.hot.top-limit=10",
                         "my-youtube.search.hot.excluded-location=classpath:hot-search/missing.txt")
                 .run(context -> {
                     assertNull(context.getStartupFailure());
                     assertEquals(.83, context.getBean(HotSearchProperties.class).getSimilarityThreshold());
                     assertEquals(7, context.getBean(HotSearchProperties.class).getPartitionCount());
+                    assertEquals(10, context.getBean(HotSearchProperties.class).getTopLimit());
                     assertEquals("classpath:hot-search/missing.txt", context.getBean(HotSearchProperties.class).getExcludedLocation());
                     assertEquals("asdfghjkl", context.getBean(HotSearchFilter.class).eligible("asdfghjkl"));
                     assertTrue(context.getBean(HotSearchService.class).hot().isEmpty());
                     assertNotNull(context.getBean(HotSearchDailyArchive.class));
                     verifyNoInteractions(context.getBean(LlmPort.class), context.getBean(QueryEmbeddingPort.class));
                 });
+    }
+
+    @Test void defaultsToSevenAndRejectsNonPositiveTopLimits() {
+        var properties = new HotSearchProperties();
+        assertEquals(7, properties.getTopLimit());
+        for (int limit : new int[]{0, -1}) {
+            properties.setTopLimit(limit);
+            assertThrows(IllegalArgumentException.class, properties::validate);
+        }
+        properties.setTopLimit(10);
+        assertDoesNotThrow(properties::validate);
     }
 
     @Test void rejectsInvalidPartitionCounts() {

@@ -24,13 +24,14 @@ public class HotSearchHistoryQueryService {
     public List<String> hot(String date) {
         LocalDate day = pastDate(date);
         if (!properties.isEnabled()) return List.of();
+        int limit = properties.getTopLimit();
         List<String> names = new ArrayList<>();
         Long after = null;
-        while (names.size() < 7) {
+        while (names.size() < limit) {
             var rows = mapper.groups(day, after, properties.getMinUsers(), PUBLIC_BATCH_SIZE);
             for (var group : rows) {
                 if (filter.eligible(group.groupName()) != null && !names.contains(group.groupName())) names.add(group.groupName());
-                if (names.size() == 7) break;
+                if (names.size() == limit) break;
             }
             if (rows.size() < PUBLIC_BATCH_SIZE) break;
             after = rows.get(rows.size() - 1).rankNo();

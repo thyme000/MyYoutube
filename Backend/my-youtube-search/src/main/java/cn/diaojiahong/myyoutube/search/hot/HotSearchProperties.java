@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "my-youtube.search.hot")
 public class HotSearchProperties {
     private boolean enabled = true;
+    private int topLimit = 7;
     private String excludedLocation = "hot-search/excluded.txt";
     private double similarityThreshold = 0.82;
     private int minUsers = 3;
@@ -27,7 +28,7 @@ public class HotSearchProperties {
     @PostConstruct
     void validate() {
         if (!Double.isFinite(similarityThreshold) || similarityThreshold <= 0 || similarityThreshold > 1
-                || minUsers <= 0 || maxLength <= 0 || batchSize <= 0 || maxDistinctPerRound <= 0
+                || topLimit <= 0 || minUsers <= 0 || maxLength <= 0 || batchSize <= 0 || maxDistinctPerRound <= 0
                 || maxNewGroupsPerRound <= 0 || pendingLimit <= 0 || partitionCount <= 0 || partitionCount > pendingLimit
                 || aliasTtlSeconds <= 0 || snapshotTtlSeconds <= 0 || modelTimeoutSeconds <= 0 || roundBudgetSeconds <= 0) {
             throw new IllegalArgumentException("热搜参数必须为正数，分区数不能超过输入容量，相似度阈值必须在 (0, 1] 内");

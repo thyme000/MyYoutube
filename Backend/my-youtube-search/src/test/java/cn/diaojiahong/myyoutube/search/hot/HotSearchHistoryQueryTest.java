@@ -3,6 +3,8 @@ package cn.diaojiahong.myyoutube.search.hot;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
 import cn.diaojiahong.myyoutube.search.mapper.HotSearchHistoryMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -25,20 +27,23 @@ class HotSearchHistoryQueryTest {
 
     Group group(String id, String name, long rank) { return new Group(id, name, "v1", 3, 3, 3, rank, null); }
 
-    @Test void publicTopSevenFiltersAndDeduplicatesBeforeTakingSevenAcrossPages() {
+    @ParameterizedTest
+    @ValueSource(ints = {3, 7, 10})
+    void publicTopLimitAppliesAfterFilteringAndDeduplicatingAcrossPages(int limit) {
+        properties.setTopLimit(limit);
         var blocked = IntStream.range(0, 200).mapToObj(i -> group("b" + i, "1111", i + 1)).toList();
         var next = new ArrayList<Group>();
         next.add(group("duplicate", "正常主题一", 201));
         next.add(group("duplicate-v2", "正常主题一", 202));
-        for (int i = 0; i < 8; i++) next.add(group("v" + i, "正常主题" + i, 203 + i));
+        for (int i = 0; i < 12; i++) next.add(group("v" + i, "正常主题" + i, 203 + i));
         when(mapper.groups(day, null, 3, 200)).thenReturn(blocked);
         when(mapper.groups(day, 200L, 3, 200)).thenReturn(next);
 
         var names = service.hot(day.toString());
 
-        assertEquals(7, names.size());
+        assertEquals(limit, names.size());
         assertEquals("正常主题一", names.get(0));
-        assertEquals(7, names.stream().distinct().count());
+        assertEquals(limit, names.stream().distinct().count());
         verify(mapper).groups(day, 200L, 3, 200);
     }
 
@@ -69,6 +74,7 @@ class HotSearchHistoryQueryTest {
     }
 
     @Test void administratorPagesAreNotLimitedToSevenAndUseOnlyOneLookaheadRow() {
+        properties.setTopLimit(3);
         var rows = IntStream.range(0, 11).mapToObj(i -> group("g" + i, "主题" + i, i + 1)).toList();
         when(mapper.groups(day, null, 0, 11)).thenReturn(rows);
 
