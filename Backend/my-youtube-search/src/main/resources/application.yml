@@ -5,11 +5,9 @@ spring:
       - optional:classpath:application-local.yml
   application:
     name: my-youtube-search-service
-  # search 无 MySQL, 排除 JDBC/MyBatis 自动配置(common 契约携带依赖)
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
-      - com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration
+  datasource:
+    hikari:
+      maximum-pool-size: 3
   elasticsearch:
     uris: ${ES_URIS:http://localhost:9201}
 
@@ -22,6 +20,7 @@ server:
 
 # 过渡期: user 服务已注册, 置空走 Nacos 负载均衡
 my-youtube:
+  db-name: search_db
   user-service:
     url: ${USER_SERVICE_URL:}
   video-service:

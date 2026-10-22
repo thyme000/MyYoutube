@@ -1,7 +1,7 @@
 -- MyYoutube MySQL 建表脚本(微服务多 schema 版)
 -- 主键两种风格: BIGINT 自增(AUTO) / 雪花ID(ASSIGN_ID, 应用生成, 不用 AUTO_INCREMENT)
 -- 库划分与微服务一一对应: user_db(user 服务) / video_db(video 服务) / chat_db(chat 服务)
--- search/admin 服务无自有 MySQL 库
+-- search_db 保存热搜历史；admin 服务无自有 MySQL 库
 
 -- ==================== user_db: 用户库 ====================
 CREATE DATABASE IF NOT EXISTS user_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -551,3 +551,38 @@ CREATE TABLE IF NOT EXISTS media_retry_batch (
     UNIQUE KEY uk_retry_request(request_id),
     UNIQUE KEY uk_retry_active(active)
 );
+
+-- ==================== search_db: 热搜历史 ====================
+CREATE DATABASE IF NOT EXISTS search_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin;
+USE search_db;
+
+CREATE TABLE IF NOT EXISTS hot_search_event (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    event_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    stat_date DATE NOT NULL,
+    happened_at BIGINT NOT NULL COMMENT '真实采集时间，UTC epoch 毫秒',
+    event_hour BIGINT NOT NULL COMMENT '原始事件小时编号，不随归档日期顺延',
+    user_id BIGINT NOT NULL,
+    raw_keyword TEXT NOT NULL,
+    grouping_keyword VARCHAR(64) NOT NULL,
+    group_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    group_name VARCHAR(64) NOT NULL,
+    vector_version VARCHAR(255) NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    UNIQUE KEY uk_hot_search_event(event_id),
+    KEY idx_hot_search_event_group(stat_date, group_id, happened_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
+
+CREATE TABLE IF NOT EXISTS hot_search_daily_group (
+    stat_date DATE NOT NULL,
+    group_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    group_name VARCHAR(64) NOT NULL,
+    vector_version VARCHAR(255) NOT NULL,
+    search_count BIGINT UNSIGNED NOT NULL,
+    user_count BIGINT UNSIGNED NOT NULL,
+    score BIGINT UNSIGNED NOT NULL,
+    rank_no BIGINT UNSIGNED NOT NULL,
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (stat_date, group_id),
+    KEY idx_hot_search_daily_rank(stat_date, rank_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;

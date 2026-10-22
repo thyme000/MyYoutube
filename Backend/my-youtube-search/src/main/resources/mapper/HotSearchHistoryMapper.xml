@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.search.mapper.HotSearchHistoryMapper">
+
+    <insert id="append">
+        INSERT INTO hot_search_event
+            (event_id, stat_date, happened_at, event_hour, user_id, raw_keyword,
+             grouping_keyword, group_id, group_name, vector_version)
+        VALUES
+        <foreach collection="events" item="event" separator=",">
+            (#{event.eventId}, #{event.statDate}, #{event.happenedAt}, #{event.eventHour},
+             #{event.userId}, #{event.rawKeyword}, #{event.groupingKeyword},
+             #{event.groupId}, #{event.groupName}, #{event.vectorVersion})
+        </foreach>
+        ON DUPLICATE KEY UPDATE event_id = hot_search_event.event_id
+    </insert>
+
+    <delete id="deleteDay">
+        DELETE FROM hot_search_daily_group WHERE stat_date = #{date}
+    </delete>
+
+    <insert id="rebuildDay">
+        INSERT INTO hot_search_daily_group
+            (stat_date, group_id, group_name, vector_version, search_count, user_count, score, rank_no)
+        SELECT #{date}, ranked.group_id, ranked.group_name, ranked.vector_version,
+               ranked.search_count, ranked.user_count, ranked.score,
+               ROW_NUMBER() OVER (ORDER BY ranked.score DESC, ranked.group_id)
+        FROM (
+            SELECT group_id, MAX(group_name) AS group_name, MAX(vector_version) AS vector_version,
+                   COUNT(*) AS search_count, COUNT(DISTINCT user_id) AS user_count,
+                   COUNT(DISTINCT user_id, event_hour) AS score
+            FROM hot_search_event WHERE stat_date = #{date} GROUP BY group_id
+        ) ranked
+    </insert>
+</mapper>

@@ -15,7 +15,7 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    # 库名由各服务提供 my-youtube.db-name; admin/search/gateway 无库, 不绑定此属性
+    # 库名由各服务提供 my-youtube.db-name; admin/gateway 无库, 不绑定此属性
     url: jdbc:mysql://${DATASOURCE_HOST:localhost}:3306/${my-youtube.db-name}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${DATASOURCE_USERNAME}
     password: ${DATASOURCE_PASSWORD}
