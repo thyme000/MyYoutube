@@ -97,12 +97,21 @@ public class HotSearchService {
     }
 
     private void refreshRound(IdempotentGuard.Lease lease, long deadlineNanos) {
+        refreshRound(lease, deadlineNanos, null);
+    }
+
+    void finishDay(LocalDate date, IdempotentGuard.Lease lease, long deadlineNanos) {
+        refreshRound(lease, deadlineNanos, date.plusDays(1).atStartOfDay(HotSearchStore.STAT_ZONE).toInstant().toEpochMilli());
+    }
+
+    private void refreshRound(IdempotentGuard.Lease lease, long deadlineNanos, Long beforeExclusive) {
+        LocalDate closedThrough = store.closedThrough();
         Map<HotSearchStore.Event, HotSearchStore.Assignment> ready = new LinkedHashMap<>();
-        var pendingByKeyword = loadPendingEvents(lease, ready);
+        var pendingByKeyword = loadPendingEvents(lease, ready, beforeExclusive);
         try {
             refreshGroups(lease, deadlineNanos, pendingByKeyword, ready);
         } finally {
-            persistHistory(ready, lease);
+            persistHistory(ready, lease, closedThrough);
         }
     }
 
@@ -181,9 +190,9 @@ public class HotSearchService {
     }
 
     private Map<String, List<HotSearchStore.Event>> loadPendingEvents(
-            IdempotentGuard.Lease lease, Map<HotSearchStore.Event, HotSearchStore.Assignment> ready) {
+            IdempotentGuard.Lease lease, Map<HotSearchStore.Event, HotSearchStore.Assignment> ready, Long beforeExclusive) {
         Map<String, List<HotSearchStore.Event>> pendingByKeyword = new LinkedHashMap<>();
-        var pending = store.pending(clock.millis());
+        var pending = beforeExclusive == null ? store.pending(clock.millis()) : store.pending(clock.millis(), beforeExclusive);
         var assignments = store.assignments(pending);
         List<HotSearchStore.Event> excluded = new ArrayList<>();
         for (var event : pending) {
@@ -293,14 +302,18 @@ public class HotSearchService {
         return processed;
     }
 
-    private void persistHistory(Map<HotSearchStore.Event, HotSearchStore.Assignment> ready, IdempotentGuard.Lease lease) {
+    private void persistHistory(Map<HotSearchStore.Event, HotSearchStore.Assignment> ready, IdempotentGuard.Lease lease,
+                                LocalDate closedThrough) {
         if (ready.isEmpty()) return;
         try {
             lease.assertOwned();
             var events = ready.entrySet().stream().map(entry -> {
                 var event = entry.getKey();
                 var assignment = entry.getValue();
-                return new HotSearchHistoryStore.GroupedEvent(event.token(), LocalDate.parse(assignment.statDate()),
+                LocalDate date = LocalDate.parse(assignment.statDate());
+                // 已收尾日期不再接纳新落库；SQL 中已存在的 event_id 仍保留原日期。
+                if (closedThrough != null && !date.isAfter(closedThrough)) date = closedThrough.plusDays(1);
+                return new HotSearchHistoryStore.GroupedEvent(event.token(), date,
                         event.happenedAt(), event.userId(), event.rawKeyword(), event.keyword(),
                         assignment.groupId(), assignment.groupName(), assignment.version());
             }).toList();

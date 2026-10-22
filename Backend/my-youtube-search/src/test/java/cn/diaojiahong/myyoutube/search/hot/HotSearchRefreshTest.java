@@ -72,6 +72,25 @@ class HotSearchRefreshTest {
         });
     }
 
+    @Test void closedDatesMoveToTheFixedOpenDateWhileKeepingTheOriginalEventTime() {
+        var old = event("缓存词", 1);
+        pending.add(old);
+        aliasIds.put("缓存词", group.id());
+        var closed = java.time.LocalDate.of(2026, 10, 21);
+        when(store.closedThrough()).thenReturn(closed);
+        doThrow(new IllegalStateException("database unavailable")).doNothing().when(history).append(anyList());
+        var service = service(model);
+
+        service.refresh();
+        service.refresh();
+
+        verify(history, times(2)).append(argThat(batch -> batch.size() == 1
+                && batch.get(0).statDate().equals(closed.plusDays(1))
+                && batch.get(0).happenedAt() == old.happenedAt()
+                && batch.get(0).userId() == old.userId()));
+        assertTrue(pending.isEmpty());
+    }
+
     @Test void failedEmbeddingBatchStillProcessesCachedTermsAndRetriesOthersOnTheNextRefresh() {
         var cached = event("缓存词", 1);
         var unknown = event("新词", 2);

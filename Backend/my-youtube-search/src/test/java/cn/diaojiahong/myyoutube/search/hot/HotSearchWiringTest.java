@@ -20,7 +20,7 @@ import static org.mockito.Mockito.*;
 
 class HotSearchWiringTest {
     @Configuration(proxyBeanMethods = false)
-    @Import({HotSearchConfiguration.class, HotSearchService.class, HotSearchProperties.class, HotSearchStore.class,
+    @Import({HotSearchConfiguration.class, HotSearchService.class, HotSearchDailyArchive.class, HotSearchProperties.class, HotSearchStore.class,
             HotSearchModel.class, HotSearchFilter.class, RecallConfig.class, VectorProperties.class, PromptTemplates.class})
     static class Config {
         @Bean StringRedisTemplate redis() { return mock(StringRedisTemplate.class); }
@@ -43,6 +43,7 @@ class HotSearchWiringTest {
                     assertEquals("classpath:hot-search/missing.txt", context.getBean(HotSearchProperties.class).getExcludedLocation());
                     assertEquals("asdfghjkl", context.getBean(HotSearchFilter.class).eligible("asdfghjkl"));
                     assertTrue(context.getBean(HotSearchService.class).hot().isEmpty());
+                    assertNotNull(context.getBean(HotSearchDailyArchive.class));
                     verifyNoInteractions(context.getBean(LlmPort.class), context.getBean(QueryEmbeddingPort.class));
                 });
     }

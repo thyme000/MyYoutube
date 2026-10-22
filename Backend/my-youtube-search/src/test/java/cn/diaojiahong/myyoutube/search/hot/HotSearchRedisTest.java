@@ -433,6 +433,79 @@ class HotSearchRedisTest {
         }
     }
 
+    @Test void closingBatchReadsOnlyBeforeMidnightAcrossEveryPartition() {
+        properties.setPartitionCount(3); properties.setBatchSize(2);
+        store = new HotSearchStore(redis, properties);
+        long midnight = Instant.ofEpochMilli(now).atZone(HotSearchStore.STAT_ZONE).toLocalDate()
+                .atStartOfDay(HotSearchStore.STAT_ZONE).toInstant().toEpochMilli();
+        for (int partition = 0; partition < 3; partition++) {
+            var old = eventInPartition(partition, 1);
+            assertTrue(store.record(new HotSearchStore.Event(old.token(), old.keyword(), old.rawKeyword(), old.userId(), midnight - 1)));
+            var current = eventInPartition(partition, 2);
+            assertTrue(store.record(new HotSearchStore.Event(current.token(), current.keyword(), current.rawKeyword(), current.userId(), midnight)));
+        }
+
+        var first = store.pending(now, midnight);
+        assertEquals(2, first.size());
+        assertTrue(first.stream().allMatch(event -> event.happenedAt() < midnight));
+        store.remove(first);
+        var last = store.pending(now, midnight);
+        assertEquals(1, last.size());
+        store.remove(last);
+        assertTrue(store.pending(now, midnight).isEmpty());
+        properties.setBatchSize(10);
+        assertEquals(3, store.pending(now).size());
+        assertTrue(store.pending(now).stream().allMatch(event -> event.happenedAt() == midnight));
+    }
+
+    @Test void closingDateAndSummaryQueueAdvanceTogetherAndRetriesAreIdempotent() {
+        var date = LocalDate.of(2026, 10, 20);
+        assertNull(store.closedThrough());
+        assertEquals(date.minusDays(1), store.initializeArchive(date.minusDays(1)));
+        assertEquals(date.minusDays(1), store.initializeArchive(date.plusDays(10)));
+        assertTrue(store.closeDay(date));
+        assertFalse(store.closeDay(date));
+        assertThrows(IllegalStateException.class, () -> store.closeDay(date.plusDays(2)));
+        assertEquals(date, store.closedThrough());
+        assertEquals(date, store.nextSummaryDate());
+        assertTrue(store.closeDay(date.plusDays(1)));
+        store.summaryCompleted(date);
+        assertEquals(date.plusDays(1), store.nextSummaryDate());
+        assertFalse(store.closeDay(date));
+        store.summaryCompleted(date.plusDays(1));
+        assertNull(store.nextSummaryDate());
+        assertEquals(-1L, redis.getExpire(HotSearchStore.PREFIX + "archive:closed-through"));
+    }
+
+    @Test void failedSummaryRegistrationDoesNotAdvanceTheClosingDate() {
+        var date = LocalDate.of(2026, 10, 20);
+        store.initializeArchive(date.minusDays(1));
+        redis.opsForValue().set(HotSearchStore.PREFIX + "archive:pending", "wrong-type");
+
+        assertThrows(org.springframework.dao.DataAccessException.class, () -> store.closeDay(date));
+
+        assertEquals(date.minusDays(1), store.closedThrough());
+        redis.delete(HotSearchStore.PREFIX + "archive:pending");
+        assertTrue(store.closeDay(date));
+        assertEquals(date, store.nextSummaryDate());
+    }
+
+    @Test void dailyClosingUsesTheSameRedisLeaseAsTheNormalRefresh() {
+        var due = Instant.ofEpochMilli(now).atZone(HotSearchStore.STAT_ZONE).toLocalDate().minusDays(1);
+        store.initializeArchive(due.minusDays(1));
+        var atFour = due.plusDays(1).atTime(4, 0).atZone(HotSearchStore.STAT_ZONE).toInstant();
+        var archive = new HotSearchDailyArchive(store, service, history, properties, guard,
+                Clock.fixed(atFour, ZoneOffset.UTC));
+
+        try (var lease = guard.acquire("{hot-search}:refresh", IdempotentGuard.DEFAULT_LEASE_SECONDS)) {
+            assertTrue(lease.acquired());
+            archive.run();
+            assertEquals(due.minusDays(1), store.closedThrough());
+            assertNull(store.nextSummaryDate());
+        }
+        verifyNoInteractions(model, history);
+    }
+
     @Test void pendingSharesItsBudgetAndRotatesPartitionsWithoutStarvation() {
         properties.setPartitionCount(3); properties.setBatchSize(5);
         store = new HotSearchStore(redis, properties);

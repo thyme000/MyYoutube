@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -28,7 +29,7 @@ public class HotSearchStore {
     static final long WINDOW_MILLIS = Duration.ofHours(24).toMillis();
     static final long HOUR_MILLIS = Duration.ofHours(1).toMillis();
     static final long PENDING_MILLIS = Duration.ofDays(3).toMillis();
-    private static final ZoneId STAT_ZONE = ZoneId.of("Asia/Shanghai");
+    static final ZoneId STAT_ZONE = ZoneId.of("Asia/Shanghai");
     private static final int RANK_BATCH_SIZE = 32;
     private static final int GROUP_BATCH_SIZE = 200;
     private static final int CONTRIBUTION_BATCH_SIZE = 200;
@@ -38,6 +39,7 @@ public class HotSearchStore {
     private static final RedisScript<List> COUNT = RedisScript.of(new ClassPathResource("lua/hot-search-count.lua"), List.class);
     private static final RedisScript<Long> ALIAS = RedisScript.of(new ClassPathResource("lua/hot-search-alias.lua"), Long.class);
     private static final RedisScript<Long> ACK = RedisScript.of(new ClassPathResource("lua/hot-search-ack.lua"), Long.class);
+    private static final RedisScript<Long> CLOSE_DAY = RedisScript.of(new ClassPathResource("lua/hot-search-close-day.lua"), Long.class);
     private final StringRedisTemplate redis;
     private final HotSearchProperties properties;
     private final int partitionCount;
@@ -71,6 +73,10 @@ public class HotSearchStore {
     }
 
     public List<Event> pending(long now) {
+        return pending(now, Long.MAX_VALUE);
+    }
+
+    public List<Event> pending(long now, long beforeExclusive) {
         int start = Math.floorMod(pendingCursor.getAndIncrement(), partitionCount);
         var cursors = new ArrayDeque<PendingCursor>();
         for (int i = 0; i < partitionCount; i++) cursors.add(new PendingCursor((start + i) % partitionCount, 0));
@@ -89,7 +95,8 @@ public class HotSearchStore {
                     var cursor = reads.get(i);
                     String key = pendingKey(cursor.partition());
                     if (cursor.offset() == 0) operations.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, now - PENDING_MILLIS);
-                    operations.opsForZSet().range(key, cursor.offset(), cursor.offset() + limits[i] - 1);
+                    double max = beforeExclusive == Long.MAX_VALUE ? Double.POSITIVE_INFINITY : beforeExclusive - 1;
+                    operations.opsForZSet().rangeByScore(key, Double.NEGATIVE_INFINITY, max, cursor.offset(), limits[i]);
                 }
             });
             int resultIndex = 0;
@@ -104,6 +111,34 @@ public class HotSearchStore {
             }
         }
         return List.copyOf(events);
+    }
+
+    public LocalDate closedThrough() {
+        String date = redis.opsForValue().get(PREFIX + "archive:closed-through");
+        return date == null ? null : LocalDate.parse(date);
+    }
+
+    public LocalDate initializeArchive(LocalDate baseline) {
+        redis.opsForValue().setIfAbsent(PREFIX + "archive:closed-through", baseline.toString());
+        LocalDate result = closedThrough();
+        if (result == null) throw new IllegalStateException("Hot search archive initialization unconfirmed");
+        return result;
+    }
+
+    public boolean closeDay(LocalDate date) {
+        Long result = redis.execute(CLOSE_DAY, List.of(PREFIX + "archive:closed-through", PREFIX + "archive:pending"),
+                date.minusDays(1).toString(), date.toString(), String.valueOf(date.toEpochDay()));
+        if (result == null || result < 0) throw new IllegalStateException("Hot search archive date is not consecutive");
+        return result == 1;
+    }
+
+    public LocalDate nextSummaryDate() {
+        var dates = redis.opsForZSet().range(PREFIX + "archive:pending", 0, 0);
+        return dates == null || dates.isEmpty() ? null : LocalDate.parse(dates.iterator().next());
+    }
+
+    public void summaryCompleted(LocalDate date) {
+        redis.opsForZSet().remove(PREFIX + "archive:pending", date.toString());
     }
 
     public void remove(Event event) {
