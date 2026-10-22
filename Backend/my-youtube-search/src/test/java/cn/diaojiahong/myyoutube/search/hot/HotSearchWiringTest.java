@@ -20,7 +20,9 @@ import static org.mockito.Mockito.*;
 
 class HotSearchWiringTest {
     @Configuration(proxyBeanMethods = false)
-    @Import({HotSearchConfiguration.class, HotSearchService.class, HotSearchDailyArchive.class, HotSearchProperties.class, HotSearchStore.class,
+    @Import({HotSearchConfiguration.class, HotSearchService.class, HotSearchDailyArchive.class, HotSearchMetrics.class,
+            HotSearchMetricsSampler.class, cn.diaojiahong.myyoutube.common.observability.PipelineObservationProperties.class,
+            HotSearchProperties.class, HotSearchStore.class,
             HotSearchModel.class, HotSearchFilter.class, RecallConfig.class, VectorProperties.class, PromptTemplates.class})
     static class Config {
         @Bean StringRedisTemplate redis() { return mock(StringRedisTemplate.class); }
@@ -28,6 +30,7 @@ class HotSearchWiringTest {
         @Bean QueryEmbeddingPort queries() { return mock(QueryEmbeddingPort.class); }
         @Bean IdempotentGuard guard() { return mock(IdempotentGuard.class); }
         @Bean HotSearchHistoryStore history() { return mock(HotSearchHistoryStore.class); }
+        @Bean io.micrometer.core.instrument.MeterRegistry metrics() { return new io.micrometer.core.instrument.simple.SimpleMeterRegistry(); }
     }
 
     @Test void bindsConfigurationAndChoosesItsOwnExecutorWithoutAffectingRecallPools() {

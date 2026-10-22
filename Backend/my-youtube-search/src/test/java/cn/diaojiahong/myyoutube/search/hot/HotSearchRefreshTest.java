@@ -33,6 +33,8 @@ class HotSearchRefreshTest {
     final HotSearchHistoryStore history = mock(HotSearchHistoryStore.class);
     final HotSearchModel model = mock(HotSearchModel.class);
     final HotSearchProperties properties = new HotSearchProperties();
+    final io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+    final HotSearchMetrics metrics = new HotSearchMetrics(registry);
     final IdempotentGuard guard = mock(IdempotentGuard.class);
     final List<HotSearchStore.Event> pending = new ArrayList<>();
     final Map<HotSearchStore.Event, HotSearchStore.Assignment> assignments = new LinkedHashMap<>();
@@ -90,6 +92,8 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         verify(store).publish(groups.subList(0, limit).stream().map(HotSearchGroup::name).toList());
+        assertEquals(12, registry.get("myyoutube.hot.search.active.groups").gauge().value());
+        assertEquals(limit, registry.get("myyoutube.hot.search.displayed").gauge().value());
     }
 
     @Test void closedDatesMoveToTheFixedOpenDateWhileKeepingTheOriginalEventTime() {
@@ -146,6 +150,9 @@ class HotSearchRefreshTest {
         service.refresh();
 
         assertEquals(List.of(event), pending);
+        assertEquals(1, registry.get("myyoutube.hot.search.duration").tags("operation", "history_write", "outcome", "failure").timer().count());
+        assertEquals(0, registry.get("myyoutube.hot.search.history.events").tag("outcome", "committed").counter().count());
+        assertEquals(1, registry.get("myyoutube.hot.search.history.events").tag("outcome", "deferred").counter().count());
         assertEquals(group.id(), assignments.get(event).groupId());
         verify(store).publish(List.of(group.name()));
         verify(store, never()).remove(argThat((Collection<HotSearchStore.Event> batch) -> batch.contains(event)));
@@ -161,6 +168,21 @@ class HotSearchRefreshTest {
         verify(model, never()).vectors(anyList(), any());
         verify(model, never()).group(anyList());
         verify(store, times(1)).contribute(group, List.of(event), now);
+    }
+
+    @Test void committedHistoryAndFailedAcknowledgmentAreObservedSeparatelyWithoutDeletingInput() {
+        var event = event("缓存词", 1);
+        pending.add(event);
+        aliasIds.put("缓存词", group.id());
+        doThrow(new IllegalStateException("redis unavailable")).when(store).remove(anyCollection());
+
+        service(model).refresh();
+
+        assertEquals(List.of(event), pending);
+        assertEquals(1, registry.get("myyoutube.hot.search.history.events").tag("outcome", "committed").counter().count());
+        assertEquals(0, registry.get("myyoutube.hot.search.history.events").tag("outcome", "acknowledged").counter().count());
+        assertEquals(1, registry.get("myyoutube.hot.search.duration").tags("operation", "history_ack", "outcome", "failure").timer().count());
+        assertEquals(1, registry.get("myyoutube.hot.search.duration").tags("operation", "history_write", "outcome", "success").timer().count());
     }
 
     @Test void allResolvedKeywordsAreWrittenAsOneBoundedBatchBeforeInputsAreRemoved() {
@@ -488,7 +510,7 @@ class HotSearchRefreshTest {
 
     private HotSearchService service(HotSearchModel selected) {
         return new HotSearchService(store, history, selected, new HotSearchFilter(properties), properties, guard,
-                mock(ThreadPoolTaskExecutor.class), Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
+                mock(ThreadPoolTaskExecutor.class), Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC), metrics);
     }
 
     private HotSearchStore.Event event(String text, long userId) {

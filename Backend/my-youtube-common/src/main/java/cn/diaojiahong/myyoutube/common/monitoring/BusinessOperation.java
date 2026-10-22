@@ -8,6 +8,7 @@ public enum BusinessOperation {
     LIKE_COMMENT("interaction"), UNLIKE_COMMENT("interaction"), COLLECT("interaction"), UNCOLLECT("interaction"),
     COMMENT("interaction"), DELETE_COMMENT("interaction"), REPORT_COMMENT("interaction"), FOLLOW("interaction"), UNFOLLOW("interaction"),
     SEARCH_CONTENT("discovery", true), SEARCH_USER("discovery", true), SEARCH_TAG("discovery", true),
+    HOT_SEARCH("discovery", true), HOT_SEARCH_HISTORY("discovery", true),
     RECOMMEND("discovery", true), RECOMMEND_FOLLOW("discovery", true),
     SEND_MESSAGE("messaging"), WITHDRAW_MESSAGE("messaging"), READ_MESSAGE("messaging"), CREATE_CONVERSATION("messaging"),
     MANUAL_REVIEW("publication"), BAN_CONTENT("publication"),

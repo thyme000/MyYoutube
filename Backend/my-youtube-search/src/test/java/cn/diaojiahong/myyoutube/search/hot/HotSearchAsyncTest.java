@@ -20,10 +20,12 @@ class HotSearchAsyncTest {
     final HotSearchStore store = mock(HotSearchStore.class);
     final HotSearchHistoryStore history = mock(HotSearchHistoryStore.class);
     final HotSearchProperties properties = new HotSearchProperties();
+    final io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+    final HotSearchMetrics metrics = new HotSearchMetrics(registry);
     final org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor executor = new HotSearchConfiguration().hotSearchCacheExecutor();
     HotSearchService service() throws Exception {
         return new HotSearchService(store, history, mock(HotSearchModel.class), new HotSearchFilter(properties), properties,
-                mock(IdempotentGuard.class), executor, Clock.systemUTC());
+                mock(IdempotentGuard.class), executor, Clock.systemUTC(), metrics);
     }
     @AfterEach void close() { executor.shutdown(); }
 
@@ -55,10 +57,32 @@ class HotSearchAsyncTest {
         try {
             assertNull(service.cachedGroup("搜索", System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(100)));
             assertTrue(entered.await(1, TimeUnit.SECONDS));
+            assertEquals(1, registry.get("myyoutube.hot.search.cache.reads").tags("kind", "named", "outcome", "timeout").counter().count());
         } finally { release.countDown(); }
         executor.shutdown();
         assertDoesNotThrow(() -> service.record(1L, "搜索"));
         assertTrue(service.hot().isEmpty());
+        assertEquals(1, registry.get("myyoutube.hot.search.cache.reads").tags("kind", "hot", "outcome", "rejected").counter().count());
+    }
+
+    @Test void collectionMetricsDistinguishFilteringCapacityRejectionAndRedisFailure() {
+        var direct = mock(org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor.class);
+        doAnswer(call -> { call.getArgument(0, Runnable.class).run(); return null; }).when(direct).execute(any(Runnable.class));
+        when(store.record(any())).thenReturn(true).thenReturn(false).thenThrow(new IllegalStateException("redis unavailable"));
+        var service = new HotSearchService(store, history, mock(HotSearchModel.class), new HotSearchFilter(properties),
+                properties, mock(IdempotentGuard.class), direct, Clock.systemUTC(), metrics);
+
+        service.record(1L, "正常搜索");
+        service.record(1L, "正常搜索");
+        service.record(1L, "正常搜索");
+        service.record(1L, "1111");
+        doThrow(new java.util.concurrent.RejectedExecutionException()).when(direct).execute(any(Runnable.class));
+        assertDoesNotThrow(() -> service.record(1L, "正常搜索"));
+
+        for (String outcome : new String[]{"accepted", "capacity", "failure", "filtered", "rejected"})
+            assertEquals(1, registry.get("myyoutube.hot.search.records").tag("outcome", outcome).counter().count(), outcome);
+        verify(store, times(3)).record(any());
+        verifyNoInteractions(history);
     }
 
     @Test void recordsTheExactInputSeparatelyFromGroupingTextWithoutCallingTheDatabase() throws Exception {

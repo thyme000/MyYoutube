@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -15,6 +17,10 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
+import static cn.diaojiahong.myyoutube.search.hot.HotSearchMetrics.Operation.*;
+import static cn.diaojiahong.myyoutube.search.hot.HotSearchMetrics.RecordResult.*;
+import static cn.diaojiahong.myyoutube.search.hot.HotSearchMetrics.EventResult.*;
+
 @Service
 @Slf4j
 public class HotSearchService {
@@ -28,10 +34,12 @@ public class HotSearchService {
     private final IdempotentGuard guard;
     private final ThreadPoolTaskExecutor cacheExecutor;
     private final Clock clock;
+    private final HotSearchMetrics metrics;
 
     public HotSearchService(HotSearchStore store, HotSearchHistoryStore history, HotSearchModel model, HotSearchFilter filter,
                             HotSearchProperties properties, IdempotentGuard guard,
-                            @Qualifier("hotSearchCacheExecutor") ThreadPoolTaskExecutor cacheExecutor, Clock clock) {
+                            @Qualifier("hotSearchCacheExecutor") ThreadPoolTaskExecutor cacheExecutor, Clock clock,
+                            HotSearchMetrics metrics) {
         this.store = store;
         this.history = history;
         this.model = model;
@@ -40,45 +48,64 @@ public class HotSearchService {
         this.guard = guard;
         this.cacheExecutor = cacheExecutor;
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     public void record(long userId, String keyword) {
         if (!properties.isEnabled()) return;
-        if (keyword == null || keyword.codePointCount(0, keyword.length()) > MAX_RAW_LENGTH) return;
+        if (keyword == null || keyword.codePointCount(0, keyword.length()) > MAX_RAW_LENGTH) {
+            metrics.record(FILTERED);
+            return;
+        }
         String text = filter.eligible(keyword.trim());
-        if (text == null) return;
+        if (text == null) { metrics.record(FILTERED); return; }
         var event = new HotSearchStore.Event(UUID.randomUUID().toString(), text, keyword, userId, clock.millis());
         try {
             cacheExecutor.execute(() -> {
                 try {
-                    if (!store.record(event)) log.warn("Hot search record dropped: pending capacity reached");
-                } catch (RuntimeException error) { log.warn("Hot search record failed errorType={}", error.getClass().getSimpleName()); }
+                    if (store.record(event)) metrics.record(ACCEPTED);
+                    else { metrics.record(CAPACITY); log.warn("Hot search record dropped: pending capacity reached"); }
+                } catch (RuntimeException error) {
+                    metrics.record(FAILURE);
+                    log.warn("Hot search record failed errorType={}", error.getClass().getSimpleName());
+                }
             });
-        } catch (RuntimeException error) { log.warn("Hot search record dropped: cache executor unavailable"); }
+        } catch (RuntimeException error) {
+            metrics.record(REJECTED);
+            log.warn("Hot search record dropped: cache executor unavailable");
+        }
     }
 
+    @ObservedBusiness(BusinessOperation.HOT_SEARCH)
     public List<String> hot() {
         if (!properties.isEnabled()) return List.of();
-        return read(store::hot, List.<String>of(), System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50))
+        return read(HotSearchMetrics.ReadKind.HOT, store::hot, List.<String>of(), System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50))
                 .stream().filter(name -> filter.eligible(name) != null).limit(properties.getTopLimit()).toList();
     }
 
     public HotSearchGroup cachedGroup(String text, long deadlineNanos) {
         if (!properties.isEnabled() || filter.eligible(text) == null) return null;
-        return read(() -> store.named(text), null, deadlineNanos);
+        return read(HotSearchMetrics.ReadKind.NAMED, () -> store.named(text), null, deadlineNanos);
     }
 
-    private <T> T read(Supplier<T> operation, T fallback, long deadlineNanos) {
+    private <T> T read(HotSearchMetrics.ReadKind kind, Supplier<T> operation, T fallback, long deadlineNanos) {
         Future<T> task = null;
         try {
             long remaining = Math.min(TimeUnit.MILLISECONDS.toNanos(50), deadlineNanos - System.nanoTime());
-            if (remaining <= 0) return fallback;
+            if (remaining <= 0) { metrics.read(kind, HotSearchMetrics.ReadResult.BUDGET); return fallback; }
             task = cacheExecutor.submit(operation::get);
-            return task.get(remaining, TimeUnit.NANOSECONDS);
+            T value = task.get(remaining, TimeUnit.NANOSECONDS);
+            metrics.read(kind, value == null || value instanceof Collection<?> values && values.isEmpty()
+                    ? HotSearchMetrics.ReadResult.MISS : HotSearchMetrics.ReadResult.HIT);
+            return value;
         } catch (InterruptedException error) {
+            metrics.read(kind, HotSearchMetrics.ReadResult.INTERRUPTED);
             Thread.currentThread().interrupt();
             return fallback;
         } catch (Exception error) {
+            metrics.read(kind, error instanceof java.util.concurrent.TimeoutException ? HotSearchMetrics.ReadResult.TIMEOUT
+                    : error instanceof java.util.concurrent.RejectedExecutionException ? HotSearchMetrics.ReadResult.REJECTED
+                    : HotSearchMetrics.ReadResult.FAILURE);
             log.debug("Hot search cache unavailable: {}", error.getClass().getSimpleName());
             return fallback;
         } finally {
@@ -92,7 +119,7 @@ public class HotSearchService {
         if (!properties.isEnabled()) return;
         long started = System.nanoTime();
         try (var lease = guard.acquire("{hot-search}:refresh", IdempotentGuard.DEFAULT_LEASE_SECONDS)) {
-            if (lease.acquired()) refreshRound(lease, started + TimeUnit.SECONDS.toNanos(properties.getRoundBudgetSeconds()));
+            if (lease.acquired()) metrics.run(REFRESH, () -> refreshRound(lease, started + TimeUnit.SECONDS.toNanos(properties.getRoundBudgetSeconds())));
         } catch (RuntimeException error) { log.warn("Hot search refresh skipped or failed", error); }
     }
 
@@ -101,7 +128,8 @@ public class HotSearchService {
     }
 
     void finishDay(LocalDate date, IdempotentGuard.Lease lease, long deadlineNanos) {
-        refreshRound(lease, deadlineNanos, date.plusDays(1).atStartOfDay(HotSearchStore.STAT_ZONE).toInstant().toEpochMilli());
+        metrics.run(FINAL_PASS, () -> refreshRound(lease, deadlineNanos,
+                date.plusDays(1).atStartOfDay(HotSearchStore.STAT_ZONE).toInstant().toEpochMilli()));
     }
 
     private void refreshRound(IdempotentGuard.Lease lease, long deadlineNanos, Long beforeExclusive) {
@@ -118,7 +146,7 @@ public class HotSearchService {
     private void refreshGroups(IdempotentGuard.Lease lease, long deadlineNanos,
                                Map<String, List<HotSearchStore.Event>> pendingByKeyword,
                                Map<HotSearchStore.Event, HotSearchStore.Assignment> ready) {
-        var info = model.info();
+        var info = metrics.call(MODEL_INFO, model::info);
         var groups = loadActiveGroups(lease, info);
         List<String> keywords = pendingByKeyword.keySet().stream().limit(properties.getMaxDistinctPerRound()).toList();
         var cachedGroups = resolveCachedGroups(keywords, info, groups);
@@ -126,7 +154,7 @@ public class HotSearchService {
         Map<String, List<Float>> vectors = Map.of();
         if (!unknown.isEmpty()) {
             try {
-                vectors = model.vectors(unknown, info);
+                vectors = vectors(unknown, info);
             } catch (RuntimeException error) {
                 log.warn("Hot search embeddings deferred batchSize={} version={} dims={} cached={}",
                         unknown.size(), info.version(), info.dims(), cachedGroups.size(), error);
@@ -212,6 +240,7 @@ public class HotSearchService {
         if (!excluded.isEmpty()) {
             lease.assertOwned();
             store.remove(excluded);
+            metrics.events(EXCLUDED, excluded.size());
         }
         return pendingByKeyword;
     }
@@ -247,7 +276,9 @@ public class HotSearchService {
                                                       QueryEmbeddingPort.Info info, Collection<HotSearchGroup> groups,
                                                       IdempotentGuard.Lease lease, long deadlineNanos) {
         Map<String, List<String>> keywordsByName = new LinkedHashMap<>();
-        for (var candidate : model.group(keywords)) {
+        var grouped = metrics.call(GROUPING, () -> model.group(keywords));
+        metrics.modelItems(GROUPING, keywords.size(), grouped.stream().mapToInt(group -> group.keywords().size()).sum());
+        for (var candidate : grouped) {
             String name = filter.eligible(candidate.name());
             if (name != null) keywordsByName.computeIfAbsent(name, key -> new ArrayList<>()).addAll(candidate.keywords());
         }
@@ -261,7 +292,7 @@ public class HotSearchService {
         Map<String, List<Float>> nameVectors = Map.of();
         if (!missingVectors.isEmpty()) {
             try {
-                nameVectors = model.vectors(missingVectors, info);
+                nameVectors = vectors(missingVectors, info);
             } catch (RuntimeException error) {
                 log.warn("Hot search group embeddings deferred batchSize={} version={}", missingVectors.size(), info.version(), error);
             }
@@ -283,6 +314,8 @@ public class HotSearchService {
                            Map<String, HotSearchGroup> groups,
                            Map<HotSearchStore.Event, HotSearchStore.Assignment> ready, IdempotentGuard.Lease lease) {
         int processed = 0;
+        long started = System.nanoTime();
+        boolean success = false;
         try {
             lease.assertOwned();
             var assignments = store.assign(group, events, clock.millis());
@@ -295,10 +328,11 @@ public class HotSearchService {
                 lease.assertOwned();
                 store.remember(keyword, group);
             }
+            success = true;
         } catch (RuntimeException error) {
             log.warn("Hot search item deferred keywordId={} version={} errorType={}",
                     HotSearchStore.digest(keyword), group.version(), error.getClass().getSimpleName());
-        }
+        } finally { metrics.completed(CONTRIBUTION, started, success); }
         return processed;
     }
 
@@ -317,10 +351,13 @@ public class HotSearchService {
                         event.happenedAt(), event.userId(), event.rawKeyword(), event.keyword(),
                         assignment.groupId(), assignment.groupName(), assignment.version());
             }).toList();
-            history.append(events);
+            metrics.run(HISTORY_WRITE, () -> history.append(events));
+            metrics.events(COMMITTED, events.size());
             lease.assertOwned();
-            store.remove(ready.keySet());
+            metrics.run(HISTORY_ACK, () -> store.remove(ready.keySet()));
+            metrics.events(ACKNOWLEDGED, events.size());
         } catch (RuntimeException error) {
+            metrics.events(DEFERRED, ready.size());
             log.warn("Hot search history deferred batchSize={} errorType={}", ready.size(), error.getClass().getSimpleName());
         }
     }
@@ -342,8 +379,15 @@ public class HotSearchService {
                         .thenComparing(value -> value.group().id()))
                 .map(value -> value.group().name()).distinct().limit(properties.getTopLimit()).toList();
         lease.assertOwned();
-        store.publish(names);
+        metrics.run(PUBLISH, () -> store.publish(names));
+        metrics.published(groups.size() - retired.size(), names.size(), clock.millis());
         return names.size();
+    }
+
+    private Map<String, List<Float>> vectors(List<String> texts, QueryEmbeddingPort.Info info) {
+        var result = metrics.call(EMBEDDING, () -> model.vectors(texts, info));
+        metrics.modelItems(EMBEDDING, texts.size(), result.size());
+        return result;
     }
 
     private boolean eligible(HotSearchGroup group, QueryEmbeddingPort.Info info) {

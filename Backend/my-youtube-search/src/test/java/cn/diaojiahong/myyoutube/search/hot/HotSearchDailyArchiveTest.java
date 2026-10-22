@@ -18,6 +18,8 @@ class HotSearchDailyArchiveTest {
     final HotSearchService service = mock(HotSearchService.class);
     final HotSearchHistoryStore history = mock(HotSearchHistoryStore.class);
     final HotSearchProperties properties = new HotSearchProperties();
+    final io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+    final HotSearchMetrics metrics = new HotSearchMetrics(registry);
     final IdempotentGuard guard = mock(IdempotentGuard.class);
     final IdempotentGuard.Lease lease = mock(IdempotentGuard.Lease.class);
 
@@ -30,7 +32,7 @@ class HotSearchDailyArchiveTest {
 
     HotSearchDailyArchive job(int hour) {
         var at = day.plusDays(1).atTime(hour, 0).atZone(HotSearchStore.STAT_ZONE).toInstant();
-        return new HotSearchDailyArchive(store, service, history, properties, guard, Clock.fixed(at, ZoneOffset.UTC));
+        return new HotSearchDailyArchive(store, service, history, properties, guard, Clock.fixed(at, ZoneOffset.UTC), metrics);
     }
 
     @Test void atFourRunsOneFinalPassThenClosesAndBuildsTheDailySummary() {

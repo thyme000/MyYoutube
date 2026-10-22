@@ -362,12 +362,12 @@ class HotSearchHistoryMysqlTest {
             when(model.group(anyList())).thenAnswer(call -> List.of(new HotSearchModel.Grouping("C++ 入门", call.getArgument(0))));
             guard = new IdempotentGuard(redis, scheduler);
             service = new HotSearchService(pending, store, model, new HotSearchFilter(properties), properties,
-                    guard, executor, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
+                    guard, executor, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC), new HotSearchMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         }
 
         HotSearchDailyArchive archive() {
             return new HotSearchDailyArchive(pending, service, store, properties, guard,
-                    Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
+                    Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC), new HotSearchMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         }
 
         void record(long user, String raw) throws InterruptedException {

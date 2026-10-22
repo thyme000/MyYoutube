@@ -40,6 +40,7 @@ public class HotSearchStore {
     private static final RedisScript<Long> ALIAS = RedisScript.of(new ClassPathResource("lua/hot-search-alias.lua"), Long.class);
     private static final RedisScript<Long> ACK = RedisScript.of(new ClassPathResource("lua/hot-search-ack.lua"), Long.class);
     private static final RedisScript<Long> CLOSE_DAY = RedisScript.of(new ClassPathResource("lua/hot-search-close-day.lua"), Long.class);
+    private static final RedisScript<List> STATS = RedisScript.of(new ClassPathResource("lua/hot-search-stats.lua"), List.class);
     private final StringRedisTemplate redis;
     private final HotSearchProperties properties;
     private final int partitionCount;
@@ -56,6 +57,8 @@ public class HotSearchStore {
     public record Assignment(String groupId, String groupName, String version, String statDate) {}
     private record Alias(String groupId, String version) {}
     public record Ranking(HotSearchGroup group, long score, long users) {}
+    public record Stats(long pending, Long oldestPendingMillis, long summaryDays,
+                        LocalDate oldestSummaryDate, LocalDate closedThrough, long snapshotTtlMillis) {}
     private record Snapshot(List<String> names) {}
     private record PendingCursor(int partition, int offset) {}
 
@@ -111,6 +114,36 @@ public class HotSearchStore {
             }
         }
         return List.copyOf(events);
+    }
+
+    public Stats stats(long now) {
+        // 仅批量读取计数、最老一条和 TTL，指标抓取不拉取搜索明细或向量。
+        var results = pipeline(operations -> {
+            for (int partition = 0; partition < partitionCount; partition++) {
+                String key = pendingKey(partition);
+                operations.execute(STATS, List.of(key), Long.toString(now - PENDING_MILLIS + 1));
+            }
+            operations.opsForZSet().size(PREFIX + "archive:pending");
+            operations.opsForZSet().range(PREFIX + "archive:pending", 0, 0);
+            operations.opsForValue().get(PREFIX + "archive:closed-through");
+            operations.getExpire(PREFIX + "snapshot", TimeUnit.MILLISECONDS);
+        });
+        long pending = 0;
+        Long oldest = null;
+        for (int partition = 0; partition < partitionCount; partition++) {
+            var values = (List<?>) results.get(partition);
+            pending += (Long) values.get(0);
+            long time = (Long) values.get(1);
+            if (time >= 0) {
+                oldest = oldest == null ? time : Math.min(oldest, time);
+            }
+        }
+        int next = partitionCount;
+        long days = (Long) results.get(next++);
+        var dates = (Set<String>) results.get(next++);
+        String closed = (String) results.get(next++);
+        return new Stats(pending, oldest, days, dates.isEmpty() ? null : LocalDate.parse(dates.iterator().next()),
+                closed == null ? null : LocalDate.parse(closed), (Long) results.get(next));
     }
 
     public LocalDate closedThrough() {

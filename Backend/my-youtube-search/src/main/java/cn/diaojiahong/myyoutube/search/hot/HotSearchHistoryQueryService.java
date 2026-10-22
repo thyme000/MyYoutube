@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
+import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.search.mapper.HotSearchHistoryMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ public class HotSearchHistoryQueryService {
     private final HotSearchProperties properties;
     private final Clock clock;
 
+    @ObservedBusiness(BusinessOperation.HOT_SEARCH_HISTORY)
     public List<String> hot(String date) {
         LocalDate day = pastDate(date);
         if (!properties.isEnabled()) return List.of();

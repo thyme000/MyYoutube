@@ -54,7 +54,42 @@ class HotSearchRedisTest {
             return result;
         });
         when(model.group(anyList())).thenAnswer(call -> grouped(call.getArgument(0)));
-        service = new HotSearchService(store, history, model, new HotSearchFilter(properties), properties, guard, executor, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
+        service = new HotSearchService(store, history, model, new HotSearchFilter(properties), properties, guard, executor, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC), new HotSearchMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+    }
+
+    @Test void stockSampleCombinesPartitionsAndArchiveMetadataWithoutChangingPendingEvents() {
+        var date = Instant.ofEpochMilli(now).atZone(HotSearchStore.STAT_ZONE).toLocalDate().minusDays(1);
+        var oldest = new HotSearchStore.Event("sample-oldest", "正常搜索", "private original", 1L, now - 60_000);
+        var newer = new HotSearchStore.Event("sample-newer", "正常搜索", "private original", 2L, now - 1000);
+        var expired = new HotSearchStore.Event("sample-expired", "正常搜索", "private original", 3L, now - HotSearchStore.PENDING_MILLIS);
+        assertTrue(store.record(oldest));
+        assertTrue(store.record(newer));
+        assertTrue(store.record(expired));
+        store.initializeArchive(date.minusDays(1));
+        store.closeDay(date);
+        store.publish(List.of());
+
+        var stats = store.stats(now);
+
+        assertEquals(2, stats.pending());
+        assertEquals(oldest.happenedAt(), stats.oldestPendingMillis());
+        assertEquals(1, stats.summaryDays());
+        assertEquals(date, stats.oldestSummaryDate());
+        assertEquals(date, stats.closedThrough());
+        assertTrue(stats.snapshotTtlMillis() > 0 && stats.snapshotTtlMillis() <= properties.getSnapshotTtlSeconds() * 1000L);
+        long physical = 0;
+        for (int p = 0; p < properties.getPartitionCount(); p++) physical += redis.opsForZSet().size(store.pendingKey(p));
+        assertEquals(3, physical, "采样不删除三天边界上的过期记录");
+    }
+
+    @Test void noSampledInputIsDistinctFromMissingSnapshotAndArchiveInitialization() {
+        var stats = store.stats(now);
+        assertEquals(0, stats.pending());
+        assertNull(stats.oldestPendingMillis());
+        assertEquals(0, stats.summaryDays());
+        assertNull(stats.oldestSummaryDate());
+        assertNull(stats.closedThrough());
+        assertEquals(-2, stats.snapshotTtlMillis());
     }
 
     List<HotSearchModel.Grouping> grouped(List<String> keywords) {
@@ -495,7 +530,7 @@ class HotSearchRedisTest {
         store.initializeArchive(due.minusDays(1));
         var atFour = due.plusDays(1).atTime(4, 0).atZone(HotSearchStore.STAT_ZONE).toInstant();
         var archive = new HotSearchDailyArchive(store, service, history, properties, guard,
-                Clock.fixed(atFour, ZoneOffset.UTC));
+                Clock.fixed(atFour, ZoneOffset.UTC), new HotSearchMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
 
         try (var lease = guard.acquire("{hot-search}:refresh", IdempotentGuard.DEFAULT_LEASE_SECONDS)) {
             assertTrue(lease.acquired());

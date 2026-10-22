@@ -20,6 +20,7 @@ public class HotSearchDailyArchive {
     private final HotSearchProperties properties;
     private final IdempotentGuard guard;
     private final Clock clock;
+    private final HotSearchMetrics metrics;
 
     @Scheduled(cron = "0 0 4 * * *", zone = "Asia/Shanghai")
     @Scheduled(fixedDelayString = "${my-youtube.search.hot.refresh-millis:300000}",
@@ -49,7 +50,7 @@ public class HotSearchDailyArchive {
         }
         // 模型或写库失败仍顺延；租约失效则不能推进日期。
         lease.assertOwned();
-        boolean advanced = store.closeDay(date);
+        boolean advanced = metrics.call(HotSearchMetrics.Operation.CLOSE_DAY, () -> store.closeDay(date));
         log.info("Hot search daily closing completed date={} advanced={} carryTo={} elapsedMs={}",
                 date, advanced, date.plusDays(1), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
     }
@@ -59,9 +60,9 @@ public class HotSearchDailyArchive {
         if (date == null) return;
         try {
             lease.assertOwned();
-            history.rebuildDay(date);
+            metrics.run(HotSearchMetrics.Operation.SUMMARY, () -> history.rebuildDay(date));
             lease.assertOwned();
-            store.summaryCompleted(date);
+            metrics.run(HotSearchMetrics.Operation.SUMMARY_ACK, () -> store.summaryCompleted(date));
         } catch (RuntimeException error) {
             log.warn("Hot search daily summary deferred date={} errorType={}", date, error.getClass().getSimpleName());
         }
