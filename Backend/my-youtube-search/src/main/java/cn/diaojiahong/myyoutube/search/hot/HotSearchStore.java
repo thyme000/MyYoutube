@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
-import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisOperations;
@@ -14,15 +13,15 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.ToIntFunction;
 
 @Component
-@RequiredArgsConstructor
 public class HotSearchStore {
     static final String PREFIX = "{hot-search}:";
     static final long WINDOW_MILLIS = Duration.ofHours(24).toMillis();
     static final long PENDING_MILLIS = Duration.ofDays(3).toMillis();
-    static final String PENDING_KEY = PREFIX + "pending:v2";
     private static final ZoneId STAT_ZONE = ZoneId.of("Asia/Shanghai");
     private static final int RANK_BATCH_SIZE = 32;
     private static final int ACK_BATCH_SIZE = 200;
@@ -32,12 +31,22 @@ public class HotSearchStore {
     private static final RedisScript<Long> ACK = RedisScript.of(new ClassPathResource("lua/hot-search-ack.lua"), Long.class);
     private final StringRedisTemplate redis;
     private final HotSearchProperties properties;
+    private final int partitionCount;
+    private final AtomicInteger pendingCursor = new AtomicInteger();
+
+    public HotSearchStore(StringRedisTemplate redis, HotSearchProperties properties) {
+        this.redis = redis;
+        this.properties = properties;
+        // 固定本实例的路由；配置刷新不能把未搬完的输入切到另一套分区。
+        this.partitionCount = properties.getPartitionCount();
+    }
 
     public record Event(String token, String keyword, String rawKeyword, long userId, long happenedAt) {}
     public record Assignment(String groupId, String groupName, String version, String statDate) {}
     private record Alias(String groupId, String version) {}
     public record Ranking(HotSearchGroup group, int score, int users) {}
     private record Snapshot(List<String> names) {}
+    private record PendingCursor(int partition, int offset) {}
 
     static String digest(String text) {
         try {
@@ -46,18 +55,46 @@ public class HotSearchStore {
     }
 
     public boolean record(Event event) {
-        return Long.valueOf(1).equals(redis.execute(RECORD, List.of(PENDING_KEY),
+        int partition = partition(event.token());
+        return Long.valueOf(1).equals(redis.execute(RECORD, List.of(pendingKey(partition)),
                 JsonUtil.toJson(event), String.valueOf(event.happenedAt()), String.valueOf(PENDING_MILLIS),
-                String.valueOf(properties.getPendingLimit())));
+                String.valueOf(quota(properties.getPendingLimit(), partition))));
     }
 
     public List<Event> pending(long now) {
-        var results = pipeline(operations -> {
-            operations.opsForZSet().removeRangeByScore(PENDING_KEY, Double.NEGATIVE_INFINITY, now - PENDING_MILLIS);
-            operations.opsForZSet().range(PENDING_KEY, 0, properties.getBatchSize() - 1);
-        });
-        var raw = (Collection<?>) results.get(1);
-        return raw == null ? List.of() : raw.stream().map(value -> JsonUtil.fromJson((String) value, Event.class)).toList();
+        int start = Math.floorMod(pendingCursor.getAndIncrement(), partitionCount);
+        var cursors = new ArrayDeque<PendingCursor>();
+        for (int i = 0; i < partitionCount; i++) cursors.add(new PendingCursor((start + i) % partitionCount, 0));
+        Set<Event> events = new LinkedHashSet<>();
+        while (!cursors.isEmpty() && events.size() < properties.getBatchSize()) {
+            int remaining = properties.getBatchSize() - events.size();
+            int count = Math.min(cursors.size(), remaining);
+            List<PendingCursor> reads = new ArrayList<>();
+            int[] limits = new int[count];
+            for (int i = 0; i < count; i++) {
+                reads.add(cursors.remove());
+                limits[i] = remaining / count + (i < remaining % count ? 1 : 0);
+            }
+            var results = pipeline(operations -> {
+                for (int i = 0; i < reads.size(); i++) {
+                    var cursor = reads.get(i);
+                    String key = pendingKey(cursor.partition());
+                    if (cursor.offset() == 0) operations.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, now - PENDING_MILLIS);
+                    operations.opsForZSet().range(key, cursor.offset(), cursor.offset() + limits[i] - 1);
+                }
+            });
+            int resultIndex = 0;
+            for (int i = 0; i < reads.size(); i++) {
+                var cursor = reads.get(i);
+                if (cursor.offset() == 0) resultIndex++;
+                var raw = (Collection<?>) results.get(resultIndex++);
+                if (raw == null) continue;
+                raw.forEach(value -> events.add(JsonUtil.fromJson((String) value, Event.class)));
+                // 空闲分区的额度让给仍有积压的分区，避免有数据却只能取到一小份。
+                if (raw.size() == limits[i]) cursors.add(new PendingCursor(cursor.partition(), cursor.offset() + raw.size()));
+            }
+        }
+        return List.copyOf(events);
     }
 
     public void remove(Event event) {
@@ -65,14 +102,15 @@ public class HotSearchStore {
     }
 
     public void remove(Collection<Event> events) {
-        var batch = new ArrayList<>(events);
-        for (int from = 0; from < batch.size(); from += ACK_BATCH_SIZE) {
-            var chunk = batch.subList(from, Math.min(from + ACK_BATCH_SIZE, batch.size()));
-            List<String> keys = new ArrayList<>();
-            keys.add(PENDING_KEY);
-            chunk.forEach(event -> keys.add(PREFIX + "assignment:" + event.token()));
-            redis.execute(ACK, keys, chunk.stream().map(JsonUtil::toJson).toArray(String[]::new));
-        }
+        byPartition(events, event -> partition(event.token())).forEach((partition, batch) -> {
+            for (int from = 0; from < batch.size(); from += ACK_BATCH_SIZE) {
+                var chunk = batch.subList(from, Math.min(from + ACK_BATCH_SIZE, batch.size()));
+                List<String> keys = new ArrayList<>();
+                keys.add(pendingKey(partition));
+                chunk.forEach(event -> keys.add(assignmentKey(event)));
+                redis.execute(ACK, keys, chunk.stream().map(JsonUtil::toJson).toArray(String[]::new));
+            }
+        });
     }
 
     public Assignment assignment(Event event) {
@@ -81,11 +119,17 @@ public class HotSearchStore {
 
     public Map<Event, Assignment> assignments(List<Event> events) {
         if (events.isEmpty()) return Map.of();
-        var values = redis.opsForValue().multiGet(events.stream().map(event -> PREFIX + "assignment:" + event.token()).toList());
-        if (values == null || values.size() != events.size()) throw new IllegalStateException("Hot search assignments unavailable");
+        var batches = new ArrayList<>(byPartition(events, event -> partition(event.token())).values());
+        var results = pipeline(operations -> batches.forEach(batch ->
+                operations.opsForValue().multiGet(batch.stream().map(this::assignmentKey).toList())));
         Map<Event, Assignment> result = new LinkedHashMap<>();
-        for (int i = 0; i < events.size(); i++) {
-            if (values.get(i) != null) result.put(events.get(i), JsonUtil.fromJson(values.get(i), Assignment.class));
+        for (int b = 0; b < batches.size(); b++) {
+            var batch = batches.get(b);
+            var values = (List<?>) results.get(b);
+            if (values == null || values.size() != batch.size()) throw new IllegalStateException("Hot search assignments unavailable");
+            for (int i = 0; i < batch.size(); i++) {
+                if (values.get(i) != null) result.put(batch.get(i), JsonUtil.fromJson((String) values.get(i), Assignment.class));
+            }
         }
         return result;
     }
@@ -103,7 +147,7 @@ public class HotSearchStore {
                     Instant.ofEpochMilli(event.happenedAt()).atZone(STAT_ZONE).toLocalDate().toString()));
         }
         pipeline(operations -> proposed.forEach((event, assignment) -> operations.opsForValue().setIfAbsent(
-                PREFIX + "assignment:" + event.token(), JsonUtil.toJson(assignment),
+                assignmentKey(event), JsonUtil.toJson(assignment),
                 Duration.ofMillis(event.happenedAt() + PENDING_MILLIS - now))));
         // NX 冲突时必须读取已固定的归属，不能把本次提议当成已经写入的结果。
         var result = assignments(events);
@@ -123,7 +167,7 @@ public class HotSearchStore {
     }
 
     public HotSearchGroup alias(String text, String version) {
-        String raw = redis.opsForValue().get(PREFIX + "alias:" + digest(text));
+        String raw = redis.opsForValue().get(aliasKey(text));
         if (raw == null) return null;
         Alias alias = JsonUtil.fromJson(raw, Alias.class);
         return version.equals(alias.version()) ? group(alias.groupId()) : null;
@@ -131,21 +175,47 @@ public class HotSearchStore {
 
     public Map<String, String> aliases(List<String> texts, String version) {
         if (texts.isEmpty()) return Map.of();
-        var values = redis.opsForValue().multiGet(texts.stream().map(text -> PREFIX + "alias:" + digest(text)).toList());
-        if (values == null || values.size() != texts.size()) throw new IllegalStateException("Hot search aliases unavailable");
+        var batches = new ArrayList<>(byPartition(texts, text -> partition(digest(text))).values());
+        var results = pipeline(operations -> batches.forEach(batch ->
+                operations.opsForValue().multiGet(batch.stream().map(this::aliasKey).toList())));
         Map<String, String> result = new LinkedHashMap<>();
-        for (int i = 0; i < texts.size(); i++) {
-            if (values.get(i) == null) continue;
-            var alias = JsonUtil.fromJson(values.get(i), Alias.class);
-            if (version.equals(alias.version())) result.put(texts.get(i), alias.groupId());
+        for (int b = 0; b < batches.size(); b++) {
+            var batch = batches.get(b);
+            var values = (List<?>) results.get(b);
+            if (values == null || values.size() != batch.size()) throw new IllegalStateException("Hot search aliases unavailable");
+            for (int i = 0; i < batch.size(); i++) {
+                if (values.get(i) == null) continue;
+                var alias = JsonUtil.fromJson((String) values.get(i), Alias.class);
+                if (version.equals(alias.version())) result.put(batch.get(i), alias.groupId());
+            }
         }
         return result;
     }
 
     public void remember(String text, HotSearchGroup group) {
-        redis.execute(ALIAS, List.of(PREFIX + "alias:" + digest(text), PREFIX + "aliases"),
+        String digest = digest(text);
+        int partition = partition(digest);
+        redis.execute(ALIAS, List.of(aliasKey(text), "{hs:a:" + partition + "}:index"),
                 JsonUtil.toJson(new Alias(group.id(), group.version())), String.valueOf(System.currentTimeMillis()),
-                String.valueOf(properties.getAliasTtlSeconds() * 1000L), String.valueOf(properties.getPendingLimit()), digest(text));
+                String.valueOf(properties.getAliasTtlSeconds() * 1000L), String.valueOf(quota(properties.getPendingLimit(), partition)), digest);
+    }
+
+    int partition(String token) { return Math.floorMod(token.hashCode(), partitionCount); }
+    String pendingKey(int partition) { return "{hs:p:" + partition + "}:pending"; }
+    String assignmentKey(Event event) { return "{hs:p:" + partition(event.token()) + "}:assignment:" + event.token(); }
+    String aliasKey(String text) {
+        String digest = digest(text);
+        return "{hs:a:" + partition(digest) + "}:alias:" + digest;
+    }
+
+    private int quota(int total, int partition) {
+        return total / partitionCount + (partition < total % partitionCount ? 1 : 0);
+    }
+
+    private <T> Map<Integer, List<T>> byPartition(Collection<T> items, ToIntFunction<T> route) {
+        Map<Integer, List<T>> result = new LinkedHashMap<>();
+        items.forEach(item -> result.computeIfAbsent(route.applyAsInt(item), ignored -> new ArrayList<>()).add(item));
+        return result;
     }
 
     public List<HotSearchGroup> groups(long now) {

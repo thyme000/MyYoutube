@@ -244,7 +244,7 @@ class HotSearchHistoryMysqlTest {
         LiveFlow() {
             int port = Integer.getInteger("hot.redis.port");
             assertTrue(port > 10000, "仅使用隔离测试 Redis");
-            connection = new LettuceConnectionFactory("127.0.0.1", port);
+            connection = HotSearchRedisTest.connection(port);
             connection.afterPropertiesSet();
             redis = new StringRedisTemplate(connection);
             clean();
@@ -273,6 +273,8 @@ class HotSearchHistoryMysqlTest {
         void clean() {
             var keys = redis.keys(HotSearchStore.PREFIX + "*");
             if (keys != null && !keys.isEmpty()) redis.delete(keys);
+            var partitioned = redis.keys("{hs:*");
+            if (partitioned != null) partitioned.forEach(redis::delete);
             redis.delete("idempotent:{hot-search}:refresh");
         }
 

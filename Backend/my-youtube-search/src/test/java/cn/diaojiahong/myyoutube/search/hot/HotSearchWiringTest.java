@@ -34,14 +34,27 @@ class HotSearchWiringTest {
         new ApplicationContextRunner().withUserConfiguration(Config.class)
                 .withConfiguration(AutoConfigurations.of(ConfigurationPropertiesAutoConfiguration.class))
                 .withPropertyValues("my-youtube.search.hot.enabled=false", "my-youtube.search.hot.similarity-threshold=0.83",
+                        "my-youtube.search.hot.partition-count=7",
                         "my-youtube.search.hot.excluded-location=classpath:hot-search/missing.txt")
                 .run(context -> {
                     assertNull(context.getStartupFailure());
                     assertEquals(.83, context.getBean(HotSearchProperties.class).getSimilarityThreshold());
+                    assertEquals(7, context.getBean(HotSearchProperties.class).getPartitionCount());
                     assertEquals("classpath:hot-search/missing.txt", context.getBean(HotSearchProperties.class).getExcludedLocation());
                     assertEquals("asdfghjkl", context.getBean(HotSearchFilter.class).eligible("asdfghjkl"));
                     assertTrue(context.getBean(HotSearchService.class).hot().isEmpty());
                     verifyNoInteractions(context.getBean(LlmPort.class), context.getBean(QueryEmbeddingPort.class));
                 });
+    }
+
+    @Test void rejectsInvalidPartitionCounts() {
+        var properties = new HotSearchProperties();
+        assertEquals(16, properties.getPartitionCount());
+        for (int count : new int[]{0, -1, properties.getPendingLimit() + 1}) {
+            properties.setPartitionCount(count);
+            assertThrows(IllegalArgumentException.class, properties::validate);
+        }
+        properties.setPartitionCount(3);
+        assertDoesNotThrow(properties::validate);
     }
 }

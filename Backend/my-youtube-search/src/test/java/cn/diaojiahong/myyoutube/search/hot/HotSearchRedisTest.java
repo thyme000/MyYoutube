@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.springframework.data.redis.connection.RedisClusterConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -35,7 +36,7 @@ class HotSearchRedisTest {
     @BeforeEach void setup() throws Exception {
         int port = Integer.getInteger("hot.redis.port");
         assertTrue(port > 10000, "仅使用隔离测试 Redis");
-        connection = new LettuceConnectionFactory("127.0.0.1", port); connection.afterPropertiesSet();
+        connection = connection(port); connection.afterPropertiesSet();
         redis = new StringRedisTemplate(connection); clean();
         properties = new HotSearchProperties(); properties.setMinUsers(1);
         store = new HotSearchStore(redis, properties);
@@ -66,7 +67,17 @@ class HotSearchRedisTest {
 
     void clean() {
         var keys = redis.keys(HotSearchStore.PREFIX + "*"); if (keys != null && !keys.isEmpty()) redis.delete(keys);
+        var partitioned = redis.keys("{hs:*"); if (partitioned != null) partitioned.forEach(redis::delete);
         redis.delete("idempotent:{hot-search}:refresh");
+    }
+
+    static LettuceConnectionFactory connection(int port) {
+        String nodes = System.getProperty("hot.redis.cluster.nodes");
+        if (nodes == null) return new LettuceConnectionFactory("127.0.0.1", port);
+        var addresses = Arrays.asList(nodes.split(","));
+        assertTrue(addresses.stream().allMatch(address -> address.startsWith("127.0.0.1:")
+                && Integer.parseInt(address.substring(address.lastIndexOf(':') + 1)) > 10000));
+        return new LettuceConnectionFactory(new RedisClusterConfiguration(addresses));
     }
 
     @AfterEach void cleanup() {
@@ -121,7 +132,7 @@ class HotSearchRedisTest {
         store.remember("别名", group);
         assertNotNull(store.alias("别名", "v1"));
         assertNull(store.alias("别名", "v2"));
-        redis.delete(HotSearchStore.PREFIX + "alias:" + HotSearchStore.digest("别名"));
+        redis.delete(store.aliasKey("别名"));
         assertNull(store.alias("别名", "v1"));
         store.remember("别名", group); store.retire(group);
         assertNull(store.alias("别名", "v1"));
@@ -156,6 +167,8 @@ class HotSearchRedisTest {
     }
 
     @Test void enforcesInputGroupContributionAndAliasCapacity() {
+        properties.setPartitionCount(1);
+        store = new HotSearchStore(redis, properties);
         properties.setPendingLimit(1); properties.setGroupLimit(1); properties.setContributionLimit(1);
         add("第一个", 1); assertFalse(store.record(event("第二个", 2, now)));
         var group = group("capacity", "容量测试");
@@ -249,13 +262,15 @@ class HotSearchRedisTest {
         assertEquals(assigned, store.assignment(event));
         assertEquals(java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneId.of("Asia/Shanghai"))
                 .toLocalDate().toString(), assigned.statDate());
-        assertTrue(redis.getExpire(HotSearchStore.PREFIX + "assignment:" + event.token(), TimeUnit.MILLISECONDS) <= HotSearchStore.PENDING_MILLIS);
+        assertTrue(redis.getExpire(store.assignmentKey(event), TimeUnit.MILLISECONDS) <= HotSearchStore.PENDING_MILLIS);
         store.remove(event);
         assertNull(store.assignment(event));
         assertTrue(store.pending(now).isEmpty());
     }
 
     @Test void batchAssignmentsKeepExistingOwnersAndAcknowledgmentPreservesOtherInputs() {
+        properties.setPartitionCount(1);
+        store = new HotSearchStore(redis, properties);
         properties.setBatchSize(300);
         var original = group("original", "原归属");
         var proposed = group("proposed", "新归属");
@@ -280,6 +295,126 @@ class HotSearchRedisTest {
         assertNotNull(store.assignment(concurrent));
         store.remove(events);
         assertEquals(List.of(concurrent), store.pending(now));
+    }
+
+    HotSearchStore.Event eventInPartition(int partition, int sequence) {
+        for (int candidate = sequence; ; candidate++) {
+            String token = "partition-" + partition + "-event-" + sequence + "-" + candidate;
+            if (store.partition(token) == partition) return new HotSearchStore.Event(token, "同一个搜索词", "  同一个搜索词  ", sequence, now);
+        }
+    }
+
+    @Test void pendingSharesItsBudgetAndRotatesPartitionsWithoutStarvation() {
+        properties.setPartitionCount(3); properties.setBatchSize(5);
+        store = new HotSearchStore(redis, properties);
+        for (int partition = 0; partition < 3; partition++) {
+            for (int i = 0; i < 8; i++) assertTrue(store.record(eventInPartition(partition, i)));
+        }
+        for (int round = 0; round < 3; round++) {
+            var batch = store.pending(now);
+            assertEquals(5, batch.size());
+            final int start = round;
+            for (int partition = 0; partition < 3; partition++) {
+                final int expectedPartition = partition;
+                int expected = partition == (start + 2) % 3 ? 1 : 2;
+                assertEquals(expected, batch.stream().filter(event -> store.partition(event.token()) == expectedPartition).count());
+            }
+        }
+        properties.setBatchSize(1);
+        Set<Integer> visited = new HashSet<>();
+        for (int i = 0; i < 3; i++) visited.add(store.partition(store.pending(now).get(0).token()));
+        assertEquals(Set.of(0, 1, 2), visited);
+    }
+
+    @Test void busyPartitionBorrowsUnusedReadBudget() {
+        properties.setPartitionCount(4); properties.setBatchSize(7);
+        store = new HotSearchStore(redis, properties);
+        for (int i = 0; i < 20; i++) assertTrue(store.record(eventInPartition(3, i)));
+        var batch = store.pending(now);
+        assertEquals(7, batch.size());
+        assertEquals(7, new HashSet<>(batch).size());
+        assertTrue(batch.stream().allMatch(event -> store.partition(event.token()) == 3));
+    }
+
+    @Test void partitionQuotasKeepTheOriginalTotalCapacity() {
+        properties.setPartitionCount(3); properties.setPendingLimit(8);
+        store = new HotSearchStore(redis, properties);
+        var target = group("quota", "分区容量");
+        int accepted = 0;
+        for (int partition = 0; partition < 3; partition++) {
+            int quota = partition < 2 ? 3 : 2;
+            for (int i = 0; i < quota; i++) {
+                assertTrue(store.record(eventInPartition(partition, i)));
+                accepted++;
+                String alias = aliasInPartition(partition, i);
+                store.remember(alias, target);
+                assertEquals(target.id(), store.aliases(List.of(alias), "v1").get(alias));
+            }
+            assertFalse(store.record(eventInPartition(partition, quota)));
+            String overflow = aliasInPartition(partition, quota);
+            store.remember(overflow, target);
+            assertFalse(store.aliases(List.of(overflow), "v1").containsKey(overflow));
+        }
+        assertEquals(8, accepted);
+        assertEquals(8, store.pending(now).size());
+    }
+
+    String aliasInPartition(int partition, int sequence) {
+        for (int candidate = sequence; ; candidate++) {
+            String text = "别名-" + partition + "-" + sequence + "-" + candidate;
+            if (store.partition(HotSearchStore.digest(text)) == partition) return text;
+        }
+    }
+
+    @Test void configurationRefreshCannotChangeTheRoutingOfAnExistingStore() {
+        properties.setPartitionCount(3);
+        store = new HotSearchStore(redis, properties);
+        var input = eventInPartition(2, 1);
+        assertTrue(store.record(input));
+        String before = store.assignmentKey(input);
+        properties.setPartitionCount(7);
+        assertEquals(before, store.assignmentKey(input));
+        assertEquals(List.of(input), store.pending(now));
+        store.assign(input, group("fixed-layout", "固定路由"), now);
+        store.remove(input);
+        assertTrue(store.pending(now).isEmpty());
+    }
+
+    @Test void partialPartitionAcknowledgmentCanBeRetriedWithoutDeletingNewInputs() {
+        properties.setPartitionCount(3);
+        store = new HotSearchStore(redis, properties);
+        var inputs = List.of(eventInPartition(0, 1), eventInPartition(1, 1), eventInPartition(2, 1));
+        inputs.forEach(input -> assertTrue(store.record(input)));
+        store.assign(group("ack-partitions", "确认分区"), inputs, now);
+        var failingRedis = spy(redis);
+        doThrow(new IllegalStateException("partition unavailable")).when(failingRedis).execute(
+                any(org.springframework.data.redis.core.script.RedisScript.class),
+                argThat(keys -> store.pendingKey(1).equals(keys.get(0))), any(Object[].class));
+        var failing = new HotSearchStore(failingRedis, properties);
+        assertThrows(IllegalStateException.class, () -> failing.remove(inputs));
+        assertEquals(Set.of(inputs.get(1), inputs.get(2)), new HashSet<>(store.pending(now)));
+        var concurrent = eventInPartition(0, 2);
+        assertTrue(store.record(concurrent));
+        store.remove(inputs);
+        assertEquals(List.of(concurrent), store.pending(now));
+        assertTrue(store.assignments(inputs).isEmpty());
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "hot.redis.cluster.nodes", matches = ".+")
+    void partitionedDataUsesMultipleClusterPrimaries() {
+        try (var cluster = connection.getClusterConnection()) {
+            Set<String> owners = new HashSet<>();
+            for (int partition = 0; partition < properties.getPartitionCount(); partition++) {
+                var input = eventInPartition(partition, 1);
+                assertTrue(store.record(input));
+                byte[] pending = store.pendingKey(partition).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                byte[] assignment = store.assignmentKey(input).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                assertEquals(cluster.clusterGetSlotForKey(pending), cluster.clusterGetSlotForKey(assignment));
+                owners.add(cluster.clusterGetNodeForKey(pending).getId());
+            }
+            assertTrue(owners.size() > 1, "输入不能仍全部集中在一个主节点");
+        }
     }
 
     @Test void rankingBatchesKeepGroupOrderAndUserHourDeduplication() {
