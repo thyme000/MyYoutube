@@ -27,6 +27,7 @@ class HotSearchWiringTest {
         @Bean LlmPort llm() { return mock(LlmPort.class); }
         @Bean QueryEmbeddingPort queries() { return mock(QueryEmbeddingPort.class); }
         @Bean IdempotentGuard guard() { return mock(IdempotentGuard.class); }
+        @Bean HotSearchHistoryStore history() { return mock(HotSearchHistoryStore.class); }
     }
 
     @Test void bindsConfigurationAndChoosesItsOwnExecutorWithoutAffectingRecallPools() {

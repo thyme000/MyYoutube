@@ -74,7 +74,7 @@ public class SearchServiceImpl implements ISearchService {
         var page = readable.subList(from, Math.min(from + pageQuery.getPageSize(), readable.size()));
         PageResult<SearchVideoVO> result = buildPageResult(page, readable.size(), pageQuery.getPageSize(), ctx.getFollowIds());
         if (pageQuery.getPageNo() == 1 && !result.getList().isEmpty()) {
-            hotSearchService.record(userId, ctx.getKeyword());
+            hotSearchService.record(userId, pageQuery.getKeyword());
         }
         // 逐次检索, 只留召回量/可读量便于核对降级是否发生
         log.debug("Search completed userId={} keyword={} sortByLatest={} recallHits={} readable={} pageNo={}",

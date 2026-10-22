@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
 import cn.diaojiahong.myyoutube.common.config.MybatisPlusConfig;
+import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
+import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
 import cn.diaojiahong.myyoutube.search.mapper.HotSearchHistoryMapper;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
@@ -29,6 +31,10 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.DatabasePopulatorUtils;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
@@ -37,10 +43,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 @EnabledIfSystemProperty(named = "hot.mysql.url", matches = "jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/hot_search_test.*")
 @Timeout(20)
@@ -161,6 +176,111 @@ class HotSearchHistoryMysqlTest {
         }
     }
 
+    @Test
+    @EnabledIfSystemProperty(named = "hot.redis.port", matches = "[0-9]+")
+    void realRedisToMysqlRetainsEveryRawSearchButCountsUsersHourly() throws Exception {
+        try (var flow = new LiveFlow()) {
+            flow.record(7, "  C++ 入门  ");
+            flow.record(7, " C++ 入门 ");
+            flow.service.refresh();
+            flow.record(8, "C++ 入门");
+            flow.service.refresh();
+
+            assertTrue(flow.pending.pending(flow.now).isEmpty());
+            assertEquals(3L, count("hot_search_event"));
+            assertEquals(List.of("  C++ 入门  ", " C++ 入门 ", "C++ 入门").stream().sorted().toList(),
+                    jdbc.queryForList("SELECT raw_keyword FROM hot_search_event", String.class).stream().sorted().toList());
+            assertEquals(1L, jdbc.queryForObject("SELECT COUNT(DISTINCT group_id) FROM hot_search_event", Long.class));
+            store.rebuildDay(flow.date);
+            var summary = jdbc.queryForMap("SELECT * FROM hot_search_daily_group");
+            assertEquals(3L, ((Number) summary.get("search_count")).longValue());
+            assertEquals(2L, ((Number) summary.get("user_count")).longValue());
+            assertEquals(2L, ((Number) summary.get("score")).longValue());
+            assertEquals(2, flow.pending.ranking(flow.pending.named("C++ 入门"), flow.now).score());
+            verify(flow.model, times(1)).group(anyList());
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "hot.redis.port", matches = "[0-9]+")
+    void databaseOutageRetainsAssignmentAndLaterWritesEvenWhenTheModelIsOffline() throws Exception {
+        try (var flow = new LiveFlow()) {
+            flow.record(7, "  C++ 入门  ");
+            jdbc.execute("RENAME TABLE hot_search_event TO hot_search_event_paused");
+            try {
+                flow.service.refresh();
+                assertEquals(List.of("C++ 入门"), flow.service.hot());
+                var inputs = flow.pending.pending(flow.now);
+                assertEquals(1, inputs.size());
+                assertEquals("C++ 入门", flow.pending.assignment(inputs.get(0)).groupName());
+            } finally {
+                jdbc.execute("RENAME TABLE hot_search_event_paused TO hot_search_event");
+            }
+            clearInvocations(flow.model);
+            when(flow.model.info()).thenThrow(new IllegalStateException("model offline"));
+
+            flow.service.refresh();
+
+            assertTrue(flow.pending.pending(flow.now).isEmpty());
+            assertEquals(1L, count("hot_search_event"));
+            assertEquals("  C++ 入门  ", jdbc.queryForObject("SELECT raw_keyword FROM hot_search_event", String.class));
+            assertEquals("v1", jdbc.queryForObject("SELECT vector_version FROM hot_search_event", String.class));
+            verify(flow.model, never()).vectors(anyList(), any());
+            verify(flow.model, never()).group(anyList());
+        }
+    }
+
+    private class LiveFlow implements AutoCloseable {
+        final long now = System.currentTimeMillis();
+        final LocalDate date = Instant.ofEpochMilli(now).atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate();
+        final LettuceConnectionFactory connection;
+        final StringRedisTemplate redis;
+        final HotSearchStore pending;
+        final HotSearchModel model = mock(HotSearchModel.class);
+        final ThreadPoolTaskExecutor executor = new HotSearchConfiguration().hotSearchCacheExecutor();
+        final ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        final HotSearchService service;
+
+        LiveFlow() {
+            int port = Integer.getInteger("hot.redis.port");
+            assertTrue(port > 10000, "仅使用隔离测试 Redis");
+            connection = new LettuceConnectionFactory("127.0.0.1", port);
+            connection.afterPropertiesSet();
+            redis = new StringRedisTemplate(connection);
+            clean();
+            scheduler.initialize();
+            var properties = new HotSearchProperties();
+            properties.setMinUsers(1);
+            pending = spy(new HotSearchStore(redis, properties));
+            var info = new QueryEmbeddingPort.Info("v1", 2);
+            when(model.info()).thenReturn(info);
+            when(model.vectors(anyList(), any())).thenAnswer(call -> ((List<String>) call.getArgument(0)).stream()
+                    .collect(Collectors.toMap(text -> text, text -> List.of(1f, 0f))));
+            when(model.group(anyList())).thenAnswer(call -> List.of(new HotSearchModel.Grouping("C++ 入门", call.getArgument(0))));
+            service = new HotSearchService(pending, store, model, new HotSearchFilter(properties), properties,
+                    new IdempotentGuard(redis, scheduler), executor, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
+        }
+
+        void record(long user, String raw) throws InterruptedException {
+            var captured = new CountDownLatch(1);
+            doAnswer(call -> {
+                Object result = call.callRealMethod(); captured.countDown(); return result;
+            }).when(pending).record(any());
+            service.record(user, raw);
+            assertTrue(captured.await(3, TimeUnit.SECONDS));
+        }
+
+        void clean() {
+            var keys = redis.keys(HotSearchStore.PREFIX + "*");
+            if (keys != null && !keys.isEmpty()) redis.delete(keys);
+            redis.delete("idempotent:{hot-search}:refresh");
+        }
+
+        @Override public void close() {
+            executor.shutdown(); scheduler.shutdown(); clean(); connection.destroy();
+        }
+    }
+
     @Test void rawKeywordGroupingPreservesCasePunctuationWhitespaceAndUnicode() {
         store.append(List.of(event("a", DAY, 1, NINE, "Java", "a"),
                 event("b", DAY, 2, NINE, "java", "a"),
@@ -196,6 +316,8 @@ class HotSearchHistoryMysqlTest {
                     assertNull(context.getStartupFailure());
                     assertEquals("search_db", context.getEnvironment().getProperty("my-youtube.db-name"));
                     assertEquals(3, context.getBean(com.zaxxer.hikari.HikariDataSource.class).getMaximumPoolSize());
+                    assertEquals(1000, context.getBean(com.zaxxer.hikari.HikariDataSource.class).getConnectionTimeout());
+                    assertEquals("5000", context.getBean(com.zaxxer.hikari.HikariDataSource.class).getDataSourceProperties().getProperty("socketTimeout"));
                     assertNotNull(context.getBean(HotSearchHistoryMapper.class));
                     context.getBean(HotSearchHistoryStore.class).append(List.of(event("wired", DAY, 1, NINE, "Java", "a")));
                     assertEquals(1L, count("hot_search_event"));

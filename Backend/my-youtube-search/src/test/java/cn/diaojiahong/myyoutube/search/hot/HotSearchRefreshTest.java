@@ -10,9 +10,12 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -24,10 +27,14 @@ class HotSearchRefreshTest {
     final QueryEmbeddingPort.Info info = new QueryEmbeddingPort.Info("v1", 2);
     final HotSearchGroup group = new HotSearchGroup("existing", "已有组", List.of(1f, 0f), "v1");
     final HotSearchStore store = mock(HotSearchStore.class);
+    final HotSearchHistoryStore history = mock(HotSearchHistoryStore.class);
     final HotSearchModel model = mock(HotSearchModel.class);
     final HotSearchProperties properties = new HotSearchProperties();
     final IdempotentGuard guard = mock(IdempotentGuard.class);
     final List<HotSearchStore.Event> pending = new ArrayList<>();
+    final Map<HotSearchStore.Event, HotSearchStore.Assignment> assignments = new LinkedHashMap<>();
+    final Map<String, String> aliasIds = new LinkedHashMap<>();
+    final Map<String, HotSearchStore.Ranking> rankings = new LinkedHashMap<>();
 
     @BeforeEach void setup() {
         properties.setMinUsers(1);
@@ -37,24 +44,47 @@ class HotSearchRefreshTest {
         when(model.info()).thenReturn(info);
         when(store.groups(now)).thenReturn(List.of(group));
         when(store.pending(now)).thenAnswer(call -> List.copyOf(pending));
-        doAnswer(call -> { pending.remove(call.getArgument(0)); return null; }).when(store).remove(any());
-        when(store.contribute(eq(group), any(), eq(now))).thenReturn(true);
-        when(store.ranking(group, now)).thenReturn(new HotSearchStore.Ranking(group, 2, 1));
+        doAnswer(call -> {
+            Collection<HotSearchStore.Event> events = call.getArgument(0);
+            pending.removeAll(events); events.forEach(assignments::remove); return null;
+        }).when(store).remove(anyCollection());
+        when(store.assignments(anyList())).thenAnswer(call -> {
+            List<HotSearchStore.Event> events = call.getArgument(0);
+            Map<HotSearchStore.Event, HotSearchStore.Assignment> result = new LinkedHashMap<>();
+            events.forEach(event -> { if (assignments.containsKey(event)) result.put(event, assignments.get(event)); });
+            return result;
+        });
+        when(store.assign(any(HotSearchGroup.class), anyList(), eq(now))).thenAnswer(call -> {
+            var target = call.getArgument(0, HotSearchGroup.class);
+            List<HotSearchStore.Event> events = call.getArgument(1);
+            Map<HotSearchStore.Event, HotSearchStore.Assignment> result = new LinkedHashMap<>();
+            for (var event : events) result.put(event, assignments.computeIfAbsent(event, key ->
+                    new HotSearchStore.Assignment(target.id(), target.name(), target.version(),
+                            Instant.ofEpochMilli(event.happenedAt()).atZone(ZoneId.of("Asia/Shanghai")).toLocalDate().toString())));
+            return result;
+        });
+        when(store.aliases(anyList(), eq("v1"))).thenAnswer(call -> aliasIds);
+        when(store.contribute(eq(group), anyList(), eq(now))).thenReturn(true);
+        rankings.put(group.id(), new HotSearchStore.Ranking(group, 2, 1));
+        when(store.rankings(anyCollection(), eq(now))).thenAnswer(call -> {
+            Collection<HotSearchGroup> groups = call.getArgument(0);
+            return groups.stream().map(target -> rankings.get(target.id())).toList();
+        });
     }
 
     @Test void failedEmbeddingBatchStillProcessesCachedTermsAndRetriesOthersOnTheNextRefresh() {
         var cached = event("缓存词", 1);
         var unknown = event("新词", 2);
         pending.addAll(List.of(cached, unknown));
-        when(store.alias("缓存词", "v1")).thenReturn(group);
+        aliasIds.put("缓存词", group.id());
         when(model.vectors(List.of("新词"), info)).thenThrow(new IllegalStateException("unavailable"));
         var service = service(model);
 
         service.refresh();
 
         assertEquals(List.of(unknown), pending);
-        verify(store).contribute(group, cached, now);
-        verify(store, never()).contribute(group, unknown, now);
+        verify(store).contribute(group, List.of(cached), now);
+        verify(store, never()).contribute(group, List.of(unknown), now);
         verify(store).publish(List.of("已有组"));
         verify(model).vectors(List.of("新词"), info);
         verify(model, never()).group(anyList());
@@ -63,8 +93,74 @@ class HotSearchRefreshTest {
         service.refresh();
 
         assertTrue(pending.isEmpty());
-        verify(store).contribute(group, unknown, now);
+        verify(store).contribute(group, List.of(unknown), now);
         verify(model, times(2)).vectors(List.of("新词"), info);
+    }
+
+    @Test void databaseFailureKeepsFixedAssignmentsAndDoesNotBlockTheOnlineSnapshot() {
+        var event = event("缓存词", 1);
+        pending.add(event);
+        aliasIds.put("缓存词", group.id());
+        doThrow(new IllegalStateException("database unavailable")).doNothing().when(history).append(anyList());
+        var service = service(model);
+
+        service.refresh();
+
+        assertEquals(List.of(event), pending);
+        assertEquals(group.id(), assignments.get(event).groupId());
+        verify(store).publish(List.of(group.name()));
+        verify(store, never()).remove(argThat((Collection<HotSearchStore.Event> batch) -> batch.contains(event)));
+        clearInvocations(model);
+        when(model.info()).thenThrow(new IllegalStateException("model offline"));
+
+        service.refresh();
+
+        assertTrue(pending.isEmpty());
+        var batches = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(history, times(2)).append(batches.capture());
+        assertEquals(batches.getAllValues().get(0), batches.getAllValues().get(1));
+        verify(model, never()).vectors(anyList(), any());
+        verify(model, never()).group(anyList());
+        verify(store, times(1)).contribute(group, List.of(event), now);
+    }
+
+    @Test void allResolvedKeywordsAreWrittenAsOneBoundedBatchBeforeInputsAreRemoved() {
+        var first = event("缓存词", 1);
+        var second = event("另一个缓存词", 2);
+        pending.addAll(List.of(first, second));
+        aliasIds.put(first.keyword(), group.id());
+        aliasIds.put(second.keyword(), group.id());
+
+        service(model).refresh();
+
+        var batches = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(history).append(batches.capture());
+        assertEquals(2, batches.getValue().size());
+        var order = inOrder(history, store);
+        order.verify(history).append(anyList());
+        order.verify(store).remove(anyCollection());
+    }
+
+    @Test void acknowledgmentFailureRetriesTheSameEventWithoutRegrouping() {
+        var event = event("缓存词", 1);
+        pending.add(event);
+        aliasIds.put("缓存词", group.id());
+        doThrow(new IllegalStateException("ack unavailable")).doAnswer(call -> {
+            pending.remove(event); assignments.remove(event); return null;
+        }).when(store).remove(anyCollection());
+        var service = service(model);
+
+        service.refresh();
+        assertEquals(List.of(event), pending);
+        clearInvocations(model);
+        service.refresh();
+
+        assertTrue(pending.isEmpty());
+        var batches = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(history, times(2)).append(batches.capture());
+        assertEquals(batches.getAllValues().get(0), batches.getAllValues().get(1));
+        verify(model, never()).vectors(anyList(), any());
+        verify(model, never()).group(anyList());
     }
 
     @Test void duplicateIndexOnlyDefersItsOwnEventsAndRemainingInputIsReindexedNextRound() {
@@ -84,13 +180,13 @@ class HotSearchRefreshTest {
         service.refresh();
 
         assertEquals(List.of(bad), pending);
-        verify(store).contribute(group, good, now);
-        verify(store, never()).remove(bad);
+        verify(store).contribute(group, List.of(good), now);
+        verify(store, never()).remove(argThat((Collection<HotSearchStore.Event> batch) -> batch.contains(bad)));
 
         service.refresh();
 
         assertTrue(pending.isEmpty());
-        verify(store).contribute(group, bad, now);
+        verify(store).contribute(group, List.of(bad), now);
         var requests = org.mockito.ArgumentCaptor.forClass(LlmPort.EmbeddingsRequest.class);
         verify(llm, times(2)).embeddings(requests.capture(), any());
         assertEquals(List.of("坏项", "好项"), requests.getAllValues().get(0).getTexts());
@@ -105,7 +201,7 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         assertEquals(List.of(event), pending);
-        verify(store, never()).remove(any());
+        verify(store, never()).remove(anyCollection());
         verify(store, never()).publish(anyList());
         verify(model).vectors(List.of("新词"), info);
     }
@@ -114,7 +210,7 @@ class HotSearchRefreshTest {
         var cached = event("缓存词", 1);
         var unknown = event("新词", 2);
         pending.addAll(List.of(cached, unknown));
-        when(store.alias("缓存词", "v1")).thenReturn(group);
+        aliasIds.put("缓存词", group.id());
         var queries = mock(QueryEmbeddingPort.class);
         var llm = mock(LlmPort.class);
         when(queries.info(any())).thenReturn(info);
@@ -123,8 +219,8 @@ class HotSearchRefreshTest {
         service(new HotSearchModel(llm, queries, properties, new PromptTemplates())).refresh();
 
         assertEquals(List.of(unknown), pending);
-        verify(store).contribute(group, cached, now);
-        verify(store, never()).contribute(group, unknown, now);
+        verify(store).contribute(group, List.of(cached), now);
+        verify(store, never()).contribute(group, List.of(unknown), now);
         verify(llm, never()).chat(any(), any());
     }
 
@@ -133,7 +229,7 @@ class HotSearchRefreshTest {
         var second = event("另一个主题", 2);
         var cached = event("缓存词", 3);
         pending.addAll(List.of(failed, second, cached));
-        when(store.alias("缓存词", "v1")).thenReturn(group);
+        aliasIds.put("缓存词", group.id());
         when(model.vectors(List.of("需要命名", "另一个主题"), info)).thenReturn(Map.of(
                 "需要命名", List.of(0f, 1f), "另一个主题", List.of(0f, 1f)));
         when(model.group(List.of("需要命名", "另一个主题"))).thenThrow(new IllegalStateException("invalid JSON"));
@@ -141,10 +237,10 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         assertEquals(List.of(failed, second), pending);
-        verify(store).contribute(group, cached, now);
+        verify(store).contribute(group, List.of(cached), now);
         verify(model).group(List.of("需要命名", "另一个主题"));
-        verify(store, never()).remove(failed);
-        verify(store, never()).remove(second);
+        verify(store, never()).remove(argThat((Collection<HotSearchStore.Event> batch) -> batch.contains(failed)));
+        verify(store, never()).remove(argThat((Collection<HotSearchStore.Event> batch) -> batch.contains(second)));
         verify(store).publish(List.of("已有组"));
     }
 
@@ -155,7 +251,7 @@ class HotSearchRefreshTest {
         var matched = event("已知主题", 4);
         var cached = event("缓存词", 5);
         pending.addAll(List.of(first, second, other, matched, cached));
-        when(store.alias("缓存词", "v1")).thenReturn(group);
+        aliasIds.put("缓存词", group.id());
         when(model.vectors(List.of("首个搜索词", "同义搜索词", "另一主题", "已知主题"), info)).thenReturn(Map.of(
                 "首个搜索词", List.of(0f, 1f), "同义搜索词", List.of(0f, 1f),
                 "另一主题", List.of(0f, -1f), "已知主题", List.of(1f, 0f)));
@@ -171,11 +267,11 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         assertTrue(pending.isEmpty());
-        verify(store).contribute(created, first, now);
-        verify(store).contribute(created, second, now);
-        verify(store).contribute(otherGroup, other, now);
-        verify(store).contribute(group, matched, now);
-        verify(store).contribute(group, cached, now);
+        verify(store).contribute(created, List.of(first), now);
+        verify(store).contribute(created, List.of(second), now);
+        verify(store).contribute(otherGroup, List.of(other), now);
+        verify(store).contribute(group, List.of(matched), now);
+        verify(store).contribute(group, List.of(cached), now);
         verify(store).remember("首个搜索词", created);
         verify(store).remember("同义搜索词", created);
         verify(model).group(anyList());
@@ -200,11 +296,11 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         assertEquals(List.of(deferred), pending);
-        verify(store).contribute(created, first, now);
-        verify(store).contribute(created, second, now);
+        verify(store).contribute(created, List.of(first), now);
+        verify(store).contribute(created, List.of(second), now);
         verify(model).group(List.of("首个搜索词", "同义搜索词", "另一主题"));
         verify(model).vectors(List.of("新组名"), info);
-        verify(store, never()).remove(deferred);
+        verify(store, never()).remove(argThat((Collection<HotSearchStore.Event> batch) -> batch.contains(deferred)));
     }
 
     @Test void groupCapacityStillAllowsExistingMatchesAndSkipsNewGrouping() {
@@ -217,7 +313,7 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         assertEquals(List.of(deferred), pending);
-        verify(store).contribute(group, matched, now);
+        verify(store).contribute(group, List.of(matched), now);
         verify(model, never()).group(anyList());
     }
 
@@ -233,8 +329,8 @@ class HotSearchRefreshTest {
         assertEquals(List.of(first, second), pending);
         verify(model).group(List.of("同一个词"));
         verify(model, times(1)).vectors(anyList(), any());
-        verify(store, never()).remove(any());
-        verify(store, never()).contribute(any(), any(), anyLong());
+        verify(store, never()).remove(anyCollection());
+        verify(store, never()).contribute(any(), anyList(), anyLong());
         verify(store, never()).remember(anyString(), any());
     }
 
@@ -253,8 +349,8 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         assertEquals(List.of(second), pending);
-        verify(store).contribute(created, first, now);
-        verify(store, never()).remove(second);
+        verify(store).contribute(created, List.of(first), now);
+        verify(store, never()).remove(argThat((Collection<HotSearchStore.Event> batch) -> batch.contains(second)));
     }
 
     @Test void failedNameEmbeddingBatchStillReusesOriginalVectorsAndExistingNames() {
@@ -274,8 +370,8 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         assertEquals(List.of(second), pending);
-        verify(store).contribute(created, first, now);
-        verify(store).contribute(group, third, now);
+        verify(store).contribute(created, List.of(first), now);
+        verify(store).contribute(group, List.of(third), now);
         verify(model).vectors(List.of("其他组名"), info);
     }
 
@@ -295,8 +391,8 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         assertTrue(pending.isEmpty());
-        verify(store).contribute(created, first, now);
-        verify(store).contribute(created, second, now);
+        verify(store).contribute(created, List.of(first), now);
+        verify(store).contribute(created, List.of(second), now);
         verify(model).vectors(List.of("新组名"), info);
     }
 
@@ -322,9 +418,9 @@ class HotSearchRefreshTest {
         service(new HotSearchModel(llm, queries, properties, new PromptTemplates())).refresh();
 
         assertEquals(List.of(second), pending);
-        verify(store).contribute(firstGroup, first, now);
-        verify(store).contribute(thirdGroup, third, now);
-        verify(store, never()).remove(second);
+        verify(store).contribute(firstGroup, List.of(first), now);
+        verify(store).contribute(thirdGroup, List.of(third), now);
+        verify(store, never()).remove(argThat((Collection<HotSearchStore.Event> batch) -> batch.contains(second)));
         verify(store).remember("首个搜索词", firstGroup);
         verify(store).remember("另一个搜索词", thirdGroup);
         verify(llm).chat(any(), any());
@@ -336,16 +432,16 @@ class HotSearchRefreshTest {
     }
 
     private void accept(HotSearchGroup created) {
-        when(store.contribute(eq(created), any(), eq(now))).thenReturn(true);
-        when(store.ranking(created, now)).thenReturn(new HotSearchStore.Ranking(created, 1, 1));
+        when(store.contribute(eq(created), anyList(), eq(now))).thenReturn(true);
+        rankings.put(created.id(), new HotSearchStore.Ranking(created, 1, 1));
     }
 
     private HotSearchService service(HotSearchModel selected) {
-        return new HotSearchService(store, selected, new HotSearchFilter(properties), properties, guard,
+        return new HotSearchService(store, history, selected, new HotSearchFilter(properties), properties, guard,
                 mock(ThreadPoolTaskExecutor.class), Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
     }
 
     private HotSearchStore.Event event(String text, long userId) {
-        return new HotSearchStore.Event("event-" + userId, text, userId, now);
+        return new HotSearchStore.Event("event-" + userId, text, text, userId, now);
     }
 }

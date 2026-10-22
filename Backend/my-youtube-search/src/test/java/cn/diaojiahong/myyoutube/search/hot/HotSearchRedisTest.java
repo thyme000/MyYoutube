@@ -25,6 +25,7 @@ class HotSearchRedisTest {
     HotSearchStore store;
     HotSearchProperties properties;
     HotSearchModel model;
+    HotSearchHistoryStore history;
     HotSearchService service;
     ThreadPoolTaskExecutor executor;
     ThreadPoolTaskScheduler scheduler;
@@ -43,6 +44,7 @@ class HotSearchRedisTest {
         guard = new IdempotentGuard(redis, scheduler);
         now = System.currentTimeMillis();
         model = mock(HotSearchModel.class);
+        history = mock(HotSearchHistoryStore.class);
         when(model.info()).thenReturn(new QueryEmbeddingPort.Info("v1", 2));
         when(model.vectors(anyList(), any())).thenAnswer(call -> {
             Map<String, List<Float>> result = new HashMap<>();
@@ -50,7 +52,7 @@ class HotSearchRedisTest {
             return result;
         });
         when(model.group(anyList())).thenAnswer(call -> grouped(call.getArgument(0)));
-        service = new HotSearchService(store, model, new HotSearchFilter(properties), properties, guard, executor, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
+        service = new HotSearchService(store, history, model, new HotSearchFilter(properties), properties, guard, executor, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
     }
 
     List<HotSearchModel.Grouping> grouped(List<String> keywords) {
@@ -75,7 +77,7 @@ class HotSearchRedisTest {
     }
 
     HotSearchStore.Event event(String text, long user, long time) {
-        return new HotSearchStore.Event(UUID.randomUUID().toString(), text, user, time);
+        return new HotSearchStore.Event(UUID.randomUUID().toString(), text, text, user, time);
     }
     HotSearchGroup group(String id, String name) { return new HotSearchGroup(id, name, List.of(1f, 0f), "v1"); }
     void add(String text, long user) { assertTrue(store.record(event(text, user, now))); }
@@ -197,15 +199,7 @@ class HotSearchRedisTest {
     }
 
     @Test void failureAfterContributionKeepsInputAndRetryDoesNotDoubleCount() throws Exception {
-        var observed = spy(store);
-        var failed = new java.util.concurrent.atomic.AtomicBoolean();
-        doAnswer(call -> {
-            Object result = call.callRealMethod();
-            if (failed.compareAndSet(false, true)) throw new IllegalStateException("reply lost after write");
-            return result;
-        }).when(observed).contribute(any(), any(), anyLong());
-        service = new HotSearchService(observed, model, new HotSearchFilter(properties), properties, guard,
-                executor, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
+        doThrow(new IllegalStateException("database unavailable")).doNothing().when(history).append(anyList());
         add("番茄炒蛋怎么做", 1); service.refresh();
         assertEquals(1, store.pending(now).size());
         service.refresh();
@@ -234,5 +228,98 @@ class HotSearchRedisTest {
         });
         service.refresh();
         assertEquals(List.of("下一批搜索"), store.pending(now).stream().map(HotSearchStore.Event::keyword).toList());
+    }
+
+    @Test void pendingRetentionIsIndependentOfTheOnlineWindowAndDoesNotKeepExpiredInputs() {
+        var old = event("昨日搜索", 1, now - Duration.ofHours(28).toMillis());
+        assertTrue(store.record(old));
+        assertEquals(List.of(old), store.pending(now));
+        var target = group("old-history", "历史搜索");
+        assertFalse(store.contribute(target, old, now));
+        assertTrue(store.pending(old.happenedAt() + HotSearchStore.PENDING_MILLIS).isEmpty());
+    }
+
+    @Test void fixedAssignmentSurvivesGroupRetirementAndCannotBeOverwritten() {
+        var event = event("  真实输入  ", 1, now);
+        var target = group("fixed", "原组名");
+        assertTrue(store.record(event));
+        var assigned = store.assign(event, target, now);
+        store.retire(target);
+        assertEquals(assigned, store.assign(event, group("other", "另一组"), now));
+        assertEquals(assigned, store.assignment(event));
+        assertEquals(java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneId.of("Asia/Shanghai"))
+                .toLocalDate().toString(), assigned.statDate());
+        assertTrue(redis.getExpire(HotSearchStore.PREFIX + "assignment:" + event.token(), TimeUnit.MILLISECONDS) <= HotSearchStore.PENDING_MILLIS);
+        store.remove(event);
+        assertNull(store.assignment(event));
+        assertTrue(store.pending(now).isEmpty());
+    }
+
+    @Test void batchAssignmentsKeepExistingOwnersAndAcknowledgmentPreservesOtherInputs() {
+        properties.setBatchSize(300);
+        var original = group("original", "原归属");
+        var proposed = group("proposed", "新归属");
+        var events = new ArrayList<HotSearchStore.Event>();
+        for (int i = 0; i < 201; i++) {
+            var event = event("批量输入", i, now);
+            assertTrue(store.record(event));
+            events.add(event);
+        }
+        var fixed = store.assign(events.get(0), original, now);
+        var assignments = store.assign(proposed, events, now);
+        assertEquals(fixed, assignments.get(events.get(0)));
+        assertEquals(200, assignments.values().stream().filter(value -> proposed.id().equals(value.groupId())).count());
+        var concurrent = event("新到输入", 999, now);
+        assertTrue(store.record(concurrent));
+        store.assign(concurrent, original, now);
+
+        store.remove(events);
+
+        assertEquals(List.of(concurrent), store.pending(now));
+        assertTrue(store.assignments(events).isEmpty());
+        assertNotNull(store.assignment(concurrent));
+        store.remove(events);
+        assertEquals(List.of(concurrent), store.pending(now));
+    }
+
+    @Test void rankingBatchesKeepGroupOrderAndUserHourDeduplication() {
+        List<HotSearchGroup> groups = new ArrayList<>();
+        for (int i = 0; i < 33; i++) {
+            var target = group("rank-" + i, "排名组" + i);
+            groups.add(target);
+            assertTrue(store.contribute(target, List.of(event("词", i, now), event("词", i, now),
+                    event("词", i, now - Duration.ofHours(1).toMillis())), now));
+        }
+        var last = groups.get(groups.size() - 1);
+        assertTrue(store.contribute(last, List.of(event("词", 999, now)), now));
+
+        var rankings = store.rankings(groups, now);
+
+        assertEquals(groups, rankings.stream().map(HotSearchStore.Ranking::group).toList());
+        assertTrue(rankings.subList(0, 32).stream().allMatch(value -> value.score() == 2 && value.users() == 1));
+        assertEquals(3, rankings.get(32).score());
+        assertEquals(2, rankings.get(32).users());
+    }
+
+    @Test void samplesRedisRefreshForTwoHundredEvents() {
+        var target = group("batch-sample", "番茄炒蛋教程");
+        store.contribute(target, event(target.name(), 99999, now), now);
+        long[] samples = new long[5];
+        for (int round = 0; round < 7; round++) {
+            for (int i = 0; i < 200; i++) {
+                assertTrue(store.record(event(target.name(), round * 200L + i, now)));
+            }
+            long started = System.nanoTime();
+            service.refresh();
+            long elapsed = System.nanoTime() - started;
+            assertTrue(store.pending(now).isEmpty());
+            if (round >= 2) samples[round - 2] = TimeUnit.NANOSECONDS.toMillis(elapsed);
+        }
+        System.out.println("Hot search Redis sample events=200 elapsedMs=" + Arrays.toString(samples));
+        Arrays.sort(samples);
+        System.out.println("Hot search Redis sample medianMs=" + samples[2]);
+        verify(model, never()).vectors(anyList(), any());
+        verify(model, never()).group(anyList());
+        verify(history, times(7)).append(argThat(batch -> batch.size() == 200));
     }
 }

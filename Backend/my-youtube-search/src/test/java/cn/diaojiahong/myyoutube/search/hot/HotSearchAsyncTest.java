@@ -15,10 +15,11 @@ import static org.mockito.Mockito.*;
 @org.junit.jupiter.api.Timeout(5)
 class HotSearchAsyncTest {
     final HotSearchStore store = mock(HotSearchStore.class);
+    final HotSearchHistoryStore history = mock(HotSearchHistoryStore.class);
     final HotSearchProperties properties = new HotSearchProperties();
     final org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor executor = new HotSearchConfiguration().hotSearchCacheExecutor();
     HotSearchService service() throws Exception {
-        return new HotSearchService(store, mock(HotSearchModel.class), new HotSearchFilter(properties), properties,
+        return new HotSearchService(store, history, mock(HotSearchModel.class), new HotSearchFilter(properties), properties,
                 mock(IdempotentGuard.class), executor, Clock.systemUTC());
     }
     @AfterEach void close() { executor.shutdown(); }
@@ -45,5 +46,23 @@ class HotSearchAsyncTest {
         executor.shutdown();
         assertDoesNotThrow(() -> service.record(1L, "搜索"));
         assertTrue(service.hot().isEmpty());
+    }
+
+    @Test void recordsTheExactInputSeparatelyFromGroupingTextWithoutCallingTheDatabase() throws Exception {
+        var recorded = new CountDownLatch(1);
+        when(store.record(any())).thenAnswer(call -> { recorded.countDown(); return true; });
+        String raw = ((char) 1) + "  C++ 入门  " + ((char) 1);
+        service().record(7L, raw);
+        assertTrue(recorded.await(1, TimeUnit.SECONDS));
+        var events = org.mockito.ArgumentCaptor.forClass(HotSearchStore.Event.class);
+        verify(store).record(events.capture());
+        assertEquals(raw, events.getValue().rawKeyword());
+        assertEquals("C++ 入门", events.getValue().keyword());
+        verifyNoInteractions(history);
+    }
+
+    @Test void oversizedRawInputOnlySkipsHeatCollection() throws Exception {
+        service().record(7L, " ".repeat(1024) + "Java");
+        verifyNoInteractions(store, history);
     }
 }

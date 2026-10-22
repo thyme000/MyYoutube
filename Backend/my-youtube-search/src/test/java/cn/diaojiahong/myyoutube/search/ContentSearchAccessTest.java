@@ -47,9 +47,9 @@ class ContentSearchAccessTest {
     @Test void recordsOnlySuccessfulNonemptyFirstPages() {
         when(recall.execute(any())).thenReturn(List.of("1"));
         when(summaries.listByIdsOrdered(any())).thenReturn(List.of(summary(1)));
-        var query = new SearchVideoPageQuery(); query.setKeyword("搜索词");
+        var query = new SearchVideoPageQuery(); query.setKeyword("  搜索词  ");
         search.searchVideo(query);
-        verify(hot).record(7L, "搜索词");
+        verify(hot).record(7L, "  搜索词  ");
         clearInvocations(hot); query.setPageNo(2); search.searchVideo(query); verifyNoInteractions(hot);
         query.setPageNo(1); when(summaries.listByIdsOrdered(any())).thenReturn(List.of());
         search.searchVideo(query); verifyNoInteractions(hot);

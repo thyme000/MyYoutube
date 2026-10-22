@@ -8,6 +8,10 @@ spring:
   datasource:
     hikari:
       maximum-pool-size: 3
+      connection-timeout: 1000
+      data-source-properties:
+        connectTimeout: 1000
+        socketTimeout: 5000
   elasticsearch:
     uris: ${ES_URIS:http://localhost:9201}
 
