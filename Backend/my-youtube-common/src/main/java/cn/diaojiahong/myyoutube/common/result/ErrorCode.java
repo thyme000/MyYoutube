@@ -5,9 +5,11 @@ import lombok.Getter;
 @Getter
 public enum ErrorCode {
     INVALID_ARGUMENT(40001, 400, "请求参数无效"),
+    INVALID_REQUEST(40002, 400, "请求格式或参数绑定错误"),
     UNAUTHORIZED(40101, 401, "未登录或登录已过期"),
     FORBIDDEN(40301, 403, "没有操作权限"),
     NOT_FOUND(40401, 404, "资源不存在"),
+    ENDPOINT_NOT_FOUND(40402, 404, "请求接口不存在"),
     METHOD_NOT_ALLOWED(40501, 405, "不支持该请求方法"),
     NOT_ACCEPTABLE(40601, 406, "不支持请求的响应格式"),
     STATE_CONFLICT(40901, 409, "当前状态不允许该操作"),

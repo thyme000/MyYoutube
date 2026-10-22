@@ -30,17 +30,17 @@ public class AdminController {
     }
     @GetMapping("/content/{contentId}/media")
     public Result<cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO> media(@PathVariable Long contentId) {
-        requireAdmin(); return contentAdminPort.media(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId));
+        requireAdmin(); return Result.success(contentAdminPort.media(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId)));
     }
 
     @GetMapping("/content/{contentId}")
     public Result<java.util.Map<String, Object>> content(@PathVariable Long contentId) {
-        requireAdmin(); return contentAdminPort.contentStatus(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId));
+        requireAdmin(); return Result.success(contentAdminPort.contentStatus(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId)));
     }
     @GetMapping("/content/waiting")
     public Result<java.util.List<java.util.Map<String, Object>>> waiting(@RequestParam(defaultValue = "1") long pageNo,
                                                                        @RequestParam(defaultValue = "20") long pageSize) {
-        requireAdmin(); return contentAdminPort.waitingContent(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.AdminContentQuery(null, null, null, pageNo, pageSize, null));
+        requireAdmin(); return Result.success(contentAdminPort.waitingContent(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.AdminContentQuery(null, null, null, pageNo, pageSize, null)));
     }
 
 

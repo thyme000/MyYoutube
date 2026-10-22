@@ -7,7 +7,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 
 @SpringBootApplication
 @EnableDiscoveryClient
-@EnableFeignClients
+@EnableFeignClients(defaultConfiguration = cn.diaojiahong.myyoutube.common.feign.InternalFeignConfiguration.class)
 public class AdminServiceApplication {
 
     public static void main(String[] args) {

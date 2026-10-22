@@ -1,7 +1,8 @@
 package cn.diaojiahong.myyoutube.video.api;
 
+import cn.diaojiahong.myyoutube.common.feign.PropagateBusinessErrors;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -14,24 +15,25 @@ import java.time.LocalDateTime;
 /**
  * video 服务对外契约: 管理端评论/举报操作
  */
+@PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT, ErrorCode.NOT_FOUND, ErrorCode.STATE_CONFLICT})
 @FeignClient(name = "my-youtube-video-service", contextId = "commentAdminPort",
         path = "/internal/admin/comment", url = "${my-youtube.video-service.url:}")
 public interface CommentAdminPort {
 
     @PostMapping("/block")
-    Result<Void> block(@RequestBody CommentId id);
+    void block(@RequestBody CommentId id);
 
     @PostMapping("/restore")
-    Result<Void> restore(@RequestBody CommentId id);
+    void restore(@RequestBody CommentId id);
 
     @PostMapping("/page/blocked")
-    Result<PageResult<CommentSummary>> pageBlockedComments(@RequestBody PageQuery q);
+    PageResult<CommentSummary> pageBlockedComments(@RequestBody PageQuery q);
 
     @PostMapping("/report/ignore")
-    Result<Void> ignoreReport(@RequestBody CommentId id);
+    void ignoreReport(@RequestBody CommentId id);
 
     @PostMapping("/report/page")
-    Result<PageResult<ReportSummary>> pageReports(@RequestBody ReportQuery q);
+    PageResult<ReportSummary> pageReports(@RequestBody ReportQuery q);
 
     @Data
     @NoArgsConstructor

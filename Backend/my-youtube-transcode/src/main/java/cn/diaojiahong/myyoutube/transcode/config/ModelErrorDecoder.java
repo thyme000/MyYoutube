@@ -7,7 +7,7 @@ import feign.codec.ErrorDecoder;
 import java.nio.charset.StandardCharsets;
 
 public final class ModelErrorDecoder implements ErrorDecoder {
-    private final ErrorDecoder fallback = new ErrorDecoder.Default();
+    private final ErrorDecoder fallback = new cn.diaojiahong.myyoutube.common.feign.InternalApiErrorDecoder();
 
     @Override public Exception decode(String methodKey, Response response) {
         if ((response.status() != 503 && !(response.status() == 502 && methodKey.startsWith("ContentPipelinePort#generateTags("))) || response.body() == null

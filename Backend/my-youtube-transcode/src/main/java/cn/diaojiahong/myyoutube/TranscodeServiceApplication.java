@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @EnableDiscoveryClient
-@EnableFeignClients
+@EnableFeignClients(defaultConfiguration = cn.diaojiahong.myyoutube.common.feign.InternalFeignConfiguration.class)
 @EnableScheduling
 public class TranscodeServiceApplication {
 

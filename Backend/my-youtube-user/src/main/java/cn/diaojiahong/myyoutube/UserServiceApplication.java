@@ -9,7 +9,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 @SpringBootApplication
 @EnableDiscoveryClient
 @EnableScheduling
-@EnableFeignClients
+@EnableFeignClients(defaultConfiguration = cn.diaojiahong.myyoutube.common.feign.InternalFeignConfiguration.class)
 public class UserServiceApplication {
 
     public static void main(String[] args) {

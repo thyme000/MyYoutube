@@ -41,11 +41,11 @@ class GlobalExceptionHandlerTest {
 
     @Test void bindingAndBodyValidationAreClientErrors() throws Exception {
         mvc.perform(get("/contract/parameter")).andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(40001));
+                .andExpect(jsonPath("$.code").value(40002));
         mvc.perform(get("/contract/parameter").param("count", "not-a-number"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40001));
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40002));
         mvc.perform(post("/contract/input").contentType(MediaType.APPLICATION_JSON).content("{"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40001));
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40002));
         mvc.perform(post("/contract/input").contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40001));
     }
@@ -116,7 +116,7 @@ class GlobalExceptionHandlerTest {
 
     @Test void unmappedRouteKeeps404() throws Exception {
         mvc.perform(get("/no-such-route"))
-                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value(40401));
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value(40402));
     }
 
     @RestController

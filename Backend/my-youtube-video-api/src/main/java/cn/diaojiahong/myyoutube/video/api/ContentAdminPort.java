@@ -1,7 +1,8 @@
 package cn.diaojiahong.myyoutube.video.api;
 
+import cn.diaojiahong.myyoutube.common.feign.PropagateBusinessErrors;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -14,23 +15,24 @@ import org.springframework.web.bind.annotation.RequestBody;
 /**
  * video 服务对外契约: 管理端视频操作
  */
+@PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT, ErrorCode.NOT_FOUND, ErrorCode.STATE_CONFLICT})
 @FeignClient(name = "my-youtube-video-service", contextId = "contentAdminPort",
         path = "/internal/admin/content", url = "${my-youtube.video-service.url:}")
 public interface ContentAdminPort {
 
     @PostMapping("/media")
-    Result<cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO> media(@RequestBody ContentId id);
+    cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO media(@RequestBody ContentId id);
 
     @PostMapping("/mark-status")
-    Result<Boolean> markStatus(@RequestBody MarkStatus mark);
+    Boolean markStatus(@RequestBody MarkStatus mark);
 
     @PostMapping("/page")
-    Result<PageResult<ContentSummary>> pageContents(@RequestBody AdminContentQuery query);
+    PageResult<ContentSummary> pageContents(@RequestBody AdminContentQuery query);
 
     @PostMapping("/content/get")
-    Result<java.util.Map<String, Object>> contentStatus(@RequestBody ContentId id);
+    java.util.Map<String, Object> contentStatus(@RequestBody ContentId id);
     @PostMapping("/content/waiting")
-    Result<List<java.util.Map<String, Object>>> waitingContent(@RequestBody AdminContentQuery query);
+    List<java.util.Map<String, Object>> waitingContent(@RequestBody AdminContentQuery query);
 
     @Data
     @NoArgsConstructor

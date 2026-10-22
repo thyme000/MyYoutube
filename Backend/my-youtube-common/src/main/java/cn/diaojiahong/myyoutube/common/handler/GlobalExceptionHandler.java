@@ -12,6 +12,8 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
@@ -59,7 +61,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(Exception error, Object body, HttpHeaders headers,
                                                               HttpStatusCode status, WebRequest request) {
-        ErrorCode code = ErrorCode.forHttpStatus(status.value());
+        ErrorCode code = switch (status.value()) {
+            case 400 -> error instanceof MethodArgumentNotValidException || error instanceof HandlerMethodValidationException
+                    ? ErrorCode.INVALID_ARGUMENT : ErrorCode.INVALID_REQUEST;
+            case 404 -> ErrorCode.ENDPOINT_NOT_FOUND;
+            default -> ErrorCode.forHttpStatus(status.value());
+        };
         if (code.getHttpStatus() >= 500) log.error("Request processing failed code={}", code.getCode(), error);
         return super.handleExceptionInternal(error, Result.fail(code), headers,
                 HttpStatusCode.valueOf(code.getHttpStatus()), request);

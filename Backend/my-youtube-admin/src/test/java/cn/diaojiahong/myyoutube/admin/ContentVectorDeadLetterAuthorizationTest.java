@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.admin;
 import cn.diaojiahong.myyoutube.admin.controller.AdminContentVectorDeadLetterController;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
+import cn.diaojiahong.myyoutube.common.feign.FeignExceptionHandler;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.*;
 import feign.FeignException;
@@ -23,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ContentVectorDeadLetterAuthorizationTest {
     private final ContentVectorDeadLetterPort port = mock(ContentVectorDeadLetterPort.class);
-    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminContentVectorDeadLetterController(port)).setControllerAdvice(new GlobalExceptionHandler()).build();
+    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminContentVectorDeadLetterController(port)).setControllerAdvice(new GlobalExceptionHandler(), new FeignExceptionHandler()).build();
     private final String path = "/admin/dead-letters/content-vectors/messages";
     private final String reference = "{\"brokerName\":\"broker\",\"queueId\":0,\"offset\":5}";
 
@@ -58,10 +59,10 @@ class ContentVectorDeadLetterAuthorizationTest {
         verify(port, times(3)).replay(new Reference("broker", 0, 5L), 1L);
     }
 
-    @Test void searchValidationErrorsKeepTheirHttpStatusAcrossFeign() throws Exception {
+    @Test void unrecognizedRemote400IsNotAUserValidationError() throws Exception {
         UserContext.setUser("1");
         Request request = Request.create(Request.HttpMethod.GET, "http://search", Map.of(), null, StandardCharsets.UTF_8, null);
         when(port.query(null, 0)).thenThrow(FeignException.errorStatus("query", Response.builder().request(request).status(400).reason("invalid size").build()));
-        mvc.perform(get(path).param("size", "0")).andExpect(status().isBadRequest());
+        mvc.perform(get(path).param("size", "0")).andExpect(status().isBadGateway());
     }
 }

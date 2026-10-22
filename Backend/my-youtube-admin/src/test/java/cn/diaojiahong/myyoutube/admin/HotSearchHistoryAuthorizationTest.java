@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.admin;
 import cn.diaojiahong.myyoutube.admin.controller.AdminHotSearchHistoryController;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
+import cn.diaojiahong.myyoutube.common.feign.FeignExceptionHandler;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
 import feign.FeignException;
@@ -23,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class HotSearchHistoryAuthorizationTest {
     final HotSearchHistoryPort port = mock(HotSearchHistoryPort.class);
-    final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminHotSearchHistoryController(port)).setControllerAdvice(new GlobalExceptionHandler()).build();
+    final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminHotSearchHistoryController(port)).setControllerAdvice(new GlobalExceptionHandler(), new FeignExceptionHandler()).build();
     final String root = "/admin/hot-search/";
     final String date = "2026-10-20";
 
@@ -62,13 +63,13 @@ class HotSearchHistoryAuthorizationTest {
         verifyNoMoreInteractions(port);
     }
 
-    @Test void remoteValidationAndAvailabilityFailuresKeepTheirHttpStatus() throws Exception {
+    @Test void unrecognizedValidationIsDependencyFailureAndUnavailableStatusIsPreserved() throws Exception {
         UserContext.setUser("1");
         Request request = Request.create(Request.HttpMethod.GET, "http://search", Map.of(), null, StandardCharsets.UTF_8, null);
         for (int status : new int[]{400, 503}) {
             doThrow(FeignException.errorStatus("groups",
                     Response.builder().request(request).status(status).reason("unavailable").build())).when(port).groups(date, null, 20);
-            mvc.perform(get(root + "groups").param("date", date)).andExpect(status().is(status));
+            mvc.perform(get(root + "groups").param("date", date)).andExpect(status().is(status == 400 ? 502 : status));
         }
     }
 }

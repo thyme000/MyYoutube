@@ -12,6 +12,11 @@
 	<description>search 服务对外契约: Feign 接口 + 跨服务 DTO</description>
 
 	<dependencies>
+        <dependency>
+            <groupId>cn.diaojiahong</groupId>
+            <artifactId>my-youtube-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 		<dependency>
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-openfeign</artifactId>

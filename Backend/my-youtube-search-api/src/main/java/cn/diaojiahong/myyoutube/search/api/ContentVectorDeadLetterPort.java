@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.api;
 
+import cn.diaojiahong.myyoutube.common.feign.PropagateBusinessErrors;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -8,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
+@PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT})
 @FeignClient(name = "my-youtube-search-service", contextId = "contentVectorDeadLetterPort",
         path = "/internal/dead-letters/content-vectors", url = "${my-youtube.search-service.url:}")
 public interface ContentVectorDeadLetterPort {

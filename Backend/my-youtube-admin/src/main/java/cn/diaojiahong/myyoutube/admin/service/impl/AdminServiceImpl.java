@@ -11,7 +11,6 @@ import cn.diaojiahong.myyoutube.admin.service.IAdminService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
@@ -25,7 +24,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -50,8 +48,7 @@ public class AdminServiceImpl implements IAdminService {
     public String pass(Long contentId, String reason) {
         checkAdmin();
         var result = contentAdminPort.markStatus(new ContentAdminPort.MarkStatus(contentId, ContentStatusEnum.PUBLISHED.getCode(), reason, getUserId()));
-        requireOk(result);
-        if (!Boolean.TRUE.equals(result.getData())) throw new BizException(ErrorCode.STATE_CONFLICT, "审核状态已变化");
+        requireChanged(result);
         return "审核通过";
     }
 
@@ -59,23 +56,21 @@ public class AdminServiceImpl implements IAdminService {
     public String ban(Long contentId, String reason) {
         checkAdmin();
         var result = contentAdminPort.markStatus(new ContentAdminPort.MarkStatus(contentId, ContentStatusEnum.BANNED.getCode(), reason, getUserId()));
-        requireOk(result);
-        if (!Boolean.TRUE.equals(result.getData())) throw new BizException(ErrorCode.STATE_CONFLICT, "审核状态已变化");
+        requireChanged(result);
         return "审核拒绝或封禁成功";
     }
 
     @Override
     public PageResult<AdminContentVO> getContentsPage(AdminContentPageQueryDTO q) {
         checkAdmin();
-        Result<PageResult<ContentSummary>> pageResult = contentAdminPort.pageContents(new ContentAdminPort.AdminContentQuery(
+        PageResult<ContentSummary> page = requirePage(contentAdminPort.pageContents(new ContentAdminPort.AdminContentQuery(
                 q.getStatusCode(),
                 q.getCategoryCode(),
                 q.getUserId(),
                 q.getPageNo(),
-                q.getPageSize(), q.getType()));
-        PageResult<ContentSummary> page = pageResult.getData();
-        if (page == null || page.getList() == null || page.getList().isEmpty()) {
-            return PageResult.of(0, 0, new ArrayList<>());
+                q.getPageSize(), q.getType())));
+        if (page.getList().isEmpty()) {
+            return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
         List<Long> authorIds = page.getList().stream().map(ContentSummary::getAuthorId).toList();
         List<UserSummary> authors = userPort.listByIds(authorIds);
@@ -98,17 +93,16 @@ public class AdminServiceImpl implements IAdminService {
     @Override
     public void blockComment(Long commentId) {
         checkAdmin();
-        requireOk(commentAdminPort.block(new CommentAdminPort.CommentId(commentId)));
+        commentAdminPort.block(new CommentAdminPort.CommentId(commentId));
     }
 
     @Override
     public PageResult<AdminCommentVO> getCommentsPage(PageQuery pageQuery) {
         checkAdmin();
-        Result<PageResult<CommentAdminPort.CommentSummary>> page = commentAdminPort.pageBlockedComments(
-                new CommentAdminPort.PageQuery(pageQuery.getPageNo(), pageQuery.getPageSize()));
-        PageResult<CommentAdminPort.CommentSummary> data = page.getData();
-        if (data == null || data.getList() == null || data.getList().isEmpty()) {
-            return PageResult.of(0, 0, new ArrayList<>());
+        PageResult<CommentAdminPort.CommentSummary> data = requirePage(commentAdminPort.pageBlockedComments(
+                new CommentAdminPort.PageQuery(pageQuery.getPageNo(), pageQuery.getPageSize())));
+        if (data.getList().isEmpty()) {
+            return PageResult.of(data.getTotal(), data.getPages(), List.of());
         }
         List<AdminCommentVO> voList = data.getList().stream().map(c -> {
             AdminCommentVO vo = new AdminCommentVO();
@@ -124,21 +118,20 @@ public class AdminServiceImpl implements IAdminService {
     @Override
     public void restoreComment(Long commentId) {
         checkAdmin();
-        requireOk(commentAdminPort.restore(new CommentAdminPort.CommentId(commentId)));
+        commentAdminPort.restore(new CommentAdminPort.CommentId(commentId));
     }
 
     @Override
     public PageResult<AdminCommentReportVO> getReportCommentsPage(AdminCommentReportPageQueryDTO pageQuery) {
         checkAdmin();
-        Result<PageResult<CommentAdminPort.ReportSummary>> page = commentAdminPort.pageReports(
+        PageResult<CommentAdminPort.ReportSummary> data = requirePage(commentAdminPort.pageReports(
                 new CommentAdminPort.ReportQuery(
                         pageQuery.getReasonCode() != null ? pageQuery.getReasonCode().getCode() : null,
                         pageQuery.getReporterId(),
                         pageQuery.getPageNo(),
-                        pageQuery.getPageSize()));
-        PageResult<CommentAdminPort.ReportSummary> data = page.getData();
-        if (data == null || data.getList() == null || data.getList().isEmpty()) {
-            return PageResult.of(0, 0, new ArrayList<>());
+                        pageQuery.getPageSize())));
+        if (data.getList().isEmpty()) {
+            return PageResult.of(data.getTotal(), data.getPages(), List.of());
         }
         List<AdminCommentReportVO> voList = data.getList().stream().map(r -> {
             AdminCommentReportVO vo = new AdminCommentReportVO();
@@ -155,14 +148,18 @@ public class AdminServiceImpl implements IAdminService {
     @Override
     public void ignoreReportComment(Long commentId) {
         checkAdmin();
-        requireOk(commentAdminPort.ignoreReport(new CommentAdminPort.CommentId(commentId)));
+        commentAdminPort.ignoreReport(new CommentAdminPort.CommentId(commentId));
     }
 
-    /** 内部端口返回的 Result 拆包: 非 200 转业务异常, Result 不穿透本层 */
-    private void requireOk(Result<?> r) {
-        if (r == null || r.getCode() != Result.SUCCESS_CODE) {
-            throw new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "下游服务未返回成功结果", null);
-        }
+    private void requireChanged(Boolean changed) {
+        if (changed == null) throw new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "下游未返回审核结果", null);
+        if (!changed) throw new BizException(ErrorCode.STATE_CONFLICT, "审核状态已变化");
+    }
+
+    private <T> PageResult<T> requirePage(PageResult<T> page) {
+        if (page == null || page.getList() == null)
+            throw new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "下游未返回分页结果", null);
+        return page;
     }
 
     private void checkAdmin() {

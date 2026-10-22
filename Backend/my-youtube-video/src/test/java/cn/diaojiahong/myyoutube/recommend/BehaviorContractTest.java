@@ -44,7 +44,7 @@ class BehaviorContractTest {
         mvc.perform(post("/behavior/content").contentType(MediaType.APPLICATION_JSON)
                         .content(payload(event)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(40001));
+                .andExpect(jsonPath("$.code").value(40002));
         verifyNoInteractions(service);
     }
 
@@ -64,7 +64,7 @@ class BehaviorContractTest {
         mvc.perform(post("/behavior/content").contentType(MediaType.APPLICATION_JSON)
                         .content("{"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(40001));
+                .andExpect(jsonPath("$.code").value(40002));
         verifyNoInteractions(service);
     }
 

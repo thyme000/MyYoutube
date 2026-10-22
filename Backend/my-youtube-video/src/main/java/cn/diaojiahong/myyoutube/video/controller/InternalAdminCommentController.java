@@ -9,11 +9,12 @@ import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.service.ICommentReportService;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.video.api.CommentAdminPort;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,17 +30,18 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/internal/admin/comment")
 @RequiredArgsConstructor
-public class InternalAdminCommentController {
+public class InternalAdminCommentController implements CommentAdminPort {
 
     private final IContentCommentService videoCommentService;
     private final ICommentReportService commentReportService;
 
     @PostMapping("/block")
-    public Result<Void> block(@RequestBody CommentAdminPort.CommentId id) {
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void block(@RequestBody CommentAdminPort.CommentId id) {
         ContentComment comment = videoCommentService.getById(id.getCommentId());
         if (comment == null || comment.getStatus().equals(CommentStatusEnum.DELETED.getCode())
                 || comment.getStatus().equals(CommentStatusEnum.BLOCKED.getCode())) {
-            return Result.success(null);
+            return;
         }
         comment.setStatus(CommentStatusEnum.BLOCKED.getCode());
         videoCommentService.updateById(comment);
@@ -47,11 +49,11 @@ public class InternalAdminCommentController {
                 .eq(CommentReport::getCommentId, id.getCommentId())
                 .set(CommentReport::getStatus, CommentReportStatusEnum.PROCESSED)
                 .update();
-        return Result.success(null);
     }
 
     @PostMapping("/restore")
-    public Result<Void> restore(@RequestBody CommentAdminPort.CommentId id) {
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void restore(@RequestBody CommentAdminPort.CommentId id) {
         ContentComment comment = videoCommentService.getById(id.getCommentId());
         if (comment == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "评论不存在");
@@ -60,15 +62,14 @@ public class InternalAdminCommentController {
             throw new BizException(ErrorCode.STATE_CONFLICT, "评论已被删除");
         }
         if (comment.getStatus().equals(CommentStatusEnum.VISIBLE.getCode())) {
-            return Result.success(null);
+            return;
         }
         comment.setStatus(CommentStatusEnum.VISIBLE.getCode());
         videoCommentService.updateById(comment);
-        return Result.success(null);
     }
 
     @PostMapping("/page/blocked")
-    public Result<PageResult<CommentAdminPort.CommentSummary>> pageBlockedComments(
+    public PageResult<CommentAdminPort.CommentSummary> pageBlockedComments(
             @RequestBody CommentAdminPort.PageQuery q) {
         Page<ContentComment> page = videoCommentService.lambdaQuery()
                 .eq(ContentComment::getStatus, CommentStatusEnum.BLOCKED.getCode())
@@ -77,20 +78,20 @@ public class InternalAdminCommentController {
         List<CommentAdminPort.CommentSummary> list = page.getRecords().stream()
                 .map(c -> new CommentAdminPort.CommentSummary(c.getId(), c.getContent(), c.getUserId(), c.getCreateTime()))
                 .toList();
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), list));
+        return PageResult.of(page.getTotal(), page.getPages(), list);
     }
 
     @PostMapping("/report/ignore")
-    public Result<Void> ignoreReport(@RequestBody CommentAdminPort.CommentId id) {
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void ignoreReport(@RequestBody CommentAdminPort.CommentId id) {
         commentReportService.lambdaUpdate()
                 .eq(CommentReport::getCommentId, id.getCommentId())
                 .set(CommentReport::getStatus, CommentReportStatusEnum.PROCESSED)
                 .update();
-        return Result.success(null);
     }
 
     @PostMapping("/report/page")
-    public Result<PageResult<CommentAdminPort.ReportSummary>> pageReports(
+    public PageResult<CommentAdminPort.ReportSummary> pageReports(
             @RequestBody CommentAdminPort.ReportQuery q) {
         Page<CommentReport> page = commentReportService.lambdaQuery()
                 .eq(CommentReport::getStatus, CommentReportStatusEnum.PENDING.getCode())
@@ -100,7 +101,7 @@ public class InternalAdminCommentController {
                 .page(new Page<>(q.getPageNo(), q.getPageSize()));
         List<CommentReport> records = page.getRecords();
         if (records.isEmpty()) {
-            return Result.success(PageResult.of(0, 0, List.of()));
+            return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
         List<Long> commentIds = records.stream().map(CommentReport::getCommentId).toList();
         Map<Long, ContentComment> commentMap = videoCommentService.lambdaQuery()
@@ -114,6 +115,6 @@ public class InternalAdminCommentController {
                         r.getReporterUserId(), r.getCreatedAt(),
                         commentMap.get(r.getCommentId()).getContent()))
                 .toList();
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), list));
+        return PageResult.of(page.getTotal(), page.getPages(), list);
     }
 }

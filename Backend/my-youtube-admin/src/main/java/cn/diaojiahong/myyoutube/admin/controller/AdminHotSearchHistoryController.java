@@ -2,13 +2,10 @@ package cn.diaojiahong.myyoutube.admin.controller;
 
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
-import feign.FeignException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -63,12 +60,4 @@ public class AdminHotSearchHistoryController {
         if (!"1".equals(UserContext.getUserId())) throw new BizException(ErrorCode.FORBIDDEN, "需要管理员权限");
     }
 
-    @ExceptionHandler(FeignException.class)
-    public ResponseEntity<Result<?>> remoteFailure(FeignException error) {
-        ErrorCode code = error.status() == 400 ? ErrorCode.INVALID_ARGUMENT
-                : error.status() == 503 ? ErrorCode.DEPENDENCY_UNAVAILABLE : ErrorCode.DEPENDENCY_FAILURE;
-        int status = code.getHttpStatus();
-        return ResponseEntity.status(status).body(Result.fail(code,
-                status == 400 ? "历史查询参数无效" : "热搜历史服务暂时不可用"));
-    }
 }

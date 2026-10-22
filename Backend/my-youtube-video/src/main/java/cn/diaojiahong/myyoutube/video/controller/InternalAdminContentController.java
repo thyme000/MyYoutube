@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
@@ -24,7 +23,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/internal/admin/content")
 @RequiredArgsConstructor
-public class InternalAdminContentController {
+public class InternalAdminContentController implements ContentAdminPort {
 
     private final cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService understanding;
     private final cn.diaojiahong.myyoutube.video.service.ReviewDecisionService decisions;
@@ -35,38 +34,38 @@ public class InternalAdminContentController {
     private final cn.diaojiahong.myyoutube.content.service.ContentReadService reads;
 
     @PostMapping("/media")
-    public Result<cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO> media(@RequestBody ContentAdminPort.ContentId id) {
-        return Result.success(reads.adminMedia(id.getContentId()));
+    public cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO media(@RequestBody ContentAdminPort.ContentId id) {
+        return reads.adminMedia(id.getContentId());
     }
 
     @PostMapping("/mark-status")
-    public Result<Boolean> markStatus(@RequestBody ContentAdminPort.MarkStatus mark) {
+    public Boolean markStatus(@RequestBody ContentAdminPort.MarkStatus mark) {
         if ("published".equals(mark.getStatusCode()))
-            return Result.success(decisions.manual(mark.getContentId(), true, mark.getReason(), mark.getActorId()));
+            return decisions.manual(mark.getContentId(), true, mark.getReason(), mark.getActorId());
         if ("banned".equals(mark.getStatusCode())) {
             var video = contentService.getById(mark.getContentId());
             boolean published = video != null && "published".equals(video.getStatus());
-            return Result.success(published ? decisions.banPublished(mark.getContentId(), mark.getReason(), mark.getActorId())
-                    : decisions.manual(mark.getContentId(), false, mark.getReason(), mark.getActorId()));
+            return published ? decisions.banPublished(mark.getContentId(), mark.getReason(), mark.getActorId())
+                    : decisions.manual(mark.getContentId(), false, mark.getReason(), mark.getActorId());
         }
         throw new BizException(ErrorCode.INVALID_ARGUMENT, "不支持的审核状态");
     }
 
     @PostMapping("/content/get")
-    public Result<Map<String, Object>> contentStatus(@RequestBody ContentAdminPort.ContentId id) {
-        return Result.success(understanding.status(id.getContentId()));
+    public Map<String, Object> contentStatus(@RequestBody ContentAdminPort.ContentId id) {
+        return understanding.status(id.getContentId());
     }
     @PostMapping("/content/waiting")
-    public Result<List<Map<String, Object>>> waitingContent(@RequestBody ContentAdminPort.AdminContentQuery query) {
-        return Result.success(understanding.waiting((int) query.getPageNo(), (int) query.getPageSize()).stream().map(row -> {
+    public List<Map<String, Object>> waitingContent(@RequestBody ContentAdminPort.AdminContentQuery query) {
+        return understanding.waiting((int) query.getPageNo(), (int) query.getPageSize()).stream().map(row -> {
             var video = contentService.getById(row.contentId());
             return Map.<String, Object>of("contentId", row.contentId().toString(), "title", video == null ? "" : video.getTitle(),
                     "state", row.status(), "pipelineId", row.pipelineId().toString());
-        }).toList());
+        }).toList();
     }
 
     @PostMapping("/page")
-    public Result<PageResult<ContentSummary>> pageContents(@RequestBody ContentAdminPort.AdminContentQuery query) {
+    public PageResult<ContentSummary> pageContents(@RequestBody ContentAdminPort.AdminContentQuery query) {
         if (query.getStatusCode() != null) {
             try { cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum.fromCode(query.getStatusCode()); }
             catch (IllegalArgumentException error) { throw new BizException(ErrorCode.INVALID_ARGUMENT, "审核状态无效", error); }
@@ -85,6 +84,6 @@ public class InternalAdminContentController {
             var media = strategies.get(c.getType()).loadMedia(List.of(c.getId())).get(c.getId());
             return cn.diaojiahong.myyoutube.content.support.ContentCards.summary(c, media);
         }).toList();
-        return Result.success(PageResult.of(page.getTotal(), page.getPages(), summaries));
+        return PageResult.of(page.getTotal(), page.getPages(), summaries);
     }
 }

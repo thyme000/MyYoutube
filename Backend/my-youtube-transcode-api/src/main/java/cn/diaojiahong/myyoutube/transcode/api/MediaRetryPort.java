@@ -1,10 +1,13 @@
 package cn.diaojiahong.myyoutube.transcode.api;
 
+import cn.diaojiahong.myyoutube.common.feign.PropagateBusinessErrors;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.List;
 
+@PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT, ErrorCode.STATE_CONFLICT})
 @FeignClient(name = "my-youtube-transcode-service", contextId = "mediaRetryPort",
         path = "/internal/media-retries", url = "${my-youtube.transcode-service.url:}")
 public interface MediaRetryPort {
