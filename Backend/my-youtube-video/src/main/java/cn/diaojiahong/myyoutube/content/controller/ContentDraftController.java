@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.controller;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -57,7 +58,7 @@ public class ContentDraftController {
 
     private Long userId() {
         String id = UserContext.getUserId();
-        if (id == null) throw new BizException(BizException.USER_ERROR, "用户未登录");
+        if (id == null) throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         return Long.valueOf(id);
     }
 }

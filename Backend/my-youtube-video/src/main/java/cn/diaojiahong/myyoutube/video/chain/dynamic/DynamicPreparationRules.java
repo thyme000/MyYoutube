@@ -18,7 +18,7 @@ public final class DynamicPreparationRules {
         if (v == null) return 0.5;
         if (!Double.isFinite(v) || v < 0 || v > 1)
             throw new cn.diaojiahong.myyoutube.common.exception.BizException(
-                    cn.diaojiahong.myyoutube.common.exception.BizException.BIZ_ERROR, "图片焦点必须为 0~1");
+                    cn.diaojiahong.myyoutube.common.result.ErrorCode.INVALID_ARGUMENT, "图片焦点必须为 0~1");
         return v;
     }
 }

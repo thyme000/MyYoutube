@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.DynamicMedia;
@@ -22,12 +23,12 @@ public class DynamicMediaPreparationService {
     public record Prepared(DynamicMedia media, String coverObjectKey) {}
 
     public Prepared prepare(DynamicDraftDTO dto, Long userId) {
-        if (dto == null) throw new BizException(BizException.BIZ_ERROR, "动态草稿不能为空");
+        if (dto == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "动态草稿不能为空");
         var ctx = DynamicPreparationContext.of(dto, userId);
         chains.execute(DynamicPreparationChain.GROUP, ctx);
         var timing = DynamicTimeline.schedule(Arrays.stream(ctx.getDurations()).boxed().toList(), ctx.getFadeMs());
         if (timing.exportDurationMs() > Integer.MAX_VALUE)
-            throw new BizException(BizException.BIZ_ERROR, "图片总时长超出范围");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "图片总时长超出范围");
         var items = new ArrayList<DynamicMedia.Image>();
         for (int i = 0; i < ctx.getImageKeys().size(); i++) {
             var item = dto.getItems().get(i);
@@ -37,7 +38,7 @@ public class DynamicMediaPreparationService {
         }
         String cover = dto.getCoverImageObjectKey() == null ? ctx.getImageKeys().get(0) : dto.getCoverImageObjectKey();
         if (!ctx.getImageKeys().contains(cover))
-            throw new BizException(BizException.BIZ_ERROR, "封面必须属于当前动态图片");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "封面必须属于当前动态图片");
         var audio = ctx.getAudioId() == null ? null : new DynamicMedia.Audio(ctx.getAudioId(),
                 ctx.getAudioObjectKey(), ctx.getAudioTitle(), ctx.getAudioMs());
         var media = new DynamicMedia(ctx.getCanvasType(), ctx.getCanvasW(), ctx.getCanvasH(), ctx.getTransition(),
@@ -57,6 +58,6 @@ public class DynamicMediaPreparationService {
             item.setFocusX(image.focusX()); item.setFocusY(image.focusY()); return item;
         }).toList());
         if (!prepare(dto, userId).media().equals(media))
-            throw new BizException(BizException.BIZ_ERROR, "素材已变化，请重新保存草稿");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "素材已变化，请重新保存草稿");
     }
 }

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.springframework.stereotype.Component;
 
@@ -13,7 +14,7 @@ public class MembershipStep extends MessageSendStep {
     @Override
     public void apply(MessageSendContext ctx) {
         if (!ctx.getConversationDoc().getMemberIds().contains(ctx.getDto().getSenderId())) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "不是该会话的成员");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是该会话的成员");
         }
     }
 }

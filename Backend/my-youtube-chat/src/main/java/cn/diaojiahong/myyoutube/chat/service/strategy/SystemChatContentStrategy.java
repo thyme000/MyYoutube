@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.service.strategy;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -18,7 +19,7 @@ public class SystemChatContentStrategy implements ChatContentTypeStrategy {
     @Override
     public void validate(ChatContent content) {
         if (content.getSystemText() == null || content.getSystemText().isBlank()) {
-            throw new BizException(BizException.MESSAGE_ERROR, "系统消息内容不能为空");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "系统消息内容不能为空");
         }
     }
 }

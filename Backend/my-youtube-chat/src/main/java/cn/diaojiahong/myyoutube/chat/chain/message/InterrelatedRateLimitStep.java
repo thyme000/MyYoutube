@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
@@ -40,8 +41,7 @@ public class InterrelatedRateLimitStep extends MessageSendStep {
                 Double times = redisTemplate.opsForZSet()
                         .score(RedisConstants.USER_CONVERSATION + ctx.getUserId(), ctx.getConversationId());
                 if (times != null && times > 10) {
-                    throw new BizException(BizException.MESSAGE_ERROR,
-                            "你们暂时还不是互关关系哦,每天只能给对方发送10条消息");
+                    throw new BizException(ErrorCode.RATE_LIMITED, "你们暂时还不是互关关系哦,每天只能给对方发送10条消息");
                 }
             }
         } finally {

@@ -2,6 +2,8 @@ package cn.diaojiahong.myyoutube.video.controller;
 
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.video.api.ContentAdminPort;
@@ -47,7 +49,7 @@ public class InternalAdminContentController {
             return Result.success(published ? decisions.banPublished(mark.getContentId(), mark.getReason(), mark.getActorId())
                     : decisions.manual(mark.getContentId(), false, mark.getReason(), mark.getActorId()));
         }
-        throw new IllegalArgumentException("不支持的审核状态");
+        throw new BizException(ErrorCode.INVALID_ARGUMENT, "不支持的审核状态");
     }
 
     @PostMapping("/content/get")
@@ -65,9 +67,12 @@ public class InternalAdminContentController {
 
     @PostMapping("/page")
     public Result<PageResult<ContentSummary>> pageContents(@RequestBody ContentAdminPort.AdminContentQuery query) {
-        if (query.getStatusCode() != null) cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum.fromCode(query.getStatusCode());
+        if (query.getStatusCode() != null) {
+            try { cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum.fromCode(query.getStatusCode()); }
+            catch (IllegalArgumentException error) { throw new BizException(ErrorCode.INVALID_ARGUMENT, "审核状态无效", error); }
+        }
         var type = query.getType() == null ? null : cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum.fromCode(query.getType());
-        if (query.getType() != null && type == null) throw new IllegalArgumentException("内容类型无效");
+        if (query.getType() != null && type == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "内容类型无效");
         var page = contentService.lambdaQuery().eq(Content::getIsDelete, 0)
                 .eq(query.getStatusCode() != null, Content::getStatus, query.getStatusCode())
                 .eq(type != null, Content::getType, type)

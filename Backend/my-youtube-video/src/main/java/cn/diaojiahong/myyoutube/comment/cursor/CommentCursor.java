@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.comment.cursor;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import lombok.Getter;
 
 /**
@@ -27,13 +29,13 @@ public class CommentCursor {
         }
         int idx = cursor.lastIndexOf('.');
         if (idx <= 0 || idx == cursor.length() - 1) {
-            throw new IllegalArgumentException("游标格式错误");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "游标格式错误");
         }
         try {
             return new CommentCursor(Long.parseLong(cursor.substring(0, idx)),
                     Long.parseLong(cursor.substring(idx + 1)));
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("游标格式错误");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "游标格式错误");
         }
     }
 

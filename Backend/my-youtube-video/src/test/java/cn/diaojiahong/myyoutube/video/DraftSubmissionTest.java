@@ -43,7 +43,7 @@ class DraftSubmissionTest {
     }
     @Test void missingPreparationFailsWithoutPublishingOriginalFile() {
         when(tasks.getTaskResults(1L)).thenReturn(List.of(new MediaTaskPort.TaskResult("TRANSCODE","DEAD",null)));
-        assertThrows(BizException.class, () -> service.submit(1L, 9L)); verifyNoInteractions(videos, contents, understanding);
+        assertThrows(IllegalStateException.class, () -> service.submit(1L, 9L)); verifyNoInteractions(videos, contents, understanding);
     }
     @Test void frozenOriginalAndCommonMetadataHaveOneOwner() {
         prepared(); draft.setDescription("简介").setVisibility("private").setAllowComment(0);

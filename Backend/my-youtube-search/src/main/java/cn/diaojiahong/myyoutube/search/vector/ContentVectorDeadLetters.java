@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.Reference;
@@ -48,22 +50,22 @@ public class ContentVectorDeadLetters {
     }
 
     Page query(String cursor, Integer size) {
-        if (size == null || size < 1 || size > 50) throw new IllegalArgumentException("size 必须在 1 到 50 之间");
+        if (size == null || size < 1 || size > 50) throw new BizException(ErrorCode.INVALID_ARGUMENT, "size 必须在 1 到 50 之间");
         Reference start = cursor == null ? null : decode(cursor);
         try {
             List<MessageQueue> queues = queues();
             int first = start == null ? 0 : queues.indexOf(queue(start));
-            if (first < 0) throw new IllegalArgumentException("游标对应队列已不存在，请刷新列表");
+            if (first < 0) throw new BizException(ErrorCode.INVALID_ARGUMENT, "游标对应队列已不存在，请刷新列表");
             List<Entry> entries = new ArrayList<>();
             for (int i = first; i < queues.size(); i++) {
                 MessageQueue queue = queues.get(i);
                 long min = consumer.minOffset(queue), max = consumer.maxOffset(queue);
                 long offset = start != null && i == first ? start.offset() : min;
-                if (offset < min || offset > max) throw new IllegalArgumentException("游标已过期，请刷新列表");
+                if (offset < min || offset > max) throw new BizException(ErrorCode.INVALID_ARGUMENT, "游标已过期，请刷新列表");
                 while (offset < max) {
                     PullResult result = consumer.pull(queue, "*", offset, size - entries.size(), 3000);
                     if (result.getPullStatus() == PullStatus.OFFSET_ILLEGAL) {
-                        throw new IllegalArgumentException("游标已过期，请刷新列表");
+                        throw new BizException(ErrorCode.INVALID_ARGUMENT, "游标已过期，请刷新列表");
                     }
                     if (result.getPullStatus() == PullStatus.NO_NEW_MSG) break;
                     if (result.getNextBeginOffset() <= offset) throw new IllegalStateException("死信读取位置未推进");
@@ -78,7 +80,7 @@ public class ContentVectorDeadLetters {
                 }
             }
             return new Page(entries, null);
-        } catch (IllegalArgumentException error) {
+        } catch (BizException error) {
             throw error;
         } catch (Exception error) {
             if (error instanceof InterruptedException) Thread.currentThread().interrupt();
@@ -149,20 +151,20 @@ public class ContentVectorDeadLetters {
     }
 
     private Reference decode(String cursor) {
-        if (cursor.isBlank() || cursor.length() > 2048) throw new IllegalArgumentException("无效游标");
+        if (cursor.isBlank() || cursor.length() > 2048) throw new BizException(ErrorCode.INVALID_ARGUMENT, "无效游标");
         try {
             Reference reference = mapper.readValue(Base64.getUrlDecoder().decode(cursor), Reference.class);
             validate(reference);
             return reference;
         } catch (IOException | IllegalArgumentException error) {
-            throw new IllegalArgumentException("无效游标", error);
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "无效游标", error);
         }
     }
 
     private void validate(Reference reference) {
         if (reference == null || reference.brokerName() == null || reference.brokerName().isBlank()
                 || reference.brokerName().length() > 255 || reference.queueId() == null || reference.queueId() < 0
-                || reference.offset() == null || reference.offset() < 0) throw new IllegalArgumentException("无效死信定位信息");
+                || reference.offset() == null || reference.offset() < 0) throw new BizException(ErrorCode.INVALID_ARGUMENT, "无效死信定位信息");
     }
 
     private MessageQueue queue(Reference reference) {

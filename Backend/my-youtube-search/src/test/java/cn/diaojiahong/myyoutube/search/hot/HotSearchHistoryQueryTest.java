@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
 import cn.diaojiahong.myyoutube.search.mapper.HotSearchHistoryMapper;
 import org.junit.jupiter.api.Test;
@@ -49,27 +50,27 @@ class HotSearchHistoryQueryTest {
 
     @Test void rejectsTodayUsingShanghaiTimeAcrossEveryHistoryQuery() {
         String today = "2026-10-21";
-        assertThrows(IllegalArgumentException.class, () -> service.hot(today));
-        assertThrows(IllegalArgumentException.class, () -> service.dates(today, 20));
-        assertThrows(IllegalArgumentException.class, () -> service.groups(today, null, 20));
-        assertThrows(IllegalArgumentException.class, () -> service.keywords(today, "g", null, 20));
-        assertThrows(IllegalArgumentException.class, () -> service.users(today, "g", 1L, null, 20));
-        assertThrows(IllegalArgumentException.class, () -> service.events(today, "g", 1L, null, null, 20));
+        assertThrows(BizException.class, () -> service.hot(today));
+        assertThrows(BizException.class, () -> service.dates(today, 20));
+        assertThrows(BizException.class, () -> service.groups(today, null, 20));
+        assertThrows(BizException.class, () -> service.keywords(today, "g", null, 20));
+        assertThrows(BizException.class, () -> service.users(today, "g", 1L, null, 20));
+        assertThrows(BizException.class, () -> service.events(today, "g", 1L, null, null, 20));
         verifyNoInteractions(mapper);
     }
 
     @Test void invalidSizesDatesAndCursorsNeverReachTheDatabase() {
-        for (int size : new int[]{0, -1, 101}) assertThrows(IllegalArgumentException.class, () -> service.groups(day.toString(), null, size));
-        for (String date : List.of("2026-02-30", "not-a-date", "2026-1-1")) assertThrows(IllegalArgumentException.class, () -> service.hot(date));
+        for (int size : new int[]{0, -1, 101}) assertThrows(BizException.class, () -> service.groups(day.toString(), null, size));
+        for (String date : List.of("2026-02-30", "not-a-date", "2026-1-1")) assertThrows(BizException.class, () -> service.hot(date));
         for (String cursor : List.of("0", "-1", "x", "9999999999999999999999")) {
-            assertThrows(IllegalArgumentException.class, () -> service.groups(day.toString(), cursor, 20));
-            assertThrows(IllegalArgumentException.class, () -> service.users(day.toString(), "g", 1L, cursor, 20));
+            assertThrows(BizException.class, () -> service.groups(day.toString(), cursor, 20));
+            assertThrows(BizException.class, () -> service.users(day.toString(), "g", 1L, cursor, 20));
         }
         for (String cursor : List.of("1", "-1.2", "2.0", "1.2.3", "x.1")) {
-            assertThrows(IllegalArgumentException.class, () -> service.events(day.toString(), "g", 1L, null, cursor, 20));
+            assertThrows(BizException.class, () -> service.events(day.toString(), "g", 1L, null, cursor, 20));
         }
-        assertThrows(IllegalArgumentException.class, () -> service.users(day.toString(), "g", -1L, null, 20));
-        assertThrows(IllegalArgumentException.class, () -> service.keywords(day.toString(), " ", null, 20));
+        assertThrows(BizException.class, () -> service.users(day.toString(), "g", -1L, null, 20));
+        assertThrows(BizException.class, () -> service.keywords(day.toString(), " ", null, 20));
         verifyNoInteractions(mapper);
     }
 
@@ -87,7 +88,7 @@ class HotSearchHistoryQueryTest {
     }
 
     @Test void representativeKeywordIdMustBelongToTheRequestedDateAndGroup() {
-        assertThrows(IllegalArgumentException.class, () -> service.users(day.toString(), "other", 1L, null, 20));
+        assertThrows(BizException.class, () -> service.users(day.toString(), "other", 1L, null, 20));
         verify(mapper).keyword(day, "other", 1L);
         verify(mapper, never()).users(any(), any(), any(), any(), anyInt());
     }

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.auth.chain.register;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
@@ -31,6 +32,6 @@ public class UniqueCheckStep extends RegisterStep {
         String reason = dto.getUsername().equals(conflict.getUsername()) ? "用户名已存在!"
                 : dto.getPhone().equals(conflict.getPhone()) ? "手机号已被注册!"
                 : "邮箱已被注册!";
-        throw new BizException(BizException.BIZ_ERROR, reason);
+        throw new BizException(ErrorCode.STATE_CONFLICT, reason);
     }
 }

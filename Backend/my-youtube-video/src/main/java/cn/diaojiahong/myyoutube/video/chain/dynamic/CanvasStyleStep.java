@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.chain.dynamic;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.springframework.stereotype.Component;
 
@@ -16,9 +17,9 @@ public class CanvasStyleStep extends DynamicPreparationStep {
     public void apply(DynamicPreparationContext ctx) {
         String canvas = ctx.getDto().getCanvasType(), transition = ctx.getDto().getTransition();
         if (canvas != null && !"horizontal".equals(canvas) && !"vertical".equals(canvas))
-            throw new BizException(BizException.BIZ_ERROR, "画布类型无效");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "画布类型无效");
         if (transition != null && !"cut".equals(transition) && !"fade".equals(transition))
-            throw new BizException(BizException.BIZ_ERROR, "转场类型无效");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "转场类型无效");
         String canvasType = "horizontal".equals(ctx.getDto().getCanvasType()) ? "horizontal" : "vertical";
         boolean isFade = !"cut".equals(ctx.getDto().getTransition());
         ctx.setCanvasStyle(canvasType,

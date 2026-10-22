@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.*;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -98,7 +99,7 @@ class ContentVectorDeadLetterServiceTest {
     }
 
     @Test void invalidActorCannotReadOrReplay() {
-        assertThrows(IllegalArgumentException.class, () -> service.replay(reference, 2L));
+        assertThrows(BizException.class, () -> service.replay(reference, 2L));
         verifyNoInteractions(reader, client, publisher);
     }
 

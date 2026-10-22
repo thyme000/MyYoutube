@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.chain.message.*;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.*;
@@ -107,7 +108,7 @@ class ForwardContentTest {
     }
 
     @Test void inaccessibleSourceStopsBeforeAnyMessageOrCounterWrite() {
-        when(contents.forwardInfo(99L, 7L)).thenThrow(new BizException(BizException.BIZ_ERROR, "内容不可访问"));
+        when(contents.forwardInfo(99L, 7L)).thenThrow(new BizException(ErrorCode.INVALID_ARGUMENT, "内容不可访问"));
         assertThrows(BizException.class, () -> service.send(request()));
         verify(mongo, never()).insert(any(ChatMessageDoc.class), anyString());
         verify(contents, never()).incrementShareCount(anyLong(), anyLong());

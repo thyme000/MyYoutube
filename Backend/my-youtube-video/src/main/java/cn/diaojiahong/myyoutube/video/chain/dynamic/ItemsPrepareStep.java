@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.chain.dynamic;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.video.domain.dto.DynamicDraftDTO;
 import org.springframework.stereotype.Component;
@@ -27,16 +28,16 @@ public class ItemsPrepareStep extends DynamicPreparationStep {
         for (int i = 0; i < n; i++) {
             DynamicDraftDTO.DynamicItemDTO item = items.get(i);
             if (item == null || !StringUtils.hasText(item.getImageObjectKey())) {
-                throw new BizException(BizException.BIZ_ERROR, "图片列表存在空项");
+                throw new BizException(ErrorCode.INVALID_ARGUMENT, "图片列表存在空项");
             }
             String key = item.getImageObjectKey().trim();
             if (!objectKeyBelongsToUser(ctx.getUserId(), key)) {
-                throw new BizException(BizException.BIZ_ERROR, "存在无权使用的图片资源");
+                throw new BizException(ErrorCode.FORBIDDEN, "存在无权使用的图片资源");
             }
             imageKeys.add(key);
             durations[i] = item.getDurationMs() == null ? DEFAULT_ITEM_DURATION_MS : item.getDurationMs();
             if (durations[i] <= ctx.getFadeMs() || durations[i] > Integer.MAX_VALUE)
-                throw new BizException(BizException.BIZ_ERROR, "图片时长必须大于转场时长且不超出范围");
+                throw new BizException(ErrorCode.INVALID_ARGUMENT, "图片时长必须大于转场时长且不超出范围");
             DynamicPreparationRules.clampRatio(item.getFocusX());
             DynamicPreparationRules.clampRatio(item.getFocusY());
         }

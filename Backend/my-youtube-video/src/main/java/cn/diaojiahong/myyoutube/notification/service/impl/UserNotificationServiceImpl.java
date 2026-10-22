@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.notification.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
@@ -105,7 +106,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
         Long userId = getUserId();
         if (notification == null || !Objects.equals(notification.getReceiverId(), userId)) {
 
-            throw new BizException(BizException.NOTIFICATION_ERROR,"不能读取他人通知");
+            throw new BizException(ErrorCode.FORBIDDEN, "不能读取他人通知");
         }
         // 是自己的通知,可以正常读取
         notification.setIsRead(1);
@@ -128,7 +129,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
                 .remove();
         if (!success) {
 
-            throw new BizException(BizException.BIZ_ERROR, "删除失败");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "删除失败");
         }
     }
 
@@ -137,7 +138,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
         String userId = UserContext.getUserId();
         if (userId == null) {
 
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.valueOf(userId);
     }

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.idempotent;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import lombok.RequiredArgsConstructor;
@@ -72,7 +73,7 @@ public class IdempotentGuard implements AutoCloseable {
             if (!"ACQUIRED".equals(result.get(0))) {
                 String value = (String) result.get(1);
                 if (value.startsWith(RUNNING) || redisKeys.size() > 1) {
-                    throw new BizException(BizException.BIZ_ERROR, "操作正在处理中,请稍候");
+                    throw new BizException(ErrorCode.STATE_CONFLICT, "操作正在处理中,请稍候");
                 }
                 return new Lease(redisKeys, null, value, millis);
             }

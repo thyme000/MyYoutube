@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
@@ -25,9 +26,9 @@ public class ContentSettingsService {
     public void update(Long id, Long viewer, Settings settings) {
         if (settings == null || !("public".equals(settings.visibility()) || "private".equals(settings.visibility()))
                 || settings.allowComment() == null || settings.allowComment() < 0 || settings.allowComment() > 1)
-            throw new BizException(BizException.BIZ_ERROR, "可见性或评论设置无效");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "可见性或评论设置无效");
         var content = access.requireOwner(access.locked(id), viewer);
-        if (!"published".equals(content.getStatus())) throw new BizException(BizException.BIZ_ERROR, "仅可修改已发布内容");
+        if (!"published".equals(content.getStatus())) throw new BizException(ErrorCode.STATE_CONFLICT, "仅可修改已发布内容");
         contents.update(null, new LambdaUpdateWrapper<Content>().eq(Content::getId, id)
                 .set(Content::getVisibility, settings.visibility()).set(Content::getAllowComment, settings.allowComment()));
         if (!content.getVisibility().equals(settings.visibility())) rebuild(content, 0);

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.user.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
@@ -55,7 +56,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     public UserVO getUserInfo(Long userId) {
         User user = getById(userId);
         if (user == null) {
-            throw new BizException(BizException.BIZ_ERROR, "用户不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "用户不存在");
         }
 
         user.setAvatarUrl(storageUtil.signGetUrl(user.getAvatarUrl(), STORAGE_EXPIRE));
@@ -68,7 +69,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     public String updateAvatar(MultipartFile avatar) {
         String upload = getUpdatedUrl(avatar, "avatar");
         if (upload == null) {
-            throw new BizException(BizException.BIZ_ERROR, "上传头像失败");
+            throw new IllegalStateException("上传头像未返回对象键");
         }
         // 更新用户头像url
         lambdaUpdate()
@@ -84,7 +85,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         try {
             bytes = file.getBytes();
         } catch (IOException e) {
-            log.warn("读取上传文件内容失败 bizPrefix={} filename={}", bizPrefix, file.getOriginalFilename(), e);
+            throw new IllegalStateException("读取上传文件内容失败", e);
         }
         return storageUtil.uploadForObjectKey(bytes, file.getOriginalFilename(),
                 getUserId(), bizPrefix);
@@ -94,7 +95,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     public String updateBgImage(MultipartFile bgImage) {
         String upload = getUpdatedUrl(bgImage, "bg");
         if (upload == null) {
-            throw new BizException(BizException.BIZ_ERROR, "上传背景图片失败");
+            throw new IllegalStateException("上传背景图片未返回对象键");
         }
         // 更新用户头像url
         lambdaUpdate()
@@ -107,11 +108,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     @Override
     public String updateUser(Long id, UserDTO userDTO) {
         if (id == null) {
-            throw new BizException(BizException.BIZ_ERROR, "用户ID不能为空");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "用户ID不能为空");
         }
         User user = getById(id);
         if (user == null) {
-            throw new BizException(BizException.USER_ERROR, "用户不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "用户不存在");
         }
         String oldName = user.getNickname();
         user.setNickname(userDTO.getNickname() == null || userDTO.getNickname().isEmpty() ?
@@ -120,7 +121,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 user.getIntroduction() : userDTO.getIntroduction());
         boolean success = updateById(user);
         if (!success) {
-            throw new BizException(BizException.BIZ_ERROR, "服务器繁忙,请稍后再试～");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "用户资料已变化，请刷新后重试");
         }
         summaryCache.evict(user.getId());
         // 同步 ES 文档: 发消息, 由 search 侧以 MySQL 为准重建
@@ -149,7 +150,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private Long getUserId() {
         String userId = UserContext.getUserId();
         if (userId == null || userId.isEmpty()) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.valueOf(userId);
     }

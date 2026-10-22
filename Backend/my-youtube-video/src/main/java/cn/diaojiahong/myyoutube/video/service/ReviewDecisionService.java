@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
@@ -43,10 +44,10 @@ public class ReviewDecisionService {
     @ObservedBusiness(BusinessOperation.MANUAL_REVIEW)
     public boolean manual(Long id, boolean pass, String reason, Long actor) {
         if (reason == null || reason.isBlank() || reason.length() > 4000 || actor == null)
-            throw new BizException(BizException.BIZ_ERROR, "必须填写审核理由");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "必须填写审核理由");
         var row = lock(id);
         if (row == null || !Boolean.TRUE.equals(row.getReceived()) || row.getState() != ContentReviewState.MANUAL_PENDING)
-            throw new BizException(BizException.BIZ_ERROR, "内容尚未转交人工审核");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "内容尚未转交人工审核");
         boolean changed = transition(id, pass ? ContentStatusEnum.PUBLISHED : ContentStatusEnum.BANNED, reason, false);
         if (!changed) return false;
         records.insert(new ContentReviewRecord().setContentId(id).setPipelineId(row.getPipelineId())
@@ -179,7 +180,7 @@ public class ReviewDecisionService {
     @ObservedBusiness(BusinessOperation.BAN_CONTENT)
     public boolean banPublished(Long id, String reason, Long actor) {
         var row = lock(id);
-        if (reason == null || reason.isBlank() || actor == null) throw new BizException(BizException.BIZ_ERROR, "必须填写封禁理由");
+        if (reason == null || reason.isBlank() || actor == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "必须填写封禁理由");
         boolean changed = transition(id, ContentStatusEnum.BANNED, reason, true);
         if (changed) {
             records.insert(new ContentReviewRecord().setContentId(id).setPipelineId(row == null ? null : row.getPipelineId()).setAttempt(0).setSource("MANUAL")

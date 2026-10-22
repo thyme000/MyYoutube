@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategy;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -19,7 +20,7 @@ public class TypeValidateStep extends MessageSendStep {
     public void apply(MessageSendContext ctx) {
         ChatContentTypeStrategy strategy = contentTypeStrategies.get(ctx.getDto().getContentType());
         if (strategy == null) {
-            throw new BizException(BizException.MESSAGE_ERROR, "消息类型错误");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "消息类型错误");
         }
         strategy.validate(ctx.getDto().getContent());
     }

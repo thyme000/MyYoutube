@@ -26,7 +26,7 @@ public class AdminController {
 
     private void requireAdmin() {
         if (!"1".equals(cn.diaojiahong.myyoutube.common.utils.UserContext.getUserId()))
-            throw new cn.diaojiahong.myyoutube.common.exception.BizException(403, "需要管理员权限");
+            throw new cn.diaojiahong.myyoutube.common.exception.BizException(cn.diaojiahong.myyoutube.common.result.ErrorCode.FORBIDDEN, "需要管理员权限");
     }
     @GetMapping("/content/{contentId}/media")
     public Result<cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO> media(@PathVariable Long contentId) {

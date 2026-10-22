@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.idempotent;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,7 +32,7 @@ class IdempotentAspectTest {
     }
 
     @Test void runningSkipPropagatesRetryInsteadOfAcknowledging() {
-        when(guard.acquire(anyString(), anyLong())).thenThrow(new BizException(BizException.BIZ_ERROR, "busy"));
+        when(guard.acquire(anyString(), anyLong())).thenThrow(new BizException(ErrorCode.INVALID_ARGUMENT, "busy"));
         assertThrows(BizException.class, () -> proxy.skip(7L));
         assertEquals(0, target.calls);
     }

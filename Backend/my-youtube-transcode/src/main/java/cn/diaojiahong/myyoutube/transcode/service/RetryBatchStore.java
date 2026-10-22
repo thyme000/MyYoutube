@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.pipeline.PipelineEventPort;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.*;
@@ -65,7 +67,7 @@ public class RetryBatchStore {
     public BatchPage history(Long cursor, Integer size) {
         int limit = size == null ? 20 : size;
         if (limit < 1 || limit > 100 || cursor != null && cursor <= 0)
-            throw new IllegalArgumentException("非法历史分页");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "非法历史分页");
         var page = batches.selectList(new LambdaQueryWrapper<MediaRetryBatch>()
                 .lt(cursor != null, MediaRetryBatch::getId, cursor).orderByDesc(MediaRetryBatch::getId).last("LIMIT " + limit));
         var views = page.stream().map(row -> row.getResultJson() == null ? batch(row.getId())

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.like.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
@@ -119,7 +120,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         Content content = contentService.lambdaQuery().eq(Content::getId, contentId).select(Content::getAuthorId).one();
         if (content == null) {
 
-            throw new BizException(BizException.USER_ERROR, "内容不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "内容不存在");
         }
         return content.getAuthorId();
     }
@@ -129,7 +130,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         String userId = UserContext.getUserId();
         if (userId == null) {
 
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.valueOf(userId);
     }
@@ -245,7 +246,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         Long userId = getUserId();
 
         ContentComment comment = contentCommentService.getById(commentId);
-        if (comment == null) throw new BizException(BizException.BIZ_ERROR, "评论不存在");
+        if (comment == null) throw new BizException(ErrorCode.NOT_FOUND, "评论不存在");
         access.readable(comment.getContentId(), userId);
 
         ContentCommentLike like = contentCommentLikeMapper.selectOne(new LambdaQueryWrapper<ContentCommentLike>()

@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.admin;
 
 import cn.diaojiahong.myyoutube.admin.controller.AdminHotSearchHistoryController;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
 import feign.FeignException;
@@ -22,7 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class HotSearchHistoryAuthorizationTest {
     final HotSearchHistoryPort port = mock(HotSearchHistoryPort.class);
-    final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminHotSearchHistoryController(port)).build();
+    final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminHotSearchHistoryController(port)).setControllerAdvice(new GlobalExceptionHandler()).build();
     final String root = "/admin/hot-search/";
     final String date = "2026-10-20";
 

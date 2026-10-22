@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.Reference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,13 +57,13 @@ class ContentVectorDeadLettersTest {
     }
 
     @Test void malformedAndExpiredCursorsAreRejected() throws Exception {
-        assertThrows(IllegalArgumentException.class, () -> reader.query("not-json", 20));
-        assertThrows(IllegalArgumentException.class, () -> reader.query(null, 51));
-        assertThrows(IllegalArgumentException.class, () -> reader.query(null, 0));
+        assertThrows(BizException.class, () -> reader.query("not-json", 20));
+        assertThrows(BizException.class, () -> reader.query(null, 51));
+        assertThrows(BizException.class, () -> reader.query(null, 0));
         when(consumer.fetchSubscribeMessageQueues(first.getTopic())).thenReturn(Set.of(first));
         when(consumer.minOffset(first)).thenReturn(5L); when(consumer.maxOffset(first)).thenReturn(10L);
         String cursor = Base64.getUrlEncoder().encodeToString(mapper.writeValueAsBytes(new Reference("a", 0, 4L)));
-        assertThrows(IllegalArgumentException.class, () -> reader.query(cursor, 20));
+        assertThrows(BizException.class, () -> reader.query(cursor, 20));
     }
 
     @Test void replayReadsOnlyTheRequestedOffsetInTheFixedDeadLetterTopic() throws Exception {
@@ -75,7 +76,7 @@ class ContentVectorDeadLettersTest {
         assertEquals(10L, reader.find(reference).contentId());
         assertNull(reader.find(new Reference("unknown-broker", 0, 2L)));
         assertNull(reader.find(new Reference("a", 0, 1L)));
-        assertThrows(IllegalArgumentException.class, () -> reader.find(new Reference("a", 0, null)));
+        assertThrows(BizException.class, () -> reader.find(new Reference("a", 0, null)));
         verify(consumer, never()).pull(argThat(queue -> !first.getTopic().equals(queue.getTopic())), anyString(), anyLong(), anyInt(), anyLong());
         verify(consumer, never()).updateConsumeOffset(any(), anyLong());
     }

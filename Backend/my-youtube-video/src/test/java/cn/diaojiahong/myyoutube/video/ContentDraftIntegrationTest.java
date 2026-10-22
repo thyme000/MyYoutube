@@ -1,7 +1,9 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts;
 import cn.diaojiahong.myyoutube.common.media.StructuredJson;
@@ -158,7 +160,7 @@ class ContentDraftIntegrationTest {
 
     @Test void missingOrUnauthorizedAudioFailsInsteadOfPretendingNoAudio() {
         var dto = dynamic(); dto.setAudioId(20L);
-        when(audio.getReferenceable(20L, 9L)).thenThrow(new BizException(BizException.BIZ_ERROR, "无权使用该音频"));
+        when(audio.getReferenceable(20L, 9L)).thenThrow(new BizException(ErrorCode.FORBIDDEN, "无权使用该音频"));
         assertThrows(BizException.class, () -> drafts.saveDynamic(null, 9L, dto));
         doReturn(new Audio().setId(20L).setObjectKey("uploads/audio/7/20261011/music.mp3").setDurationMs(2000)).when(audio).getReferenceable(20L, 9L);
         var draft = drafts.saveDynamic(null, 9L, dto);
@@ -417,7 +419,7 @@ class ContentDraftIntegrationTest {
         when(audio.getReferenceable(20L, 9L)).thenReturn(new Audio().setId(20L).setObjectKey("uploads/audio/7/20261011/music.mp3").setDurationMs(2000));
         var draft = drafts.saveDynamic(null, 9L, dto);
         ready(draft.draftId()); clearInvocations(audio, storage, tasks);
-        when(audio.getReferenceable(20L, 9L)).thenThrow(new BizException(BizException.BIZ_ERROR,"已移除音频权限"));
+        when(audio.getReferenceable(20L, 9L)).thenThrow(new BizException(ErrorCode.FORBIDDEN, "已移除音频权限"));
         assertNotNull(publish.submit(draft.draftId(), 9L));
         assertEquals(MediaDraftStatusEnum.SUBMITTED, rows.selectById(draft.draftId()).getStatus());
         verifyNoInteractions(audio, storage, tasks);
@@ -538,7 +540,8 @@ class ContentDraftIntegrationTest {
                 created.preparationId(), "DEAD", 4, 3, "下载失败", null, false));
         reconcileDue();
         when(tasks.preparation(created.preparationId())).thenReturn(null);
-        assertThrows(BizException.class, () -> coordinator.retry(created.draftId(), 9L));
+        assertEquals(ErrorCode.DEPENDENCY_FAILURE,
+                assertThrows(DependencyException.class, () -> coordinator.retry(created.draftId(), 9L)).getErrorCode());
         var current = rows.selectById(created.draftId());
         assertEquals(MediaDraftStatusEnum.FAILED, current.getStatus());
         assertEquals(created.preparationId(), current.getPreparationId()); assertEquals(4, current.getPreparationAttempt());
@@ -558,7 +561,7 @@ class ContentDraftIntegrationTest {
         assertThrows(BizException.class, () -> publish.submit(created.draftId(), 9L));
         ready(created.draftId());
         jdbc.update("UPDATE media_draft SET media_version=media_version+1 WHERE id=?", created.draftId());
-        assertThrows(BizException.class, () -> publish.submit(created.draftId(), 9L));
+        assertNotNull(assertThrows(IllegalStateException.class, () -> publish.submit(created.draftId(), 9L)).getCause());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));
     }
     @Test void unversionedLegacyStatusCallbackCannotReadyPreparedDraft() {

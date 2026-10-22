@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.*;
@@ -179,7 +180,7 @@ public class ContentUnderstandingService {
     }
     public Map<String, Object> status(Long videoId) {
         var row = understanding.selectById(videoId);
-        if (row == null) throw new BizException(BizException.BIZ_ERROR, "内容尚未提交加工");
+        if (row == null) throw new BizException(ErrorCode.STATE_CONFLICT, "内容尚未提交加工");
         var result = new LinkedHashMap<String, Object>();
         result.put("understanding", row); result.put("pipeline", tasks.pipeline(row.getPipelineId()));
         result.put("reviews", records.selectList(new LambdaQueryWrapper<ContentReviewRecord>().eq(ContentReviewRecord::getContentId, videoId).orderByAsc(ContentReviewRecord::getCreateTime)));

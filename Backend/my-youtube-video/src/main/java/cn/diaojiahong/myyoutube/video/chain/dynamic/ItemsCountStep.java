@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.chain.dynamic;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.springframework.stereotype.Component;
 
@@ -16,11 +17,10 @@ public class ItemsCountStep extends DynamicPreparationStep {
     @Override
     public void apply(DynamicPreparationContext ctx) {
         if (ctx.getItems() == null || ctx.getItems().isEmpty()) {
-            throw new BizException(BizException.BIZ_ERROR, "图片列表不能为空");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "图片列表不能为空");
         }
         if (ctx.getItems().size() > MAX_IMAGES) {
-            throw new BizException(BizException.BIZ_ERROR,
-                    "图片数量需在 " + MIN_IMAGES + "~" + MAX_IMAGES + " 张之间");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "图片数量需在 " + MIN_IMAGES + "~" + MAX_IMAGES + " 张之间");
         }
     }
 }

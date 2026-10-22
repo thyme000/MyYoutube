@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.springframework.stereotype.Component;
 
@@ -13,7 +14,7 @@ public class SenderBannedStep extends MessageSendStep {
     @Override
     public void apply(MessageSendContext ctx) {
         if (Boolean.TRUE.equals(ctx.getUserConversationDoc().getBanned())) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "您已被禁言");
+            throw new BizException(ErrorCode.FORBIDDEN, "您已被禁言");
         }
     }
 }

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.comment.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.comment.domain.dto.CommentReportDTO;
@@ -32,7 +33,7 @@ public class CommentReportServiceImpl extends ServiceImpl<CommentReportMapper, C
         String userId = UserContext.getUserId();
         if (userId == null || userId.isEmpty()) {
 
-            throw new BizException(BizException.BIZ_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         // 判断这个评论是否已经处理过了
         List<CommentReport> list = lambdaQuery()

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
@@ -84,7 +86,7 @@ public class HotSearchHistoryQueryService {
 
     private String keyword(LocalDate date, String groupId, long keywordId) {
         String raw = mapper.keyword(date, groupId, keywordId);
-        if (raw == null) throw new IllegalArgumentException("搜索词记录不存在或不属于指定日期和分组");
+        if (raw == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "搜索词记录不存在或不属于指定日期和分组");
         return raw;
     }
 
@@ -95,25 +97,25 @@ public class HotSearchHistoryQueryService {
     private LocalDate pastDate(String value) {
         try {
             LocalDate date = LocalDate.parse(value == null ? "" : value);
-            if (date.getYear() < 1000 || !date.isBefore(today())) throw new IllegalArgumentException("只能查询今天以前的历史日期");
+            if (date.getYear() < 1000 || !date.isBefore(today())) throw new BizException(ErrorCode.INVALID_ARGUMENT, "只能查询今天以前的历史日期");
             return date;
         } catch (DateTimeParseException error) {
-            throw new IllegalArgumentException("日期格式必须为 yyyy-MM-dd");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "日期格式必须为 yyyy-MM-dd");
         }
     }
 
     private static int pageSize(Integer size) {
         int result = size == null ? 20 : size;
-        if (result < 1 || result > 100) throw new IllegalArgumentException("分页大小必须在 1 到 100 之间");
+        if (result < 1 || result > 100) throw new BizException(ErrorCode.INVALID_ARGUMENT, "分页大小必须在 1 到 100 之间");
         return result;
     }
 
     private static void requireGroup(String groupId) {
-        if (groupId == null || groupId.isBlank() || groupId.length() > 64) throw new IllegalArgumentException("分组 ID 无效");
+        if (groupId == null || groupId.isBlank() || groupId.length() > 64) throw new BizException(ErrorCode.INVALID_ARGUMENT, "分组 ID 无效");
     }
 
     private static void requirePositive(Long value) {
-        if (value == null || value <= 0) throw new IllegalArgumentException("记录或用户 ID 必须为正整数");
+        if (value == null || value <= 0) throw new BizException(ErrorCode.INVALID_ARGUMENT, "记录或用户 ID 必须为正整数");
     }
 
     private static boolean empty(String cursor) { return cursor == null || cursor.isBlank(); }
@@ -124,7 +126,7 @@ public class HotSearchHistoryQueryService {
             long value = Long.parseLong(cursor);
             if (value > 0) return value;
         } catch (NumberFormatException ignored) {}
-        throw new IllegalArgumentException("分页游标无效");
+        throw new BizException(ErrorCode.INVALID_ARGUMENT, "分页游标无效");
     }
 
     private record EventCursor(long at, long id) {}
@@ -139,7 +141,7 @@ public class HotSearchHistoryQueryService {
                 if (at >= 0 && id > 0) return new EventCursor(at, id);
             }
         } catch (NumberFormatException ignored) {}
-        throw new IllegalArgumentException("明细游标无效");
+        throw new BizException(ErrorCode.INVALID_ARGUMENT, "明细游标无效");
     }
 
     private static <T> Page<T> page(List<T> rows, int size, Function<T, String> cursor) {

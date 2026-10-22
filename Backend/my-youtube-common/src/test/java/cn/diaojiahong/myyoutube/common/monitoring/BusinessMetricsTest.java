@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.common.monitoring;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
@@ -26,7 +28,7 @@ class BusinessMetricsTest {
         assertEquals(0, count("search_content", "failure"));
     }
     @Test void exceptionsKeepIdentityAndNeverBecomeSuccess() {
-        var error = new BizException(BizException.BIZ_ERROR, "private input");
+        var error = new BizException(ErrorCode.INVALID_ARGUMENT, "private input");
         assertSame(error, assertThrows(BizException.class, () -> proxy.login(error)));
         assertEquals(1, count("login", "business_error"));
         assertEquals(0, count("login", "success"));
@@ -38,6 +40,10 @@ class BusinessMetricsTest {
         var error = new IllegalStateException("database down");
         assertSame(error, assertThrows(IllegalStateException.class, () -> proxy.login(error)));
         assertEquals(1, count("login", "failure"));
+        var dependency = new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "服务不可用", error);
+        assertSame(dependency, assertThrows(DependencyException.class, () -> proxy.login(dependency)));
+        assertEquals(2, count("login", "failure"));
+        assertEquals(0, count("login", "business_error"));
         proxy.review();
         assertEquals(1, count("manual_review", "no_change"));
     }

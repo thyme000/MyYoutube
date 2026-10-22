@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.controller;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaUploadEventMessage;
 import cn.diaojiahong.myyoutube.transcode.config.MediaProperties;
@@ -38,7 +40,7 @@ public class InternalStorageEventController {
                                @RequestBody JsonNode body) {
         if (!mediaProperties.getWebhookToken().isEmpty()
                 && !mediaProperties.getWebhookToken().equals(token)) {
-            throw new IllegalArgumentException("webhook token 校验失败");
+            throw new BizException(ErrorCode.FORBIDDEN, "webhook token 校验失败");
         }
         JsonNode records = body.path("Records");
         if (!records.isArray()) {

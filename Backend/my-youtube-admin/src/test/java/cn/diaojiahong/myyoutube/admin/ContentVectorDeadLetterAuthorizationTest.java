@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.admin;
 
 import cn.diaojiahong.myyoutube.admin.controller.AdminContentVectorDeadLetterController;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.*;
 import feign.FeignException;
@@ -22,7 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ContentVectorDeadLetterAuthorizationTest {
     private final ContentVectorDeadLetterPort port = mock(ContentVectorDeadLetterPort.class);
-    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminContentVectorDeadLetterController(port)).build();
+    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminContentVectorDeadLetterController(port)).setControllerAdvice(new GlobalExceptionHandler()).build();
     private final String path = "/admin/dead-letters/content-vectors/messages";
     private final String reference = "{\"brokerName\":\"broker\",\"queueId\":0,\"offset\":5}";
 

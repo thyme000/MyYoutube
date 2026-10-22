@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.follow.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
@@ -55,7 +56,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         Long userId = getUserId();
         if (userId.equals(authorId)) {
 
-            throw new BizException(BizException.USER_ERROR, "不能关注自己");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "不能关注自己");
         }
         // 存在就修改,不存在就新增; 单条 UPDATE 走自动提交, 不开事务圈住下面的远程调用
         long id = IdWorker.getId();
@@ -86,7 +87,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         String userId = UserContext.getUserId();
         if (userId == null) {
 
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.valueOf(userId);
     }
@@ -195,7 +196,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
         if (userId == null) {
 
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         if (authorIds == null || authorIds.isEmpty()) {
 

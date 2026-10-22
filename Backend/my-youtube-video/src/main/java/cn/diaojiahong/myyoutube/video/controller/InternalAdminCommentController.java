@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.video.api.enums.CommentReportStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.po.CommentReport;
@@ -52,10 +54,10 @@ public class InternalAdminCommentController {
     public Result<Void> restore(@RequestBody CommentAdminPort.CommentId id) {
         ContentComment comment = videoCommentService.getById(id.getCommentId());
         if (comment == null) {
-            return Result.fail("评论不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "评论不存在");
         }
         if (comment.getStatus().equals(CommentStatusEnum.DELETED.getCode())) {
-            return Result.fail("评论已被删除");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "评论已被删除");
         }
         if (comment.getStatus().equals(CommentStatusEnum.VISIBLE.getCode())) {
             return Result.success(null);

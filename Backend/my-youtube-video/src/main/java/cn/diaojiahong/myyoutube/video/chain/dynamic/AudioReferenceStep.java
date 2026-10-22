@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.chain.dynamic;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.video.service.IAudioService;
 import org.springframework.stereotype.Component;
@@ -27,7 +28,7 @@ public class AudioReferenceStep extends DynamicPreparationStep {
         var audio = audioService.getReferenceable(ctx.getDto().getAudioId(), ctx.getUserId());
         if (audio == null || audio.getDurationMs() == null || audio.getDurationMs() <= 0
                 || audio.getObjectKey() == null || !audio.getObjectKey().startsWith("uploads/audio/"))
-            throw new BizException(BizException.BIZ_ERROR, "音频素材无效");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "音频素材无效");
         ctx.setAudio(audio.getId(), audio.getObjectKey(), audio.getTitle(), audio.getDurationMs());
     }
 }

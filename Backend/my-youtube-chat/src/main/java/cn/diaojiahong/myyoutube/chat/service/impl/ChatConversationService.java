@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.CreateConversationDTO;
@@ -72,7 +73,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         List<Long> memberIds = createConversationDTO.getMemberIds();
         if (createConversationDTO.getType() == ConversationTypeEnum.GROUP) {
             if (!followPort.interrelated(new FollowPort.InterrelatedQuery(userId, memberIds))) {
-                throw new BizException(BizException.CONVERSATION_ERROR, "不是互关用户");
+                throw new BizException(ErrorCode.FORBIDDEN, "不是互关用户");
             }
             // 刚创建的群聊将使用前端默认头像为会话头像url
         }
@@ -80,11 +81,11 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         // 判断是否和需要创建的用户已经有会话了 -> 已有则返回提示
         if (isSingle) {
             if (memberIds == null || memberIds.size() != 1) {
-                throw new BizException(BizException.CONVERSATION_ERROR, "私聊请选择一位对方用户");
+                throw new BizException(ErrorCode.INVALID_ARGUMENT, "私聊请选择一位对方用户");
             }
             Long peerId = memberIds.get(0);
             if (peerId == null || peerId.equals(userId)) {
-                throw new BizException(BizException.CONVERSATION_ERROR, "不能与自己发起私聊");
+                throw new BizException(ErrorCode.INVALID_ARGUMENT, "不能与自己发起私聊");
             }
             Query dup = new Query(
                     Criteria.where("type").is(ConversationTypeEnum.SINGLE)
@@ -94,7 +95,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
                             )
             );
             if (mongoTemplate.exists(dup, ChatConversationDoc.class)) {
-                throw new BizException(BizException.CONVERSATION_ERROR, "与该用户已有私聊会话");
+                throw new BizException(ErrorCode.STATE_CONFLICT, "与该用户已有私聊会话");
             }
         }
         memberIds.add(userId);
@@ -159,10 +160,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         Long userId = getUserId();
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
-            throw new IllegalArgumentException("私聊不能修改头像");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "私聊不能修改头像");
         }
         if (!chatConversationDoc.getCreatedBy().equals(userId)) {
-            throw new IllegalArgumentException("不是创建人");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是创建人");
         }
         // 上传文件到对象存储
         String avatarUrl = null;
@@ -182,10 +183,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         Long userId = getUserId();
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
-            throw new IllegalArgumentException("私聊不能修改名称");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "私聊不能修改名称");
         }
         if (!chatConversationDoc.getCreatedBy().equals(userId)) {
-            throw new IllegalArgumentException("不是创建人");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是创建人");
         }
         // 更新会话名称
         chatConversationDoc.setName(name);
@@ -200,14 +201,14 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         Long userId = getUserId();
         ChatConversationDoc doc = getChatConversationDoc(conversationId);
         if (doc.getType() != ConversationTypeEnum.GROUP) {
-            throw new IllegalArgumentException("仅群聊可发布公告");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "仅群聊可发布公告");
         }
         if (doc.getCreatedBy() == null || !doc.getCreatedBy().equals(userId)) {
-            throw new IllegalArgumentException("仅群主可发布公告");
+            throw new BizException(ErrorCode.FORBIDDEN, "仅群主可发布公告");
         }
         String t = text == null ? "" : text.trim();
         if (t.isEmpty()) {
-            throw new IllegalArgumentException("公告内容不能为空");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "公告内容不能为空");
         }
         int prev = doc.getAnnouncementVersion() == null ? 0 : doc.getAnnouncementVersion();
         int next = prev + 1;
@@ -238,7 +239,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         List<Long> memberIds = chatConversationDoc.getMemberIds();
         if (!memberIds.contains(userId)) {
-            throw new IllegalArgumentException("不是会话成员");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
         }
         Criteria c = Criteria.where("conversationId").is(conversationId);
         boolean dissolved = false;
@@ -273,10 +274,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     public void removeConversationMember(String conversationId, List<Long> removeUserIds) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
-            throw new IllegalArgumentException("私聊不能移除成员");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "私聊不能移除成员");
         }
         if (!chatConversationDoc.getCreatedBy().equals(getUserId())) {
-            throw new IllegalArgumentException("不是创建人");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是创建人");
         }
         // 移除会话成员
         List<Long> memberIds = chatConversationDoc.getMemberIds();
@@ -292,7 +293,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     private ChatConversationDoc getChatConversationDoc(String conversationId) {
         Optional<ChatConversationDoc> opt = getById(conversationId);
         if (opt.isEmpty()) {
-            throw new IllegalArgumentException("会话不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "会话不存在");
         }
         return opt.get();
     }
@@ -303,18 +304,18 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         // Feign 守卫提前到事务外: 用户存在性 + 互关关系
         UserSummary user = userPort.getUser(invitedUserId);
         if (user == null) {
-            throw new IllegalArgumentException("用户不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "用户不存在");
         }
         List<Long> memberIds = chatConversationDoc.getMemberIds();
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
-            throw new IllegalArgumentException("私聊不能邀请成员");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "私聊不能邀请成员");
         }
         if (!memberIds.contains(userId)) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "你不是该群的成员");
+            throw new BizException(ErrorCode.FORBIDDEN, "你不是该群的成员");
         }
         // 判断是否是互关关系
         if (!followPort.interrelated(new FollowPort.InterrelatedQuery(userId, List.of(invitedUserId)))) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "不是互关用户,无法邀请对方");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是互关用户,无法邀请对方");
         }
         // 邀请会话成员
         memberIds.add(invitedUserId);
@@ -343,7 +344,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     public List<ConversationMembersVO> getConversationMembers(String conversationId) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
-            throw new IllegalArgumentException("私聊不能查询成员");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "私聊不能查询成员");
         }
         // 一次批量取摘要, 按成员顺序本地投影
         List<Long> memberIds = chatConversationDoc.getMemberIds();
@@ -366,10 +367,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     public void banConversation(String conversationId, Boolean banned) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
-            throw new IllegalArgumentException("私聊不能开启全员禁言");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "私聊不能开启全员禁言");
         }
         if (!chatConversationDoc.getCreatedBy().equals(getUserId())) {
-            throw new IllegalArgumentException("不是创建人");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是创建人");
         }
         // 开启或关闭全员禁言
         chatConversationDoc.setBanned(banned);
@@ -390,10 +391,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
     public AnnouncementPublishVO getAnnouncement(String conversationId) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
-            throw new IllegalArgumentException("私聊没有公告");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "私聊没有公告");
         }
         if (!chatConversationDoc.getMemberIds().contains(getUserId())) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "你不是该群的成员");
+            throw new BizException(ErrorCode.FORBIDDEN, "你不是该群的成员");
         }
         if (chatConversationDoc.getAnnouncement() == null) {
             return new AnnouncementPublishVO(conversationId, 0, null);
@@ -406,13 +407,13 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         // 判断是否有权限
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (!chatConversationDoc.getMemberIds().contains(getUserId())) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "你不是该群的成员");
+            throw new BizException(ErrorCode.FORBIDDEN, "你不是该群的成员");
         }
         if (!chatConversationDoc.getCreatedBy().equals(getUserId())) {
-            throw new IllegalArgumentException("不是创建人");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是创建人");
         }
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
-            throw new IllegalArgumentException("私聊不能禁言成员");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "私聊不能禁言成员");
         }
         // 禁言或取消禁言会话成员
         Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(userId);

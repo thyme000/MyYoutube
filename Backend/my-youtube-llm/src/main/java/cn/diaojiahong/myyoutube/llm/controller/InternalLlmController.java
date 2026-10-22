@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.llm.controller;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.llm.LlmClient;
 import cn.diaojiahong.myyoutube.llm.LlmRequestMetrics;
@@ -30,14 +31,14 @@ public class InternalLlmController {
     @PostMapping("/chat")
     public LlmPort.ChatResponse chat(@RequestBody LlmPort.ChatRequest request) {
         if (request == null || request.getMessages() == null || request.getMessages().isEmpty()) {
-            throw new BizException(BizException.BIZ_ERROR, "messages 不能为空");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "messages 不能为空");
         }
         List<LlmClient.Message> messages = request.getMessages().stream()
                 .filter(m -> m != null && StringUtils.hasText(m.getRole()))
                 .map(this::toClientMessage)
                 .toList();
         if (messages.isEmpty()) {
-            throw new BizException(BizException.BIZ_ERROR, "messages 不能为空");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "messages 不能为空");
         }
         return metrics.record("chat", () -> llmClient.chatDetailed(messages, request.getModel(), request.getTemperature(),
                 request.getMaxTokens(), request.getResponseFormat()));
@@ -46,7 +47,7 @@ public class InternalLlmController {
     @PostMapping("/embeddings")
     public LlmPort.EmbeddingsResponse embeddings(@RequestBody LlmPort.EmbeddingsRequest request) {
         if (request == null || request.getTexts() == null || request.getTexts().isEmpty()) {
-            throw new BizException(BizException.BIZ_ERROR, "texts 不能为空");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "texts 不能为空");
         }
         return metrics.record("embeddings", () -> embed(request.getTexts()));
     }
@@ -67,7 +68,7 @@ public class InternalLlmController {
                         p.getImageUrl() == null ? null : p.getImageUrl().getUrl()))
                 .toList();
         if (!StringUtils.hasText(m.getContent()) && parts.isEmpty()) {
-            throw new BizException(BizException.BIZ_ERROR, "消息缺少内容");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "消息缺少内容");
         }
         return new LlmClient.Message(m.getRole(), m.getContent(), parts);
     }

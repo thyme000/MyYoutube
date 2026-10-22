@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -20,7 +21,7 @@ public class ConversationStep extends MessageSendStep {
         ChatConversationDoc conversationDoc =
                 chatConversationService.getById(ctx.getConversationId()).orElse(null);
         if (conversationDoc == null) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "会话不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "会话不存在");
         }
         ctx.setConversationDoc(conversationDoc);
     }

@@ -7,7 +7,9 @@ import lombok.Data;
 @Schema(description = "统一响应结果")
 public class Result<T> {
 
-    @Schema(description = "状态码")
+    public static final int SUCCESS_CODE = 200;
+
+    @Schema(description = "业务码，200 表示成功")
     private int code;
 
     @Schema(description = "提示信息")
@@ -25,35 +27,27 @@ public class Result<T> {
         this.data = data;
     }
 
-    // ===== 成功 =====
-
     public static <T> Result<T> success() {
-        return new Result<>(ResultCode.SUCCESS.getCode(), ResultCode.SUCCESS.getMessage(), null);
+        return success(null);
     }
 
     public static <T> Result<T> success(T data) {
-        return new Result<>(ResultCode.SUCCESS.getCode(), ResultCode.SUCCESS.getMessage(), data);
+        return success("操作成功", data);
     }
 
     public static <T> Result<T> success(String message, T data) {
-        return new Result<>(ResultCode.SUCCESS.getCode(), message, data);
+        return new Result<>(SUCCESS_CODE, message, data);
     }
 
-    // ===== 失败 =====
-
-    public static <T> Result<T> fail() {
-        return new Result<>(ResultCode.FAIL.getCode(), ResultCode.FAIL.getMessage(), null);
+    public static <T> Result<T> fail(ErrorCode errorCode) {
+        return fail(errorCode, errorCode.getMessage());
     }
 
-    public static <T> Result<T> fail(String message) {
-        return new Result<>(ResultCode.FAIL.getCode(), message, null);
+    public static <T> Result<T> fail(ErrorCode errorCode, String message) {
+        return fail(errorCode, message, null);
     }
 
-    public static <T> Result<T> fail(ResultCode resultCode) {
-        return new Result<>(resultCode.getCode(), resultCode.getMessage(), null);
-    }
-
-    public static <T> Result<T> fail(int code, String message) {
-        return new Result<>(code, message, null);
+    public static <T> Result<T> fail(ErrorCode errorCode, String message, T data) {
+        return new Result<>(errorCode.getCode(), message, data);
     }
 }

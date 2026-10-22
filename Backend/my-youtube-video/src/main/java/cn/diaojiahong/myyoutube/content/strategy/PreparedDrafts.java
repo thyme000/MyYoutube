@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.content.strategy;
 
-import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.video.domain.po.MediaDraft;
@@ -18,6 +17,6 @@ public final class PreparedDrafts {
                     || !Objects.equals(manifest.mediaVersion(), draft.getMediaVersion())
                     || !media.type().equals(draft.getType().getCode())) throw new IllegalArgumentException("Prepared draft identity mismatch");
             return media;
-        } catch (RuntimeException e) { throw new BizException(BizException.BIZ_ERROR, "缺少完整且版本一致的媒体准备结果"); }
+        } catch (RuntimeException e) { throw new IllegalStateException("缺少完整且版本一致的媒体准备结果", e); }
     }
 }

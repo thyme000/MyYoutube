@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -29,7 +30,7 @@ public class ContentReadService {
     public ContentDetailVO detail(Long id, Long viewer) {
         var content = access.readable(id, viewer);
         var media = strategies.get(content.getType()).loadMedia(List.of(id)).get(id);
-        if (media == null) throw new BizException(BizException.BIZ_ERROR, "媒体不存在");
+        if (media == null) throw new BizException(ErrorCode.NOT_FOUND, "媒体不存在");
         var detail = BeanUtil.copyProperties(cards.assemble(viewer, List.of(content)).get(0), ContentDetailVO.class);
         detail.setMedia(signedMedia(media));
         var row = understanding.get(id);
@@ -44,13 +45,13 @@ public class ContentReadService {
     public String subtitles(Long id, Long viewer) {
         access.readable(id, viewer);
         var row = understanding.get(id);
-        if (row == null || row.getSubtitleKey() == null) throw new BizException(BizException.BIZ_ERROR, "暂无字幕");
+        if (row == null || row.getSubtitleKey() == null) throw new BizException(ErrorCode.NOT_FOUND, "暂无字幕");
         return new String(storage.readObject(row.getSubtitleKey()), StandardCharsets.UTF_8);
     }
     public ContentMediaVO adminMedia(Long id) {
         var content = access.forReview(id);
         var media = strategies.get(content.getType()).loadMedia(List.of(id)).get(id);
-        if (media == null) throw new BizException(BizException.BIZ_ERROR, "媒体不存在");
+        if (media == null) throw new BizException(ErrorCode.NOT_FOUND, "媒体不存在");
         return signedMedia(media);
     }
     private ContentMediaVO signedMedia(cn.diaojiahong.myyoutube.common.media.ContentMedia media) {

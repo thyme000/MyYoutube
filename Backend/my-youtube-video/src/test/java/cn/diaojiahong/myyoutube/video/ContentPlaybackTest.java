@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPlaybackDTO;
@@ -91,9 +92,9 @@ class ContentPlaybackTest {
         assertThrows(BizException.class,()->service.save(1L,9L,state(2,500,0,0,null)));
     }
     @Test void currentPermissionCheckedBeforeReadingOrWritingResume() {
-        when(access.readable(1L,9L)).thenThrow(new BizException(BizException.BIZ_ERROR,"不可访问"));
+        when(access.readable(1L,9L)).thenThrow(new BizException(ErrorCode.FORBIDDEN, "不可访问"));
         assertThrows(BizException.class,()->service.get(1L,9L));
-        when(access.requireReadable(any(),eq(9L))).thenThrow(new BizException(BizException.BIZ_ERROR,"不可访问"));
+        when(access.requireReadable(any(),eq(9L))).thenThrow(new BizException(ErrorCode.FORBIDDEN, "不可访问"));
         assertThrows(BizException.class,()->service.save(1L,9L,state(1,0,0,0,0L)));
         verify(strategy,never()).loadMedia(any());
     }

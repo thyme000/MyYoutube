@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.service.strategy;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -25,14 +26,14 @@ public class ForwardContentChatContentStrategy implements ChatContentTypeStrateg
     @Override
     public void validate(ChatContent content) {
         if (content == null || content.getContentId() == null || content.getContentId() <= 0)
-            throw new BizException(BizException.MESSAGE_ERROR, "转发内容id无效");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "转发内容id无效");
     }
 
     @Override
     public ChatContent snapshot(ChatContent content) {
         validate(content);
         var info = contents.forwardInfo(content.getContentId(), Long.valueOf(UserContext.getUserId()));
-        if (info == null) throw new BizException(BizException.MESSAGE_ERROR, "内容不存在或不可访问");
+        if (info == null) throw new BizException(ErrorCode.NOT_FOUND, "内容不存在或不可访问");
         var snapshot = new ChatContent();
         snapshot.setContentId(info.contentId());
         snapshot.setMediaType(info.type());

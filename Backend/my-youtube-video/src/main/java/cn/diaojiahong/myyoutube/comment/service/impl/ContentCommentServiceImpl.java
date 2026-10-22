@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.comment.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.comment.cache.CommentListCache;
@@ -91,11 +93,11 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
             ContentComment p = getById(parentId);
             if (p == null || !CommentStatusEnum.VISIBLE.getCode().equals(p.getStatus())) {
 
-                throw new IllegalArgumentException("父评论不存在或不可回复");
+                throw new BizException(ErrorCode.NOT_FOUND, "父评论不存在或不可回复");
             }
             if (!Objects.equals(p.getContentId(), commentDTO.getContentId())) {
 
-                throw new IllegalArgumentException("父评论不属于该内容");
+                throw new BizException(ErrorCode.INVALID_ARGUMENT, "父评论不属于该内容");
             }
             parent = p;
         }
@@ -160,12 +162,12 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         ContentComment comment = getById(commentId);
         if (comment == null) {
 
-            throw new IllegalArgumentException("评论不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "评论不存在");
         }
         Long userId = getUserId();
         if (!comment.getUserId().equals(userId)) {
 
-            throw new IllegalArgumentException("用户没有权限删除评论");
+            throw new BizException(ErrorCode.FORBIDDEN, "用户没有权限删除评论");
         }
         // 删楼时连回复一起摘, 先收齐受影响 id 供计数
         List<Long> affectedIds = new ArrayList<>();
@@ -206,7 +208,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         Content content = access.readable(contentId, getUserId());
         if (content == null) {
 
-            throw new IllegalArgumentException("内容不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "内容不存在");
         }
         CommentTab tab = query.getTab() == null || query.getTab().isBlank()
                 ? CommentTab.HOT : CommentTab.of(query.getTab());
@@ -241,7 +243,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         ContentComment root = getById(rootId);
         if (root == null) {
 
-            throw new IllegalArgumentException("评论不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "评论不存在");
         }
         access.readable(root.getContentId(), getUserId());
         int limit = clampPageSize(query.getPageSize());
@@ -467,7 +469,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         String userId = UserContext.getUserId();
         if (userId == null || userId.isEmpty()) {
 
-            throw new IllegalArgumentException("用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.valueOf(userId);
     }

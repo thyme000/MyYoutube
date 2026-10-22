@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.Input;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
@@ -111,7 +112,7 @@ class RetryBatchIntegrationTest {
         assertEquals(winner.batch().batchId(),batches.current().batchId());
         assertEquals("RETRY_BATCH_RUNNING",(first.accepted() ? second : first).code());
         assertEquals(winner.batch().batchId(),create(first.accepted() ? "one":"two",first.accepted() ? "ASR":"OCR").batch().batchId());
-        assertThrows(IllegalArgumentException.class,() -> create(first.accepted() ? "one":"two","SUMMARY"));
+        assertThrows(BizException.class,() -> create(first.accepted() ? "one":"two","SUMMARY"));
         } finally { otherRedis.shutdown(); }
     }
     @Test void selectedBranchPreservesSuccessAndLeavesIndependentDeadBranch() {
@@ -190,7 +191,7 @@ class RetryBatchIntegrationTest {
         var asr=retries.query(new Query(null,"ASR",null,null,null,null,null,100,null));
         assertTrue(asr.items().stream().anyMatch(t -> "SUMMARY".equals(t.taskType())));
         assertFalse(asr.items().stream().anyMatch(t -> "OCR".equals(t.taskType())));
-        assertThrows(IllegalArgumentException.class,() -> retries.query(new Query("unknown",null,null,null,null,null,null,10,null)));
+        assertThrows(BizException.class,() -> retries.query(new Query("unknown",null,null,null,null,null,null,10,null)));
     }
     @Test void outboxFailureRollsBackBatchAndGlobalOccupation() {
         failedPipeline(); observations.getRecording().setEnabled(true);
@@ -296,8 +297,8 @@ class RetryBatchIntegrationTest {
     @Test void invalidSelectionsAndActorDoNotCreateHistory() {
         for (var request:List.of(new Request("empty",List.of()),new Request("bad id",List.of(1L)),
                 new Request("negative",List.of(-1L)),new Request("too-many",java.util.stream.LongStream.rangeClosed(1,21).boxed().toList())))
-            assertThrows(IllegalArgumentException.class,() -> retries.create(request,1L));
-        assertThrows(IllegalArgumentException.class,() -> retries.create(new Request("actor",List.of(1L)),2L-2));
+            assertThrows(BizException.class,() -> retries.create(request,1L));
+        assertThrows(BizException.class,() -> retries.create(new Request("actor",List.of(1L)),2L-2));
         assertEquals(0,batchRows.selectCount(null));
     }
 

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.*;
 import cn.diaojiahong.myyoutube.transcode.domain.po.MediaTask;
 import cn.diaojiahong.myyoutube.transcode.domain.po.MediaRetryBatch;
@@ -30,13 +32,13 @@ public class MediaRetryService {
     private cn.diaojiahong.myyoutube.transcode.cover.CoverProperties cover;
 
     public Page query(Query request) {
-        if (request==null) throw new IllegalArgumentException("Missing task query");
+        if (request==null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "Missing task query");
         validate(request.taskType(),Arrays.stream(MediaTaskType.values()).map(Enum::name).toList());
         validate(request.phase(),List.of("DRAFT","CONTENT","REVIEW"));
         validate(request.status(),List.of("ALL","PENDING","READY","RUNNING","RETRY_WAIT","SUCCESS","DEAD","BLOCKED"));
         validate(request.dependencyService(),List.of("ASR","OCR","LLM"));
         int limit=request.size()==null ? 20 : request.size();
-        if (limit<1 || limit>100 || request.cursor()!=null && request.cursor()<0) throw new IllegalArgumentException("非法查询分页");
+        if (limit<1 || limit>100 || request.cursor()!=null && request.cursor()<0) throw new BizException(ErrorCode.INVALID_ARGUMENT, "非法查询分页");
         var q=new LambdaQueryWrapper<MediaTask>().gt(request.cursor()!=null,MediaTask::getId,request.cursor())
                 .eq(request.taskType()!=null,MediaTask::getTaskType,request.taskType())
                 .eq(request.phase()!=null,MediaTask::getPhase,request.phase())
@@ -88,14 +90,14 @@ public class MediaRetryService {
         return result;
     }
     private void validate(String value,List<String> allowed) {
-        if (value!=null && !allowed.contains(value)) throw new IllegalArgumentException("未知任务筛选值: "+value);
+        if (value!=null && !allowed.contains(value)) throw new BizException(ErrorCode.INVALID_ARGUMENT, "未知任务筛选值: "+value);
     }
     public Admission create(Request request, Long actorId) {
         if (request == null || request.requestId() == null || !request.requestId().matches("[A-Za-z0-9_.:-]{1,128}")
                 || actorId == null || actorId <= 0 || request.taskIds() == null || request.taskIds().isEmpty()
                 || request.taskIds().size() > properties.getRetryBatchSize()
                 || request.taskIds().stream().anyMatch(id -> id == null || id <= 0))
-            throw new IllegalArgumentException("补跑请求需提供 requestId 和 1~" + properties.getRetryBatchSize() + " 个任务 ID");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "补跑请求需提供 requestId 和 1~" + properties.getRetryBatchSize() + " 个任务 ID");
         var ids = new TreeSet<>(request.taskIds()).stream().toList();
         var cached = occupation.current();
         if (cached != null) return cachedAdmission(request, actorId, ids, cached);
@@ -155,13 +157,13 @@ public class MediaRetryService {
     }
     private Admission replay(MediaRetryBatch row, Long actorId, List<Long> ids) {
         if (!actorId.equals(row.getActorId()) || !ids.equals(store.selection(row).stream().map(Item::taskId).toList()))
-            throw new IllegalArgumentException("requestId 已绑定其他补跑清单或操作者");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "requestId 已绑定其他补跑清单或操作者");
         return new Admission(true, "RETRY_BATCH_REPLAY", "返回已登记的批次", store.batch(row.getId()));
     }
     private Admission cachedAdmission(Request request, Long actorId, List<Long> ids, RetryBatchOccupation.Occupation cached) {
         if (!request.requestId().equals(cached.requestId())) return busy(cached.batch());
         if (!actorId.equals(cached.actorId()) || !ids.equals(cached.taskIds()))
-            throw new IllegalArgumentException("requestId 已绑定其他补跑清单或操作者");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "requestId 已绑定其他补跑清单或操作者");
         return new Admission(true, "RETRY_BATCH_REPLAY", "返回已登记的批次", cached.batch());
     }
     private Admission busy(Batch batch) {

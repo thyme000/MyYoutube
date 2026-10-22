@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.auth.chain.register;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.RegexUtils;
@@ -15,7 +16,7 @@ public class EmailFormatStep extends RegisterStep {
     @Override
     public void apply(RegisterRequestDTO dto) {
         if (RegexUtils.isEmailInvalid(dto.getEmail())) {
-            throw new BizException(BizException.BIZ_ERROR, "邮箱格式错误!");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "邮箱格式错误!");
         }
     }
 }

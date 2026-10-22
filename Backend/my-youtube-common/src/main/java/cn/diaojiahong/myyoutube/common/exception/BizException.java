@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.exception;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import lombok.Getter;
 
 /**
@@ -8,20 +9,21 @@ import lombok.Getter;
 @Getter
 public class BizException extends RuntimeException {
 
-    public static final int STORAGE_ERROR = 10001;
-    public static final int TAG_ERROR = 10002;
-    public static final int USER_ERROR = 10003;
-    public static final int NOTIFICATION_ERROR = 10004;
-    public static final int MESSAGE_ERROR = 10005;
-    public static final int CONVERSATION_ERROR = 10006;
-    public static final int BIZ_ERROR = 10007;
+    private final ErrorCode errorCode;
 
-    private final int code;
-    private final String message;
+    public BizException(ErrorCode errorCode) {
+        this(errorCode, errorCode.getMessage());
+    }
 
-    public BizException(int code, String message) {
-        super(message);
-        this.code = code;
-        this.message = message;
+    public BizException(ErrorCode errorCode, String message) {
+        this(errorCode, message, null);
+    }
+
+    public BizException(ErrorCode errorCode, String message, Throwable cause) {
+        super(message, cause);
+        if (errorCode.getHttpStatus() < 400 || errorCode.getHttpStatus() >= 500) {
+            throw new IllegalArgumentException("Business rejection requires a 4xx error code");
+        }
+        this.errorCode = errorCode;
     }
 }

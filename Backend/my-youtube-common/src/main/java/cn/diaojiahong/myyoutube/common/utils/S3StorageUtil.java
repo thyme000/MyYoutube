@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.common.utils;
 
-import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.properties.S3Properties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -251,7 +252,7 @@ public class S3StorageUtil {
             policy = Base64.getEncoder().encodeToString(
                     objectMapperValue(policyMap).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
-            throw new BizException(BizException.STORAGE_ERROR, "生成上传策略失败: " + e.getMessage());
+            throw new IllegalStateException("生成上传策略失败", e);
         }
 
         byte[] kDate = hmac(("AWS4" + properties.getSecretKey()).getBytes(StandardCharsets.UTF_8),
@@ -300,9 +301,9 @@ public class S3StorageUtil {
                     .range("bytes=0-" + (Math.max(1, length) - 1))
                     .build()).asByteArray();
         } catch (NoSuchKeyException e) {
-            throw new BizException(BizException.STORAGE_ERROR, "对象不存在: " + objectKey);
+            throw new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "所需存储对象不存在", e);
         } catch (S3Exception e) {
-            throw new BizException(BizException.STORAGE_ERROR, "读取对象失败: " + e.getMessage());
+            throw storageFailure("读取存储对象失败", e);
         }
     }
 
@@ -329,8 +330,7 @@ public class S3StorageUtil {
             // 逐对象写入, 调用方(帧/小图/产物)已有批次级汇总, 这里只留排查细节
             log.debug("对象写入完成 objectKey={} bytes={}", objectKey, bytes == null ? 0 : bytes.length);
         } catch (S3Exception e) {
-            log.warn("S3 上传失败 objectKey={} bytes={} code={}", objectKey, bytes == null ? 0 : bytes.length, e.statusCode());
-            throw new BizException(BizException.STORAGE_ERROR, "对象存储上传失败: " + e.getMessage());
+            throw storageFailure("对象存储上传失败", e);
         }
     }
 
@@ -360,4 +360,13 @@ public class S3StorageUtil {
         String endpoint = properties.getEndpoint();
         return endpoint.replaceAll("/+$", "") + "/" + properties.getBucketName() + "/" + objectKey;
     }
+    private static DependencyException storageFailure(String message, S3Exception cause) {
+        ErrorCode code = switch (cause.statusCode()) {
+            case 429, 503 -> ErrorCode.DEPENDENCY_UNAVAILABLE;
+            case 504 -> ErrorCode.DEPENDENCY_TIMEOUT;
+            default -> ErrorCode.DEPENDENCY_FAILURE;
+        };
+        return new DependencyException(code, message, cause);
+    }
+
 }

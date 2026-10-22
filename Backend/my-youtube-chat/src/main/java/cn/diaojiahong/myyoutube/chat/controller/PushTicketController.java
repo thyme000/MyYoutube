@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.controller;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -31,7 +32,7 @@ public class PushTicketController {
         String userId = UserContext.getUserId();
         if (userId == null) {
 
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         String ticket = UUID.randomUUID().toString();
         redisTemplate.opsForValue().set(RedisConstants.PUSH_CONNECTION_TICKET + ticket,

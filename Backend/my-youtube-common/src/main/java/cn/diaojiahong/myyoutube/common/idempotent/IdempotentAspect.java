@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.idempotent;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -67,7 +68,7 @@ public class IdempotentAspect {
                 return JsonUtil.fromJson(value, method.getReturnType());
             case THROW:
             default:
-                throw new BizException(BizException.BIZ_ERROR, "请勿重复操作");
+                throw new BizException(ErrorCode.STATE_CONFLICT, "请勿重复操作");
         }
     }
 

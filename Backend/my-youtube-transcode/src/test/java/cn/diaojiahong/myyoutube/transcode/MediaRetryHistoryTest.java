@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.*;
 import cn.diaojiahong.myyoutube.transcode.domain.po.*;
@@ -70,8 +71,8 @@ class MediaRetryHistoryTest {
         assertNotNull(batches.selectById(4L).getResultJson());
     }
     @Test void invalidHistoryPagesAreRejected() {
-        assertThrows(IllegalArgumentException.class,() -> history.history(-1L,20));
-        assertThrows(IllegalArgumentException.class,() -> history.history(null,0));
-        assertThrows(IllegalArgumentException.class,() -> history.history(null,101));
+        assertThrows(BizException.class,() -> history.history(-1L,20));
+        assertThrows(BizException.class,() -> history.history(null,0));
+        assertThrows(BizException.class,() -> history.history(null,101));
     }
 }

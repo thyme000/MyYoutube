@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.mybatis;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
@@ -26,7 +27,7 @@ public final class OwnershipUpdate {
                 .eq(ownerColumn, ownerId);
         setter.accept(wrapper);
         if (mapper.update(null, wrapper) <= 0) {
-            throw new BizException(BizException.BIZ_ERROR, failMessage);
+            throw new BizException(ErrorCode.NOT_FOUND, failMessage);
         }
     }
 }

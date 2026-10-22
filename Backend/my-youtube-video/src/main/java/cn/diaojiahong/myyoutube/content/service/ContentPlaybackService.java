@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -49,5 +50,5 @@ public class ContentPlaybackService {
         playback.save(viewer, contentId, state);
     }
     private static boolean within(Long value, long max) { return value != null && value >= 0 && value <= max; }
-    private static BizException invalid() { return new BizException(BizException.BIZ_ERROR, "播放记录无效"); }
+    private static BizException invalid() { return new BizException(ErrorCode.INVALID_ARGUMENT, "播放记录无效"); }
 }

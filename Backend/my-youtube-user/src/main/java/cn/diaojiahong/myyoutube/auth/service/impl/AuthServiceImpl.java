@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.auth.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.auth.chain.register.RegisterChain;
@@ -61,12 +62,12 @@ public class AuthServiceImpl implements IAuthService {
                 .eq(User::getUsername, username)
                 .one();
         if (user == null) {
-            throw new BizException(BizException.BIZ_ERROR, "用户不存在!");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户不存在!");
         }
 
         // BCrypt 校验：matches(明文, 哈希)，第一个参数必须是原始明文
         if (!PasswordEncoder.matches(rawPassword, user.getPassword())) {
-            throw new BizException(BizException.BIZ_ERROR, "密码错误!");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "密码错误!");
         }
 
 
@@ -84,7 +85,7 @@ public class AuthServiceImpl implements IAuthService {
     public LoginResponseDTO refresh(RefreshTokenDTO refreshTokenDTO) {
         String refreshToken = refreshTokenDTO == null ? null : refreshTokenDTO.getRefreshToken();
         if (refreshToken == null || refreshToken.isBlank()) {
-            throw new BizException(BizException.BIZ_ERROR, "登录已过期，请重新登录!");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "登录已过期，请重新登录!");
         }
 
         String newRefreshToken = UUID.randomUUID().toString();
@@ -102,7 +103,7 @@ public class AuthServiceImpl implements IAuthService {
             // USED 意味着同一刷新凭证被二次使用, 属可关注的安全信号; 其余是正常过期
             if ("USED".equals(userId)) log.warn("刷新凭证被重复使用, 已按失效处理");
             else log.debug("刷新凭证无效 reason={}", userId == null ? "NOT_FOUND_OR_EXPIRED" : "REVOKED_BY_TOKEN_VERSION");
-            throw new BizException(BizException.BIZ_ERROR, "登录已过期，请重新登录!");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "登录已过期，请重新登录!");
         }
 
         log.debug("刷新凭证轮换成功 userId={}", userId);
@@ -146,7 +147,7 @@ public class AuthServiceImpl implements IAuthService {
             userService.save(user);
         } catch (DuplicateKeyException e) {
             // 并发注册撞 uk_username/uk_phone/uk_email
-            throw new BizException(BizException.BIZ_ERROR, "用户名或手机号或邮箱已被注册!");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "用户名或手机号或邮箱已被注册!");
         }
 
         // 发送消息,用于创建/更新用户ES文档(延迟 5s, 短时间多次变更消费端合并)
@@ -162,7 +163,7 @@ public class AuthServiceImpl implements IAuthService {
         // 校验字段
         String newPassword = forgetPasswordDTO.getNewPassword();
         if (RegexUtils.isPasswordInvalid(newPassword)) {
-            throw new BizException(BizException.BIZ_ERROR, "密码格式错误，需10~32位字母/数字/下划线!");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "密码格式错误，需10~32位字母/数字/下划线!");
         }
         // 校验字段是否有效
         User user = userService.lambdaQuery()
@@ -170,7 +171,7 @@ public class AuthServiceImpl implements IAuthService {
                 .eq(User::getPhone, forgetPasswordDTO.getPhone())
                 .one();
         if (user == null) {
-            throw new BizException(BizException.BIZ_ERROR, "用户不存在!");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户不存在!");
         }
 
 

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.history.service;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
@@ -129,7 +130,7 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
         String userId = UserContext.getUserId();
         if (userId == null) {
 
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.valueOf(userId);
     }

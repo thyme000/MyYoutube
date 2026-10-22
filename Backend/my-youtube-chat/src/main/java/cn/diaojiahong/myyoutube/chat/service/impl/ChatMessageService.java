@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.chat.chain.message.MessageSendChain;
@@ -170,7 +171,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         }
         if (existing != null) {
             if (!conversationId.equals(existing.getConversationId()))
-                throw new BizException(BizException.MESSAGE_ERROR, "会话id不一致");
+                throw new BizException(ErrorCode.STATE_CONFLICT, "会话id不一致");
             return getAck(existing, existing.getStatus());
         }
         if (chatMessageDoc.getContentType().isForward())
@@ -215,7 +216,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private String getUserId() {
         String userId = UserContext.getUserId();
         if (userId == null || userId.isEmpty()) {
-            throw new BizException(BizException.USER_ERROR, "用户id不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "用户id不存在");
         }
         return userId;
     }
@@ -224,12 +225,12 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     public ChatMessageAckDTO withdraw(ChatMessageWithdrawDTO chatMessageWithdrawDTO) {
         String userId = getUserId();
         if (chatMessageWithdrawDTO.getClientMsgId() == null) {
-            throw new BizException(BizException.MESSAGE_ERROR, "客户端幂等id不能为空");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "客户端幂等id不能为空");
         }
         Optional<ChatMessageDoc> existed =
                 findByIdempotent(chatMessageWithdrawDTO.getSenderId(), chatMessageWithdrawDTO.getClientMsgId());
         if (existed.isEmpty()) {
-            throw new BizException(BizException.MESSAGE_ERROR, "消息不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "消息不存在");
         }
         ChatMessageDoc chatMessageDoc = existed.get();
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(chatMessageDoc.getConversationId());
@@ -237,7 +238,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         Long createdBy = chatConversationDoc.getCreatedBy();
         if (!chatMessageDoc.getSenderId().toString().equals(userId)
                 && (createdBy == null || !createdBy.toString().equals(userId))) {
-            throw new BizException(BizException.MESSAGE_ERROR, "不是发送人或群主");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是发送人或群主");
         }
         LocalDateTime recallTime = LocalDateTime.now();
         // 判断是否已经撤回了,直接返回ack
@@ -256,7 +257,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                             && createdBy != null
                             && createdBy.equals(operatorId);
             if (!groupOwnerRecallOwn && chatMessageDoc.getCreatedAt().isBefore(recallTime.minusMinutes(2))) {
-                throw new BizException(BizException.MESSAGE_ERROR, "消息已发送超过2分钟,不能撤回");
+                throw new BizException(ErrorCode.STATE_CONFLICT, "消息已发送超过2分钟,不能撤回");
             }
             up.set("recallType", RecallTypeEnum.SENDER);
             recallTypeForMq = RecallTypeEnum.SENDER;
@@ -265,7 +266,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             up.set("recallType", RecallTypeEnum.ADMIN);
             recallTypeForMq = RecallTypeEnum.ADMIN;
         } else {
-            throw new BizException(BizException.MESSAGE_ERROR, "无法确定撤回类型");
+            throw new BizException(ErrorCode.FORBIDDEN, "无法确定撤回类型");
         }
         mongoTransactionTemplate.executeWithoutResult(tx -> {
             mongoTemplate.updateFirst(Query.query(c), up, ChatMessageDoc.class);
@@ -291,7 +292,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         List<Long> memberIds = chatConversationDoc.getMemberIds();
         // 判断是否是会话成员
         if (!memberIds.contains(Long.valueOf(getUserId()))) {
-            throw new BizException(BizException.USER_ERROR, "不是会话成员");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
         }
         // 用户信息
         List<UserSummary> members = userPort.listByIds(memberIds);
@@ -332,7 +333,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         List<Long> memberIds = chatConversationDoc.getMemberIds();
         // 判断是否是会话成员
         if (!memberIds.contains(Long.valueOf(getUserId()))) {
-            throw new BizException(BizException.USER_ERROR, "不是会话成员");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
         }
         // 用户信息
         List<UserSummary> members = userPort.listByIds(memberIds);
@@ -351,12 +352,12 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         // 判断是否是会话成员
         List<Long> memberIds = chatConversationDoc.getMemberIds();
         if (!memberIds.contains(Long.valueOf(getUserId()))) {
-            throw new BizException(BizException.USER_ERROR, "不是会话成员");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
         }
         Criteria criteria = Criteria.where("conversationId").is(conversationId).and("userId").is(Long.parseLong(getUserId()));
         ChatUserConversationDoc chatUserConversationDoc = mongoTemplate.findOne(Query.query(criteria), ChatUserConversationDoc.class);
         if (chatUserConversationDoc == null) {
-            throw new BizException(BizException.MESSAGE_ERROR, "用户会话状态不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "用户会话状态不存在");
         }
         Long oldLastReadSeq = chatUserConversationDoc.getLastReadSeq();
         if (oldLastReadSeq == null) {
@@ -371,7 +372,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             Optional<ChatMessageDoc> optional = getById(lastMessageId);
             ChatMessageDoc lastMessageDoc = optional.orElse(null);
             if (lastMessageDoc == null) {
-                throw new BizException(BizException.MESSAGE_ERROR, "消息不存在");
+                throw new BizException(ErrorCode.NOT_FOUND, "消息不存在");
             }
             lastReadSeq = lastMessageDoc.getSeq() < lastReadSeq ? lastMessageDoc.getSeq() : lastReadSeq;
         }
@@ -400,7 +401,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             }
         }
         if (receiverId == null) {
-            throw new BizException(BizException.MESSAGE_ERROR, "消息状态异常,没查到接收方");
+            throw new IllegalStateException("私聊消息缺少接收方");
         }
         // 发送Mq消息
         ReadMessageMessage vo = ReadMessageMessage.builder()
@@ -411,7 +412,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private ChatConversationDoc getChatConversationDoc(String conversationId) {
         Optional<ChatConversationDoc> opt = chatConversationService.getById(conversationId);
         if (opt.isEmpty()) {
-            throw new BizException(BizException.MESSAGE_ERROR, "会话不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "会话不存在");
         }
         return opt.get();
     }
@@ -420,7 +421,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         ChatConversationDoc conv = getChatConversationDoc(conversationId);
         List<Long> memberIds = conv.getMemberIds();
         if (!memberIds.contains(Long.valueOf(getUserId()))) {
-            throw new BizException(BizException.USER_ERROR, "不是会话成员");
+            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
         }
         String kw = keyword == null ? "" : keyword.trim();
         if (kw.isEmpty()) {

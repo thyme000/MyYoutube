@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.admin.controller;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.*;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -15,7 +16,7 @@ import java.util.List;
 public class AdminMediaRetryController {
     private final MediaRetryPort retries;
     private Long actor() {
-        if (!"1".equals(UserContext.getUserId())) throw new BizException(403,"需要管理员权限");
+        if (!"1".equals(UserContext.getUserId())) throw new BizException(ErrorCode.FORBIDDEN, "需要管理员权限");
         return Long.valueOf(UserContext.getUserId());
     }
     @GetMapping("/media-tasks") public Page query(@ModelAttribute Query query) { actor(); return retries.query(query); }

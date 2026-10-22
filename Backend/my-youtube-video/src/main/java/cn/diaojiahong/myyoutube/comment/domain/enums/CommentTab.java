@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.comment.domain.enums;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import lombok.Getter;
 
 @Getter
@@ -20,6 +22,6 @@ public enum CommentTab {
                 return tab;
             }
         }
-        throw new IllegalArgumentException("未知评论tab: " + code);
+        throw new BizException(ErrorCode.INVALID_ARGUMENT, "未知评论tab: " + code);
     }
 }

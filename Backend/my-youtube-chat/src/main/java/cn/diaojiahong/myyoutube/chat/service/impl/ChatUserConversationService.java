@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
@@ -50,7 +51,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
     private Long getUserId() {
         String userId = UserContext.getUserId();
         if (userId == null) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.parseLong(userId);
     }
@@ -153,14 +154,14 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         Query query = Query.query(c);
         ChatConversationDoc chatConversationDoc = mongoTemplate.findOne(query, ChatConversationDoc.class);
         if (chatConversationDoc == null) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "会话不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "会话不存在");
         }
         // 读取群公告
         if (chatConversationDoc.getAnnouncement() == null) {
             return;
         }
         if (!chatConversationDoc.getMemberIds().contains(userId)) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "用户不是群成员");
+            throw new BizException(ErrorCode.FORBIDDEN, "用户不是群成员");
         }
         c = Criteria.where("conversationId").is(conversationId).and("userId").is(userId);
         Update update = new Update().set("lastSeenAnnouncementVersion", chatConversationDoc.getAnnouncementVersion());

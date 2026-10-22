@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.service.impl;
 
+import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -206,8 +208,7 @@ public class SearchServiceImpl implements ISearchService {
 
             return merged.stream().limit(10).toList();
         } catch (Exception e) {
-            log.error("搜索提示查询失败 keyword={} errorType={}", q, e.getClass().getSimpleName(), e);
-            throw new BizException(BizException.BIZ_ERROR, "系统繁忙,请稍后再试");
+            throw new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "搜索提示暂时不可用", e);
         }
     }
 
@@ -363,7 +364,7 @@ public class SearchServiceImpl implements ISearchService {
     private Long getUserId() {
         String userId = UserContext.getUserId();
         if (userId == null || userId.isEmpty()) {
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.parseLong(userId);
     }

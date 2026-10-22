@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -35,20 +36,20 @@ public class AudioServiceImpl implements IAudioService {
         Long userId = getUserId();
         if (dto == null || !StringUtils.hasText(dto.getObjectKey())) {
 
-            throw new BizException(BizException.BIZ_ERROR, "音频文件不能为空");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "音频文件不能为空");
         }
         if (dto.getDurationMs() == null || dto.getDurationMs() <= 0) {
 
-            throw new BizException(BizException.BIZ_ERROR, "音频时长无效");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "音频时长无效");
         }
         if (dto.getDurationMs() > AUDIO_MAX_DURATION_MS) {
 
-            throw new BizException(BizException.BIZ_ERROR, "音频时长不能超过 10 分钟");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "音频时长不能超过 10 分钟");
         }
         String objectKey = storageUtil.normalizeToObjectKey(dto.getObjectKey().trim());
         if (!objectKeyBelongsToUser(userId, objectKey)) {
 
-            throw new BizException(BizException.BIZ_ERROR, "无权使用该音频文件");
+            throw new BizException(ErrorCode.FORBIDDEN, "无权使用该音频文件");
         }
         String visibility = VISIBILITY_PRIVATE.equals(dto.getVisibility()) ? VISIBILITY_PRIVATE : VISIBILITY_PUBLIC;
         Audio audio = new Audio();
@@ -94,11 +95,11 @@ public class AudioServiceImpl implements IAudioService {
         Audio audio = audioMapper.selectById(id);
         if (audio == null || audio.getIsDelete() == 1 || !audio.getUploaderId().equals(userId)) {
 
-            throw new BizException(BizException.BIZ_ERROR, "音频不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "音频不存在");
         }
         if (!VISIBILITY_PUBLIC.equals(visibility) && !VISIBILITY_PRIVATE.equals(visibility)) {
 
-            throw new BizException(BizException.BIZ_ERROR, "可见性参数无效");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "可见性参数无效");
         }
         // 在先使用权: 转私密只影响库内可发现性与新增引用, 已发布动态持快照不受影响
         Audio patch = new Audio();
@@ -112,7 +113,7 @@ public class AudioServiceImpl implements IAudioService {
         Audio audio = audioMapper.selectById(id);
         if (audio == null || audio.getIsDelete() == 1 || !audio.getUploaderId().equals(userId)) {
 
-            throw new BizException(BizException.BIZ_ERROR, "音频不存在");
+            throw new BizException(ErrorCode.NOT_FOUND, "音频不存在");
         }
         // 快照机制保证已引用动态不受影响, 直接软删库条目即可
         Audio patch = new Audio();
@@ -125,11 +126,11 @@ public class AudioServiceImpl implements IAudioService {
         Audio audio = audioMapper.selectById(audioId);
         if (audio == null || audio.getIsDelete() == 1) {
 
-            throw new BizException(BizException.BIZ_ERROR, "音频不存在或已被删除");
+            throw new BizException(ErrorCode.NOT_FOUND, "音频不存在或已被删除");
         }
         if (!VISIBILITY_PUBLIC.equals(audio.getVisibility()) && !audio.getUploaderId().equals(userId)) {
 
-            throw new BizException(BizException.BIZ_ERROR, "无权使用该音频");
+            throw new BizException(ErrorCode.FORBIDDEN, "无权使用该音频");
         }
         return audio;
     }
@@ -166,7 +167,7 @@ public class AudioServiceImpl implements IAudioService {
         String userId = UserContext.getUserId();
         if (userId == null) {
 
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.valueOf(userId);
     }

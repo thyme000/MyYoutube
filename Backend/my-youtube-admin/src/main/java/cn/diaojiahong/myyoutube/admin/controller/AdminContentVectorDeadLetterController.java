@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.admin.controller;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -37,18 +38,15 @@ public class AdminContentVectorDeadLetterController {
     }
 
     private Long actor() {
-        if (!"1".equals(UserContext.getUserId())) throw new BizException(403, "需要管理员权限");
+        if (!"1".equals(UserContext.getUserId())) throw new BizException(ErrorCode.FORBIDDEN, "需要管理员权限");
         return 1L;
-    }
-
-    @ExceptionHandler(BizException.class)
-    public ResponseEntity<Result<?>> denied(BizException error) {
-        return ResponseEntity.status(error.getCode()).body(Result.fail(error.getCode(), error.getMessage()));
     }
 
     @ExceptionHandler(FeignException.class)
     public ResponseEntity<Result<?>> remoteFailure(FeignException error) {
-        int status = error.status() >= 400 && error.status() < 600 ? error.status() : 502;
-        return ResponseEntity.status(status).body(Result.fail(status, status == 400 ? "查询参数或死信定位信息无效，请刷新后重试" : "死信服务暂时不可用"));
+        ErrorCode code = error.status() == 400 ? ErrorCode.INVALID_ARGUMENT
+                : error.status() == 503 ? ErrorCode.DEPENDENCY_UNAVAILABLE : ErrorCode.DEPENDENCY_FAILURE;
+        int status = code.getHttpStatus();
+        return ResponseEntity.status(status).body(Result.fail(code, status == 400 ? "查询参数或死信定位信息无效，请刷新后重试" : "死信服务暂时不可用"));
     }
 }

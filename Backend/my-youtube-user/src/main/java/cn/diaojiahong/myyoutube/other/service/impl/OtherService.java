@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.other.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -38,11 +39,11 @@ public class OtherService implements IOtherService {
     public StoragePresignVO presignUpload(String bizType, String filename, Long fileSize, String contentType) {
         String biz = BIZ_DIRS.get(bizType);
         if (biz == null) {
-            throw new BizException(BizException.STORAGE_ERROR, "不支持的 bizType: " + bizType);
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "不支持的 bizType: " + bizType);
         }
         if ("work".equals(bizType) && (fileSize == null || fileSize < VIDEO_MIN_BYTES || fileSize > VIDEO_MAX_BYTES
                 || contentType == null || !contentType.matches("video/[a-zA-Z0-9.+-]+")))
-            throw new BizException(BizException.STORAGE_ERROR, "请选择不超过 500 MB 的非空视频文件，并提供视频类型");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "请选择不超过 500 MB 的非空视频文件，并提供视频类型");
         Long userId = Long.valueOf(UserContext.getUserId());
 
         String objectKey = storageUtil.buildUniqueObjectKey(userId, biz, filename);

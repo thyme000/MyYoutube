@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.controller;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.*;
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
@@ -71,7 +72,7 @@ public class ContentController {
                                                 @RequestParam(required = false) String category) {
         var order = ContentSortEnum.fromField(sort);
         if (sort != null && order == null)
-            throw new BizException(BizException.BIZ_ERROR, "排序方式无效");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "排序方式无效");
         return Result.success(feeds.list(userId(), order, category, query));
     }
     @GetMapping("/mine")
@@ -80,7 +81,7 @@ public class ContentController {
     }
     private static Long userId() {
         String id = UserContext.getUserId();
-        if (id == null) throw new BizException(BizException.USER_ERROR, "用户未登录");
+        if (id == null) throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         return Long.valueOf(id);
     }
 }

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service.impl;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.video.api.MediaDraftPort;
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
@@ -28,12 +29,12 @@ public class MediaDraftService {
         cn.diaojiahong.myyoutube.common.media.MediaInputs.objectKey(objectKey);
         if (userId == null || userId <= 0 || objectKey.length() > 512 || !objectKey.startsWith("uploads/video/" + userId + "/")
                 || objectKey.split("/", -1).length != 5)
-            throw new BizException(BizException.BIZ_ERROR, "视频素材不属于当前用户");
+            throw new BizException(ErrorCode.FORBIDDEN, "视频素材不属于当前用户");
         MediaDraft existing = draftMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<MediaDraft>()
                 .eq(MediaDraft::getObjectKey, objectKey)
                 .last("limit 1"));
         if (existing != null) {
-            if (!userId.equals(existing.getUserId())) throw new BizException(BizException.BIZ_ERROR, "素材不属于当前用户");
+            if (!userId.equals(existing.getUserId())) throw new BizException(ErrorCode.FORBIDDEN, "素材不属于当前用户");
             return existing.getId();
         }
         MediaDraft draft = new MediaDraft()
@@ -51,7 +52,7 @@ public class MediaDraftService {
         } catch (org.springframework.dao.DuplicateKeyException e) {
             var winner = getByObjectKey(objectKey);
             if (winner == null) throw e;
-            if (!userId.equals(winner.getUserId())) throw new BizException(BizException.BIZ_ERROR, "素材不属于当前用户");
+            if (!userId.equals(winner.getUserId())) throw new BizException(ErrorCode.FORBIDDEN, "素材不属于当前用户");
             return winner.getId();
         }
         return draft.getId();

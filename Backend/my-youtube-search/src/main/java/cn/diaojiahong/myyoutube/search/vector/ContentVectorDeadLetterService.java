@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -43,7 +45,7 @@ public class ContentVectorDeadLetterService implements ContentVectorDeadLetterPo
 
     @Override
     public ReplayResult replay(Reference reference, Long actorId) {
-        if (!Long.valueOf(1).equals(actorId)) throw new IllegalArgumentException("需要管理员权限");
+        if (!Long.valueOf(1).equals(actorId)) throw new BizException(ErrorCode.FORBIDDEN, "需要管理员权限");
         ContentVectorDeadLetters.Entry entry = deadLetters.find(reference);
         ReplayResult result;
         if (entry == null) result = new ReplayResult(ReplayStatus.NOT_FOUND, null, "死信不存在或已过期");

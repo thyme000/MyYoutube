@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.admin.service.impl;
 
+import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.admin.domain.dto.AdminCommentReportPageQueryDTO;
 import cn.diaojiahong.myyoutube.admin.domain.dto.AdminContentPageQueryDTO;
 import cn.diaojiahong.myyoutube.admin.domain.vo.AdminCommentReportVO;
@@ -10,7 +12,6 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.result.ResultCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
@@ -29,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static cn.diaojiahong.myyoutube.common.exception.BizException.USER_ERROR;
 
 /**
  * 管理端服务: 编排 user/video/search 各服务的契约接口
@@ -51,7 +51,7 @@ public class AdminServiceImpl implements IAdminService {
         checkAdmin();
         var result = contentAdminPort.markStatus(new ContentAdminPort.MarkStatus(contentId, ContentStatusEnum.PUBLISHED.getCode(), reason, getUserId()));
         requireOk(result);
-        if (!Boolean.TRUE.equals(result.getData())) throw new BizException(BizException.BIZ_ERROR, "审核状态已变化");
+        if (!Boolean.TRUE.equals(result.getData())) throw new BizException(ErrorCode.STATE_CONFLICT, "审核状态已变化");
         return "审核通过";
     }
 
@@ -60,7 +60,7 @@ public class AdminServiceImpl implements IAdminService {
         checkAdmin();
         var result = contentAdminPort.markStatus(new ContentAdminPort.MarkStatus(contentId, ContentStatusEnum.BANNED.getCode(), reason, getUserId()));
         requireOk(result);
-        if (!Boolean.TRUE.equals(result.getData())) throw new BizException(BizException.BIZ_ERROR, "审核状态已变化");
+        if (!Boolean.TRUE.equals(result.getData())) throw new BizException(ErrorCode.STATE_CONFLICT, "审核状态已变化");
         return "审核拒绝或封禁成功";
     }
 
@@ -160,14 +160,14 @@ public class AdminServiceImpl implements IAdminService {
 
     /** 内部端口返回的 Result 拆包: 非 200 转业务异常, Result 不穿透本层 */
     private void requireOk(Result<?> r) {
-        if (r == null || r.getCode() != ResultCode.SUCCESS.getCode()) {
-            throw new BizException(BizException.BIZ_ERROR, r != null ? r.getMessage() : "下游服务无响应");
+        if (r == null || r.getCode() != Result.SUCCESS_CODE) {
+            throw new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "下游服务未返回成功结果", null);
         }
     }
 
     private void checkAdmin() {
         if (!isAdmin(getUserId())) {
-            throw new BizException(USER_ERROR, "用户不是管理员");
+            throw new BizException(ErrorCode.FORBIDDEN, "用户不是管理员");
         }
     }
 
@@ -178,7 +178,7 @@ public class AdminServiceImpl implements IAdminService {
     private Long getUserId() {
         String userId = UserContext.getUserId();
         if (userId == null || userId.isEmpty()) {
-            throw new BizException(USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.parseLong(userId);
     }

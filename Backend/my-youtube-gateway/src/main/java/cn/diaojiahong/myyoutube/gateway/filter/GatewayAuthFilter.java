@@ -4,6 +4,9 @@ import cn.diaojiahong.myyoutube.gateway.auth.AuthContext;
 import cn.diaojiahong.myyoutube.gateway.auth.GatewayAuthChain;
 import cn.diaojiahong.myyoutube.security.AuthConstants;
 import cn.diaojiahong.myyoutube.common.chain.ChainStepRegistry;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.result.Result;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -17,7 +20,6 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -39,12 +41,15 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
 
     private final ChainStepRegistry chainRegistry;
     private final String internalToken;
+    private final ObjectMapper objectMapper;
 
     public GatewayAuthFilter(ChainStepRegistry chainRegistry,
                              @org.springframework.beans.factory.annotation.Value("${jwt.secret}") String jwtSecret,
-                             @org.springframework.beans.factory.annotation.Value("${my-youtube.internal-token:}") String internalToken) {
+                             @org.springframework.beans.factory.annotation.Value("${my-youtube.internal-token:}") String internalToken,
+                             ObjectMapper objectMapper) {
         this.chainRegistry = chainRegistry;
         this.internalToken = internalToken;
+        this.objectMapper = objectMapper;
         cn.diaojiahong.myyoutube.security.JwtUtil.init(jwtSecret);
     }
 
@@ -109,12 +114,13 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
 
     private Mono<Void> unauthorized(ServerWebExchange exchange) {
         ServerHttpResponse response = exchange.getResponse();
-        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+        response.setStatusCode(HttpStatus.valueOf(ErrorCode.UNAUTHORIZED.getHttpStatus()));
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
-        byte[] body = "{\"code\":401,\"message\":\"未登录或登录已过期\",\"data\":null}"
-                .getBytes(StandardCharsets.UTF_8);
-        DataBuffer buffer = response.bufferFactory().wrap(body);
-        return response.writeWith(Mono.just(buffer));
+        return Mono.fromCallable(() -> objectMapper.writeValueAsBytes(Result.fail(ErrorCode.UNAUTHORIZED)))
+                .flatMap(body -> {
+                    DataBuffer buffer = response.bufferFactory().wrap(body);
+                    return response.writeWith(Mono.just(buffer));
+                });
     }
 
     @Override

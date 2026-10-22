@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.service.strategy;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -27,7 +28,7 @@ public class MediaChatContentStrategy implements ChatContentTypeStrategy {
         if (content.getObjectKey() == null || content.getObjectKey().isBlank()
                 || content.getMimeType() == null || content.getMimeType().isBlank()
                 || content.getSize() == null || content.getSize() <= 0) {
-            throw new BizException(BizException.MESSAGE_ERROR, "媒体消息字段不完整");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "媒体消息字段不完整");
         }
     }
 

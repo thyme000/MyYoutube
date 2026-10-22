@@ -62,6 +62,6 @@ class HotSearchHistoryHttpTest {
     @Test void databaseFailureIs503InsteadOfAnEmptyLeaderboard() throws Exception {
         when(mapper.groups(day, null, 3, 200)).thenThrow(new DataAccessResourceFailureException("offline"));
         mvc.perform(get("/search/hot/history").param("date", day.toString()))
-                .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value(503));
+                .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value(50301));
     }
 }

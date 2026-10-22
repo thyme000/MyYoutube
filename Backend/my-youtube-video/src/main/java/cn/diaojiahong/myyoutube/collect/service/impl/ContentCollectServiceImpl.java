@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.collect.service;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.collect.domain.po.ContentCollect;
@@ -173,7 +174,7 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
         String userId = UserContext.getUserId();
         if (userId == null) {
 
-            throw new BizException(BizException.USER_ERROR, "用户未登录");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
         return Long.valueOf(userId);
     }

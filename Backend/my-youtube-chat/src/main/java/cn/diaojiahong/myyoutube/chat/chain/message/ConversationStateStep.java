@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -24,7 +25,7 @@ public class ConversationStateStep extends MessageSendStep {
         ChatUserConversationDoc userConversationDoc =
                 mongoTemplate.findOne(q, ChatUserConversationDoc.class);
         if (userConversationDoc == null || Boolean.TRUE.equals(userConversationDoc.getDeleted())) {
-            throw new BizException(BizException.CONVERSATION_ERROR, "不合法的会话状态");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "不合法的会话状态");
         }
         ctx.setUserConversationDoc(userConversationDoc);
     }

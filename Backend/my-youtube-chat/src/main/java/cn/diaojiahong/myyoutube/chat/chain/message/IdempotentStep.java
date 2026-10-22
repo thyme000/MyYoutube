@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatMessageDoc;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -26,7 +27,7 @@ public class IdempotentStep extends MessageSendStep {
             return;
         }
         if (!old.getConversationId().equals(ctx.getConversationId())) {
-            throw new BizException(BizException.MESSAGE_ERROR, "会话id不一致");
+            throw new BizException(ErrorCode.STATE_CONFLICT, "会话id不一致");
         }
         ctx.setAck(MessageSendContext.ackOf(old, old.getStatus()));
     }
