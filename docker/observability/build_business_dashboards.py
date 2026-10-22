@@ -90,7 +90,8 @@ def special(chain):
     if chain == 'discovery':
         return [panel('搜索和推荐空页 / 空列表次数', 'sum by(operation) (increase(' + metric('myyoutube_business_operations_total', 'chain="discovery",outcome="empty"') + '[$__rate_interval]))', '{{operation}}', description='返回页为空，不等同于全部召回为空。'),
                 panel('搜索召回降级次数', 'sum by(strategy) (increase(' + metric('myyoutube_search_recall_failures_total') + '[$__rate_interval]))', '{{strategy}}'),
-                panel('推荐 CF 降级次数', 'sum by(strategy) (increase(' + metric('myyoutube_recommend_fallbacks_total') + '[$__rate_interval]))', '{{strategy}}')]
+                panel('推荐 CF 降级次数', 'sum by(strategy) (increase(' + metric('myyoutube_recommend_fallbacks_total') + '[$__rate_interval]))', '{{strategy}}'),
+                *hot_search_panels()]
     if chain == 'messaging':
         return [panel('通知落库与门铃正常返回次数', 'sum by(stage) (increase(' + metric('myyoutube_notification_delivery_successes_total') + '[$__rate_interval]))', '{{stage}}', description='统计 NotificationPublisher 门面的通知；发布审核通知走独立分支积压面板。门铃返回不代表在线接收。'),
                 panel('通知落库 / 门铃失败', 'sum by(stage) (increase(' + metric('myyoutube_notification_delivery_failures_total') + '[$__rate_interval]))', '{{stage}}'),
@@ -101,6 +102,29 @@ def special(chain):
                 panel('发布最老待完成时间', 'max ' + fresh('media_publication_oldest_seconds', 'review'), unit='s'),
                 panel('Outbox 未发送及隔离存量', 'max by(service,status) ' + fresh('pipeline_outbox_backlog', 'outbox'), '{{service}} · {{status}}')]
     return []
+
+
+def hot_search_panels():
+    groups = panel('当前进程上次发布的组数与展示数', metric('myyoutube_hot_search_active_groups'), '{{instance}} · 活跃组',
+                   description='复用发布时的计数，不额外读取向量或遍历 Redis；包括未达到展示人数门槛的活跃组。仅为该进程的上次成功发布值，多实例不能相加，需结合最近发布时间。')
+    groups['targets'].append({'refId': 'B', 'expr': metric('myyoutube_hot_search_displayed'), 'legendFormat': '{{instance}} · 展示数'})
+    return [
+        panel('热搜采集结果', 'sum by(outcome) (rate(' + metric('myyoutube_hot_search_records_total') + '[$__rate_interval]))', '{{outcome}}', 'ops', 'accepted=Redis 已接收；filtered=输入被过滤；capacity=分区容量满；rejected=线程池拒绝；failure=写 Redis 失败。不是最终落库量。'),
+        panel('热搜缓存读取与降级', 'sum by(kind,outcome) (increase(' + metric('myyoutube_hot_search_cache_reads_total') + '[$__rate_interval]))', '{{kind}} · {{outcome}}', description='hot=榜单，named=向量复用；miss 是正常无命中，timeout/rejected/failure 是降级，budget 是调用前预算已耗尽。'),
+        panel('热搜后台操作失败', 'sum by(operation) (increase(' + metric('myyoutube_hot_search_duration_seconds_count', 'outcome="failure"') + '[$__rate_interval]))', '{{operation}}', description='refresh 正常返回可能仍有部分词或落库延后；同时检查模型、贡献、写库、确认和汇总各子步骤。'),
+        panel('热搜后台操作耗时 P95', 'histogram_quantile(0.95, sum by(le,operation) (rate(' + metric('myyoutube_hot_search_duration_seconds_bucket') + '[$__rate_interval])))', '{{operation}}', 's', '含成功和失败尝试，桶上界 120 秒；超出范围的耗时需结合日志与 duration sum/count。'),
+        panel('热搜模型条目处理结果', 'sum by(operation,outcome) (increase(' + metric('myyoutube_hot_search_model_items_total') + '[$__rate_interval]))', '{{operation}} · {{outcome}}', description='仅统计已返回的模型批次；unassigned 表示该批未返回有效向量或分组的输入条目，完整调用失败见操作失败面板。重试会重复计数。'),
+        panel('热搜历史写入与确认尝试', 'sum by(outcome) (increase(' + metric('myyoutube_hot_search_history_events_total') + '[$__rate_interval]))', '{{outcome}}', description='committed=批量事务返回成功；acknowledged=随后 Redis 确认成功；deferred=保留重试；excluded=归组前被过滤并确认。包含幂等重放，四项不能相加为去重事件总量。'),
+        panel('热搜待处理事件', 'max ' + fresh('myyoutube_hot_search_pending', 'hot_search'), description='各输入分区有效期内事件数量之和，同一 Redis 的多副本用 max，不能相加。采样不包含已过三天边界的记录。'),
+        panel('热搜最老待处理时间', 'max ' + fresh('myyoutube_hot_search_pending_oldest_seconds', 'hot_search'), unit='s'),
+        panel('热搜共享榜单剩余有效期', 'min ' + fresh('myyoutube_hot_search_snapshot_ttl_seconds', 'hot_search'), unit='s', description='共享 Redis 快照 TTL；0 表示缺失、过期或没有有效 TTL。未采样、采样失败或超过 90 秒不展示旧值。'),
+        panel('热搜每日收尾滞后', 'max ' + fresh('myyoutube_hot_search_archive_lag_days', 'hot_search'), unit='d', description='按北京时间凌晨 4 点计算应收尾日，未初始化为无样本。'),
+        panel('热搜待汇总日期数', 'max ' + fresh('myyoutube_hot_search_summary_pending_days', 'hot_search'), description='Redis 待汇总日期数，不是明细行数。'),
+        panel('热搜最老汇总延后时间', 'max ' + fresh('myyoutube_hot_search_summary_oldest_seconds', 'hot_search'), unit='s', description='自该归档日次日北京时间 4 点开始计时，汇总提交后确认失败也会保留重试。'),
+        panel('当前进程距最近成功发布', 'time() - ' + metric('myyoutube_hot_search_last_publish_seconds'), '{{instance}}', 's', '仅当前进程；其他实例完成发布不会更新本值。共享榜单状态以 TTL 面板为准，首次发布前无样本。'),
+        groups,
+        *health('hot_search'),
+    ]
 
 
 def dashboard(identity, title, panels):

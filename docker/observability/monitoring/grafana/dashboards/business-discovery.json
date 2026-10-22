@@ -441,6 +441,623 @@
         "w": 12,
         "h": 8
       }
+    },
+    {
+      "title": "热搜采集结果",
+      "type": "timeseries",
+      "description": "accepted=Redis 已接收；filtered=输入被过滤；capacity=分区容量满；rejected=线程池拒绝；failure=写 Redis 失败。不是最终落库量。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(outcome) (rate(myyoutube_hot_search_records_total{job=\"myyoutube-java\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜缓存读取与降级",
+      "type": "timeseries",
+      "description": "hot=榜单，named=向量复用；miss 是正常无命中，timeout/rejected/failure 是降级，budget 是调用前预算已耗尽。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(kind,outcome) (increase(myyoutube_hot_search_cache_reads_total{job=\"myyoutube-java\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{kind}} · {{outcome}}"
+        }
+      ],
+      "id": 13,
+      "gridPos": {
+        "x": 12,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜后台操作失败",
+      "type": "timeseries",
+      "description": "refresh 正常返回可能仍有部分词或落库延后；同时检查模型、贡献、写库、确认和汇总各子步骤。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(operation) (increase(myyoutube_hot_search_duration_seconds_count{job=\"myyoutube-java\",instance=~\"$instance\",outcome=\"failure\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "id": 14,
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜后台操作耗时 P95",
+      "type": "timeseries",
+      "description": "含成功和失败尝试，桶上界 120 秒；超出范围的耗时需结合日志与 duration sum/count。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le,operation) (rate(myyoutube_hot_search_duration_seconds_bucket{job=\"myyoutube-java\",instance=~\"$instance\"}[$__rate_interval])))",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "id": 15,
+      "gridPos": {
+        "x": 12,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜模型条目处理结果",
+      "type": "timeseries",
+      "description": "仅统计已返回的模型批次；unassigned 表示该批未返回有效向量或分组的输入条目，完整调用失败见操作失败面板。重试会重复计数。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(operation,outcome) (increase(myyoutube_hot_search_model_items_total{job=\"myyoutube-java\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}} · {{outcome}}"
+        }
+      ],
+      "id": 16,
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜历史写入与确认尝试",
+      "type": "timeseries",
+      "description": "committed=批量事务返回成功；acknowledged=随后 Redis 确认成功；deferred=保留重试；excluded=归组前被过滤并确认。包含幂等重放，四项不能相加为去重事件总量。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(outcome) (increase(myyoutube_hot_search_history_events_total{job=\"myyoutube-java\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "id": 17,
+      "gridPos": {
+        "x": 12,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜待处理事件",
+      "type": "timeseries",
+      "description": "各输入分区有效期内事件数量之和，同一 Redis 的多副本用 max，不能相加。采样不包含已过三天边界的记录。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max (myyoutube_hot_search_pending{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} <= 90))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 18,
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜最老待处理时间",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max (myyoutube_hot_search_pending_oldest_seconds{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} <= 90))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 19,
+      "gridPos": {
+        "x": 12,
+        "y": 70,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜共享榜单剩余有效期",
+      "type": "timeseries",
+      "description": "共享 Redis 快照 TTL；0 表示缺失、过期或没有有效 TTL。未采样、采样失败或超过 90 秒不展示旧值。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "min (myyoutube_hot_search_snapshot_ttl_seconds{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} <= 90))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 20,
+      "gridPos": {
+        "x": 0,
+        "y": 78,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜每日收尾滞后",
+      "type": "timeseries",
+      "description": "按北京时间凌晨 4 点计算应收尾日，未初始化为无样本。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max (myyoutube_hot_search_archive_lag_days{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} <= 90))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 21,
+      "gridPos": {
+        "x": 12,
+        "y": 78,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜待汇总日期数",
+      "type": "timeseries",
+      "description": "Redis 待汇总日期数，不是明细行数。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max (myyoutube_hot_search_summary_pending_days{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} <= 90))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 22,
+      "gridPos": {
+        "x": 0,
+        "y": 86,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "热搜最老汇总延后时间",
+      "type": "timeseries",
+      "description": "自该归档日次日北京时间 4 点开始计时，汇总提交后确认失败也会保留重试。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max (myyoutube_hot_search_summary_oldest_seconds{job=\"myyoutube-java\",instance=~\"$instance\"} and on(instance) (pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} == 1) and on(instance) (pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"} <= 90))",
+          "legendFormat": ""
+        }
+      ],
+      "id": 23,
+      "gridPos": {
+        "x": 12,
+        "y": 86,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "当前进程距最近成功发布",
+      "type": "timeseries",
+      "description": "仅当前进程；其他实例完成发布不会更新本值。共享榜单状态以 TTL 面板为准，首次发布前无样本。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - myyoutube_hot_search_last_publish_seconds{job=\"myyoutube-java\",instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 24,
+      "gridPos": {
+        "x": 0,
+        "y": 94,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "当前进程上次发布的组数与展示数",
+      "type": "timeseries",
+      "description": "复用发布时的计数，不额外读取向量或遍历 Redis；包括未达到展示人数门槛的活跃组。仅为该进程的上次成功发布值，多实例不能相加，需结合最近发布时间。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "myyoutube_hot_search_active_groups{job=\"myyoutube-java\",instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} · 活跃组"
+        },
+        {
+          "refId": "B",
+          "expr": "myyoutube_hot_search_displayed{job=\"myyoutube-java\",instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} · 展示数"
+        }
+      ],
+      "id": 25,
+      "gridPos": {
+        "x": 12,
+        "y": 94,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "采样开关、结果及新鲜度请同时查看",
+      "type": "timeseries",
+      "description": "0 为采样失败；无数据表示未接入。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_success{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 26,
+      "gridPos": {
+        "x": 0,
+        "y": 102,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "距最近成功采样",
+      "type": "timeseries",
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_age_seconds{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 27,
+      "gridPos": {
+        "x": 12,
+        "y": 102,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "title": "后台采样启用状态",
+      "type": "timeseries",
+      "description": "1 已启用，0 关闭。数据面板仅采用已启用、成功且不超过 90 秒的样本。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未观测 / 无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "myyoutube-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_metrics_sample_enabled{job=\"myyoutube-java\",instance=~\"$instance\",component=\"hot_search\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 28,
+      "gridPos": {
+        "x": 0,
+        "y": 110,
+        "w": 12,
+        "h": 8
+      }
     }
   ]
 }

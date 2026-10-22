@@ -1,0 +1,28 @@
+groups:
+  - name: hot-search
+    rules:
+      - alert: HotSearchRecordsDropped
+        expr: sum by(job,service,outcome) (increase(myyoutube_hot_search_records_total{job="myyoutube-java",outcome=~"capacity|rejected|failure"}[10m])) >= 5
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 热搜采集发生持续丢弃（{{ $labels.outcome }}），不代表用户搜索失败"}
+      - alert: HotSearchOperationFailures
+        expr: sum by(job,service,operation) (increase(myyoutube_hot_search_duration_seconds_count{job="myyoutube-java",outcome="failure",operation=~"model_info|embedding|grouping|contribution|history_write|history_ack|close_day|summary|summary_ack|publish"}[15m])) >= 3
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 热搜 {{ $labels.operation }} 多次失败，检查依赖和重试积压"}
+      - alert: HotSearchPendingStalled
+        expr: max by(job,service) ((myyoutube_hot_search_pending_oldest_seconds{job="myyoutube-java"} > 900) and on(job,instance) (pipeline:sample:fresh{component="hot_search"} == 1))
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 热搜最老有效事件等待超过 15 分钟"}
+      - alert: HotSearchSnapshotUnavailable
+        expr: max by(job,service) ((myyoutube_hot_search_snapshot_ttl_seconds{job="myyoutube-java"} <= 0) and on(job,instance) (pipeline:sample:fresh{component="hot_search"} == 1))
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 热搜共享榜单连续 10 分钟没有有效快照"}
+      - alert: HotSearchDailyArchiveDelayed
+        expr: max by(job,service) (((myyoutube_hot_search_archive_lag_days{job="myyoutube-java"} > 0) or (myyoutube_hot_search_archive_initialized{job="myyoutube-java"} == 0) or (myyoutube_hot_search_summary_oldest_seconds{job="myyoutube-java"} > 1800)) and on(job,instance) (pipeline:sample:fresh{component="hot_search"} == 1))
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 热搜每日收尾或汇总持续滞后"}
