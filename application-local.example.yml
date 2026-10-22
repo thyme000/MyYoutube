@@ -9,6 +9,9 @@
 # 端口：gateway 8080 / user 8081 / video 8082 / chat 8083 / search 8084 /
 #       admin 8085 / transcode 8086 / llm 8087 / OCR 8088 / ASR 8089。
 
+# 日常只开放健康检查；需要采集指标时再设为 health,prometheus。
+management.endpoints.web.exposure.include: ${OBSERVABILITY_ACTUATOR_ENDPOINTS:health}
+
 spring:
   cloud:
     nacos:
@@ -54,6 +57,13 @@ jwt:
   secret: ${JWT_SECRET:local-dev-only-change-this-jwt-secret}
 
 my-youtube:
+  # 本地默认关闭观测；需要时显式设置对应环境变量为 true。
+  observability:
+    recording.enabled: ${PIPELINE_EVENT_RECORDING_ENABLED:false}
+    delivery.enabled: ${PIPELINE_EVENT_DELIVERY_ENABLED:false}
+    cleanup.enabled: ${PIPELINE_EVENT_CLEANUP_ENABLED:false}
+    monitoring.enabled: ${PIPELINE_MONITORING_ENABLED:false}
+
   # 网关和业务服务保持一致；空值会关闭内部请求来源校验。
   internal-token: ${INTERNAL_TOKEN:local-dev-only-change-this-internal-token}
 

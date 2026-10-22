@@ -1,7 +1,8 @@
 services:
   observability-elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.19.0
-    restart: unless-stopped
+    profiles: [logging, tracing, full]
+    restart: "no"
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
