@@ -146,7 +146,7 @@ public class HotSearchService {
                 log.warn("Hot search item deferred keywordId={} version={}", HotSearchStore.digest(keyword), info.version(), error);
             }
         }
-        if (!unmatched.isEmpty() && groups.size() < properties.getGroupLimit() && System.nanoTime() < deadlineNanos) {
+        if (!unmatched.isEmpty() && System.nanoTime() < deadlineNanos) {
             try {
                 lease.assertOwned();
                 var assignments = groupUnmatched(unmatched, vectors, info, groups.values(), lease, deadlineNanos);
@@ -175,7 +175,7 @@ public class HotSearchService {
         }
         if (!retired.isEmpty()) {
             lease.assertOwned();
-            store.retire(retired);
+            store.retire(retired, clock.millis());
         }
         return groups;
     }
@@ -246,9 +246,8 @@ public class HotSearchService {
         lease.assertOwned();
         Map<String, HotSearchGroup> groupsByName = new HashMap<>();
         for (var group : groups) groupsByName.put(group.name(), group);
-        int newGroupLimit = Math.min(properties.getMaxNewGroupsPerRound(), properties.getGroupLimit() - groups.size());
         List<String> newNames = keywordsByName.keySet().stream().filter(name -> !groupsByName.containsKey(name))
-                .limit(newGroupLimit).toList();
+                .limit(properties.getMaxNewGroupsPerRound()).toList();
         List<String> missingVectors = newNames.stream().filter(name -> !vectors.containsKey(name)).toList();
         Map<String, List<Float>> nameVectors = Map.of();
         if (!missingVectors.isEmpty()) {
@@ -277,8 +276,6 @@ public class HotSearchService {
         int processed = 0;
         try {
             lease.assertOwned();
-            // 新增组容量由持有刷新租约的任务控制，计分 Lua 只操作组内数据。
-            if (!groups.containsKey(group.id()) && groups.size() >= properties.getGroupLimit()) return 0;
             var assignments = store.assign(group, events, clock.millis());
             ready.putAll(assignments);
             var matching = events.stream().filter(event -> group.id().equals(assignments.get(event).groupId())).toList();
@@ -326,9 +323,9 @@ public class HotSearchService {
         }
         if (!retired.isEmpty()) {
             lease.assertOwned();
-            store.retire(retired);
+            store.retire(retired, now);
         }
-        List<String> names = rankings.stream().sorted(Comparator.comparingInt(HotSearchStore.Ranking::score).reversed()
+        List<String> names = rankings.stream().sorted(Comparator.comparingLong(HotSearchStore.Ranking::score).reversed()
                         .thenComparing(value -> value.group().id()))
                 .map(value -> value.group().name()).distinct().limit(7).toList();
         lease.assertOwned();

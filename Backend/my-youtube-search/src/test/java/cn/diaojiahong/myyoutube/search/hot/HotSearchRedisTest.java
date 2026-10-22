@@ -7,6 +7,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.data.redis.connection.RedisClusterConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.RedisConnectionUtils;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
@@ -135,41 +136,44 @@ class HotSearchRedisTest {
         assertNull(store.alias("别名", "v2"));
         redis.delete(store.aliasKey("别名"));
         assertNull(store.alias("别名", "v1"));
-        store.remember("别名", group); store.retire(group);
+        store.remember("别名", group); store.retire(group, now);
         assertNull(store.alias("别名", "v1"));
         add("别名", 2); service.refresh();
         verify(model).vectors(List.of("别名"), new QueryEmbeddingPort.Info("v1", 2));
     }
 
-    @Test void preservesEventHourAndCountsTheRollingBoundaryExactly() {
+    @Test void deduplicatesByEventHourAndKeepsTheOldestOverlappingHourUntilItsEnd() {
         var group = group("window", "窗口测试");
-        long hour = Duration.ofHours(1).toMillis();
+        long hour = HotSearchStore.HOUR_MILLIS;
         long start = Math.floorDiv(now, hour) * hour;
-        assertTrue(store.contribute(group, event("词", 1, start), now));
-        assertTrue(store.contribute(group, event("词", 1, start), now));
-        assertTrue(store.contribute(group, event("词", 1, start - hour), now));
-        assertEquals(2, store.ranking(group, now).score());
-        assertEquals(1, store.ranking(group, now).users());
-        long boundary = now - HotSearchStore.WINDOW_MILLIS + 10000;
-        assertTrue(store.contribute(group, event("词", 2, boundary), now));
-        assertEquals(3, store.ranking(group, now).score());
-        assertEquals(2, store.ranking(group, now + 10000).score());
-        assertFalse(store.contribute(group, event("词", 3, now - HotSearchStore.WINDOW_MILLIS), now));
+        long at = start + hour / 2;
+        assertTrue(store.contribute(group, List.of(event("词", 1, start), event("词", 1, start),
+                event("词", 1, start - hour)), at));
+        assertEquals(2, store.ranking(group, at).score());
+        assertEquals(1, store.ranking(group, at).users());
+        long boundary = at - HotSearchStore.WINDOW_MILLIS + 10000;
+        assertTrue(store.contribute(group, event("词", 2, boundary), at));
+        assertEquals(3, store.ranking(group, at).score());
+        assertEquals(3, store.ranking(group, at + 10000).score());
+        assertEquals(2, store.ranking(group, start + hour).score());
+        assertEquals(1, store.ranking(group, start + hour).users());
+        assertFalse(store.contribute(group, event("词", 3, at - HotSearchStore.WINDOW_MILLIS), at));
+        assertFalse(store.contribute(group, event("词", 3, at + 1), at));
     }
 
     @Test void oldReplayDoesNotExtendContributionLifetime() {
         var group = group("ttl", "期限测试");
-        store.contribute(group, event("词", 1, now - 10000), now);
-        store.contribute(group, event("词", 1, now - 5000), now);
-        store.contribute(group, event("词", 1, now - 10000), now);
-        long ttl = redis.getExpire(store.usersKey(group.id()), TimeUnit.MILLISECONDS);
-        assertTrue(ttl <= HotSearchStore.WINDOW_MILLIS - 5000);
-        assertTrue(ttl > HotSearchStore.WINDOW_MILLIS - 10000);
-        long expiry = now - 5000 + HotSearchStore.WINDOW_MILLIS;
-        assertEquals(expiry, expiresAt(store.usersKey(group.id())));
+        long hour = Math.floorDiv(now, HotSearchStore.HOUR_MILLIS);
+        var old = event("词", 1, (hour - 2) * HotSearchStore.HOUR_MILLIS);
+        store.contribute(group, old, now);
+        store.contribute(group, event("词", 1, hour * HotSearchStore.HOUR_MILLIS), now);
+        store.contribute(group, old, now);
+        long expiry = (hour + 1) * HotSearchStore.HOUR_MILLIS + HotSearchStore.WINDOW_MILLIS;
+        assertEquals(expiry - 2 * HotSearchStore.HOUR_MILLIS, expiresAt(store.hourKey(group.id(), hour - 2)));
+        assertEquals(expiry, expiresAt(store.hourKey(group.id(), hour)));
         assertEquals(expiry, expiresAt(store.groupKey(group.id())));
         assertEquals(expiry, expiresAt(store.nameKey(group.name())));
-        assertEquals((double) (now - 5000), redis.opsForZSet().score(HotSearchStore.PREFIX + "active", group.id()));
+        assertEquals((double) ((hour + 1) * HotSearchStore.HOUR_MILLIS), redis.opsForZSet().score(HotSearchStore.PREFIX + "active", group.id()));
     }
 
     long expiresAt(String key) {
@@ -177,33 +181,75 @@ class HotSearchRedisTest {
                 "return redis.call('PEXPIRETIME', KEYS[1])", Long.class), List.of(key));
     }
 
-    @Test void enforcesInputContributionAndAliasCapacity() {
+    @Test void enforcesInputAndAliasCapacityWithoutLimitingGroupContributions() {
         properties.setPartitionCount(1);
         store = new HotSearchStore(redis, properties);
-        properties.setPendingLimit(1); properties.setGroupLimit(1); properties.setContributionLimit(1);
+        properties.setPendingLimit(1);
         add("第一个", 1); assertFalse(store.record(event("第二个", 2, now)));
         var group = group("capacity", "容量测试");
         assertTrue(store.contribute(group, event("词", 1, now), now));
-        assertFalse(store.contribute(group, event("词", 2, now), now));
+        assertTrue(store.contribute(group, event("词", 2, now), now));
         assertTrue(store.contribute(group, event("词", 1, now), now));
+        assertEquals(2, store.ranking(group, now).score());
         store.remember("第一别名", group); store.remember("第二别名", group);
         assertNotNull(store.alias("第一别名", "v1")); assertNull(store.alias("第二别名", "v1"));
     }
 
-    @Test void refreshOwnsGlobalGroupCapacityAndStillContributesToExistingGroups() {
-        properties.setGroupLimit(1);
-        add("番茄炒蛋怎么做", 1);
-        service.refresh();
-        clearInvocations(model);
-        add("番茄炒蛋怎么做", 2);
-        add("番茄炒蛋热量", 3);
+    @Test void countsBeyondTenThousandUserHoursAndReplayKeepsTheSameEstimate() {
+        var target = group("large-count", "热门主题");
+        List<HotSearchStore.Event> events = new ArrayList<>();
+        for (int i = 0; i < 12000; i++) events.add(event("词", 2_000_000_000_000_000_000L + i, now));
+
+        assertTrue(store.contribute(target, events, now));
+        var first = store.ranking(target, now);
+        assertTrue(first.score() > 10000);
+        assertEquals(first.score(), first.users());
+        assertTrue(store.contribute(target, events, now));
+        assertEquals(first, store.ranking(target, now));
+    }
+
+    @Test @Timeout(45)
+    void loadsEveryPageWithoutSkippingMissingMetadataAndCreatesGroupsBeyondFiveHundred() {
+        List<HotSearchGroup> active = new ArrayList<>();
+        // 大量夹具写入复用连接；待验证的读取及 refresh 仍使用默认连接策略。
+        RedisConnectionUtils.bindConnection(connection);
+        try {
+            for (int i = 0; i < 503; i++) {
+                var target = new HotSearchGroup("existing-" + i, "已有主题" + i, List.of(0f, 1f), "v1");
+                active.add(target);
+                assertTrue(store.contribute(target, event("词", i, now), now));
+            }
+        } finally {
+            RedisConnectionUtils.unbindConnection(connection);
+        }
+        redis.delete(store.groupKey(active.get(0).id()));
+        redis.delete(store.groupKey(active.get(250).id()));
+        var last = active.get(502);
+        assertEquals(501, store.groups(now).size());
+        assertTrue(store.groups(now).contains(last));
+        store.contribute(last, event("词", 9999, now), now);
+        add("番茄炒蛋怎么做", 9999);
 
         service.refresh();
 
-        assertEquals(1, store.groups(now).size());
-        assertEquals(2, store.ranking(store.named("番茄炒蛋教程"), now).score());
-        assertEquals(List.of("番茄炒蛋热量"), store.pending(now).stream().map(HotSearchStore.Event::keyword).toList());
-        verify(model, never()).group(anyList());
+        assertTrue(store.pending(now).isEmpty());
+        assertNotNull(store.named("番茄炒蛋教程"));
+        assertEquals(502, store.groups(now).size());
+        assertTrue(service.hot().contains(last.name()));
+        verify(history).append(argThat(batch -> batch.size() == 1));
+    }
+
+    @Test void retiringAGroupRemovesAllHoursBeforeReusingItsId() {
+        var target = group("reuse", "重新归组");
+        store.contribute(target, List.of(event("词", 1, now),
+                event("词", 2, now - 2 * HotSearchStore.HOUR_MILLIS)), now);
+        assertEquals(2, store.ranking(target, now).score());
+
+        store.retire(target, now);
+
+        assertEquals(0, store.ranking(target, now).score());
+        assertTrue(store.contribute(target, event("词", 3, now), now));
+        assertEquals(1, store.ranking(target, now).score());
     }
 
     @Test void missingGroupMetadataIsACacheMissAndDoesNotOccupyTheActiveIndex() {
@@ -246,7 +292,7 @@ class HotSearchRedisTest {
                 groups.add(target);
                 assertTrue(store.contribute(target, List.of(event("词", i, now)), now));
                 byte[] meta = store.groupKey(target.id()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                byte[] users = store.usersKey(target.id()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                byte[] users = store.hourKey(target.id(), Math.floorDiv(now, HotSearchStore.HOUR_MILLIS)).getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 assertEquals(cluster.clusterGetSlotForKey(meta), cluster.clusterGetSlotForKey(users));
                 owners.add(cluster.clusterGetNodeForKey(meta).getId());
             }
@@ -254,7 +300,7 @@ class HotSearchRedisTest {
         }
         assertEquals(new HashSet<>(groups), new HashSet<>(store.groups(now)));
         assertTrue(store.rankings(groups, now).stream().allMatch(value -> value.score() == 1 && value.users() == 1));
-        store.retire(groups);
+        store.retire(groups, now);
         assertTrue(store.groups(now).isEmpty());
         for (var target : groups) {
             assertNull(store.group(target.id()));
@@ -340,7 +386,7 @@ class HotSearchRedisTest {
         var target = group("fixed", "原组名");
         assertTrue(store.record(event));
         var assigned = store.assign(event, target, now);
-        store.retire(target);
+        store.retire(target, now);
         assertEquals(assigned, store.assign(event, group("other", "另一组"), now));
         assertEquals(assigned, store.assignment(event));
         assertEquals(java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneId.of("Asia/Shanghai"))

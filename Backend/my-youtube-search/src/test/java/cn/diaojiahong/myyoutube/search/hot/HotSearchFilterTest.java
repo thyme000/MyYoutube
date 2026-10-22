@@ -45,7 +45,7 @@ class HotSearchFilterTest {
         var properties = new HotSearchProperties();
         properties.setSimilarityThreshold(Double.NaN);
         assertThrows(IllegalArgumentException.class, properties::validate);
-        properties.setSimilarityThreshold(.9); properties.setGroupLimit(0);
+        properties.setSimilarityThreshold(.9); properties.setBatchSize(0);
         assertThrows(IllegalArgumentException.class, properties::validate);
     }
 

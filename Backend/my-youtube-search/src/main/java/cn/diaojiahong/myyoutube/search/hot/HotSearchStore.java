@@ -26,12 +26,16 @@ import java.util.function.ToIntFunction;
 public class HotSearchStore {
     static final String PREFIX = "{hot-search}:";
     static final long WINDOW_MILLIS = Duration.ofHours(24).toMillis();
+    static final long HOUR_MILLIS = Duration.ofHours(1).toMillis();
     static final long PENDING_MILLIS = Duration.ofDays(3).toMillis();
     private static final ZoneId STAT_ZONE = ZoneId.of("Asia/Shanghai");
     private static final int RANK_BATCH_SIZE = 32;
+    private static final int GROUP_BATCH_SIZE = 200;
+    private static final int CONTRIBUTION_BATCH_SIZE = 200;
     private static final int ACK_BATCH_SIZE = 200;
     private static final RedisScript<Long> RECORD = RedisScript.of(new ClassPathResource("lua/hot-search-record.lua"), Long.class);
     private static final RedisScript<Long> CONTRIBUTE = RedisScript.of(new ClassPathResource("lua/hot-search-contribute.lua"), Long.class);
+    private static final RedisScript<List> COUNT = RedisScript.of(new ClassPathResource("lua/hot-search-count.lua"), List.class);
     private static final RedisScript<Long> ALIAS = RedisScript.of(new ClassPathResource("lua/hot-search-alias.lua"), Long.class);
     private static final RedisScript<Long> ACK = RedisScript.of(new ClassPathResource("lua/hot-search-ack.lua"), Long.class);
     private final StringRedisTemplate redis;
@@ -49,7 +53,7 @@ public class HotSearchStore {
     public record Event(String token, String keyword, String rawKeyword, long userId, long happenedAt) {}
     public record Assignment(String groupId, String groupName, String version, String statDate) {}
     private record Alias(String groupId, String version) {}
-    public record Ranking(HotSearchGroup group, int score, int users) {}
+    public record Ranking(HotSearchGroup group, long score, long users) {}
     private record Snapshot(List<String> names) {}
     private record PendingCursor(int partition, int offset) {}
 
@@ -213,7 +217,7 @@ public class HotSearchStore {
         return "{hs:a:" + partition(digest) + "}:alias:" + digest;
     }
     String groupKey(String id) { return "{hs:g:" + id + "}:meta"; }
-    String usersKey(String id) { return "{hs:g:" + id + "}:users"; }
+    String hourKey(String id, long hour) { return "{hs:g:" + id + "}:hll:" + hour; }
     String nameKey(String name) { return "hs:name:" + digest(name); }
 
     private int quota(int total, int partition) {
@@ -227,36 +231,45 @@ public class HotSearchStore {
     }
 
     public List<HotSearchGroup> groups(long now) {
-        var results = pipeline(operations -> {
-            operations.opsForZSet().removeRangeByScore(PREFIX + "active", Double.NEGATIVE_INFINITY, now - WINDOW_MILLIS);
-            operations.opsForZSet().range(PREFIX + "active", 0, properties.getGroupLimit() - 1);
-        });
-        var ids = (Collection<?>) results.get(1);
-        if (ids == null || ids.isEmpty()) return List.of();
-        var keys = ids.stream().map(id -> groupKey((String) id)).toList();
-        var values = pipeline(operations -> keys.forEach(key -> operations.opsForValue().get(key)));
+        redis.opsForZSet().removeRangeByScore(PREFIX + "active", Double.NEGATIVE_INFINITY, now - WINDOW_MILLIS);
         List<HotSearchGroup> groups = new ArrayList<>();
         List<String> missing = new ArrayList<>();
-        var iterator = ids.iterator();
-        for (var value : values) {
-            String id = (String) iterator.next();
-            if (value == null) missing.add(id);
-            else groups.add(JsonUtil.fromJson((String) value, HotSearchGroup.class));
+        for (long offset = 0; ; offset += GROUP_BATCH_SIZE) {
+            var ids = redis.opsForZSet().range(PREFIX + "active", offset, offset + GROUP_BATCH_SIZE - 1);
+            if (ids == null || ids.isEmpty()) break;
+            var values = pipeline(operations -> ids.forEach(id -> operations.opsForValue().get(groupKey(id))));
+            var iterator = ids.iterator();
+            for (var value : values) {
+                String id = iterator.next();
+                if (value == null) missing.add(id);
+                else groups.add(JsonUtil.fromJson((String) value, HotSearchGroup.class));
+            }
+            if (ids.size() < GROUP_BATCH_SIZE) break;
         }
-        if (!missing.isEmpty()) redis.opsForZSet().remove(PREFIX + "active", missing.toArray());
+        // 扫描完再清理缺失项，避免删除导致分页偏移、漏读后续组。
+        for (int from = 0; from < missing.size(); from += GROUP_BATCH_SIZE) {
+            redis.opsForZSet().remove(PREFIX + "active", missing.subList(from, Math.min(from + GROUP_BATCH_SIZE, missing.size())).toArray());
+        }
         return groups;
     }
 
-    public void retire(HotSearchGroup group) {
-        retire(List.of(group));
+    public void retire(HotSearchGroup group, long now) {
+        retire(List.of(group), now);
     }
 
-    public void retire(Collection<HotSearchGroup> groups) {
-        if (groups.isEmpty()) return;
-        pipeline(operations -> {
-            operations.opsForZSet().remove(PREFIX + "active", groups.stream().map(HotSearchGroup::id).toArray());
-            groups.forEach(group -> operations.delete(List.of(groupKey(group.id()), usersKey(group.id()))));
-        });
+    public void retire(Collection<HotSearchGroup> groups, long now) {
+        var all = new ArrayList<>(groups);
+        for (int from = 0; from < all.size(); from += GROUP_BATCH_SIZE) {
+            var chunk = all.subList(from, Math.min(from + GROUP_BATCH_SIZE, all.size()));
+            pipeline(operations -> {
+                operations.opsForZSet().remove(PREFIX + "active", chunk.stream().map(HotSearchGroup::id).toArray());
+                for (var group : chunk) {
+                    var keys = hourKeys(group.id(), now);
+                    keys.add(groupKey(group.id()));
+                    operations.delete(keys);
+                }
+            });
+        }
     }
 
     public boolean contribute(HotSearchGroup group, Event event, long now) {
@@ -264,37 +277,50 @@ public class HotSearchStore {
     }
 
     public boolean contribute(HotSearchGroup group, List<Event> events, long now) {
-        if (events.isEmpty()) return false;
+        Map<Long, List<String>> byHour = new LinkedHashMap<>();
+        for (var event : events) {
+            if (event.happenedAt() <= now - WINDOW_MILLIS || event.happenedAt() > now) continue;
+            byHour.computeIfAbsent(Math.floorDiv(event.happenedAt(), HOUR_MILLIS), ignored -> new ArrayList<>())
+                    .add(String.valueOf(event.userId()));
+        }
+        if (byHour.isEmpty()) return false;
         String payload = JsonUtil.toJson(group);
-        var keys = contributionKeys(group);
-        var results = pipeline(operations -> events.forEach(event -> operations.execute(CONTRIBUTE, keys,
-                contributionArgs(group, event, now, payload))));
-        long latest = results.stream().mapToLong(value -> (Long) value).max().orElse(0);
-        if (latest == 0) return false;
-        updateIndexes(group, latest);
+        var results = pipeline(operations -> byHour.forEach((hour, users) -> {
+            var keys = List.of(hourKey(group.id(), hour), groupKey(group.id()));
+            for (int from = 0; from < users.size(); from += CONTRIBUTION_BATCH_SIZE) {
+                var chunk = users.subList(from, Math.min(from + CONTRIBUTION_BATCH_SIZE, users.size()));
+                List<String> args = new ArrayList<>();
+                // 固定桶结束时间 + 24 小时；重放不会续期。
+                args.add(String.valueOf((hour + 1) * HOUR_MILLIS + WINDOW_MILLIS));
+                args.add(payload);
+                args.addAll(chunk);
+                operations.execute(CONTRIBUTE, keys, args.toArray());
+            }
+        }));
+        long expiry = results.stream().mapToLong(value -> (Long) value).max().orElseThrow();
+        updateIndexes(group, expiry);
         return true;
     }
 
-    private void updateIndexes(HotSearchGroup group, long latest) {
+    private void updateIndexes(HotSearchGroup group, long expiry) {
         byte[] groupId = group.id().getBytes(StandardCharsets.UTF_8);
         pipeline(operations -> {
             operations.execute((RedisCallback<Boolean>) connection -> connection.zSetCommands().zAdd(
-                    (PREFIX + "active").getBytes(StandardCharsets.UTF_8), latest, groupId, ZAddArgs.empty().gt()));
+                    (PREFIX + "active").getBytes(StandardCharsets.UTF_8), expiry - WINDOW_MILLIS, groupId, ZAddArgs.empty().gt()));
             // 使用绝对过期时间，旧事件重放不能延长名称索引寿命。
             operations.execute((RedisCallback<Boolean>) connection -> connection.stringCommands().set(
                     nameKey(group.name()).getBytes(StandardCharsets.UTF_8), groupId,
-                    Expiration.unixTimestamp(latest + WINDOW_MILLIS, TimeUnit.MILLISECONDS), SetOption.UPSERT));
+                    Expiration.unixTimestamp(expiry, TimeUnit.MILLISECONDS), SetOption.UPSERT));
         });
     }
 
-    private List<String> contributionKeys(HotSearchGroup group) {
-        return List.of(usersKey(group.id()), groupKey(group.id()));
-    }
-
-    private Object[] contributionArgs(HotSearchGroup group, Event event, long now, String payload) {
-        String member = Math.floorDiv(event.happenedAt(), Duration.ofHours(1).toMillis()) + ":" + event.userId();
-        return new Object[]{String.valueOf(now), String.valueOf(WINDOW_MILLIS), String.valueOf(event.happenedAt()), member,
-                payload, String.valueOf(properties.getContributionLimit())};
+    private List<String> hourKeys(String id, long now) {
+        List<String> keys = new ArrayList<>();
+        // 最老的重叠小时整桶参与统计，因此时间边界最多多保留不足一小时。
+        for (long hour = Math.floorDiv(now - WINDOW_MILLIS, HOUR_MILLIS); hour <= Math.floorDiv(now, HOUR_MILLIS); hour++) {
+            keys.add(hourKey(id, hour));
+        }
+        return keys;
     }
 
     public Ranking ranking(HotSearchGroup group, long now) {
@@ -306,19 +332,10 @@ public class HotSearchStore {
         List<Ranking> rankings = new ArrayList<>();
         for (int from = 0; from < all.size(); from += RANK_BATCH_SIZE) {
             var chunk = all.subList(from, Math.min(from + RANK_BATCH_SIZE, all.size()));
-            var results = pipeline(operations -> chunk.forEach(group -> {
-                String key = usersKey(group.id());
-                operations.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, now - WINDOW_MILLIS);
-                operations.opsForZSet().rangeByScore(key, now - WINDOW_MILLIS + 1, now);
-            }));
+            var results = pipeline(operations -> chunk.forEach(group -> operations.execute(COUNT, hourKeys(group.id(), now))));
             for (int i = 0; i < chunk.size(); i++) {
-                var members = (Collection<?>) results.get(i * 2 + 1);
-                if (members == null) members = List.of();
-                long users = members.stream().map(value -> {
-                    String member = (String) value;
-                    return member.substring(member.indexOf(':') + 1);
-                }).distinct().count();
-                rankings.add(new Ranking(chunk.get(i), members.size(), Math.toIntExact(users)));
+                var counts = (List<?>) results.get(i);
+                rankings.add(new Ranking(chunk.get(i), (Long) counts.get(0), (Long) counts.get(1)));
             }
         }
         return rankings;

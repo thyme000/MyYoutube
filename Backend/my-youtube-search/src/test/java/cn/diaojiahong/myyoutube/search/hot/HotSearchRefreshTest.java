@@ -303,18 +303,29 @@ class HotSearchRefreshTest {
         verify(store, never()).remove(argThat((Collection<HotSearchStore.Event> batch) -> batch.contains(deferred)));
     }
 
-    @Test void groupCapacityStillAllowsExistingMatchesAndSkipsNewGrouping() {
-        properties.setGroupLimit(1);
+    @Test void createsNewGroupsWhenFiveHundredGroupsAreAlreadyActive() {
+        List<HotSearchGroup> active = new ArrayList<>();
+        active.add(group);
+        for (int i = 1; i < 500; i++) {
+            var existing = new HotSearchGroup("existing-" + i, "已有组" + i, List.of(1f, 0f), "v1");
+            active.add(existing);
+            rankings.put(existing.id(), new HotSearchStore.Ranking(existing, 1, 1));
+        }
+        when(store.groups(now)).thenReturn(active);
         var matched = event("已知主题", 1);
-        var deferred = event("另一主题", 2);
-        pending.addAll(List.of(matched, deferred));
+        var other = event("另一主题", 2);
+        pending.addAll(List.of(matched, other));
         when(model.vectors(anyList(), eq(info))).thenReturn(Map.of("已知主题", List.of(1f, 0f), "另一主题", List.of(0f, 1f)));
+        when(model.group(List.of("另一主题"))).thenReturn(List.of(new HotSearchModel.Grouping("新组名", List.of("另一主题"))));
+        when(model.vectors(List.of("新组名"), info)).thenReturn(Map.of("新组名", List.of(0f, 1f)));
+        var created = created("新组名", List.of(0f, 1f)); accept(created);
 
         service(model).refresh();
 
-        assertEquals(List.of(deferred), pending);
+        assertTrue(pending.isEmpty());
         verify(store).contribute(group, List.of(matched), now);
-        verify(model, never()).group(anyList());
+        verify(store).contribute(created, List.of(other), now);
+        verify(model).group(List.of("另一主题"));
     }
 
     @Test void invalidGeneratedNameRetainsAllEventsForRetry() {

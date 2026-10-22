@@ -48,8 +48,6 @@ my-youtube:
       pending-limit: 10000
       # 路由布局配置；变更前排空旧输入，并统一重启 search 实例。
       partition-count: ${HOT_SEARCH_PARTITION_COUNT:16}
-      group-limit: 500
-      contribution-limit: 10000
       model-timeout-seconds: ${HOT_SEARCH_MODEL_TIMEOUT_SECONDS:30}
       round-budget-seconds: 120
     ranking:
