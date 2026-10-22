@@ -275,6 +275,8 @@ class HotSearchHistoryMysqlTest {
             if (keys != null && !keys.isEmpty()) redis.delete(keys);
             var partitioned = redis.keys("{hs:*");
             if (partitioned != null) partitioned.forEach(redis::delete);
+            var names = redis.keys("hs:name:*");
+            if (names != null) names.forEach(redis::delete);
             redis.delete("idempotent:{hot-search}:refresh");
         }
 

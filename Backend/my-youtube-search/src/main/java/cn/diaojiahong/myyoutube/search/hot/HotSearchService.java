@@ -277,6 +277,8 @@ public class HotSearchService {
         int processed = 0;
         try {
             lease.assertOwned();
+            // 新增组容量由持有刷新租约的任务控制，计分 Lua 只操作组内数据。
+            if (!groups.containsKey(group.id()) && groups.size() >= properties.getGroupLimit()) return 0;
             var assignments = store.assign(group, events, clock.millis());
             ready.putAll(assignments);
             var matching = events.stream().filter(event -> group.id().equals(assignments.get(event).groupId())).toList();

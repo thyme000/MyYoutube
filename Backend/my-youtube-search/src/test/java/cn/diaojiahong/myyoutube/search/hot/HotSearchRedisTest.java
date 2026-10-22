@@ -68,6 +68,7 @@ class HotSearchRedisTest {
     void clean() {
         var keys = redis.keys(HotSearchStore.PREFIX + "*"); if (keys != null && !keys.isEmpty()) redis.delete(keys);
         var partitioned = redis.keys("{hs:*"); if (partitioned != null) partitioned.forEach(redis::delete);
+        var names = redis.keys("hs:name:*"); if (names != null) names.forEach(redis::delete);
         redis.delete("idempotent:{hot-search}:refresh");
     }
 
@@ -161,12 +162,22 @@ class HotSearchRedisTest {
         store.contribute(group, event("词", 1, now - 10000), now);
         store.contribute(group, event("词", 1, now - 5000), now);
         store.contribute(group, event("词", 1, now - 10000), now);
-        long ttl = redis.getExpire(HotSearchStore.PREFIX + "users:ttl", TimeUnit.MILLISECONDS);
+        long ttl = redis.getExpire(store.usersKey(group.id()), TimeUnit.MILLISECONDS);
         assertTrue(ttl <= HotSearchStore.WINDOW_MILLIS - 5000);
         assertTrue(ttl > HotSearchStore.WINDOW_MILLIS - 10000);
+        long expiry = now - 5000 + HotSearchStore.WINDOW_MILLIS;
+        assertEquals(expiry, expiresAt(store.usersKey(group.id())));
+        assertEquals(expiry, expiresAt(store.groupKey(group.id())));
+        assertEquals(expiry, expiresAt(store.nameKey(group.name())));
+        assertEquals((double) (now - 5000), redis.opsForZSet().score(HotSearchStore.PREFIX + "active", group.id()));
     }
 
-    @Test void enforcesInputGroupContributionAndAliasCapacity() {
+    long expiresAt(String key) {
+        return redis.execute(org.springframework.data.redis.core.script.RedisScript.of(
+                "return redis.call('PEXPIRETIME', KEYS[1])", Long.class), List.of(key));
+    }
+
+    @Test void enforcesInputContributionAndAliasCapacity() {
         properties.setPartitionCount(1);
         store = new HotSearchStore(redis, properties);
         properties.setPendingLimit(1); properties.setGroupLimit(1); properties.setContributionLimit(1);
@@ -175,9 +186,81 @@ class HotSearchRedisTest {
         assertTrue(store.contribute(group, event("词", 1, now), now));
         assertFalse(store.contribute(group, event("词", 2, now), now));
         assertTrue(store.contribute(group, event("词", 1, now), now));
-        assertFalse(store.contribute(group("other", "其他组"), event("词", 1, now), now));
         store.remember("第一别名", group); store.remember("第二别名", group);
         assertNotNull(store.alias("第一别名", "v1")); assertNull(store.alias("第二别名", "v1"));
+    }
+
+    @Test void refreshOwnsGlobalGroupCapacityAndStillContributesToExistingGroups() {
+        properties.setGroupLimit(1);
+        add("番茄炒蛋怎么做", 1);
+        service.refresh();
+        clearInvocations(model);
+        add("番茄炒蛋怎么做", 2);
+        add("番茄炒蛋热量", 3);
+
+        service.refresh();
+
+        assertEquals(1, store.groups(now).size());
+        assertEquals(2, store.ranking(store.named("番茄炒蛋教程"), now).score());
+        assertEquals(List.of("番茄炒蛋热量"), store.pending(now).stream().map(HotSearchStore.Event::keyword).toList());
+        verify(model, never()).group(anyList());
+    }
+
+    @Test void missingGroupMetadataIsACacheMissAndDoesNotOccupyTheActiveIndex() {
+        var missing = group("missing-meta", "缺失组");
+        var existing = group("existing-meta", "有效组");
+        store.contribute(missing, event("词", 1, now), now);
+        store.contribute(existing, event("词", 2, now), now);
+        redis.delete(store.groupKey(missing.id()));
+
+        assertNull(store.named(missing.name()));
+        assertEquals(List.of(existing), store.groups(now));
+        assertNull(redis.opsForZSet().score(HotSearchStore.PREFIX + "active", missing.id()));
+        assertEquals(existing, store.named(existing.name()));
+    }
+
+    @Test void indexFailureDoesNotUndoLocalContributionsAndReplayDoesNotDoubleCount() {
+        var target = group("index-failure", "索引故障");
+        var input = event("词", 1, now);
+        redis.opsForValue().set(HotSearchStore.PREFIX + "active", "wrong-type");
+        assertThrows(org.springframework.dao.DataAccessException.class, () -> store.contribute(target, input, now));
+        assertEquals(1, store.ranking(target, now).score());
+        assertEquals(target, store.group(target.id()));
+        redis.delete(HotSearchStore.PREFIX + "active");
+
+        assertTrue(store.contribute(target, input, now));
+
+        assertEquals(1, store.ranking(target, now).score());
+        assertEquals(List.of(target), store.groups(now));
+        assertEquals(target, store.named(target.name()));
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "hot.redis.cluster.nodes", matches = ".+")
+    void groupContributionsAreColocatedPerGroupAndDistributedAcrossPrimaries() {
+        List<HotSearchGroup> groups = new ArrayList<>();
+        try (var cluster = connection.getClusterConnection()) {
+            Set<String> owners = new HashSet<>();
+            for (int i = 0; i < 33; i++) {
+                var target = group("distributed-" + i, "分布组" + i);
+                groups.add(target);
+                assertTrue(store.contribute(target, List.of(event("词", i, now)), now));
+                byte[] meta = store.groupKey(target.id()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                byte[] users = store.usersKey(target.id()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                assertEquals(cluster.clusterGetSlotForKey(meta), cluster.clusterGetSlotForKey(users));
+                owners.add(cluster.clusterGetNodeForKey(meta).getId());
+            }
+            assertTrue(owners.size() > 1, "组数据不能全部集中在一个主节点");
+        }
+        assertEquals(new HashSet<>(groups), new HashSet<>(store.groups(now)));
+        assertTrue(store.rankings(groups, now).stream().allMatch(value -> value.score() == 1 && value.users() == 1));
+        store.retire(groups);
+        assertTrue(store.groups(now).isEmpty());
+        for (var target : groups) {
+            assertNull(store.group(target.id()));
+            assertEquals(0, store.ranking(target, now).score());
+            assertNull(store.named(target.name()));
+        }
     }
 
     @Test void failedModelsRetainInputsAndExistingSnapshot() {

@@ -3,9 +3,13 @@ package cn.diaojiahong.myyoutube.search.hot;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.data.redis.core.types.Expiration;
+import org.springframework.data.redis.connection.RedisStringCommands.SetOption;
+import org.springframework.data.redis.connection.RedisZSetCommands.ZAddArgs;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -14,6 +18,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.ToIntFunction;
 
@@ -157,12 +162,12 @@ public class HotSearchStore {
 
     public HotSearchGroup group(String id) {
         if (id == null) return null;
-        String raw = redis.opsForValue().get(PREFIX + "group:" + id);
+        String raw = redis.opsForValue().get(groupKey(id));
         return raw == null ? null : JsonUtil.fromJson(raw, HotSearchGroup.class);
     }
 
     public HotSearchGroup named(String name) {
-        HotSearchGroup group = group(redis.opsForValue().get(PREFIX + "name:" + digest(name)));
+        HotSearchGroup group = group(redis.opsForValue().get(nameKey(name)));
         return group != null && name.equals(group.name()) ? group : null;
     }
 
@@ -207,6 +212,9 @@ public class HotSearchStore {
         String digest = digest(text);
         return "{hs:a:" + partition(digest) + "}:alias:" + digest;
     }
+    String groupKey(String id) { return "{hs:g:" + id + "}:meta"; }
+    String usersKey(String id) { return "{hs:g:" + id + "}:users"; }
+    String nameKey(String name) { return "hs:name:" + digest(name); }
 
     private int quota(int total, int partition) {
         return total / partitionCount + (partition < total % partitionCount ? 1 : 0);
@@ -225,9 +233,18 @@ public class HotSearchStore {
         });
         var ids = (Collection<?>) results.get(1);
         if (ids == null || ids.isEmpty()) return List.of();
-        List<String> values = redis.opsForValue().multiGet(ids.stream().map(id -> PREFIX + "group:" + id).toList());
-        if (values == null) return List.of();
-        return values.stream().filter(Objects::nonNull).map(value -> JsonUtil.fromJson(value, HotSearchGroup.class)).toList();
+        var keys = ids.stream().map(id -> groupKey((String) id)).toList();
+        var values = pipeline(operations -> keys.forEach(key -> operations.opsForValue().get(key)));
+        List<HotSearchGroup> groups = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        var iterator = ids.iterator();
+        for (var value : values) {
+            String id = (String) iterator.next();
+            if (value == null) missing.add(id);
+            else groups.add(JsonUtil.fromJson((String) value, HotSearchGroup.class));
+        }
+        if (!missing.isEmpty()) redis.opsForZSet().remove(PREFIX + "active", missing.toArray());
+        return groups;
     }
 
     public void retire(HotSearchGroup group) {
@@ -236,17 +253,14 @@ public class HotSearchStore {
 
     public void retire(Collection<HotSearchGroup> groups) {
         if (groups.isEmpty()) return;
-        List<String> keys = new ArrayList<>();
-        groups.forEach(group -> { keys.add(PREFIX + "group:" + group.id()); keys.add(PREFIX + "users:" + group.id()); });
         pipeline(operations -> {
             operations.opsForZSet().remove(PREFIX + "active", groups.stream().map(HotSearchGroup::id).toArray());
-            operations.delete(keys);
+            groups.forEach(group -> operations.delete(List.of(groupKey(group.id()), usersKey(group.id()))));
         });
     }
 
     public boolean contribute(HotSearchGroup group, Event event, long now) {
-        return Long.valueOf(1).equals(redis.execute(CONTRIBUTE, contributionKeys(group),
-                contributionArgs(group, event, now, JsonUtil.toJson(group))));
+        return contribute(group, List.of(event), now);
     }
 
     public boolean contribute(HotSearchGroup group, List<Event> events, long now) {
@@ -255,18 +269,32 @@ public class HotSearchStore {
         var keys = contributionKeys(group);
         var results = pipeline(operations -> events.forEach(event -> operations.execute(CONTRIBUTE, keys,
                 contributionArgs(group, event, now, payload))));
-        return results.stream().anyMatch(Long.valueOf(1)::equals);
+        long latest = results.stream().mapToLong(value -> (Long) value).max().orElse(0);
+        if (latest == 0) return false;
+        updateIndexes(group, latest);
+        return true;
+    }
+
+    private void updateIndexes(HotSearchGroup group, long latest) {
+        byte[] groupId = group.id().getBytes(StandardCharsets.UTF_8);
+        pipeline(operations -> {
+            operations.execute((RedisCallback<Boolean>) connection -> connection.zSetCommands().zAdd(
+                    (PREFIX + "active").getBytes(StandardCharsets.UTF_8), latest, groupId, ZAddArgs.empty().gt()));
+            // 使用绝对过期时间，旧事件重放不能延长名称索引寿命。
+            operations.execute((RedisCallback<Boolean>) connection -> connection.stringCommands().set(
+                    nameKey(group.name()).getBytes(StandardCharsets.UTF_8), groupId,
+                    Expiration.unixTimestamp(latest + WINDOW_MILLIS, TimeUnit.MILLISECONDS), SetOption.UPSERT));
+        });
     }
 
     private List<String> contributionKeys(HotSearchGroup group) {
-        return List.of(PREFIX + "users:" + group.id(), PREFIX + "group:" + group.id(), PREFIX + "active",
-                PREFIX + "name:" + digest(group.name()));
+        return List.of(usersKey(group.id()), groupKey(group.id()));
     }
 
-    private String[] contributionArgs(HotSearchGroup group, Event event, long now, String payload) {
+    private Object[] contributionArgs(HotSearchGroup group, Event event, long now, String payload) {
         String member = Math.floorDiv(event.happenedAt(), Duration.ofHours(1).toMillis()) + ":" + event.userId();
-        return new String[]{String.valueOf(now), String.valueOf(WINDOW_MILLIS), String.valueOf(event.happenedAt()), member,
-                payload, group.id(), String.valueOf(properties.getGroupLimit()), String.valueOf(properties.getContributionLimit())};
+        return new Object[]{String.valueOf(now), String.valueOf(WINDOW_MILLIS), String.valueOf(event.happenedAt()), member,
+                payload, String.valueOf(properties.getContributionLimit())};
     }
 
     public Ranking ranking(HotSearchGroup group, long now) {
@@ -279,7 +307,7 @@ public class HotSearchStore {
         for (int from = 0; from < all.size(); from += RANK_BATCH_SIZE) {
             var chunk = all.subList(from, Math.min(from + RANK_BATCH_SIZE, all.size()));
             var results = pipeline(operations -> chunk.forEach(group -> {
-                String key = PREFIX + "users:" + group.id();
+                String key = usersKey(group.id());
                 operations.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, now - WINDOW_MILLIS);
                 operations.opsForZSet().rangeByScore(key, now - WINDOW_MILLIS + 1, now);
             }));
