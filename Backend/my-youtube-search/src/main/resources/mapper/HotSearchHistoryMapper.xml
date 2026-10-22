@@ -32,4 +32,51 @@
             FROM hot_search_event WHERE stat_date = #{date} GROUP BY group_id
         ) ranked
     </insert>
+    <select id="dates" resultType="cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort$Day">
+        SELECT stat_date, MAX(updated_at) AS updated_at
+        FROM hot_search_daily_group WHERE stat_date &lt; #{before}
+        GROUP BY stat_date ORDER BY stat_date DESC LIMIT #{limit}
+    </select>
+
+    <select id="groups" resultType="cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort$Group">
+        SELECT group_id, group_name, vector_version, search_count, user_count, score, rank_no, updated_at
+        FROM hot_search_daily_group
+        WHERE stat_date = #{date} AND user_count &gt;= #{minUsers}
+        <if test="after != null">AND rank_no &gt; #{after}</if>
+        ORDER BY rank_no LIMIT #{limit}
+    </select>
+
+    <select id="keywords" resultType="cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort$Keyword">
+        SELECT MIN(id) AS keyword_id, raw_keyword, COUNT(*) AS search_count, COUNT(DISTINCT user_id) AS user_count
+        FROM hot_search_event WHERE stat_date = #{date} AND group_id = #{groupId}
+        GROUP BY raw_keyword
+        <!-- 必须在聚合后过滤游标；先过滤 id 会让同一原词在后续页重复出现。 -->
+        <if test="after != null">HAVING MIN(id) &gt; #{after}</if>
+        ORDER BY keyword_id LIMIT #{limit}
+    </select>
+
+    <select id="keyword" resultType="java.lang.String">
+        SELECT raw_keyword FROM hot_search_event
+        WHERE id = #{id} AND stat_date = #{date} AND group_id = #{groupId}
+    </select>
+
+    <select id="users" resultType="cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort$User">
+        SELECT user_id, COUNT(*) AS search_count, MIN(happened_at) AS first_happened_at, MAX(happened_at) AS last_happened_at
+        FROM hot_search_event
+        WHERE stat_date = #{date} AND group_id = #{groupId} AND raw_keyword = #{rawKeyword}
+        <if test="after != null">AND user_id &gt; #{after}</if>
+        GROUP BY user_id ORDER BY user_id LIMIT #{limit}
+    </select>
+
+    <select id="events" resultType="cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort$Event">
+        SELECT id, event_id, stat_date, happened_at, event_hour, user_id, raw_keyword,
+               grouping_keyword, group_id, group_name, vector_version
+        FROM hot_search_event
+        WHERE stat_date = #{date} AND group_id = #{groupId} AND raw_keyword = #{rawKeyword}
+        <if test="userId != null">AND user_id = #{userId}</if>
+        <if test="afterAt != null">
+            AND (happened_at &gt; #{afterAt} OR (happened_at = #{afterAt} AND id &gt; #{afterId}))
+        </if>
+        ORDER BY happened_at, id LIMIT #{limit}
+    </select>
 </mapper>

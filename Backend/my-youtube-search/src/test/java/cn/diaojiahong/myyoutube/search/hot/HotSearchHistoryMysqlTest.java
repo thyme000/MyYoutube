@@ -4,6 +4,12 @@ import cn.diaojiahong.myyoutube.common.config.MybatisPlusConfig;
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
 import cn.diaojiahong.myyoutube.search.mapper.HotSearchHistoryMapper;
+import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
+import cn.diaojiahong.myyoutube.search.controller.HotSearchHistoryController;
+import cn.diaojiahong.myyoutube.search.controller.InternalHotSearchHistoryController;
+import cn.diaojiahong.myyoutube.search.controller.HotSearchHistoryExceptionHandler;
+import cn.diaojiahong.myyoutube.common.config.JacksonConfig;
+import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import org.mybatis.spring.SqlSessionTemplate;
@@ -36,6 +42,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -47,6 +57,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -56,6 +67,8 @@ import java.util.stream.IntStream;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @EnabledIfSystemProperty(named = "hot.mysql.url", matches = "jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/hot_search_test.*")
 @Timeout(20)
@@ -65,6 +78,7 @@ class HotSearchHistoryMysqlTest {
     private String url;
     private JdbcTemplate jdbc;
     private HotSearchHistoryStore store;
+    private HotSearchHistoryMapper mapper;
 
     @BeforeEach void setup() throws Exception {
         url = System.getProperty("hot.mysql.url");
@@ -80,7 +94,7 @@ class HotSearchHistoryMysqlTest {
         var factory = new MybatisSqlSessionFactoryBean();
         factory.setDataSource(dataSource);
         factory.setMapperLocations(new ClassPathResource("mapper/HotSearchHistoryMapper.xml"));
-        var mapper = new SqlSessionTemplate(factory.getObject()).getMapper(HotSearchHistoryMapper.class);
+        mapper = new SqlSessionTemplate(factory.getObject()).getMapper(HotSearchHistoryMapper.class);
         store = new HotSearchHistoryStore(mapper, new TransactionTemplate(new DataSourceTransactionManager(dataSource)));
     }
 
@@ -421,6 +435,128 @@ class HotSearchHistoryMysqlTest {
                     context.getBean(HotSearchHistoryStore.class).append(List.of(event("wired", DAY, 1, NINE, "Java", "a")));
                     assertEquals(1L, count("hot_search_event"));
                 });
+    }
+
+    private HotSearchHistoryQueryService queries() {
+        var properties = new HotSearchProperties();
+        properties.setMinUsers(2);
+        var clock = Clock.fixed(DAY.plusDays(1).atTime(12, 0).atZone(HotSearchStore.STAT_ZONE).toInstant(), ZoneOffset.UTC);
+        return new HotSearchHistoryQueryService(mapper, new HotSearchFilter(properties), properties, clock);
+    }
+
+    @Test void historyQueriesKeepAllAdminGroupsButFilterAndDeduplicateThePublicTopSeven() throws Exception {
+        var events = new ArrayList<HotSearchHistoryStore.GroupedEvent>();
+        for (int i = 0; i < 12; i++) {
+            String name = i == 0 ? "1111" : i == 1 || i == 2 ? "共同主题" : "主题" + i;
+            for (int user = 1; user <= (i == 11 ? 1 : 2); user++) {
+                events.add(new HotSearchHistoryStore.GroupedEvent("g" + i + "-" + user, DAY, NINE, user,
+                        name, name, String.format("g%02d", i), name, "v1"));
+            }
+        }
+        store.append(events);
+        store.append(List.of(event("earlier", DAY.minusDays(1), 1, NINE, "Java", "earlier"),
+                event("today", DAY.plusDays(1), 1, NINE, "Java", "today")));
+        for (var date : List.of(DAY.minusDays(1), DAY, DAY.plusDays(1))) store.rebuildDay(date);
+        var query = queries();
+        var firstDate = query.dates(null, 1);
+        assertEquals(DAY, firstDate.items().get(0).statDate());
+        assertNotNull(firstDate.items().get(0).updatedAt());
+        assertEquals(DAY.minusDays(1), query.dates(firstDate.nextCursor(), 1).items().get(0).statDate());
+        var groups = new ArrayList<Group>();
+        String cursor = null;
+        do {
+            var page = query.groups(DAY.toString(), cursor, 5);
+            groups.addAll(page.items()); cursor = page.nextCursor();
+        } while (cursor != null);
+        assertEquals(12, groups.size());
+        assertEquals(12, groups.get(11).rankNo());
+        assertEquals(1, groups.get(11).userCount());
+        assertEquals(List.of("共同主题", "主题3", "主题4", "主题5", "主题6", "主题7", "主题8"), query.hot(DAY.toString()));
+        var mvc = historyMvc(query);
+        mvc.perform(get("/search/hot/history").param("date", DAY.toString())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(7)).andExpect(jsonPath("$.data[0]").value("共同主题"));
+        mvc.perform(get("/internal/hot-search/history/groups").param("date", DAY.toString()).param("size", "5"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(5))
+                .andExpect(jsonPath("$.items[0].rankNo").value("1")).andExpect(jsonPath("$.nextCursor").value("5"));
+    }
+
+    @Test void keywordAndUserPagesPreserveExactRawTextAndCountRepeatedSearches() throws Exception {
+        long user = 2_000_000_000_000_000_007L;
+        var texts = List.of("Java", "java", "Java ", "C++", "C#", "猫🐈", "  Java  ");
+        var events = new ArrayList<HotSearchHistoryStore.GroupedEvent>();
+        for (int i = 0; i < texts.size(); i++) events.add(event("text" + i, DAY, user, NINE, texts.get(i), "g"));
+        events.add(event("repeat", DAY, user, NINE + 1000, "Java", "g"));
+        events.add(event("second-user", DAY, user + 1, NINE + 3_600_000L, "Java", "g"));
+        events.add(event("other-group", DAY, user + 2, NINE, "Java", "other"));
+        store.append(events); store.rebuildDay(DAY);
+        var query = queries();
+        var keywords = new ArrayList<Keyword>();
+        String cursor = null;
+        do {
+            var page = query.keywords(DAY.toString(), "g", cursor, 2);
+            keywords.addAll(page.items()); cursor = page.nextCursor();
+        } while (cursor != null);
+        assertEquals(texts, keywords.stream().map(Keyword::rawKeyword).toList());
+        var javaKeyword = keywords.get(0);
+        assertEquals(3, javaKeyword.searchCount());
+        assertEquals(2, javaKeyword.userCount());
+        var first = query.users(DAY.toString(), "g", javaKeyword.keywordId(), null, 1);
+        assertEquals(user, first.items().get(0).userId());
+        assertEquals(2, first.items().get(0).searchCount());
+        assertEquals(NINE, first.items().get(0).firstHappenedAt());
+        assertEquals(NINE + 1000, first.items().get(0).lastHappenedAt());
+        var second = query.users(DAY.toString(), "g", javaKeyword.keywordId(), first.nextCursor(), 1);
+        assertEquals(user + 1, second.items().get(0).userId());
+        assertNull(second.nextCursor());
+        assertThrows(IllegalArgumentException.class, () -> query.users(DAY.toString(), "other", javaKeyword.keywordId(), null, 20));
+        assertThrows(IllegalArgumentException.class, () -> query.users(DAY.minusDays(1).toString(), "g", javaKeyword.keywordId(), null, 20));
+        assertEquals(2, query.groups(DAY.toString(), null, 20).items().get(0).userCount());
+        historyMvc(query).perform(get("/internal/hot-search/history/users").param("date", DAY.toString())
+                        .param("groupId", "g").param("keywordId", Long.toString(javaKeyword.keywordId())).param("size", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].userId").value(Long.toString(user)))
+                .andExpect(jsonPath("$.items[0].searchCount").value("2"));
+    }
+
+    @Test void detailPagesUseTimeAndIdAndKeepOriginalHoursForCarriedEvents() {
+        store.append(List.of(event("later", DAY, 1, NINE + 1000, "Java", "g"),
+                event("tie-a", DAY, 1, NINE, "Java", "g"), event("tie-b", DAY, 1, NINE, "Java", "g"),
+                event("other-user", DAY, 2, NINE + 2000, "Java", "g"), event("spaces", DAY, 1, NINE, "Java ", "g"),
+                event("carried", DAY, 1, NINE - 86_400_000L, "Java", "g")));
+        var query = queries();
+        long keywordId = query.keywords(DAY.toString(), "g", null, 20).items().get(0).keywordId();
+        var details = new ArrayList<Event>();
+        String cursor = null;
+        do {
+            var page = query.events(DAY.toString(), "g", keywordId, 1L, cursor, 1);
+            details.addAll(page.items()); cursor = page.nextCursor();
+        } while (cursor != null);
+        assertEquals(List.of("carried", "tie-a", "tie-b", "later"), details.stream()
+                .map(Event::eventId).toList());
+        assertEquals(DAY, details.get(0).statDate());
+        assertEquals(Math.floorDiv(NINE - 86_400_000L, 3_600_000L), details.get(0).eventHour());
+        assertEquals(5, query.events(DAY.toString(), "g", keywordId, null, null, 20).items().size());
+    }
+
+    @Test void realDatabaseQueryFailureIsReturnedAs503ThroughTheHistoryControllers() throws Exception {
+        var query = queries();
+        var mvc = historyMvc(query);
+        jdbc.execute("RENAME TABLE hot_search_daily_group TO hot_search_daily_group_paused");
+        try {
+            for (String path : List.of("/search/hot/history", "/internal/hot-search/history/groups")) {
+                mvc.perform(get(path).param("date", DAY.toString()))
+                        .andExpect(status().isServiceUnavailable());
+            }
+        } finally {
+            jdbc.execute("RENAME TABLE hot_search_daily_group_paused TO hot_search_daily_group");
+        }
+    }
+
+    private MockMvc historyMvc(HotSearchHistoryQueryService query) {
+        var builder = new Jackson2ObjectMapperBuilder();
+        new JacksonConfig().jackson2ObjectMapperBuilderCustomizer().customize(builder);
+        return MockMvcBuilders.standaloneSetup(new HotSearchHistoryController(query), new InternalHotSearchHistoryController(query))
+                .setControllerAdvice(new HotSearchHistoryExceptionHandler(), new GlobalExceptionHandler())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(builder.build())).build();
     }
 
     private long count(String table) {
