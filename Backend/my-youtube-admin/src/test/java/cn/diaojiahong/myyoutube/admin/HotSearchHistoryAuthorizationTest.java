@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.admin;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.admin.controller.AdminHotSearchHistoryController;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
@@ -43,14 +44,14 @@ class HotSearchHistoryAuthorizationTest {
 
     @Test void authorizedQueriesForwardOnlyTheRequestedScopeAndCursor() throws Exception {
         UserContext.setUser("1");
-        when(port.dates(null, 20)).thenReturn(new Page<>(List.of(), null));
-        when(port.groups(date, "8", 10)).thenReturn(new Page<>(List.of(), "18"));
-        when(port.keywords(date, "g", null, 20)).thenReturn(new Page<>(List.of(), null));
-        when(port.users(date, "g", 7L, null, 20)).thenReturn(new Page<>(List.of(), null));
-        when(port.events(date, "g", 7L, 9L, "100.5", 10)).thenReturn(new Page<>(List.of(), null));
+        when(port.dates(null, 20)).thenReturn(new CursorPage<>(List.of(), null));
+        when(port.groups(date, "8", 10)).thenReturn(new CursorPage<>(List.of(), "18"));
+        when(port.keywords(date, "g", null, 20)).thenReturn(new CursorPage<>(List.of(), null));
+        when(port.users(date, "g", 7L, null, 20)).thenReturn(new CursorPage<>(List.of(), null));
+        when(port.events(date, "g", 7L, 9L, "100.5", 10)).thenReturn(new CursorPage<>(List.of(), null));
         mvc.perform(get(root + "dates")).andExpect(status().isOk());
         mvc.perform(get(root + "groups").param("date", date).param("cursor", "8").param("size", "10"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.nextCursor").value("18"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.nextCursor").value("18"));
         mvc.perform(get(root + "keywords").param("date", date).param("groupId", "g")).andExpect(status().isOk());
         mvc.perform(get(root + "users").param("date", date).param("groupId", "g").param("keywordId", "7")).andExpect(status().isOk());
         mvc.perform(get(root + "events").param("date", date).param("groupId", "g").param("keywordId", "7")

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.*;
@@ -31,7 +32,7 @@ public class MediaRetryService {
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     private cn.diaojiahong.myyoutube.transcode.cover.CoverProperties cover;
 
-    public Page query(Query request) {
+    public CursorPage<Task, Long> query(Query request) {
         if (request==null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "Missing task query");
         validate(request.taskType(),Arrays.stream(MediaTaskType.values()).map(Enum::name).toList());
         validate(request.phase(),List.of("DRAFT","CONTENT","REVIEW"));
@@ -62,7 +63,7 @@ public class MediaRetryService {
             results.add(new Task(row.getId(),row.getOwnerId(),row.getPipelineId(),row.getPhase(),row.getTaskType(),row.getStatus(),
                     row.getAttempt(),row.getRetryCount(),row.getFailureCode(),String.join(",",resources),row.getErrorMessage(),eligible,reason,row.getUpdateTime(),row.getNextRetryAt()));
         }
-        return new Page(results,page.size()<limit ? null : page.get(page.size()-1).getId());
+        return new CursorPage<>(results,page.size()<limit ? null : page.get(page.size()-1).getId());
     }
     private SortedSet<String> resources(MediaTask row, Set<Long> visited) {
         var result=new TreeSet<String>();

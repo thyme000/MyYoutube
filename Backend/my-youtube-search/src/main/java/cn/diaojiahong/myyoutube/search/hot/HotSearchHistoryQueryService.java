@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
@@ -44,26 +45,26 @@ public class HotSearchHistoryQueryService {
         return List.copyOf(names);
     }
 
-    public Page<Day> dates(String cursor, Integer size) {
+    public CursorPage<Day, String> dates(String cursor, Integer size) {
         int limit = pageSize(size);
         LocalDate before = empty(cursor) ? today() : pastDate(cursor);
         return page(mapper.dates(before, limit + 1), limit, row -> row.statDate().toString());
     }
 
-    public Page<Group> groups(String date, String cursor, Integer size) {
+    public CursorPage<Group, String> groups(String date, String cursor, Integer size) {
         LocalDate day = pastDate(date);
         int limit = pageSize(size);
         return page(mapper.groups(day, positiveCursor(cursor), 0, limit + 1), limit, row -> Long.toString(row.rankNo()));
     }
 
-    public Page<Keyword> keywords(String date, String groupId, String cursor, Integer size) {
+    public CursorPage<Keyword, String> keywords(String date, String groupId, String cursor, Integer size) {
         LocalDate day = pastDate(date);
         requireGroup(groupId);
         int limit = pageSize(size);
         return page(mapper.keywords(day, groupId, positiveCursor(cursor), limit + 1), limit, row -> Long.toString(row.keywordId()));
     }
 
-    public Page<User> users(String date, String groupId, Long keywordId, String cursor, Integer size) {
+    public CursorPage<User, String> users(String date, String groupId, Long keywordId, String cursor, Integer size) {
         LocalDate day = pastDate(date);
         requireGroup(groupId);
         requirePositive(keywordId);
@@ -72,7 +73,7 @@ public class HotSearchHistoryQueryService {
         return page(mapper.users(day, groupId, keyword(day, groupId, keywordId), after, limit + 1), limit, row -> Long.toString(row.userId()));
     }
 
-    public Page<Event> events(String date, String groupId, Long keywordId, Long userId, String cursor, Integer size) {
+    public CursorPage<Event, String> events(String date, String groupId, Long keywordId, Long userId, String cursor, Integer size) {
         LocalDate day = pastDate(date);
         requireGroup(groupId);
         requirePositive(keywordId);
@@ -144,9 +145,9 @@ public class HotSearchHistoryQueryService {
         throw new BizException(ErrorCode.INVALID_ARGUMENT, "明细游标无效");
     }
 
-    private static <T> Page<T> page(List<T> rows, int size, Function<T, String> cursor) {
+    private static <T> CursorPage<T, String> page(List<T> rows, int size, Function<T, String> cursor) {
         boolean more = rows.size() > size;
         var items = List.copyOf(rows.subList(0, Math.min(size, rows.size())));
-        return new Page<>(items, more ? cursor.apply(items.get(items.size() - 1)) : null);
+        return new CursorPage<>(items, more ? cursor.apply(items.get(items.size() - 1)) : null);
     }
 }

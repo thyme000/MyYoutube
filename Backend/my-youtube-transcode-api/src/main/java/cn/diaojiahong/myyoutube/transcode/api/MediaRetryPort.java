@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.api;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.feign.PropagateBusinessErrors;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -16,18 +17,16 @@ public interface MediaRetryPort {
     record Task(Long taskId, Long ownerId, Long pipelineId, String phase, String taskType, String status,
                 int attempt, int retryCount, String failureCode, String dependencyService, String error,
                 boolean retryable, String cannotRetryReason, LocalDateTime updatedAt, LocalDateTime nextRetryAt) {}
-    record Page(List<Task> items, Long nextCursor) {}
     record Request(String requestId, List<Long> taskIds) {}
     record Batch(Long batchId, String status, int total, int pending, int running, int succeeded,
                  int failed, int skipped, int affectedTasks, int unfinishedTasks, String waitReason,
                  LocalDateTime createdAt, LocalDateTime completedAt) {}
-    record BatchPage(List<Batch> items, Long nextCursor) {}
     record Admission(boolean accepted, String code, String message, Batch batch) {}
     record Affected(Long taskId, String status, int attempt, String reason) {}
     record Item(Long taskId, String state, int initialAttempt, Integer executionAttempt, String reason) {}
-    @PostMapping("/query") Page query(@RequestBody Query query);
+    @PostMapping("/query") CursorPage<Task, Long> query(@RequestBody Query query);
     @PostMapping("/batches") Admission create(@RequestBody Request request, @RequestParam("actorId") Long actorId);
-    @GetMapping("/batches") BatchPage history(@RequestParam(value="cursor", required=false) Long cursor,
+    @GetMapping("/batches") CursorPage<Batch, Long> history(@RequestParam(value="cursor", required=false) Long cursor,
             @RequestParam(value="size", defaultValue="20") Integer size);
     @GetMapping("/batches/current") Batch current();
     @GetMapping("/batches/{batchId}") Batch batch(@PathVariable("batchId") Long batchId);

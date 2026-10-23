@@ -70,6 +70,11 @@ class MediaRetryHistoryTest {
         assertNull(batches.selectById(4L).getActive());
         assertNotNull(batches.selectById(4L).getResultJson());
     }
+    @Test void emptyHistoryHasNoContinuation() {
+        var page = history.history(null, 20);
+        assertTrue(page.items().isEmpty());
+        assertNull(page.nextCursor());
+    }
     @Test void invalidHistoryPagesAreRejected() {
         assertThrows(BizException.class,() -> history.history(-1L,20));
         assertThrows(BizException.class,() -> history.history(null,0));

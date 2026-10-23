@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.admin.controller;
 
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort;
@@ -16,23 +17,24 @@ public class AdminContentVectorDeadLetterController {
     private final ContentVectorDeadLetterPort port;
 
     @GetMapping("/messages")
-    public Page query(@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") Integer size) {
+    public Result<Page> query(@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") Integer size) {
         actor();
-        return port.query(cursor, size);
+        return Result.success(port.query(cursor, size));
     }
 
     @PostMapping("/messages/replay")
-    public ResponseEntity<ReplayResult> replay(@RequestBody Reference reference) {
+    public ResponseEntity<Result<ReplayResult>> replay(@RequestBody Reference reference) {
         ReplayResult result = port.replay(reference, actor());
-        int status = switch (result.status()) {
-            case ACCEPTED -> 202;
-            case ALREADY_COMPLETED -> 200;
-            case INELIGIBLE, DISABLED -> 409;
-            case NOT_FOUND -> 404;
-            case INVALID_MESSAGE -> 400;
-            case STATE_UNAVAILABLE, DELIVERY_UNCONFIRMED -> 503;
+        if (result.status() == ReplayStatus.ACCEPTED) return ResponseEntity.accepted().body(Result.success(result));
+        if (result.status() == ReplayStatus.ALREADY_COMPLETED) return ResponseEntity.ok(Result.success(result));
+        ErrorCode error = switch (result.status()) {
+            case INELIGIBLE, DISABLED -> ErrorCode.STATE_CONFLICT;
+            case NOT_FOUND -> ErrorCode.NOT_FOUND;
+            case INVALID_MESSAGE -> ErrorCode.INVALID_ARGUMENT;
+            case STATE_UNAVAILABLE, DELIVERY_UNCONFIRMED -> ErrorCode.DEPENDENCY_UNAVAILABLE;
+            default -> throw new IllegalStateException("Unexpected replay status: " + result.status());
         };
-        return ResponseEntity.status(status).body(result);
+        return ResponseEntity.status(error.getHttpStatus()).body(Result.fail(error, result.message(), result));
     }
 
     private Long actor() {

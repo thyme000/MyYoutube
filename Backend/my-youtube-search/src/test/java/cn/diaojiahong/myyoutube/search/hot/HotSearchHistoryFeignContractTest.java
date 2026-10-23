@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.config.JacksonConfig;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
@@ -34,11 +35,11 @@ class HotSearchHistoryFeignContractTest {
         long user = 2_000_000_000_000_000_007L;
         long id = 9_007_199_254_740_993L;
         var responses = Map.of(
-                "dates", new Page<>(List.of(new Day(day, updated)), null),
-                "groups", new Page<>(List.of(new Group("g+special", "主题", "v1", 3, 2, 3, 1, updated)), null),
-                "keywords", new Page<>(List.of(new Keyword(id, "  C++ 入门  ", 3, 2)), null),
-                "users", new Page<>(List.of(new User(user, 3, 100, 200)), null),
-                "events", new Page<>(List.of(new Event(id, "event", day, 100, 0, user, "  C++ 入门  ",
+                "dates", new CursorPage<>(List.of(new Day(day, updated)), null),
+                "groups", new CursorPage<>(List.of(new Group("g+special", "主题", "v1", 3, 2, 3, 1, updated)), null),
+                "keywords", new CursorPage<>(List.of(new Keyword(id, "  C++ 入门  ", 3, 2)), null),
+                "users", new CursorPage<>(List.of(new User(user, 3, 100, 200)), null),
+                "events", new CursorPage<>(List.of(new Event(id, "event", day, 100, 0, user, "  C++ 入门  ",
                         "C++ 入门", "g+special", "主题", "v1")), null));
         List<URI> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

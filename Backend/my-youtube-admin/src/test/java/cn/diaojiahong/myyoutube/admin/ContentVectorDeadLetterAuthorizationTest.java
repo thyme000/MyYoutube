@@ -43,7 +43,7 @@ class ContentVectorDeadLetterAuthorizationTest {
         UserContext.setUser("1");
         when(port.query("cursor", 10)).thenReturn(new Page(List.of(), "next", true));
         mvc.perform(get(path).param("cursor", "cursor").param("size", "10"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.nextCursor").value("next"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.nextCursor").value("next"));
         verify(port).query("cursor", 10);
     }
 
@@ -53,7 +53,7 @@ class ContentVectorDeadLetterAuthorizationTest {
                 new ReplayResult(ReplayStatus.ALREADY_COMPLETED, 9L, "已有向量"),
                 new ReplayResult(ReplayStatus.DELIVERY_UNCONFIRMED, 9L, "未确认"));
         mvc.perform(post(path + "/replay").contentType("application/json").content(reference))
-                .andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("ACCEPTED"));
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.data.status").value("ACCEPTED"));
         mvc.perform(post(path + "/replay").contentType("application/json").content(reference)).andExpect(status().isOk());
         mvc.perform(post(path + "/replay").contentType("application/json").content(reference)).andExpect(status().isServiceUnavailable());
         verify(port, times(3)).replay(new Reference("broker", 0, 5L), 1L);

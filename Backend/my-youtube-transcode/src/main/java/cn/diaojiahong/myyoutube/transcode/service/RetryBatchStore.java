@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.pipeline.PipelineEventPort;
@@ -64,7 +65,7 @@ public class RetryBatchStore {
         var current = occupation.current();
         return current == null ? null : current.batch();
     }
-    public BatchPage history(Long cursor, Integer size) {
+    public CursorPage<Batch, Long> history(Long cursor, Integer size) {
         int limit = size == null ? 20 : size;
         if (limit < 1 || limit > 100 || cursor != null && cursor <= 0)
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "非法历史分页");
@@ -72,7 +73,7 @@ public class RetryBatchStore {
                 .lt(cursor != null, MediaRetryBatch::getId, cursor).orderByDesc(MediaRetryBatch::getId).last("LIMIT " + limit));
         var views = page.stream().map(row -> row.getResultJson() == null ? batch(row.getId())
                 : JsonUtil.fromJson(row.getResultJson(), Snapshot.class).batch()).toList();
-        return new BatchPage(views, page.size() < limit ? null : page.get(page.size() - 1).getId());
+        return new CursorPage<>(views, page.size() < limit ? null : page.get(page.size() - 1).getId());
     }
     public Batch current() {
         var cached = cachedCurrent();

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.admin;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.admin.controller.AdminMediaRetryController;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -33,13 +34,13 @@ class MediaRetryAuthorizationTest {
         var port=mock(MediaRetryPort.class); var controller=new AdminMediaRetryController(port);
         var mvc=MockMvcBuilders.standaloneSetup(controller).build();
         UserContext.setUser("1");
-        when(port.query(any())).thenReturn(new MediaRetryPort.Page(List.of(),null));
+        when(port.query(any())).thenReturn(new CursorPage<>(List.of(),null));
         mvc.perform(get("/admin/media-tasks").param("taskType","SUMMARY").param("size","20"))
                 .andExpect(status().isOk());
         verify(port).query(argThat(q -> "SUMMARY".equals(q.taskType()) && q.size()==20 && q.phase()==null));
-        when(port.history(any(),any())).thenReturn(new MediaRetryPort.BatchPage(List.of(),null));
+        when(port.history(any(),any())).thenReturn(new CursorPage<>(List.of(),null));
         mvc.perform(get("/admin/media-retry-batches").param("cursor","9007199254740993").param("size","20"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.items").isArray());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.items").isArray());
         verify(port).history(9007199254740993L,20);
         when(port.create(any(),eq(1L))).thenReturn(new MediaRetryPort.Admission(true,"RETRY_BATCH_CREATED","已登记",null));
         mvc.perform(post("/admin/media-retry-batches").contentType("application/json")

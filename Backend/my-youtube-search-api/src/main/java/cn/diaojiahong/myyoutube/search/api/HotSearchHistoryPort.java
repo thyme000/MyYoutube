@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.api;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.feign.PropagateBusinessErrors;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -8,13 +9,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.List;
 
 @PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT})
 @FeignClient(name = "my-youtube-search-service", contextId = "hotSearchHistoryPort",
         path = "/internal/hot-search/history", url = "${my-youtube.search-service.url:}")
 public interface HotSearchHistoryPort {
-    record Page<T>(List<T> items, String nextCursor) {}
     record Day(LocalDate statDate, LocalDateTime updatedAt) {}
     record Group(String groupId, String groupName, String vectorVersion, long searchCount,
                  long userCount, long score, long rankNo, LocalDateTime updatedAt) {}
@@ -25,27 +24,27 @@ public interface HotSearchHistoryPort {
                  String rawKeyword, String groupingKeyword, String groupId, String groupName, String vectorVersion) {}
 
     @GetMapping("/dates")
-    Page<Day> dates(@RequestParam(value = "cursor", required = false) String cursor,
+    CursorPage<Day, String> dates(@RequestParam(value = "cursor", required = false) String cursor,
                     @RequestParam(value = "size", defaultValue = "20") Integer size);
 
     @GetMapping("/groups")
-    Page<Group> groups(@RequestParam("date") String date,
+    CursorPage<Group, String> groups(@RequestParam("date") String date,
                        @RequestParam(value = "cursor", required = false) String cursor,
                        @RequestParam(value = "size", defaultValue = "20") Integer size);
 
     @GetMapping("/keywords")
-    Page<Keyword> keywords(@RequestParam("date") String date, @RequestParam("groupId") String groupId,
+    CursorPage<Keyword, String> keywords(@RequestParam("date") String date, @RequestParam("groupId") String groupId,
                            @RequestParam(value = "cursor", required = false) String cursor,
                            @RequestParam(value = "size", defaultValue = "20") Integer size);
 
     @GetMapping("/users")
-    Page<User> users(@RequestParam("date") String date, @RequestParam("groupId") String groupId,
+    CursorPage<User, String> users(@RequestParam("date") String date, @RequestParam("groupId") String groupId,
                      @RequestParam("keywordId") Long keywordId,
                      @RequestParam(value = "cursor", required = false) String cursor,
                      @RequestParam(value = "size", defaultValue = "20") Integer size);
 
     @GetMapping("/events")
-    Page<Event> events(@RequestParam("date") String date, @RequestParam("groupId") String groupId,
+    CursorPage<Event, String> events(@RequestParam("date") String date, @RequestParam("groupId") String groupId,
                        @RequestParam("keywordId") Long keywordId,
                        @RequestParam(value = "userId", required = false) Long userId,
                        @RequestParam(value = "cursor", required = false) String cursor,
