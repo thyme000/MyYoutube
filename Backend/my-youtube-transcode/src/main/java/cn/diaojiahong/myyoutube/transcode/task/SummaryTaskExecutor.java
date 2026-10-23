@@ -47,7 +47,7 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
             boolean timedText = transcript.segments().stream().anyMatch(segment -> !segment.text().isBlank())
                     || frames.frames().stream().anyMatch(frame -> !frame.text().isBlank());
             var result = summarize(chunk, input.media().video() != null && timedText, templates);
-            summaries.add(result.summary());
+            if (!result.summary().isEmpty()) summaries.add(result.summary());
             for (var chapter : timedText && input.media().video() != null ? result.chapters() : List.<ContentArtifacts.Chapter>of()) {
                 if (chapter.startMs() < 0 || chapter.startMs() > ocr.get("durationMs").getAsLong() || chapter.title() == null || chapter.title().isBlank())
                     throw new IllegalArgumentException("章节位置非法");
@@ -68,10 +68,11 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
                 group.add(summary); characters += summary.length() + 1;
             }
             reduced.add(group.size() == 1 ? group.get(0) : summarize(String.join("\n", group), false, templates).summary());
+            reduced.removeIf(String::isEmpty);
             if (reduced.size() >= summaries.size()) throw new IllegalStateException("摘要合并未收敛");
             summaries = reduced;
         }
-        var result = new ContentArtifacts.Summary(summaries.get(0), chapters.stream()
+        var result = new ContentArtifacts.Summary(summaries.isEmpty() ? "" : summaries.get(0), summaries.isEmpty() ? List.of() : chapters.stream()
                 .sorted(Comparator.comparingLong(ContentArtifacts.Chapter::startMs)).distinct().toList());
         log.info("Summary completed pipelineId={} taskId={} attempt={} evidenceChars={} chunks={} mergeRounds={} chapters={} summaryLength={} elapsedMs={}",
                 msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), evidence.length(), chunks, mergeRounds,
@@ -91,7 +92,9 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
         var json = StructuredJson.strictObject(response.getContent());
         validateStructure(json, allowChapters);
         var result = JsonUtil.fromJson(json.toString(), ContentArtifacts.Summary.class);
-        if (result == null || result.summary() == null || result.summary().isBlank() || result.summary().length() > summaryLimit || result.chapters() == null)
+        if (result == null || result.summary() == null || result.summary().length() > summaryLimit || result.chapters() == null
+                || (!result.summary().isEmpty() && result.summary().isBlank())
+                || (result.summary().isEmpty() && !result.chapters().isEmpty()))
             throw new IllegalArgumentException("摘要输出不完整");
         return result;
     }
@@ -107,7 +110,7 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
         return Map.of("type", "json_schema", "json_schema", Map.of("name", "content_summary", "strict", true,
                 "schema", Map.of("type", "object", "additionalProperties", false,
                         "required", List.of("summary", "chapters"), "properties", Map.of(
-                                "summary", Map.of("type", "string", "minLength", 1, "maxLength", limit), "chapters", array))));
+                                "summary", Map.of("type", "string", "minLength", 0, "maxLength", limit), "chapters", array))));
     }
 
     private static void validateStructure(com.google.gson.JsonObject json, boolean chapters) {

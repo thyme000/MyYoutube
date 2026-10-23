@@ -55,18 +55,38 @@ class TaggingVisionTest {
         assertEquals("http://local/image.jpg", part.getImageUrl().getUrl());
     }
 
-    @Test void nextCallUsesPublishedTaggingTemplate() throws Exception {
-        String defaults = new org.springframework.core.io.ClassPathResource("prompts/model-prompts.yaml")
-                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+    @Test void nextCallUsesPublishedTaggingTemplate() {
         when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(EMPTY_TAGS));
         service.generate(input("标题"));
-        prompts.replace(defaults.replace("你是内容平台的自动打标器", "新版打标器"));
+        prompts.replace(templates("新版打标器 {{categories}} {{tagPool}}"));
         service.generate(input("标题"));
         var requests = org.mockito.ArgumentCaptor.forClass(LlmPort.ChatRequest.class);
         verify(llm, times(2)).chat(requests.capture());
-        assertTrue(requests.getAllValues().get(0).getMessages().get(0).getContent().startsWith("你是内容平台的自动打标器"));
-        assertTrue(requests.getAllValues().get(1).getMessages().get(0).getContent().startsWith("新版打标器"));
-        assertTrue(requests.getValue().getMessages().get(0).getContent().contains("TECH(科技)"));
+        String first = requests.getAllValues().get(0).getMessages().get(0).getContent();
+        String second = requests.getAllValues().get(1).getMessages().get(0).getContent();
+        assertTrue(first.contains("TECH(科技)"));
+        assertFalse(first.contains("新版打标器"));
+        assertTrue(second.contains("新版打标器"));
+        assertTrue(second.contains("TECH(科技)"));
+    }
+
+    // PromptTemplates 要求六个模板键齐全，本用例只关注 tagging-system 的热更新。
+    private static String templates(String taggingSystem) {
+        return """
+                templates:
+                  summary-system: |-
+                    {{summaryLimit}}{{chapterRule}}
+                  summary-no-chapters: |-
+                    无
+                  tagging-system: |-
+                    %s
+                  cover-user: |-
+                    {{candidateCount}}
+                  review-system: |-
+                    无
+                  hot-search-group-system: |-
+                    无
+                """.formatted(taggingSystem);
     }
 
     @Test

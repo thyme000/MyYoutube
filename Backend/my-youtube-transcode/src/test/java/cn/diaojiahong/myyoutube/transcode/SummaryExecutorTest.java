@@ -35,6 +35,58 @@ class SummaryExecutorTest {
         executor.execute(input("元数据标题")); verify(llm,times(1)).chat(any());
         verify(artifacts).write(100L,"SUMMARY",1,new ContentArtifacts.Summary("元数据摘要",List.of()));
     }
+    @Test void uninformativeEvidenceAllowsModelToReturnEmptySummaryAndSchemaAllowsIt() {
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse("{\"summary\":\"\",\"chapters\":[]}","test","stop",null));
+        executor.execute(input("美图"));
+        verify(artifacts).write(100L,"SUMMARY",1,new ContentArtifacts.Summary("",List.of()));
+        var request = org.mockito.ArgumentCaptor.forClass(LlmPort.ChatRequest.class);
+        verify(llm).chat(request.capture());
+        var jsonSchema = (Map<?, ?>) request.getValue().getResponseFormat().get("json_schema");
+        var schema = (Map<?, ?>) jsonSchema.get("schema");
+        var fields = (Map<?, ?>) schema.get("properties");
+        assertEquals(0, ((Map<?, ?>) fields.get("summary")).get("minLength"));
+    }
+    @Test void emptySummaryCannotCarryChaptersAndWhitespaceOrNullIsNotEmptySummary() {
+        var msg = input("美图");
+        when(artifacts.read("asr",ContentArtifacts.Transcript.class)).thenReturn(
+                new ContentArtifacts.Transcript(List.of(new ContentArtifacts.Segment(0,1000,"零散词句"))));
+        for (String json : List.of("{\"summary\":\"\",\"chapters\":[{\"startMs\":0,\"title\":\"章节\"}]}",
+                "{\"summary\":\"  \",\"chapters\":[]}", "{\"summary\":null,\"chapters\":[]}")) {
+            when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(json,"test","stop",null));
+            assertThrows(IllegalArgumentException.class, () -> executor.execute(msg));
+        }
+    }
+    @Test void emptyChunksAreSkippedDuringMergeAndAllEmptyChunksNeedNoMergeCall() {
+        var msg = input("美图");
+        var properties = new PipelineProperties(); properties.setChunkCharacters(1024);
+        when(artifacts.read("ocr",ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(
+                List.of(new ContentArtifacts.Frame(0,0,"frame","碎片".repeat(1700)))));
+        var empty = new LlmPort.ChatResponse("{\"summary\":\"\",\"chapters\":[]}","test","stop",null);
+        var summary = new LlmPort.ChatResponse("{\"summary\":\"有效内容\",\"chapters\":[]}","test","stop",null);
+        var chunked = new SummaryTaskExecutor(artifacts,properties,llm,guard,prompts);
+        when(llm.chat(any())).thenReturn(empty);
+        chunked.execute(msg);
+        verify(llm,times(4)).chat(any());
+        verify(artifacts).write(100L,"SUMMARY",1,new ContentArtifacts.Summary("",List.of()));
+
+        clearInvocations(llm,artifacts);
+        when(llm.chat(any())).thenReturn(empty,summary,empty,empty);
+        chunked.execute(msg);
+        verify(llm,times(4)).chat(any());
+        verify(artifacts).write(100L,"SUMMARY",1,new ContentArtifacts.Summary("有效内容",List.of()));
+    }
+    @Test void mergeMayReturnEmptySummaryAndMustDiscardEarlierChapters() {
+        var msg = input("标题");
+        var properties = new PipelineProperties(); properties.setChunkCharacters(1024);
+        when(artifacts.read("ocr",ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(
+                List.of(new ContentArtifacts.Frame(0,0,"frame","证据".repeat(1700)))));
+        var chunk = new LlmPort.ChatResponse("{\"summary\":\"分段内容\",\"chapters\":[{\"startMs\":0,\"title\":\"章节\"}]}","test","stop",null);
+        var empty = new LlmPort.ChatResponse("{\"summary\":\"\",\"chapters\":[]}","test","stop",null);
+        when(llm.chat(any())).thenReturn(chunk,chunk,chunk,chunk,empty);
+        new SummaryTaskExecutor(artifacts,properties,llm,guard,prompts).execute(msg);
+        verify(llm,times(5)).chat(any());
+        verify(artifacts).write(100L,"SUMMARY",1,new ContentArtifacts.Summary("",List.of()));
+    }
     @Test void nativeSummaryKeepsOriginalAudioEvidenceWithoutTurningItsTimeIntoImageSeekPositions() {
         var message = input("标题");
         var media = new DynamicMedia("vertical",1080,1920,"cut",0,List.of(new DynamicMedia.Image("frame",0,3000,0.5,0.5)),
