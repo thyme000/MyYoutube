@@ -1,5 +1,21 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import com.sun.net.httpserver.HttpServer;
+import feign.Feign;
+import feign.Retryer;
+import org.springframework.cloud.openfeign.support.SpringMvcContract;
+import org.springframework.cloud.openfeign.support.SpringEncoder;
+import org.springframework.boot.autoconfigure.http.HttpMessageConverters;
+import cn.diaojiahong.myyoutube.common.feign.ModelErrorDecoder;
+import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
+import cn.diaojiahong.myyoutube.transcode.task.MediaTaskExecutor;
+import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.*;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
@@ -285,6 +301,101 @@ class MediaTaskIntegrationTest {
         tasks.completeAndAdvance(claim(node("ASR")), null, "actual inference timeout");
         assertEquals(1, node("ASR").getRetryCount());
         assertEquals("RETRY_WAIT", node("ASR").getStatus());
+    }
+    @ParameterizedTest
+    @ValueSource(strings = {"MODEL_RECOVERING", "MODEL_QUEUE_FULL", "MODEL_QUEUE_TIMEOUT",
+            "MODEL_SHUTTING_DOWN", "MODEL_ADMISSION_BLOCKED", "MODEL_CIRCUIT_OPEN", "MODEL_RECOVERY_EXHAUSTED",
+            "MODEL_EXECUTION_FAILED", "UNKNOWN"})
+    void decodedHttpFailuresPersistTheExistingRetryPolicyAndAttemptFence(String reason) throws Exception {
+        tasks.start(input());
+        for (String type : List.of("COVER", "ASR", "OCR", "SUMMARY")) succeed(type);
+        String cover = node("COVER").getResultJson();
+        boolean execution = reason.equals("MODEL_EXECUTION_FAILED") || reason.equals("UNKNOWN");
+        boolean terminal = reason.equals("MODEL_CIRCUIT_OPEN") || reason.equals("MODEL_RECOVERY_EXHAUSTED");
+        int status = reason.equals("MODEL_EXECUTION_FAILED") ? 502 : 503;
+        int code = reason.equals("UNKNOWN") ? 50301 : status == 502 ? 50202 : 50302;
+        var calls = new AtomicInteger();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/internal/content-pipeline/tags", exchange -> {
+            calls.incrementAndGet(); exchange.getRequestBody().readAllBytes();
+            byte[] body = ("{\"code\":" + code + ",\"message\":\"模型故障\",\"data\":{\"resource\":\"LLM\",\"reason\":\""
+                    + reason + "\"}}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.getResponseHeaders().set("Retry-After", "30");
+            exchange.sendResponseHeaders(status, body.length);
+            try (var output = exchange.getResponseBody()) { output.write(body); }
+            exchange.close();
+        });
+        server.start();
+        var port = Feign.builder().contract(new SpringMvcContract())
+                .encoder(new SpringEncoder(
+                        () -> new HttpMessageConverters()))
+                .errorDecoder(new ModelErrorDecoder(
+                        ModelErrorDecoder.Protocol.INTERNAL))
+                .retryer(Retryer.NEVER_RETRY).target(ContentPipelinePort.class,
+                        "http://127.0.0.1:" + server.getAddress().getPort() + "/internal/content-pipeline");
+        var executor = mock(MediaTaskExecutor.class);
+        when(executor.type()).thenReturn(MediaTaskType.TAG);
+        when(executor.execute(any())).thenAnswer(call -> {
+            port.generateTags(new TagRequest("title", "description", "summary"));
+            return "{\"tags\":[]}";
+        });
+        var worker = new MediaTaskWorker(tasks, List.of(executor));
+        try {
+            var tag = node("TAG");
+            var message = MediaTaskMessage.builder().taskId(tag.getId()).pipelineId(100L).phase("CONTENT")
+                    .attempt(tag.getAttempt()).build();
+            worker.execute(message);
+            var failed = node("TAG");
+            assertEquals(1, calls.get());
+            assertEquals(terminal ? "DEAD" : "RETRY_WAIT", failed.getStatus());
+            assertEquals(execution ? 1 : 0, failed.getRetryCount());
+            assertEquals(execution ? "TASK_EXECUTION_FAILED" : reason, failed.getFailureCode());
+            assertEquals(cover, node("COVER").getResultJson());
+            assertNull(failed.getResultJson());
+            int firstAttempt = failed.getAttempt();
+            tasks.completeAndAdvance(MediaTaskMessage.builder().taskId(tag.getId()).pipelineId(100L).phase("CONTENT")
+                    .attempt(firstAttempt).build(), "{\"tags\":[\"late\"]}", null);
+            assertEquals(failed.getStatus(), node("TAG").getStatus());
+            if (terminal) {
+                assertNull(failed.getNextRetryAt());
+                tasks.recover(); worker.execute(message);
+                assertEquals(1, calls.get());
+                assertEquals("WAITING_ARTIFACTS", tasks.view(100L).status());
+            } else {
+                if (!execution) {
+                    assertNotNull(failed.getUnavailableDeadline());
+                    long delay = java.time.Duration.between(failed.getUpdateTime(), failed.getNextRetryAt()).getSeconds();
+                    assertTrue(delay >= 30 && delay <= 35);
+                    assertFalse(failed.getNextRetryAt().isAfter(failed.getUnavailableDeadline()));
+                }
+                jdbc.update("UPDATE media_task SET next_retry_at=? WHERE id=?", past(1), tag.getId());
+                tasks.recover();
+                worker.execute(MediaTaskMessage.builder().taskId(tag.getId()).pipelineId(100L).phase("CONTENT")
+                        .attempt(node("TAG").getAttempt()).build());
+                assertEquals(2, calls.get());
+                assertEquals(firstAttempt + 1, node("TAG").getAttempt());
+                assertEquals(execution ? 2 : 0, node("TAG").getRetryCount());
+                assertEquals(failed.getUnavailableDeadline(), node("TAG").getUnavailableDeadline());
+            }
+            if (terminal) tasks.retry(100L);
+            else {
+                jdbc.update("UPDATE media_task SET next_retry_at=? WHERE id=?", past(1), tag.getId());
+                tasks.recover();
+            }
+            var resumed = claim(node("TAG"));
+            assertNotNull(resumed);
+            assertTrue(resumed.getAttempt() > firstAttempt);
+            tasks.completeAndAdvance(MediaTaskMessage.builder().taskId(tag.getId()).pipelineId(100L).phase("CONTENT")
+                    .attempt(firstAttempt).build(), "{\"tags\":[\"late\"]}", null);
+            assertEquals("RUNNING", node("TAG").getStatus());
+            assertNull(node("TAG").getResultJson());
+            tasks.completeAndAdvance(resumed, "{\"tags\":[\"recovered\"]}", null);
+            assertEquals("COMPLETED", tasks.view(100L).status());
+            assertEquals(cover, node("COVER").getResultJson());
+            assertEquals("{\"tags\":[\"recovered\"]}", node("TAG").getResultJson());
+            assertNull(node("TAG").getUnavailableDeadline());
+        } finally { worker.close(); server.stop(0); }
     }
     @Test void delayedDispatchCannotExecuteAfterUnavailableDeadline() {
         observations.getRecording().setEnabled(true);

@@ -1,5 +1,28 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import com.sun.net.httpserver.HttpServer;
+import feign.Feign;
+import feign.Retryer;
+import org.springframework.cloud.openfeign.support.SpringMvcContract;
+import org.springframework.cloud.openfeign.support.SpringEncoder;
+import org.springframework.cloud.openfeign.support.SpringDecoder;
+import org.springframework.boot.autoconfigure.http.HttpMessageConverters;
+import org.springframework.beans.factory.ObjectFactory;
+import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import cn.diaojiahong.myyoutube.common.config.JacksonConfig;
+import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
+import cn.diaojiahong.myyoutube.common.handler.UnexpectedExceptionHandler;
+import cn.diaojiahong.myyoutube.common.feign.FeignExceptionHandler;
+import cn.diaojiahong.myyoutube.common.feign.InternalApiErrorDecoder;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.transcode.controller.InternalMediaRetryController;
+import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort;
+import java.net.InetSocketAddress;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.Input;
@@ -96,6 +119,61 @@ class RetryBatchIntegrationTest {
     }
     Admission create(String request,String... types) {
         return retries.create(new Request(request,Arrays.stream(types).map(t -> node(t).getId()).toList()),1L);
+    }
+    @Test void internalHttpKeepsPersistedAdmissionDecisionsAndIdempotency() throws Exception {
+        failedPipeline();
+        var builder = new Jackson2ObjectMapperBuilder();
+        new JacksonConfig().jackson2ObjectMapperBuilderCustomizer().customize(builder);
+        var converter = new MappingJackson2HttpMessageConverter(builder.build());
+        var mvc = MockMvcBuilders.standaloneSetup(
+                        new InternalMediaRetryController(retries, batches))
+                .setMessageConverters(converter).setControllerAdvice(
+                        new GlobalExceptionHandler(),
+                        new FeignExceptionHandler(),
+                        new UnexpectedExceptionHandler()).build();
+        var calls = new AtomicInteger();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/internal/media-retries/batches", exchange -> {
+            calls.incrementAndGet();
+            try {
+                var response = mvc.perform(MockMvcRequestBuilders
+                                .post(exchange.getRequestURI()).contentType("application/json")
+                                .content(exchange.getRequestBody().readAllBytes())).andReturn().getResponse();
+                byte[] body = response.getContentAsByteArray();
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(response.getStatus(), body.length);
+                try (var output = exchange.getResponseBody()) { output.write(body); }
+            } catch (Exception error) { throw new java.io.IOException(error); }
+            finally { exchange.close(); }
+        });
+        server.start();
+        try {
+            ObjectFactory<HttpMessageConverters> converters =
+                    () -> new HttpMessageConverters(converter);
+            var port = Feign.builder().contract(new SpringMvcContract())
+                    .encoder(new SpringEncoder(converters))
+                    .decoder(new SpringDecoder(converters))
+                    .errorDecoder(new InternalApiErrorDecoder()).retryer(Retryer.NEVER_RETRY)
+                    .target(MediaRetryPort.class,
+                            "http://127.0.0.1:" + server.getAddress().getPort() + "/internal/media-retries");
+            var request = new Request("http-created", List.of(node("ASR").getId()));
+            var accepted = port.create(request, 1L);
+            assertTrue(accepted.accepted());
+            assertEquals("RETRY_BATCH_CREATED", accepted.code());
+            assertEquals(batches.current().batchId(), accepted.batch().batchId());
+            var busy = port.create(new Request("http-busy", List.of(node("OCR").getId())), 1L);
+            assertFalse(busy.accepted());
+            assertEquals("RETRY_BATCH_RUNNING", busy.code());
+            assertEquals(accepted.batch().batchId(), busy.batch().batchId());
+            assertEquals(accepted.batch().batchId(), port.create(request, 1L).batch().batchId());
+            var conflict = assertThrows(BizException.class,
+                    () -> port.create(new Request("http-created", List.of(node("OCR").getId())), 1L));
+            assertEquals(ErrorCode.STATE_CONFLICT, conflict.getErrorCode());
+            assertEquals(4, calls.get());
+            assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM media_retry_batch", Integer.class));
+            assertEquals("SUCCESS", node("COVER").getStatus());
+            assertEquals("DEAD", node("OCR").getStatus());
+        } finally { server.stop(0); }
     }
     @Test void concurrentAdmissionsHaveOneWinnerAndIdempotentReplay() {
         failedPipeline();
