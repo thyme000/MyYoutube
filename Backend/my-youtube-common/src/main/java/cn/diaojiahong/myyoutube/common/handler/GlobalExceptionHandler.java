@@ -2,6 +2,9 @@ package cn.diaojiahong.myyoutube.common.handler;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure;
+import cn.diaojiahong.myyoutube.common.resilience.ModelErrorData;
+import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import jakarta.servlet.http.HttpServletResponse;
@@ -23,22 +26,22 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
-    @ExceptionHandler(cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable.class)
-    public org.springframework.http.ResponseEntity<?> handleModelUnavailable(
-            cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable error) {
+    @ExceptionHandler(ModelUnavailable.class)
+    public ResponseEntity<Object> handleModelUnavailable(ModelUnavailable error, WebRequest request) {
         log.warn("Model unavailable resource={} reason={}", error.resource(), error.code());
-        return org.springframework.http.ResponseEntity.status(503)
-                .header("Retry-After", Integer.toString(error.retryAfterSeconds()))
-                .body(java.util.Map.of("detail", java.util.Map.of("resource",
-                        error.resource() == null ? "UNKNOWN" : error.resource(), "code", error.code())));
+        var headers = new HttpHeaders();
+        headers.set("Retry-After", Integer.toString(error.retryAfterSeconds()));
+        var data = new ModelErrorData(error.resource(), error.code());
+        return respond(ErrorCode.MODEL_UNAVAILABLE, Result.fail(ErrorCode.MODEL_UNAVAILABLE,
+                ErrorCode.MODEL_UNAVAILABLE.getMessage(), data), headers, request);
     }
 
-    @ExceptionHandler(cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure.class)
-    public org.springframework.http.ResponseEntity<?> handleModelFailure(
-            cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure error) {
-        log.warn("Model execution failed resource={} reason={}",error.resource(),error.getCause()==null ? error.getMessage() : error.getCause().getClass().getSimpleName());
-        return org.springframework.http.ResponseEntity.status(502).body(java.util.Map.of("detail",
-                java.util.Map.of("resource",error.resource(),"code","MODEL_EXECUTION_FAILED")));
+    @ExceptionHandler(ModelCallFailure.class)
+    public ResponseEntity<Object> handleModelFailure(ModelCallFailure error, WebRequest request) {
+        log.error("Model execution failed resource={}", error.resource(), error);
+        var data = new ModelErrorData(error.resource(), "MODEL_EXECUTION_FAILED");
+        return respond(ErrorCode.MODEL_EXECUTION_FAILED, Result.fail(ErrorCode.MODEL_EXECUTION_FAILED,
+                ErrorCode.MODEL_EXECUTION_FAILED.getMessage(), data), new HttpHeaders(), request);
     }
 
     @ExceptionHandler(BizException.class)
@@ -86,10 +89,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private ResponseEntity<Object> respond(ErrorCode code, String message, WebRequest request) {
+        return respond(code, Result.fail(code, message), new HttpHeaders(), request);
+    }
+
+    private ResponseEntity<Object> respond(ErrorCode code, Object body, HttpHeaders headers, WebRequest request) {
         if (request instanceof ServletWebRequest servlet) {
             HttpServletResponse response = servlet.getResponse();
             if (response != null && response.isCommitted()) return null;
         }
-        return ResponseEntity.status(code.getHttpStatus()).body(Result.fail(code, message));
+        return ResponseEntity.status(code.getHttpStatus()).headers(headers).body(body);
     }
 }

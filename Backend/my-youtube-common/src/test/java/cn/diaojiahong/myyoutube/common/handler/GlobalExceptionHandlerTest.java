@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.common.handler;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
+import cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import jakarta.validation.Valid;
@@ -93,11 +94,36 @@ class GlobalExceptionHandlerTest {
         assertEquals("stream data", response.getContentAsString());
     }
 
-    @Test void modelAdmissionProtocolStaysIntactUntilTheModelBatch() throws Exception {
+    @Test void modelAdmissionUsesTheCommonEnvelopeAndKeepsRetryInformation() throws Exception {
         mvc.perform(get("/contract/model"))
                 .andExpect(status().isServiceUnavailable()).andExpect(header().string("Retry-After", "30"))
-                .andExpect(jsonPath("$.detail.resource").value("OCR"))
-                .andExpect(jsonPath("$.detail.code").value("MODEL_RECOVERING"));
+                .andExpect(jsonPath("$.code").value(50302))
+                .andExpect(jsonPath("$.detail").doesNotExist())
+                .andExpect(jsonPath("$.data.resource").value("OCR"))
+                .andExpect(jsonPath("$.data.reason").value("MODEL_RECOVERING"));
+    }
+
+    @Test void modelExecutionFailureUsesSafeMessageAndStructuredReason() throws Exception {
+        mvc.perform(get("/contract/model-failure"))
+                .andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value(50202))
+                .andExpect(jsonPath("$.message").value(ErrorCode.MODEL_EXECUTION_FAILED.getMessage()))
+                .andExpect(jsonPath("$.data.resource").value("LLM"))
+                .andExpect(jsonPath("$.data.reason").value("MODEL_EXECUTION_FAILED"))
+                .andExpect(header().doesNotExist("Retry-After"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("private upstream"))));
+    }
+
+    @Test void modelErrorsDoNotOverwriteCommittedResponsesOrRequireAResource() throws Exception {
+        var response = new MockHttpServletResponse();
+        response.getWriter().write("stream data");
+        response.flushBuffer();
+        var request = new ServletWebRequest(new MockHttpServletRequest(), response);
+        var handler = new GlobalExceptionHandler();
+        assertNull(handler.handleModelUnavailable(new ModelUnavailable("MODEL_RECOVERING", 30, null), request));
+        assertNull(handler.handleModelFailure(new ModelCallFailure(null, null), request));
+        assertEquals("stream data", response.getContentAsString());
+        var uncommitted = new ServletWebRequest(new MockHttpServletRequest(), new MockHttpServletResponse());
+        assertEquals(502, handler.handleModelFailure(new ModelCallFailure(null, null), uncommitted).getStatusCode().value());
     }
 
     @Test void businessRejectionLogsDoNotIncludeMessagesOrStackTraces() throws Exception {
@@ -142,6 +168,8 @@ class GlobalExceptionHandlerTest {
         public Result<?> upload() { throw new MaxUploadSizeExceededException(10); }
         @GetMapping("/contract/model")
         public Result<?> model() { throw new ModelUnavailable("OCR", "MODEL_RECOVERING", 30, null); }
+        @GetMapping("/contract/model-failure")
+        public Result<?> modelFailure() { throw new ModelCallFailure("LLM", new IllegalStateException("private upstream")); }
     }
     record Input(@NotBlank String name) {}
 }

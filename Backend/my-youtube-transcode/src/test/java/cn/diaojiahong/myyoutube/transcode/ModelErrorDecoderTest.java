@@ -1,75 +1,136 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.common.feign.ModelErrorDecoder;
+import cn.diaojiahong.myyoutube.common.feign.ModelErrorDecoder.Protocol;
+import cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure;
 import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
-import cn.diaojiahong.myyoutube.transcode.config.ModelErrorDecoder;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import feign.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ModelErrorDecoderTest {
-    @Test void realFeignCallPreservesAdmissionCodeAndNeverRetries() throws Exception {
-        var calls = new java.util.concurrent.atomic.AtomicInteger();
-        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/ocr/batch", exchange -> {
-            exchange.getRequestBody().readAllBytes();
-            int invocation = calls.incrementAndGet();
-            byte[] body = (invocation == 1 ? "{\"detail\":{\"code\":\"MODEL_RECOVERING\"}}" : "{\"results\":[]}")
-                    .getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Retry-After", "30");
-            exchange.sendResponseHeaders(invocation == 1 ? 503 : 200, body.length);
-            exchange.getResponseBody().write(body);
-            exchange.close();
-        });
-        server.start();
-        try {
-            var client = Feign.builder().contract(new org.springframework.cloud.openfeign.support.SpringMvcContract())
-                    .encoder((value, type, template) -> template.body(cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(value)))
-                    .decoder((response, type) -> cn.diaojiahong.myyoutube.common.utils.JsonUtil.GSON.fromJson(
-                            response.body().asReader(StandardCharsets.UTF_8), type))
-                    .retryer(Retryer.NEVER_RETRY).errorDecoder(new ModelErrorDecoder())
-                    .target(cn.diaojiahong.myyoutube.transcode.api.OcrPort.class, "http://127.0.0.1:" + server.getAddress().getPort());
-            var request = new cn.diaojiahong.myyoutube.transcode.api.OcrPort.Request(List.of("http://fixture/image"));
-            assertEquals("MODEL_RECOVERING", assertThrows(ModelUnavailable.class, () -> client.recognize(request)).code());
-            assertEquals(1, calls.get());
-            assertTrue(client.recognize(request).results().isEmpty());
-            assertEquals(2, calls.get());
-        } finally { server.stop(0); }
+    final String tag = "ContentPipelinePort#generateTags(TagRequest)";
+    final String ocr = "OcrPort#recognize(Request)";
+
+    String internal(int code, String resource, String reason) {
+        return "{\"code\":" + code + ",\"message\":\"模型故障\",\"data\":{\"resource\":\"" + resource
+                + "\",\"reason\":\"" + reason + "\"}}";
     }
-    private Exception decode(String method, int status, String body, String delay) {
-        return new ModelErrorDecoder().decode(method, Response.builder().status(status).reason("fixture")
-                .request(Request.create(Request.HttpMethod.POST, "http://model/ocr/batch", Map.of(), new byte[0], StandardCharsets.UTF_8))
-                .headers(Map.of("Retry-After", List.of(delay))).body(body, StandardCharsets.UTF_8).build());
-    }
-    @Test void recognizedAdmissionCodesAreDeferredWithBoundedDelay() {
-        for (String code : ModelUnavailable.ADMISSION_CODES) {
-            var error = assertInstanceOf(ModelUnavailable.class, decode("OcrPort#recognize(Request)", 503,
-                    "{\"detail\":{\"code\":\"" + code + "\"}}", "120"));
-            assertEquals(code, error.code());
-            assertEquals(60, error.retryAfterSeconds());
-        }
-        assertEquals(30, assertInstanceOf(ModelUnavailable.class, decode("AsrPort#transcribe(Request)", 503,
-                "{\"detail\":{\"code\":\"MODEL_RECOVERING\"}}", "invalid")).retryAfterSeconds());
-    }
-    @Test void tagProxyPreservesLlmCircuitAndExecutionFailuresOnlyForTrustedContract() {
-        var circuit=assertInstanceOf(ModelUnavailable.class,decode("ContentPipelinePort#generateTags(TagRequest)",503,
-                "{\"detail\":{\"resource\":\"LLM\",\"code\":\"MODEL_CIRCUIT_OPEN\"}}","30"));
-        assertTrue(circuit.terminal());
-        assertEquals("LLM",circuit.resource());
-        assertInstanceOf(cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure.class,
-                decode("ContentPipelinePort#generateTags(TagRequest)",502,
-                        "{\"detail\":{\"resource\":\"LLM\",\"code\":\"MODEL_EXECUTION_FAILED\"}}","30"));
-        assertFalse(decode("ContentPipelinePort#generateTags(TagRequest)",503,
-                "{\"detail\":{\"code\":\"MODEL_CIRCUIT_OPEN\"}}","30") instanceof ModelUnavailable);
+    Exception decode(Protocol protocol, String method, int status, String body, String delay) {
+        return new ModelErrorDecoder(protocol).decode(method, Response.builder().status(status).reason("fixture")
+                .request(Request.create(Request.HttpMethod.POST, "http://model", Map.of(), new byte[0], StandardCharsets.UTF_8))
+                .headers(delay == null ? Map.of() : Map.of("retry-after", List.of(delay)))
+                .body(body, StandardCharsets.UTF_8).build());
     }
 
-    @Test void ambiguousFailuresAndOtherServicesStayExecutionFailures() {
-        for (String body : List.of("upstream unavailable", "{\"detail\":\"not ready\"}",
-                "{\"detail\":{\"code\":\"UNKNOWN\"}}", "x".repeat(9000)))
-            assertFalse(decode("OcrPort#recognize(Request)", 503, body, "30") instanceof ModelUnavailable);
-        String recovering = "{\"detail\":{\"code\":\"MODEL_RECOVERING\"}}";
-        assertFalse(decode("OcrPort#recognize(Request)", 502, recovering, "30") instanceof ModelUnavailable);
-        assertFalse(decode("LlmPort#generate(Request)", 503, recovering, "30") instanceof ModelUnavailable);
+    @Test void bothProtocolsKeepKnownAdmissionReasonsAndOriginalResponseCauses() {
+        for (String reason : ModelUnavailable.ADMISSION_CODES) {
+            for (Protocol protocol : Protocol.values()) {
+                String body = protocol == Protocol.INTERNAL ? internal(50302, "LLM", reason)
+                        : "{\"detail\":{\"code\":\"" + reason + "\"}}";
+                var error = assertInstanceOf(ModelUnavailable.class,
+                        decode(protocol, protocol == Protocol.INTERNAL ? tag : ocr, 503, body, "30"));
+                assertEquals(reason, error.code());
+                assertEquals(protocol == Protocol.INTERNAL ? "LLM" : "OCR", error.resource());
+                assertEquals("MODEL_RECOVERY_EXHAUSTED".equals(reason), error.terminal());
+                assertEquals(503, assertInstanceOf(FeignException.class, error.getCause()).status());
+            }
+        }
+        var asr = assertInstanceOf(ModelUnavailable.class, decode(Protocol.FASTAPI, "AsrPort#transcribe(Request)",
+                503, "{\"detail\":{\"code\":\"MODEL_RECOVERING\"}}", null));
+        assertEquals("ASR", asr.resource());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"120,60", "0,5", "-3,5", "5,5", "60,60", "invalid,30", "2147483648,30"})
+    void delayStaysBoundedForBothProtocols(String delay, int expected) {
+        assertEquals(expected, assertInstanceOf(ModelUnavailable.class, decode(Protocol.INTERNAL, tag, 503,
+                internal(50302, "LLM", "MODEL_QUEUE_FULL"), delay)).retryAfterSeconds());
+        assertEquals(expected, assertInstanceOf(ModelUnavailable.class, decode(Protocol.FASTAPI, ocr, 503,
+                "{\"detail\":{\"code\":\"MODEL_QUEUE_FULL\"}}", delay)).retryAfterSeconds());
+    }
+
+    @Test void tagProxyKeepsCircuitAdmissionAndExecutionSemantics() {
+        for (String reason : List.of("MODEL_CIRCUIT_OPEN", "MODEL_ADMISSION_BLOCKED")) {
+            var error = assertInstanceOf(ModelUnavailable.class, decode(Protocol.INTERNAL, tag, 503,
+                    internal(50302, "LLM", reason), null));
+            assertEquals("MODEL_CIRCUIT_OPEN".equals(reason), error.terminal());
+            assertEquals(30, error.retryAfterSeconds());
+        }
+        var error = assertInstanceOf(ModelCallFailure.class, decode(Protocol.INTERNAL, tag, 502,
+                internal(50202, "LLM", "MODEL_EXECUTION_FAILED"), null));
+        assertEquals("LLM", error.resource());
+        assertInstanceOf(FeignException.class, error.getCause());
+    }
+
+    @Test void protocolIsSelectedByConfigurationAndNeverGuessedFromTheBody() {
+        String legacy = "{\"detail\":{\"resource\":\"LLM\",\"code\":\"MODEL_RECOVERING\"}}";
+        assertInstanceOf(DependencyException.class, decode(Protocol.INTERNAL, tag, 503, legacy, "30"));
+        assertInstanceOf(DependencyException.class, decode(Protocol.FASTAPI, ocr, 503,
+                internal(50302, "OCR", "MODEL_RECOVERING"), "30"));
+        assertInstanceOf(DependencyException.class, decode(Protocol.INTERNAL, ocr, 503,
+                internal(50302, "OCR", "MODEL_RECOVERING"), "30"));
+        assertInstanceOf(DependencyException.class, decode(Protocol.INTERNAL, "LlmPort#chat(ChatRequest)", 503,
+                internal(50302, "LLM", "MODEL_RECOVERING"), "30"));
+    }
+
+    @Test void invalidJavaEnvelopesDoNotChangeScheduling() {
+        String valid = internal(50302, "LLM", "MODEL_RECOVERING");
+        for (String body : List.of("upstream unavailable", "null", "[]", "{}",
+                valid.replace("50302", "50301"), valid.replace("50302", "\"50302\""),
+                valid.replace("50302", "50302.1"), valid.replace("LLM", "OCR"), valid.replace("LLM", "UNKNOWN"),
+                valid.replace("MODEL_RECOVERING", "UNKNOWN"), valid.replace("\"reason\"", "\"code\""),
+                valid.replace("模型故障", " "), valid.replace("\"LLM\"", "3"),
+                valid.replace("\"MODEL_RECOVERING\"", "{}")))
+            assertInstanceOf(DependencyException.class, decode(Protocol.INTERNAL, tag, 503, body, "30"));
+        assertInstanceOf(DependencyException.class, decode(Protocol.INTERNAL, tag, 502, valid, "30"));
+        assertInstanceOf(DependencyException.class, decode(Protocol.INTERNAL, tag, 503,
+                internal(50202, "LLM", "MODEL_EXECUTION_FAILED"), "30"));
+        assertInstanceOf(DependencyException.class, decode(Protocol.INTERNAL, tag, 502,
+                internal(50202, "LLM", "MODEL_RECOVERING"), "30"));
+    }
+
+    @Test void ambiguousPythonFailuresAndUntrustedMethodsStayDependencyFailures() {
+        for (String body : List.of("upstream unavailable", "null", "{\"detail\":\"not ready\"}",
+                "{\"detail\":{\"code\":\"UNKNOWN\"}}", "{\"detail\":{\"code\":3}}",
+                "{\"detail\":{\"code\":\"MODEL_CIRCUIT_OPEN\"}}",
+                "{\"detail\":{\"resource\":\"ASR\",\"code\":\"MODEL_RECOVERING\"}}"))
+            assertInstanceOf(DependencyException.class, decode(Protocol.FASTAPI, ocr, 503, body, "30"));
+        String valid = "{\"detail\":{\"code\":\"MODEL_RECOVERING\"}}";
+        assertInstanceOf(DependencyException.class, decode(Protocol.FASTAPI, ocr, 502, valid, "30"));
+        assertInstanceOf(DependencyException.class, decode(Protocol.FASTAPI, "MediaRetryPort#current()", 503, valid, "30"));
+    }
+
+    @Test void onlyBodiesWithinTheEightKiBLimitCanCarrySchedulingInformation() {
+        for (Protocol protocol : Protocol.values()) {
+            String body = protocol == Protocol.INTERNAL ? internal(50302, "LLM", "MODEL_RECOVERING")
+                    : "{\"detail\":{\"code\":\"MODEL_RECOVERING\"}}";
+            String boundary = body + " ".repeat(8192 - body.getBytes(StandardCharsets.UTF_8).length);
+            assertInstanceOf(ModelUnavailable.class, decode(protocol, protocol == Protocol.INTERNAL ? tag : ocr, 503, boundary, "30"));
+            assertInstanceOf(DependencyException.class, decode(protocol, protocol == Protocol.INTERNAL ? tag : ocr, 503, boundary + " ", "30"));
+        }
+    }
+
+    @Test void bodyReadTimeoutKeepsItsCauseAndInterruptFlag() {
+        var failure = new java.net.SocketTimeoutException("fixture read timeout");
+        var stream = new java.io.InputStream() {
+            @Override public int read() throws java.io.IOException { throw failure; }
+        };
+        var response = Response.builder().status(503).reason("fixture").headers(Map.of())
+                .request(Request.create(Request.HttpMethod.POST, "http://model", Map.of(), new byte[0], StandardCharsets.UTF_8))
+                .body(stream, null).build();
+        Thread.currentThread().interrupt();
+        try {
+            var error = assertInstanceOf(DependencyException.class, new ModelErrorDecoder(Protocol.INTERNAL).decode(tag, response));
+            assertSame(failure, error.getCause());
+            assertEquals(ErrorCode.DEPENDENCY_TIMEOUT, error.getErrorCode());
+            assertTrue(Thread.currentThread().isInterrupted());
+        } finally { Thread.interrupted(); }
     }
 }

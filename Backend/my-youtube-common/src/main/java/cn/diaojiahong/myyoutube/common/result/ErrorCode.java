@@ -18,7 +18,9 @@ public enum ErrorCode {
     RATE_LIMITED(42901, 429, "操作过于频繁，请稍后再试"),
     INTERNAL_ERROR(50001, 500, "系统繁忙，请稍后再试"),
     DEPENDENCY_FAILURE(50201, 502, "依赖服务调用失败，请稍后再试"),
+    MODEL_EXECUTION_FAILED(50202, 502, "模型执行失败，请稍后重试"),
     DEPENDENCY_UNAVAILABLE(50301, 503, "服务暂时不可用，请稍后再试"),
+    MODEL_UNAVAILABLE(50302, 503, "模型暂时不可用，请稍后重试"),
     DEPENDENCY_TIMEOUT(50401, 504, "依赖服务响应超时，请稍后再试");
 
     private final int code;
