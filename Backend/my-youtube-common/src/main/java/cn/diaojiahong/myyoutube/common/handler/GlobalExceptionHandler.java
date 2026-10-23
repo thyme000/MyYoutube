@@ -10,6 +10,8 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +25,8 @@ import org.springframework.web.context.request.async.AsyncRequestNotUsableExcept
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 @Slf4j
+// Match translated errors before an advice can match their transport-level causes.
+@Order(Ordered.HIGHEST_PRECEDENCE + 5)
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
@@ -80,12 +84,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                                                                           WebRequest request) {
         log.debug("Client disconnected from asynchronous request");
         return null;
-    }
-
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<Object> handleUnexpectedException(Exception error, WebRequest request) {
-        log.error("Unexpected request failure", error);
-        return respond(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.getMessage(), request);
     }
 
     private ResponseEntity<Object> respond(ErrorCode code, String message, WebRequest request) {

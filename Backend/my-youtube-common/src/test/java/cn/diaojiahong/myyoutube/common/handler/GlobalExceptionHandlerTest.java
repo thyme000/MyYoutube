@@ -28,7 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class GlobalExceptionHandlerTest {
     final MockMvc mvc = MockMvcBuilders.standaloneSetup(new Endpoints())
-            .setControllerAdvice(new GlobalExceptionHandler()).build();
+            .setControllerAdvice(new GlobalExceptionHandler(), new UnexpectedExceptionHandler()).build();
 
     @ParameterizedTest
     @EnumSource(value = ErrorCode.class, names = {"INVALID_ARGUMENT", "UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "STATE_CONFLICT", "RATE_LIMITED"})
