@@ -28,12 +28,6 @@ public interface MediaDraftPort {
     @GetMapping("/by-object-key")
     DraftInfo getByObjectKey(@RequestParam("key") String objectKey);
 
-    /** 管线关键路径全部成功后由 transcode 编排器回调 */
-    @PostMapping("/{draftId}/status/{statusCode}")
-    boolean updateStatus(@PathVariable("draftId") Long draftId,
-                         @PathVariable("statusCode") String statusCode,
-                         @RequestBody StatusUpdate update);
-
     @PostMapping("/{draftId}/uploaded")
     boolean uploaded(@PathVariable("draftId") Long draftId);
 
@@ -69,11 +63,4 @@ public interface MediaDraftPort {
         private Long durationMs;
     }
 
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    class StatusUpdate {
-        private Long durationMs;
-        private String errorMessage;
-    }
 }

@@ -9,8 +9,6 @@ import java.util.List;
 @FeignClient(name = "my-youtube-transcode-service", contextId = "mediaTaskPort",
         path = "/internal/media", url = "${my-youtube.transcode-service.url:}")
 public interface MediaTaskPort {
-    @GetMapping("/tasks/{ownerId}")
-    List<TaskResult> getTaskResults(@PathVariable("ownerId") Long ownerId);
     @GetMapping("/pipelines/{pipelineId}")
     PipelineView pipeline(@PathVariable("pipelineId") Long pipelineId);
     @GetMapping("/pipelines/waiting")
@@ -27,7 +25,6 @@ public interface MediaTaskPort {
     cn.diaojiahong.myyoutube.common.media.PreparationContracts.View preparation(@PathVariable("preparationId") Long preparationId);
     @PostMapping("/preparations/{preparationId}/retry")
     boolean retryPreparation(@PathVariable("preparationId") Long preparationId);
-    record TaskResult(String taskType, String status, String resultJson) {}
     record Node(Long taskId, String taskType, String phase, MediaTaskStatus status, int attempt, int retryCount,
                 String resultJson, String errorMessage) {}
     record PipelineView(Long pipelineId, Long contentId, PipelineStatus status, List<Node> tasks) {}

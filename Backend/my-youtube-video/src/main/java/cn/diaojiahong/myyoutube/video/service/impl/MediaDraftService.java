@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.video.service.impl;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.video.api.MediaDraftPort;
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.DraftSubmissionState;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.video.domain.po.MediaDraft;
@@ -11,10 +12,8 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 
 @Slf4j
 @Service
@@ -63,40 +62,35 @@ public class MediaDraftService {
     }
 
     public boolean submit(MediaDraft frozen, long durationMs) {
-        return observation.update(frozen.getId(), new LambdaUpdateWrapper<MediaDraft>()
+        var now = java.time.LocalDateTime.now();
+        if (frozen.expiredAt(now) || frozen.getSubmissionState() != DraftSubmissionState.PENDING
+                || !java.util.Objects.equals(frozen.getSubmissionRevision(), frozen.getRevision())
+                || frozen.getSubmissionAfter() == null
+                || frozen.getSubmissionDeadline() == null || !frozen.getSubmissionDeadline().isAfter(now)) return false;
+        var update = new LambdaUpdateWrapper<MediaDraft>()
                 .eq(MediaDraft::getId, frozen.getId()).eq(MediaDraft::getUserId, frozen.getUserId())
                 .eq(MediaDraft::getRevision, frozen.getRevision()).eq(MediaDraft::getStatus, MediaDraftStatusEnum.READY)
                 .eq(MediaDraft::getMediaVersion, frozen.getMediaVersion()).eq(MediaDraft::getPreparationId, frozen.getPreparationId())
                 .eq(MediaDraft::getPreparedJson, frozen.getPreparedJson())
+                .gt(MediaDraft::getExpiresAt, now)
+                .eq(MediaDraft::getSubmissionState, DraftSubmissionState.PENDING)
+                .eq(MediaDraft::getSubmissionRevision, frozen.getRevision())
+                // 租约到期允许接管；是否已经接管由租约值匹配决定。
+                .eq(MediaDraft::getSubmissionAfter, frozen.getSubmissionAfter())
+                .eq(MediaDraft::getSubmissionDeadline, frozen.getSubmissionDeadline()).gt(MediaDraft::getSubmissionDeadline, now)
                 .set(MediaDraft::getStatus, MediaDraftStatusEnum.SUBMITTED)
+                .set(MediaDraft::getSubmissionState, DraftSubmissionState.SUBMITTED).set(MediaDraft::getSubmissionError, null)
+                .set(MediaDraft::getSubmissionAfter, null).set(MediaDraft::getSubmissionDeadline, null)
                 .set(MediaDraft::getTitle, frozen.getTitle()).set(MediaDraft::getDescription, frozen.getDescription())
                 .set(MediaDraft::getVisibility, "public").set(MediaDraft::getAllowComment, frozen.getAllowComment())
-                .set(MediaDraft::getDurationMs, durationMs).setIncrBy(MediaDraft::getRevision, 1)) > 0;
+                .set(MediaDraft::getDurationMs, durationMs).setIncrBy(MediaDraft::getRevision, 1);
+        return observation.update(frozen.getId(), update) > 0;
     }
 
     public MediaDraft getByObjectKey(String objectKey) {
         return draftMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<MediaDraft>()
                 .eq(MediaDraft::getObjectKey, objectKey)
                 .last("limit 1"));
-    }
-
-    /** 条件更新: 只允许状态机合法迁移, 未命中返回 false(调用方按重复消息短路处理) */
-    public boolean transition(Long draftId, MediaDraftStatusEnum expect, MediaDraftStatusEnum target,
-                              Long durationMs, String errorMessage) {
-        String summary = errorMessage != null && errorMessage.length() > 500 ? errorMessage.substring(0, 500) : errorMessage;
-        return observation.update(draftId, new LambdaUpdateWrapper<MediaDraft>()
-                .eq(MediaDraft::getId, draftId)
-                .eq(MediaDraft::getStatus, expect).set(MediaDraft::getStatus, target)
-                .set(durationMs != null, MediaDraft::getDurationMs, durationMs)
-                .set(errorMessage != null, MediaDraft::getErrorMessage, summary)) > 0;
-    }
-
-    /** 过期清理: 从任一预期状态置 EXPIRED(终态, 不再变更) */
-    public boolean expire(Long draftId, List<MediaDraftStatusEnum> expects) {
-        return observation.update(draftId, new LambdaUpdateWrapper<MediaDraft>()
-                .eq(MediaDraft::getId, draftId)
-                .in(MediaDraft::getStatus, expects)
-                .set(MediaDraft::getStatus, MediaDraftStatusEnum.EXPIRED)) > 0;
     }
 
     public MediaDraftPort.DraftInfo toInfo(MediaDraft draft) {

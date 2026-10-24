@@ -6,7 +6,6 @@ import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
 import cn.diaojiahong.myyoutube.content.service.ContentSubmissionService;
 import cn.diaojiahong.myyoutube.content.strategy.*;
-import cn.diaojiahong.myyoutube.transcode.api.MediaTaskPort;
 import cn.diaojiahong.myyoutube.video.api.enums.*;
 import cn.diaojiahong.myyoutube.video.domain.po.*;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
@@ -21,7 +20,6 @@ import static org.mockito.Mockito.*;
 
 class DraftSubmissionTest {
     final MediaDraftService drafts = mock(MediaDraftService.class);
-    final MediaTaskPort tasks = mock(MediaTaskPort.class);
     final VideoMapper videos = mock(VideoMapper.class);
     final ContentMapper contents = mock(ContentMapper.class);
     final ContentUnderstandingService understanding = mock(ContentUnderstandingService.class);
@@ -31,6 +29,8 @@ class DraftSubmissionTest {
     MediaDraft draft;
     @BeforeEach void setup() {
         draft = new MediaDraft().setId(1L).setUserId(9L).setType(ContentTypeEnum.VIDEO).setTitle("标题")
+                .setSubmissionState(DraftSubmissionState.PENDING).setSubmissionRevision(0).setSubmissionAfter(java.time.LocalDateTime.now().plusSeconds(30))
+                .setSubmissionDeadline(java.time.LocalDateTime.now().plusMinutes(30)).setExpiresAt(java.time.LocalDateTime.now().plusDays(7))
                 .setRevision(0).setObjectKey("original.mp4").setStatus(MediaDraftStatusEnum.READY).setVisibility("public").setAllowComment(1);
         when(drafts.getById(1L)).thenAnswer(call -> draft);
         when(drafts.submit(any(), anyLong())).thenReturn(true);
@@ -41,13 +41,22 @@ class DraftSubmissionTest {
         draft.setPreparationId(101L).setMediaVersion(0L);
         PreparedDraftTestSupport.ready(draft);
     }
+    @Test void missingOrUnacceptedClaimCannotBypassPublicationIntent() {
+        var lease = draft.getSubmissionAfter();
+        assertThrows(BizException.class, () -> service.submitRequested(1L, 9L, null, lease));
+        assertThrows(BizException.class, () -> service.submitRequested(1L, 9L, 0, null));
+        draft.setSubmissionState(DraftSubmissionState.NONE);
+        assertThrows(BizException.class, () -> service.submitRequested(1L, 9L, 0, lease));
+        verify(drafts, never()).submit(any(), anyLong());
+        verifyNoInteractions(videos, contents, understanding);
+    }
     @Test void missingPreparationFailsWithoutPublishingOriginalFile() {
-        when(tasks.getTaskResults(1L)).thenReturn(List.of(new MediaTaskPort.TaskResult("TRANSCODE","DEAD",null)));
-        assertThrows(IllegalStateException.class, () -> service.submit(1L, 9L)); verifyNoInteractions(videos, contents, understanding);
+        assertEquals(cn.diaojiahong.myyoutube.common.result.ErrorCode.DRAFT_PREPARATION_FAILED,
+                assertThrows(BizException.class, () -> service.submitRequested(1L, 9L, 0, draft.getSubmissionAfter())).getErrorCode()); verifyNoInteractions(videos, contents, understanding);
     }
     @Test void frozenOriginalAndCommonMetadataHaveOneOwner() {
         prepared(); draft.setDescription("简介").setVisibility("private").setAllowComment(0);
-        assertEquals(100L, service.submit(1L,9L).pipelineId());
+        assertEquals(100L, service.submitRequested(1L, 9L, 0, draft.getSubmissionAfter()).pipelineId());
         var media = org.mockito.ArgumentCaptor.forClass(Video.class); verify(videos).insert(media.capture());
         assertEquals("media-prepared/9/101/video", media.getValue().getObjectKey()); assertEquals(1501L,media.getValue().getDurationMs());
         var common = org.mockito.ArgumentCaptor.forClass(cn.diaojiahong.myyoutube.content.domain.po.Content.class); verify(contents).insert(common.capture());
@@ -58,16 +67,16 @@ class DraftSubmissionTest {
     @Test void repeatedSubmissionReturnsEnrollmentWithoutPreparingMedia() {
         draft.setStatus(MediaDraftStatusEnum.SUBMITTED);
         when(understanding.get(1L)).thenReturn(new ContentUnderstanding().setContentId(1L).setPipelineId(100L));
-        assertEquals(new ContentSubmissionService.Receipt(1L,100L,"submitted"), service.submit(1L,9L));
-        verifyNoInteractions(tasks,videos,contents); verify(understanding,never()).enroll(any(),any());
+        assertEquals(new ContentSubmissionService.Receipt(1L,100L,"submitted"), service.submitRequested(1L, 9L, 0, draft.getSubmissionAfter()));
+        verifyNoInteractions(videos,contents); verify(understanding,never()).enroll(any(),any());
     }
     @Test void ownershipProtectsSubmittedAndReadyDrafts() {
-        assertThrows(BizException.class, () -> service.submit(1L,10L)); draft.setStatus(MediaDraftStatusEnum.SUBMITTED);
-        assertThrows(BizException.class, () -> service.submit(1L,10L)); verifyNoInteractions(tasks,videos,contents,understanding);
+        assertThrows(BizException.class, () -> service.submitRequested(1L, 10L, 0, draft.getSubmissionAfter())); draft.setStatus(MediaDraftStatusEnum.SUBMITTED);
+        assertThrows(BizException.class, () -> service.submitRequested(1L, 10L, 0, draft.getSubmissionAfter())); verifyNoInteractions(videos,contents,understanding);
     }
     @Test void invalidSavedMetadataFailsBeforeReadingMedia() {
-        draft.setAllowComment(2); assertThrows(BizException.class, () -> service.submit(1L,9L));
-        draft.setAllowComment(1).setTitle(" "); assertThrows(BizException.class, () -> service.submit(1L,9L));
-        verifyNoInteractions(tasks,videos,contents,understanding);
+        draft.setAllowComment(2); assertThrows(BizException.class, () -> service.submitRequested(1L, 9L, 0, draft.getSubmissionAfter()));
+        draft.setAllowComment(1).setTitle(" "); assertThrows(BizException.class, () -> service.submitRequested(1L, 9L, 0, draft.getSubmissionAfter()));
+        verifyNoInteractions(videos,contents,understanding);
     }
 }

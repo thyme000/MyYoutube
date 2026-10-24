@@ -9,6 +9,7 @@ import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.DraftSubmissionState;
 import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
 import cn.diaojiahong.myyoutube.video.service.impl.MediaDraftService;
 import lombok.RequiredArgsConstructor;
@@ -31,14 +32,21 @@ public class ContentSubmissionService {
     public record Receipt(Long contentId, Long pipelineId, String draftStatus) {}
 
     @ObservedBusiness(BusinessOperation.SUBMIT_CONTENT)
-    public Receipt submit(Long draftId, Long userId) {
+    public Receipt submitRequested(Long draftId, Long userId, Integer revision, LocalDateTime lease) {
+        if (revision == null || lease == null) throw new BizException(ErrorCode.STATE_CONFLICT, "缺少发布版本或认领租约");
         var draft = drafts.getById(draftId);
         if (draft == null || !userId.equals(draft.getUserId())) throw new BizException(ErrorCode.NOT_FOUND, "草稿不存在");
         if (draft.getStatus() == MediaDraftStatusEnum.SUBMITTED) {
             log.debug("Content submit reused existing registration draftId={}", draftId);
             return receipt(draftId);
         }
+        if (draft.getSubmissionState() != DraftSubmissionState.PENDING
+                || !java.util.Objects.equals(draft.getRevision(), revision)
+                || !java.util.Objects.equals(draft.getSubmissionAfter(), lease))
+            throw new BizException(ErrorCode.STATE_CONFLICT, "发布请求已取消或被其他任务接管");
         if (draft.getStatus() != MediaDraftStatusEnum.READY) throw new BizException(ErrorCode.STATE_CONFLICT, "草稿尚未准备完成");
+        if (!java.util.Objects.equals(draft.getSubmissionRevision(), draft.getRevision()))
+            throw new BizException(ErrorCode.STATE_CONFLICT, "发布请求与草稿版本不一致");
         var content = new Content().setId(draftId).setType(draft.getType()).setAuthorId(userId)
                 .setTitle(rules.title(draft.getTitle()))
                 .setDescription(rules.description(draft.getDescription()))
@@ -50,7 +58,7 @@ public class ContentSubmissionService {
         var media = strategy.prepare(draft);
         try {
             Receipt receipt = transaction.execute(tx -> {
-                if (!drafts.submit(draft, media.durationMs())) throw new BizException(ErrorCode.STATE_CONFLICT, "草稿已修改或已提交，请刷新");
+                if (!drafts.submit(draft, media.durationMs())) throw new BizException(ErrorCode.STATE_CONFLICT, "发布状态已变化，本次提交未生效");
                 contents.insert(content);
                 strategy.persist(draftId, media);
                 return new Receipt(draftId, understanding.enroll(content, media), "submitted");
@@ -68,7 +76,7 @@ public class ContentSubmissionService {
         }
     }
 
-    private Receipt receipt(Long id) {
+    public Receipt receipt(Long id) {
         var row = understanding.get(id);
         if (row == null) throw new IllegalStateException("已提交草稿缺少加工登记");
         return new Receipt(id, row.getPipelineId(), "submitted");

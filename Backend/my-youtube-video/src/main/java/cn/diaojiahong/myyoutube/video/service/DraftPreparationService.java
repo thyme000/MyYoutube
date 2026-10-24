@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.video.service;
 
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.content.service.DraftPublicationNotifications;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
@@ -31,6 +32,7 @@ public class DraftPreparationService {
     private final MediaDraftMapper drafts;
     private final MediaTaskPort tasks;
     private final DraftObservation observation;
+    private final DraftPublicationNotifications publicationNotifications;
 
     public boolean uploaded(Long id) {
         int hit = observation.update(id, new LambdaUpdateWrapper<MediaDraft>().eq(MediaDraft::getId, id)
@@ -46,6 +48,7 @@ public class DraftPreparationService {
     public boolean retry(Long id, Long userId) {
         var draft = drafts.selectById(id);
         if (draft == null || !userId.equals(draft.getUserId())) throw new BizException(ErrorCode.NOT_FOUND, "草稿不存在");
+        if (draft.expiredAt(LocalDateTime.now())) return false;
         if (draft.getStatus() == MediaDraftStatusEnum.PROCESSING) {
             log.debug("Draft retry ignored draftId={} reason=STILL_PROCESSING", id);
             return true;
@@ -71,6 +74,8 @@ public class DraftPreparationService {
                     .set(MediaDraft::getPreparationId, nextPreparationId).set(MediaDraft::getPreparationAttempt, 0)
                     .set(MediaDraft::getPreparationRetry, false).set(MediaDraft::getPreparedJson, null)
                     .set(MediaDraft::getPreparedCoverObjectKey, null).set(MediaDraft::getExpiresAt, LocalDateTime.now().plusDays(7));
+            if (Objects.equals(draft.getSubmissionRevision(), draft.getRevision()))
+                update.set(MediaDraft::getSubmissionRevision, draft.getRevision() + 1);
         } else {
             log.info("Draft retry reuses preparation draftId={} preparationId={} nextAttempt={} reason=TRANSIENT_FAILURE",
                     id, draft.getPreparationId(), draft.getPreparationAttempt() + 1);
@@ -119,10 +124,11 @@ public class DraftPreparationService {
         }
         if (MediaTaskStatus.SUCCESS.equals(result.status())) {
             var frozen = PreparedMedia.freeze(request, result.manifest());
-            observation.update(draft.getId(), version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
+            int changed = observation.update(draft.getId(), version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                     .set(MediaDraft::getStatus, MediaDraftStatusEnum.READY).set(MediaDraft::getPreparedJson, JsonUtil.toJson(frozen.media()))
                     .set(MediaDraft::getPreparedCoverObjectKey, frozen.coverObjectKey()).set(MediaDraft::getDurationMs, frozen.media().durationMs())
                     .set(MediaDraft::getPreparationAttempt, result.attempt()).set(MediaDraft::getErrorMessage, null));
+            if (changed > 0) publicationNotifications.afterCommit(drafts.selectById(draft.getId()));
             log.info("Draft preparation ready draftId={} preparationId={} mediaVersion={} attempt={} media={} durationMs={} frames={}",
                     draft.getId(), draft.getPreparationId(), draft.getMediaVersion(), result.attempt(), frozen.media().type(),
                     frozen.media().durationMs(), frozen.media().preparation().videoFrameCount());

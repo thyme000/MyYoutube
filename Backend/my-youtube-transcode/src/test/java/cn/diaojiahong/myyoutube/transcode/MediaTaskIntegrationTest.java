@@ -158,9 +158,7 @@ class MediaTaskIntegrationTest {
         assertEquals(MediaTaskStatus.DEAD, node("OCR").getStatus());
     }
 
-    @Test void draftContainsOnlyTranscodeAndContentHasFixedFiveNodes() {
-        tasks.startDraft(1L, 9L, "raw.mp4"); tasks.startDraft(1L, 9L, "raw.mp4");
-        assertEquals(List.of("TRANSCODE"), tasks.listByDraft(1L).stream().map(MediaTask::getTaskType).toList());
+    @Test void contentHasFixedFiveNodesAndRejectsDifferentInput() {
         tasks.start(input());
         jdbc.update("UPDATE media_pipeline SET input_json=? WHERE id=100",cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(input()).replace(",",", "));
         tasks.start(input());
@@ -570,14 +568,7 @@ class MediaTaskIntegrationTest {
         assertEquals(PipelineStatus.PROCESSING,tasks.view(100L).status());
         verify(dispatcher,never()).completed(any());
     }
-    @Test void draftReceiptAfterCommitIsDurable() {
-        tasks.startDraft(2L,9L,"raw.mp4");
-        var execution=claim(tasks.listByDraft(2L).get(0));
-        tasks.completeAndAdvance(execution,"{\"processedKey\":\"processed.mp4\",\"durationMs\":1000}",null);
-        assertTrue(tasks.listByDraft(2L).get(0).getCompletionAck());
-        tasks.recover(); verify(dispatcher,times(1)).draftFinished(2L,true,1000L,null);
-    }
-    @Test void recoveringContentSuccessWithoutDurationNeverSendsDraftCompletion() {
+    @Test void recoveringContentSuccessWithoutDurationKeepsPipelineActive() {
         tasks.start(input()); succeed("COVER"); succeed("ASR");
         var execution = claim(node("OCR"));
         jdbc.update("UPDATE media_task SET update_time=? WHERE id=?", past(600), execution.getTaskId());
@@ -585,7 +576,6 @@ class MediaTaskIntegrationTest {
         assertEquals(MediaTaskStatus.RETRY_WAIT, node("OCR").getStatus());
         assertEquals(MediaTaskStatus.SUCCESS, node("COVER").getStatus());
         assertEquals(PipelineStatus.PROCESSING, tasks.view(100L).status());
-        verify(dispatcher, never()).draftFinished(anyLong(), anyBoolean(), any(), any());
     }
     @Test void lostReadyDispatchIsRecoveredAndDuplicateDispatchCannotReexecute() {
         doThrow(new IllegalStateException("MQ down")).when(dispatcher).dispatch(any()); tasks.start(input());

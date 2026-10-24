@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.video.domain.po;
 
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.DraftSubmissionState;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -49,6 +50,12 @@ public class MediaDraft implements Serializable {
     private Boolean preparationRetry;
     private LocalDateTime preparationAfter;
     private LocalDateTime expiresAt;
+    private DraftSubmissionState submissionState = DraftSubmissionState.NONE;
+    private Integer submissionRevision;
+    private Integer submissionAttempts;
+    private LocalDateTime submissionAfter;
+    private LocalDateTime submissionDeadline;
+    private String submissionError;
     private String preparedJson;
     private String preparedCoverObjectKey;
 
@@ -65,4 +72,8 @@ public class MediaDraft implements Serializable {
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;
+
+    public boolean expiredAt(LocalDateTime now) {
+        return status == MediaDraftStatusEnum.EXPIRED || expiresAt == null || !expiresAt.isAfter(now);
+    }
 }

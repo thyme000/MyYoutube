@@ -79,20 +79,6 @@ public class MediaTaskService {
             advance(pipeline, nodes);
         });
     }
-    public void startDraft(Long id, Long userId, String objectKey) {
-        transaction.executeWithoutResult(tx -> {
-            var input = new Input(null, id, userId, "", "", "", null, new ContentMedia("video", new VideoMedia(objectKey, 0), null), System.currentTimeMillis());
-            MediaTask row;
-            try {
-                row = insert(id, null, "DRAFT", MediaTaskType.TRANSCODE, input);
-            } catch (DuplicateKeyException ignored) {
-                log.debug("Draft transcode already registered draftId={}", id);
-                return;
-            }
-            afterCommit(() -> log.info("Draft transcode accepted draftId={} userId={}", id, userId));
-            ready(row, Map.of(), input);
-        });
-    }
     public void startPreparation(Long preparationId, Long userId, ContentMedia media, String cover) {
         transaction.executeWithoutResult(tx -> {
             lifecycle.requireActive(preparationId);
@@ -425,13 +411,6 @@ public class MediaTaskService {
             var result = new ReviewResult(row.getPipelineId(), row.getOwnerId(), row.getId(), row.getAttempt(),
                     row.getResultJson(), row.getErrorMessage(), MediaTaskStatus.DEAD.equals(row.getStatus()));
             afterCommit(() -> dispatcher.reviewed(result));
-        } else if ("DRAFT".equals(row.getPhase()) && MediaTaskType.TRANSCODE.name().equals(row.getTaskType())
-                && Set.of(MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD).contains(row.getStatus())) {
-            afterCommit(() -> {
-                Long duration = MediaTaskStatus.SUCCESS.equals(row.getStatus()) ? StructuredJson.object(row.getResultJson()).get("durationMs").getAsLong() : null;
-                dispatcher.draftFinished(row.getOwnerId(), MediaTaskStatus.SUCCESS.equals(row.getStatus()), duration, row.getErrorMessage());
-                resultReceived(row.getId(), row.getAttempt());
-            });
         }
     }
     public boolean retry(Long id) {

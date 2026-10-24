@@ -22,6 +22,14 @@ server:
 # 全部服务已注册进 Nacos, 置空走负载均衡
 my-youtube:
   db-name: video_db
+  publication:
+    scan-interval-ms: 2000
+    batch-size: 100
+    lease-seconds: 30
+    waiting-seconds: 15
+    deadline-minutes: 30
+    retry-backoff-seconds: [5, 30, 120]
+    max-attempts: 3
   content-moderation:
     blocked-location: ${CONTENT_BLOCKED_LOCATION:content-moderation/blocked.txt}
   s3:

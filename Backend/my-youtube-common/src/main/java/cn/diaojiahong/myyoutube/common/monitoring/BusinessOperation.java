@@ -12,7 +12,8 @@ public enum BusinessOperation {
     RECOMMEND("discovery", true), RECOMMEND_FOLLOW("discovery", true),
     SEND_MESSAGE("messaging"), WITHDRAW_MESSAGE("messaging"), READ_MESSAGE("messaging"), CREATE_CONVERSATION("messaging"),
     MANUAL_REVIEW("publication"), BAN_CONTENT("publication"),
-    EXPIRE_DRAFTS("maintenance"), CLEAN_DRAFTS("maintenance"), RECLAIM_MEDIA("maintenance"), RECOVER_PUBLICATION("maintenance");
+    EXPIRE_DRAFTS("maintenance"), CLEAN_DRAFTS("maintenance"), RECLAIM_MEDIA("maintenance"), RECOVER_PUBLICATION("maintenance"),
+    SCAN_DRAFT_PUBLICATIONS("maintenance"), EXPIRE_DRAFT_PUBLICATIONS("maintenance");
 
     private final String chain;
     private final boolean resultList;
