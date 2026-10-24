@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import com.sun.net.httpserver.HttpServer;
 import feign.Feign;
 import feign.Retryer;
@@ -20,8 +22,11 @@ import cn.diaojiahong.myyoutube.common.media.PipelineContracts.*;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
 import cn.diaojiahong.myyoutube.transcode.domain.po.MediaTask;
+import cn.diaojiahong.myyoutube.transcode.domain.po.Pipeline;
 import cn.diaojiahong.myyoutube.transcode.mapper.*;
 import cn.diaojiahong.myyoutube.transcode.service.*;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.annotation.MapperScan;
@@ -87,6 +92,7 @@ class MediaTaskIntegrationTest {
     }
     @Autowired MediaTaskService tasks;
     @Autowired MediaTaskMapper taskRows;
+    @Autowired PipelineMapper pipelineRows;
     @Autowired MediaTaskDispatcher dispatcher;
     @Autowired SimpleMeterRegistry metrics;
     @Autowired cn.diaojiahong.myyoutube.video.api.ContentPipelinePort video;
@@ -117,19 +123,39 @@ class MediaTaskIntegrationTest {
     }
     void succeed(String type) { tasks.completeAndAdvance(claim(node(type)), result(type), null); }
     void complete() { succeed("COVER"); succeed("ASR"); succeed("OCR"); succeed("SUMMARY"); succeed("TAG"); }
+    @Test void statusEnumsKeepDatabaseCodesAndSupportConditionalUpdates() {
+        tasks.start(input());
+        var task = node("ASR");
+        for (var status : MediaTaskStatus.values()) {
+            var previous = taskRows.selectById(task.getId()).getStatus();
+            assertEquals(1, taskRows.update(null, new LambdaUpdateWrapper<MediaTask>()
+                    .eq(MediaTask::getId, task.getId()).eq(MediaTask::getStatus, previous).set(MediaTask::getStatus, status)));
+            assertEquals(status.getCode(), jdbc.queryForObject("SELECT status FROM media_task WHERE id=?", String.class, task.getId()));
+            assertEquals(status, taskRows.selectById(task.getId()).getStatus());
+        }
+        for (var status : PipelineStatus.values()) {
+            var pipeline = pipelineRows.selectById(100L);
+            pipeline.setStatus(status);
+            assertEquals(1, pipelineRows.updateById(pipeline));
+            assertEquals(status.getCode(), jdbc.queryForObject("SELECT status FROM media_pipeline WHERE id=100", String.class));
+            assertEquals(status, pipelineRows.selectById(100L).getStatus());
+            assertEquals(1L, pipelineRows.selectCount(new LambdaQueryWrapper<Pipeline>().eq(Pipeline::getStatus, status)));
+        }
+    }
+
     @Test void circuitAndExhaustedRecoveryStopWithoutSpendingExecutionRetries() {
         tasks.start(input());
         tasks.deferAndAdvance(claim(node("ASR")), new cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable("ASR", "MODEL_CIRCUIT_OPEN", 30, null));
         tasks.deferAndAdvance(claim(node("OCR")), new cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable("OCR", "MODEL_RECOVERY_EXHAUSTED", 30, null));
-        assertEquals("DEAD", node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.DEAD, node("ASR").getStatus());
         assertEquals(0, node("ASR").getRetryCount());
         assertNull(node("ASR").getNextRetryAt());
         assertEquals("ASR", node("ASR").getDependencyService());
-        assertEquals("BLOCKED", node("SUMMARY").getStatus());
+        assertEquals(MediaTaskStatus.BLOCKED, node("SUMMARY").getStatus());
         succeed("COVER");
-        assertEquals("WAITING_ARTIFACTS", tasks.view(100L).status());
+        assertEquals(PipelineStatus.WAITING_ARTIFACTS, tasks.view(100L).status());
         tasks.recover();
-        assertEquals("DEAD", node("OCR").getStatus());
+        assertEquals(MediaTaskStatus.DEAD, node("OCR").getStatus());
     }
 
     @Test void draftContainsOnlyTranscodeAndContentHasFixedFiveNodes() {
@@ -141,9 +167,9 @@ class MediaTaskIntegrationTest {
         assertEquals(5, tasks.listPipeline(100L, "CONTENT").size());
         assertTrue(tasks.listPipeline(100L,"CONTENT").stream().allMatch(t -> t.getDraftInputJson() == null));
         assertEquals(input(),claim(node("OCR")).getInput());
-        assertEquals("PENDING", node("SUMMARY").getStatus());
-        assertEquals("READY", node("COVER").getStatus());
-        assertEquals("PROCESSING", tasks.view(100L).status());
+        assertEquals(MediaTaskStatus.PENDING, node("SUMMARY").getStatus());
+        assertEquals(MediaTaskStatus.READY, node("COVER").getStatus());
+        assertEquals(PipelineStatus.PROCESSING, tasks.view(100L).status());
         assertThrows(IllegalStateException.class, () -> tasks.start(new Input(100L, 1L, 9L, "标题", "简介", "", null, new cn.diaojiahong.myyoutube.common.media.ContentMedia("video", new cn.diaojiahong.myyoutube.common.media.VideoMedia("different", 1000), null), 1700000000000L)));
     }
     @Test void nativeInputRunsSameFiveNodesWithoutDraftTranscodeOrSingleVideoKey() {
@@ -156,9 +182,9 @@ class MediaTaskIntegrationTest {
         assertEquals(5,tasks.listPipeline(100L,"CONTENT").size());
         var asr = claim(node("ASR")); assertNull(asr.getObjectKey()); assertEquals(input,asr.getInput());
         tasks.completeAndAdvance(asr,result("ASR"),null); succeed("OCR");
-        assertEquals("READY",node("SUMMARY").getStatus());
-        succeed("SUMMARY"); succeed("TAG"); assertEquals("PROCESSING",tasks.view(100L).status());
-        succeed("COVER"); assertEquals("COMPLETED",tasks.view(100L).status());
+        assertEquals(MediaTaskStatus.READY,node("SUMMARY").getStatus());
+        succeed("SUMMARY"); succeed("TAG"); assertEquals(PipelineStatus.PROCESSING,tasks.view(100L).status());
+        succeed("COVER"); assertEquals(PipelineStatus.COMPLETED,tasks.view(100L).status());
         assertEquals(1L,tasks.view(100L).contentId());
     }
     @Test void concurrentClaimHasOneWinnerAndOldAttemptCannotComplete() {
@@ -170,9 +196,9 @@ class MediaTaskIntegrationTest {
         var winner = first == null ? second : first;
         var stale = MediaTaskMessage.builder().taskId(row.getId()).pipelineId(100L).attempt(0).build();
         tasks.completeAndAdvance(stale, result("ASR"), null);
-        assertEquals("RUNNING", node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.RUNNING, node("ASR").getStatus());
         tasks.completeAndAdvance(winner, result("ASR"), null);
-        assertEquals("SUCCESS", node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.SUCCESS, node("ASR").getStatus());
         assertEquals(1, metrics.get("media.node.wait").tag("type","ASR").timer().count());
     }
     @Test void terminalBranchCannotForceManualWhileOtherBranchesCanProgress() {
@@ -180,23 +206,23 @@ class MediaTaskIntegrationTest {
         tasks.start(input());
         for (int i=0;i<4;i++) {
             tasks.completeAndAdvance(claim(node("ASR")), null, "provider unavailable");
-            assertEquals("PROCESSING", tasks.view(100L).status());
+            assertEquals(PipelineStatus.PROCESSING, tasks.view(100L).status());
             if (i<3) {
-                assertEquals("RETRY_WAIT", node("ASR").getStatus());
+                assertEquals(MediaTaskStatus.RETRY_WAIT, node("ASR").getStatus());
                 assertNull(claim(node("ASR")));
                 jdbc.update("UPDATE media_task SET next_retry_at=? WHERE id=?", past(1), node("ASR").getId());
                 tasks.recover();
             }
         }
-        assertEquals("DEAD", node("ASR").getStatus()); assertEquals("BLOCKED", node("TAG").getStatus());
+        assertEquals(MediaTaskStatus.DEAD, node("ASR").getStatus()); assertEquals(MediaTaskStatus.BLOCKED, node("TAG").getStatus());
         succeed("OCR"); succeed("COVER");
-        assertEquals("WAITING_ARTIFACTS", tasks.view(100L).status());
+        assertEquals(PipelineStatus.WAITING_ARTIFACTS, tasks.view(100L).status());
         String preserved = node("OCR").getResultJson();
         assertTrue(tasks.retry(100L));
         assertEquals(4, node("ASR").getAttempt());
         assertEquals(preserved, node("OCR").getResultJson());
         assertEquals(5, claim(node("ASR")).getAttempt());
-        assertEquals("PROCESSING", tasks.view(100L).status());
+        assertEquals(PipelineStatus.PROCESSING, tasks.view(100L).status());
         var failed = jdbc.queryForList("SELECT payload FROM pipeline_event_outbox WHERE aggregate_id=? ORDER BY event_sequence", String.class, node("ASR").getId().toString())
                 .stream().map(cn.diaojiahong.myyoutube.common.media.StructuredJson::object)
                 .filter(e -> "ASR_FAILED".equals(e.getAsJsonObject("event").get("code").getAsString())).toList();
@@ -229,7 +255,7 @@ class MediaTaskIntegrationTest {
         var before = node("ASR");
         jdbc.execute("DROP TABLE pipeline_event_outbox");
         assertThrows(RuntimeException.class, () -> claim(before));
-        assertEquals("READY", node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.READY, node("ASR").getStatus());
         assertEquals(before.getEventSequence(), node("ASR").getEventSequence());
         assertEquals(0, node("ASR").getAttempt());
     }
@@ -249,11 +275,11 @@ class MediaTaskIntegrationTest {
         var first = claim(node("OCR"));
         tasks.deferAndAdvance(first, unavailable);
         var deferred = node("OCR");
-        assertEquals("RETRY_WAIT", deferred.getStatus());
+        assertEquals(MediaTaskStatus.RETRY_WAIT, deferred.getStatus());
         assertEquals(0, deferred.getRetryCount());
         assertNotNull(deferred.getUnavailableDeadline());
         assertTrue(deferred.getNextRetryAt().isBefore(deferred.getUnavailableDeadline()));
-        assertEquals("PROCESSING", tasks.view(100L).status());
+        assertEquals(PipelineStatus.PROCESSING, tasks.view(100L).status());
         assertNull(claim(deferred));
         jdbc.update("UPDATE media_task SET next_retry_at=? WHERE id=?", past(1), deferred.getId());
         tasks.recover();
@@ -263,7 +289,7 @@ class MediaTaskIntegrationTest {
         assertEquals(deferred.getUnavailableDeadline(), node("OCR").getUnavailableDeadline());
         assertEquals(0, node("OCR").getRetryCount());
         tasks.completeAndAdvance(first, result("OCR"), null);
-        assertEquals("RETRY_WAIT", node("OCR").getStatus());
+        assertEquals(MediaTaskStatus.RETRY_WAIT, node("OCR").getStatus());
         assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM pipeline_event_outbox WHERE aggregate_id=? AND payload LIKE '%OCR_DEFERRED%'", Integer.class, deferred.getId().toString()));
         String event = jdbc.queryForList("SELECT payload FROM pipeline_event_outbox WHERE aggregate_id=? AND payload LIKE '%OCR_DEFERRED%' ORDER BY event_sequence",
                 String.class, deferred.getId().toString()).get(0);
@@ -272,7 +298,7 @@ class MediaTaskIntegrationTest {
         jdbc.update("UPDATE media_task SET next_retry_at=? WHERE id=?", past(1), deferred.getId());
         tasks.recover();
         tasks.completeAndAdvance(claim(node("OCR")), result("OCR"), null);
-        assertEquals("SUCCESS", node("OCR").getStatus());
+        assertEquals(MediaTaskStatus.SUCCESS, node("OCR").getStatus());
         assertNull(node("OCR").getUnavailableDeadline());
         assertNull(node("OCR").getNextRetryAt());
     }
@@ -283,14 +309,14 @@ class MediaTaskIntegrationTest {
         tasks.deferAndAdvance(execution, new cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable("MODEL_QUEUE_FULL", 30, null));
         jdbc.update("UPDATE media_task SET next_retry_at=?,unavailable_deadline=? WHERE id=?", past(1), past(1), execution.getTaskId());
         tasks.recover();
-        assertEquals("DEAD", node("OCR").getStatus());
+        assertEquals(MediaTaskStatus.DEAD, node("OCR").getStatus());
         assertEquals(0, node("OCR").getRetryCount());
         assertEquals("MODEL_UNAVAILABLE_TIMEOUT", node("OCR").getErrorMessage());
         assertNull(node("OCR").getNextRetryAt());
         succeed("ASR"); succeed("COVER");
-        assertEquals("WAITING_ARTIFACTS", tasks.view(100L).status());
+        assertEquals(PipelineStatus.WAITING_ARTIFACTS, tasks.view(100L).status());
         tasks.retry(100L);
-        assertEquals("READY", node("OCR").getStatus());
+        assertEquals(MediaTaskStatus.READY, node("OCR").getStatus());
         assertNull(node("OCR").getUnavailableDeadline());
     }
     @Test void executionFailureAfterDeferralStillConsumesNormalRetryBudget() {
@@ -300,7 +326,7 @@ class MediaTaskIntegrationTest {
         tasks.recover();
         tasks.completeAndAdvance(claim(node("ASR")), null, "actual inference timeout");
         assertEquals(1, node("ASR").getRetryCount());
-        assertEquals("RETRY_WAIT", node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.RETRY_WAIT, node("ASR").getStatus());
     }
     @ParameterizedTest
     @ValueSource(strings = {"MODEL_RECOVERING", "MODEL_QUEUE_FULL", "MODEL_QUEUE_TIMEOUT",
@@ -348,7 +374,7 @@ class MediaTaskIntegrationTest {
             worker.execute(message);
             var failed = node("TAG");
             assertEquals(1, calls.get());
-            assertEquals(terminal ? "DEAD" : "RETRY_WAIT", failed.getStatus());
+            assertEquals(terminal ? MediaTaskStatus.DEAD : MediaTaskStatus.RETRY_WAIT, failed.getStatus());
             assertEquals(execution ? 1 : 0, failed.getRetryCount());
             assertEquals(execution ? "TASK_EXECUTION_FAILED" : reason, failed.getFailureCode());
             assertEquals(cover, node("COVER").getResultJson());
@@ -361,7 +387,7 @@ class MediaTaskIntegrationTest {
                 assertNull(failed.getNextRetryAt());
                 tasks.recover(); worker.execute(message);
                 assertEquals(1, calls.get());
-                assertEquals("WAITING_ARTIFACTS", tasks.view(100L).status());
+                assertEquals(PipelineStatus.WAITING_ARTIFACTS, tasks.view(100L).status());
             } else {
                 if (!execution) {
                     assertNotNull(failed.getUnavailableDeadline());
@@ -388,10 +414,10 @@ class MediaTaskIntegrationTest {
             assertTrue(resumed.getAttempt() > firstAttempt);
             tasks.completeAndAdvance(MediaTaskMessage.builder().taskId(tag.getId()).pipelineId(100L).phase("CONTENT")
                     .attempt(firstAttempt).build(), "{\"tags\":[\"late\"]}", null);
-            assertEquals("RUNNING", node("TAG").getStatus());
+            assertEquals(MediaTaskStatus.RUNNING, node("TAG").getStatus());
             assertNull(node("TAG").getResultJson());
             tasks.completeAndAdvance(resumed, "{\"tags\":[\"recovered\"]}", null);
-            assertEquals("COMPLETED", tasks.view(100L).status());
+            assertEquals(PipelineStatus.COMPLETED, tasks.view(100L).status());
             assertEquals(cover, node("COVER").getResultJson());
             assertEquals("{\"tags\":[\"recovered\"]}", node("TAG").getResultJson());
             assertNull(node("TAG").getUnavailableDeadline());
@@ -403,10 +429,10 @@ class MediaTaskIntegrationTest {
         tasks.deferAndAdvance(claim(node("ASR")), new cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable("MODEL_RECOVERING", 30, null));
         jdbc.update("UPDATE media_task SET next_retry_at=? WHERE id=?", past(1), node("ASR").getId());
         tasks.recover();
-        assertEquals("READY", node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.READY, node("ASR").getStatus());
         jdbc.update("UPDATE media_task SET unavailable_deadline=? WHERE id=?", past(1), node("ASR").getId());
         assertNull(claim(node("ASR")));
-        assertEquals("DEAD", node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.DEAD, node("ASR").getStatus());
         assertEquals(1, node("ASR").getAttempt());
     }
     @Test void deferredTransitionRollsBackWhenOutboxCannotBeRecorded() {
@@ -416,7 +442,7 @@ class MediaTaskIntegrationTest {
         jdbc.execute("DROP TABLE pipeline_event_outbox");
         assertThrows(RuntimeException.class, () -> tasks.deferAndAdvance(execution,
                 new cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable("MODEL_RECOVERING", 30, null)));
-        assertEquals("RUNNING", node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.RUNNING, node("ASR").getStatus());
         assertNull(node("ASR").getUnavailableDeadline());
     }
     @Test void concurrentCompletionsUnlockSummaryWithDurableDependencyPointers() {
@@ -424,16 +450,16 @@ class MediaTaskIntegrationTest {
         var a=claim(node("ASR")); var b=claim(node("OCR"));
         CompletableFuture.allOf(CompletableFuture.runAsync(() -> tasks.completeAndAdvance(a,result("ASR"),null)),
                 CompletableFuture.runAsync(() -> tasks.completeAndAdvance(b,result("OCR"),null))).join();
-        assertEquals("READY",node("SUMMARY").getStatus());
+        assertEquals(MediaTaskStatus.READY,node("SUMMARY").getStatus());
         assertEquals(Set.of("ASR","OCR"),claim(node("SUMMARY")).getDependencies().keySet());
         tasks.completeAndAdvance(a,result("ASR"),null);
-        assertEquals("RUNNING",node("SUMMARY").getStatus());
+        assertEquals(MediaTaskStatus.RUNNING,node("SUMMARY").getStatus());
     }
     @Test void lostCompletionNotificationRecoversWithoutReexecutingNodes() {
         tasks.start(input());
         doThrow(new IllegalStateException("MQ down")).when(dispatcher).completed(any());
         complete();
-        assertEquals("COMPLETED",tasks.view(100L).status());
+        assertEquals(PipelineStatus.COMPLETED,tasks.view(100L).status());
         assertFalse(tasks.retry(100L));
         jdbc.update("UPDATE media_pipeline SET notify_after=? WHERE id=100", past(1));
         doNothing().when(dispatcher).completed(any());
@@ -450,8 +476,8 @@ class MediaTaskIntegrationTest {
         assertEquals(1,tasks.listPipeline(100L,"REVIEW").size());
         var row=tasks.listPipeline(100L,"REVIEW").get(0);
         tasks.completeAndAdvance(claim(row),null,"review down");
-        assertEquals("COMPLETED",tasks.view(100L).status());
-        assertEquals("RETRY_WAIT",tasks.listPipeline(100L,"REVIEW").get(0).getStatus());
+        assertEquals(PipelineStatus.COMPLETED,tasks.view(100L).status());
+        assertEquals(MediaTaskStatus.RETRY_WAIT,tasks.listPipeline(100L,"REVIEW").get(0).getStatus());
     }
     @Test void malformedReviewOutputRemainsVisibleThroughRetriesAndExhaustion() {
         tasks.start(input()); complete(); tasks.startReview(100L);
@@ -483,12 +509,12 @@ class MediaTaskIntegrationTest {
                 assertEquals("LLM", row.getDependencyService());
                 assertEquals("TASK_EXECUTION_FAILED", row.getFailureCode());
                 assertTrue(row.getErrorMessage().contains("JSON"));
-                assertEquals("COMPLETED", tasks.view(100L).status());
+                assertEquals(PipelineStatus.COMPLETED, tasks.view(100L).status());
                 var visible = query.query(request).items();
                 assertEquals(List.of(id), visible.stream().map(cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.Task::taskId).toList());
                 assertEquals(row.getNextRetryAt(), visible.get(0).nextRetryAt());
                 if (attempt < 4) {
-                    assertEquals("RETRY_WAIT", row.getStatus());
+                    assertEquals(MediaTaskStatus.RETRY_WAIT, row.getStatus());
                     assertNotNull(row.getNextRetryAt());
                     assertFalse(visible.get(0).retryable());
                     assertEquals("AUTOMATIC_RETRY_PENDING", visible.get(0).cannotRetryReason());
@@ -497,9 +523,9 @@ class MediaTaskIntegrationTest {
                     tasks.recover();
                     assertTrue(query.query(request).items().isEmpty());
                     var all = new cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.Query(null,null,"REVIEW","ALL",1L,100L,null,20,null);
-                    assertEquals("READY", query.query(all).items().get(0).status());
+                    assertEquals(MediaTaskStatus.READY, query.query(all).items().get(0).status());
                 } else {
-                    assertEquals("DEAD", row.getStatus());
+                    assertEquals(MediaTaskStatus.DEAD, row.getStatus());
                     assertNull(row.getNextRetryAt());
                 }
             }
@@ -517,9 +543,9 @@ class MediaTaskIntegrationTest {
     @Test void staleWorkerLeaseIsRetriedAndLateResultIgnored() {
         tasks.start(input()); var old=claim(node("ASR"));
         jdbc.update("UPDATE media_task SET update_time=? WHERE id=?",past(600),old.getTaskId());
-        tasks.recover(); assertEquals("RETRY_WAIT",node("ASR").getStatus());
+        tasks.recover(); assertEquals(MediaTaskStatus.RETRY_WAIT,node("ASR").getStatus());
         tasks.completeAndAdvance(old,result("ASR"),null);
-        assertEquals("RETRY_WAIT",node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.RETRY_WAIT,node("ASR").getStatus());
         assertThrows(IllegalStateException.class, () -> tasks.heartbeat(old.getTaskId(),old.getAttempt()));
     }
     @Test void effectiveCompletionLoadsOneTaskSnapshotAndNoInputRemoteRead() {
@@ -540,8 +566,8 @@ class MediaTaskIntegrationTest {
         var tag=claim(node("TAG"));
         jdbc.execute("ALTER TABLE media_pipeline ADD CONSTRAINT reject_complete CHECK (status <> 'COMPLETED')");
         assertThrows(RuntimeException.class,() -> tasks.completeAndAdvance(tag,result("TAG"),null));
-        assertEquals("RUNNING",node("TAG").getStatus());
-        assertEquals("PROCESSING",tasks.view(100L).status());
+        assertEquals(MediaTaskStatus.RUNNING,node("TAG").getStatus());
+        assertEquals(PipelineStatus.PROCESSING,tasks.view(100L).status());
         verify(dispatcher,never()).completed(any());
     }
     @Test void draftReceiptAfterCommitIsDurable() {
@@ -556,14 +582,14 @@ class MediaTaskIntegrationTest {
         var execution = claim(node("OCR"));
         jdbc.update("UPDATE media_task SET update_time=? WHERE id=?", past(600), execution.getTaskId());
         tasks.recover();
-        assertEquals("RETRY_WAIT", node("OCR").getStatus());
-        assertEquals("SUCCESS", node("COVER").getStatus());
-        assertEquals("PROCESSING", tasks.view(100L).status());
+        assertEquals(MediaTaskStatus.RETRY_WAIT, node("OCR").getStatus());
+        assertEquals(MediaTaskStatus.SUCCESS, node("COVER").getStatus());
+        assertEquals(PipelineStatus.PROCESSING, tasks.view(100L).status());
         verify(dispatcher, never()).draftFinished(anyLong(), anyBoolean(), any(), any());
     }
     @Test void lostReadyDispatchIsRecoveredAndDuplicateDispatchCannotReexecute() {
         doThrow(new IllegalStateException("MQ down")).when(dispatcher).dispatch(any()); tasks.start(input());
-        assertEquals("READY",node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.READY,node("ASR").getStatus());
         doNothing().when(dispatcher).dispatch(any());
         jdbc.update("UPDATE media_task SET dispatch_after=? WHERE status='READY'", past(1));
         tasks.recover(); verify(dispatcher,times(6)).dispatch(any());
@@ -572,8 +598,8 @@ class MediaTaskIntegrationTest {
         System.out.println("Lost dispatch recovery: READY messages=3 original+3 recovered; duplicate claims=1; duplicate executions=0");
     }
     @Test void unexplainedPendingAndUnknownStatusAreOrchestrationErrors() {
-        assertThrows(IllegalStateException.class,()->PipelineState.derive(List.of(new MediaTask().setStatus("PENDING"))));
-        assertThrows(IllegalStateException.class,()->PipelineState.derive(List.of(new MediaTask().setStatus("INVALID"))));
+        assertThrows(IllegalStateException.class,()->PipelineState.derive(List.of(new MediaTask().setStatus(MediaTaskStatus.PENDING))));
+        assertThrows(IllegalStateException.class,()->PipelineState.derive(List.of(new MediaTask())));
     }
     @Test void delayedReviewRequestAfterDisableCannotCreateReviewExecution() {
         tasks.start(input()); complete();

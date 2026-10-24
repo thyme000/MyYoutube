@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.schedule;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.Batch;
 import cn.diaojiahong.myyoutube.transcode.service.RetryBatchStore;
@@ -24,8 +25,8 @@ public class RetryBatchMetrics {
         health=new SampleHealth(metrics,java.time.Clock.systemUTC(),"retry-batches",() -> enabled);
         Gauge.builder("media.retry.batch.active",this,m -> m.active()).register(metrics);
         Gauge.builder("media.retry.batch.age.seconds",this,m -> m.age()).register(metrics);
-        for (String state:new String[]{"PENDING","RUNNING","SUCCESS","FAILED","SKIPPED"})
-            Gauge.builder("media.retry.items",this,m -> m.count(state)).tag("state",state).register(metrics);
+        for (var state : MediaRetryItemState.values())
+            Gauge.builder("media.retry.items",this,m -> m.count(state)).tag("state",state.getCode()).register(metrics);
     }
     private double active() { return !sampled ? Double.NaN : current==null ? 0 : 1; }
     private double age() {
@@ -33,13 +34,13 @@ public class RetryBatchMetrics {
         return !sampled ? Double.NaN : snapshot==null ? 0
                 : Math.max(0,Duration.between(snapshot.createdAt(),LocalDateTime.now(ZoneOffset.UTC)).toSeconds());
     }
-    private double count(String state) {
+    private double count(MediaRetryItemState state) {
         if (!sampled) return Double.NaN;
         var snapshot=current;
         if (snapshot==null) return 0;
         return switch(state) {
-            case "PENDING" -> snapshot.pending(); case "RUNNING" -> snapshot.running();
-            case "SUCCESS" -> snapshot.succeeded(); case "FAILED" -> snapshot.failed(); default -> snapshot.skipped();
+            case PENDING -> snapshot.pending(); case RUNNING -> snapshot.running();
+            case SUCCESS -> snapshot.succeeded(); case FAILED -> snapshot.failed(); case SKIPPED -> snapshot.skipped();
         };
     }
     @Scheduled(fixedDelay=30000,initialDelay=30000)

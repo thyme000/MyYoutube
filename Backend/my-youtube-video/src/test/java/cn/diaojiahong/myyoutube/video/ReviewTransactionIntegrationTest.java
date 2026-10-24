@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
 import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.video.config.ContentPipelineProperties;
 import cn.diaojiahong.myyoutube.common.media.*;
@@ -198,7 +199,7 @@ class ReviewTransactionIntegrationTest {
         var input = JsonUtil.fromJson(row.getInputJson(), Input.class);
         var results=Map.of("COVER","{\"coverObjectKey\":\"cover\"}","ASR","{\"vttKey\":\"captions\",\"segmentsKey\":\"transcript\"}",
                 "OCR","{\"artifactKey\":\"ocr\"}","SUMMARY","{\"artifactKey\":\"summary\"}","TAG","{\"artifactKey\":\"tag\"}");
-        var event=new ContentUnderstoodMessage(new Manifest(100L,1L,"COMPLETED",input,results,System.currentTimeMillis()));
+        var event=new ContentUnderstoodMessage(new Manifest(100L,1L,PipelineStatus.COMPLETED,input,results,System.currentTimeMillis()));
         when(artifacts.read("summary", ContentArtifacts.Summary.class)).thenReturn(new ContentArtifacts.Summary("",List.of()));
         when(artifacts.read("tag", com.google.gson.JsonObject.class)).thenReturn(StructuredJson.object("{\"category\":\"OTHER\",\"tags\":[]}"));
         when(tags.map(anyString())).thenReturn(new TagResultMapper.Mapped("OTHER",Map.of(),List.of(),List.of()));
@@ -227,10 +228,10 @@ class ReviewTransactionIntegrationTest {
         when(artifacts.read("summary",ContentArtifacts.Summary.class)).thenReturn(new ContentArtifacts.Summary("图集摘要",List.of()));
         when(artifacts.read("tag",com.google.gson.JsonObject.class)).thenReturn(StructuredJson.object("{\"category\":\"OTHER\",\"tags\":[]}"));
         when(tags.map(anyString())).thenReturn(new TagResultMapper.Mapped("OTHER",Map.of(),List.of(),List.of()));
-        assertThrows(IllegalArgumentException.class, () -> content.accept(new ContentUnderstoodMessage(new Manifest(100L,1L,"COMPLETED",input,results,System.currentTimeMillis()))));
+        assertThrows(IllegalArgumentException.class, () -> content.accept(new ContentUnderstoodMessage(new Manifest(100L,1L,PipelineStatus.COMPLETED,input,results,System.currentTimeMillis()))));
         assertFalse(understanding.selectById(1L).getReceived());
         results.put("COVER","{\"coverObjectKey\":\"second\"}");
-        content.accept(new ContentUnderstoodMessage(new Manifest(100L,1L,"COMPLETED",input,results,System.currentTimeMillis())));
+        content.accept(new ContentUnderstoodMessage(new Manifest(100L,1L,PipelineStatus.COMPLETED,input,results,System.currentTimeMillis())));
         assertEquals(ContentReviewState.MANUAL_PENDING,understanding.selectById(1L).getState());
         assertTrue(decisions.manual(1L,true,"完整资料人工确认",7L));
         assertEquals("published",jdbc.queryForObject("SELECT status FROM content WHERE id=1",String.class));

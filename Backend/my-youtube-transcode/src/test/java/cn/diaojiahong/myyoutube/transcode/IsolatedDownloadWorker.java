@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
 import cn.diaojiahong.myyoutube.transcode.mq.message.TranscodeTaskMessage;
@@ -13,7 +14,7 @@ public final class IsolatedDownloadWorker {
             if (args[0].equals("crash")) {
                 var row = env.tasks.getById(Long.valueOf(args[1]));
                 var lock = env.tasks.artifactLock(row.getTaskKey()); lock.lock();
-                env.tasks.updateByIdWithStatus(row.getId(),new TranscodeTask().setStatus("PROCESSING"),"PENDING");
+                env.tasks.updateByIdWithStatus(row.getId(),new TranscodeTask().setStatus(TranscodeTaskStatus.PROCESSING),TranscodeTaskStatus.PENDING);
                 env.redis.getBucket(args[2]).set("locked");
                 Thread.sleep(120000);
                 lock.unlock();

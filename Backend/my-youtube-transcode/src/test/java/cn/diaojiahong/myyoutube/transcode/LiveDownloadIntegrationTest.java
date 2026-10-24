@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.transcode.api.dto.*;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
@@ -78,7 +79,7 @@ class LiveDownloadIntegrationTest {
     void due() { env.jdbc.update("UPDATE transcode_task SET next_dispatch_at=TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP)"); }
     int executions() { return env.jdbc.queryForObject("SELECT COUNT(*) FROM export_execution",Integer.class); }
     void completed(TranscodeTask row) throws Exception {
-        await(() -> "DONE".equals(env.tasks.getById(row.getId()).getStatus()),45);
+        await(() -> TranscodeTaskStatus.DONE.equals(env.tasks.getById(row.getId()).getStatus()),45);
         var result = env.tasks.getById(row.getId()); assertTrue(env.storage.objectExists(result.getResultObjectKey()));
         var output = work.resolve("result.mp4"); Files.write(output,env.storage.readObject(result.getResultObjectKey()));
         var probe = new ProcessBuilder("ffprobe","-v","error","-show_entries","format=duration","-of","default=nw=1:nk=1",output.toString()).start();
@@ -93,9 +94,9 @@ class LiveDownloadIntegrationTest {
         completed(requests.get(0));
         assertEquals(8,env.jdbc.queryForObject("SELECT COUNT(*) FROM transcode_task WHERE status='DONE'",Integer.class));
         assertEquals(1,executions());
-        dto.setUserId(99L); var cached=env.tasks.submit(dto); assertEquals("DONE",cached.getStatus()); assertEquals(99L,cached.getUserId());
+        dto.setUserId(99L); var cached=env.tasks.submit(dto); assertEquals(TranscodeTaskStatus.DONE,cached.getStatus()); assertEquals(99L,cached.getUserId());
         env.storage.deleteObjectQuietly(cached.getResultObjectKey());
-        var fresh=env.tasks.submit(dto); assertEquals("PENDING",fresh.getStatus());
+        var fresh=env.tasks.submit(dto); assertEquals(TranscodeTaskStatus.PENDING,fresh.getStatus());
         assertEquals(9,env.jdbc.queryForObject("SELECT COUNT(*) FROM transcode_task WHERE status='EXPIRED'",Integer.class));
         mq.syncSend(MqConstants.TOPIC_DYNAMIC_TRANSCODE,new TranscodeTaskMessage(fresh.getId()));
         completed(fresh); assertEquals(2,executions());
@@ -109,7 +110,7 @@ class LiveDownloadIntegrationTest {
         var row=env.tasks.submit(params()); String marker=run+"crashed";
         var crashed=worker("crash",row.getId().toString(),marker);
         await(() -> env.redis.getBucket(marker).isExists(),30);
-        assertEquals("PROCESSING",env.tasks.getById(row.getId()).getStatus());
+        assertEquals(TranscodeTaskStatus.PROCESSING,env.tasks.getById(row.getId()).getStatus());
         Thread.sleep(4500);
         assertTrue(env.tasks.artifactLock(row.getTaskKey()).isLocked(),"Watchdog must renew beyond its initial lease");
         var dispatcher=new DownloadTaskDispatcher(env.rows,env.tasks,mq); dispatcher.recover();

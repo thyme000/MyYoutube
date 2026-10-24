@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.controller;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeSubmitDTO;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
@@ -46,7 +47,7 @@ public class InternalTranscodeController {
             log.error("创建转码任务失败 contentId={}", dto.getContentId(), e);
             return null;
         }
-        if (TranscodeTaskVO.STATUS_PENDING.equals(task.getStatus())) {
+        if (TranscodeTaskStatus.PENDING.equals(task.getStatus())) {
             dispatcher.dispatch(task.getId());
         }
         touchLru(task.getTaskKey());
@@ -59,14 +60,14 @@ public class InternalTranscodeController {
         if (task == null) {
             return null;
         }
-        if (TranscodeTaskVO.STATUS_DONE.equals(task.getStatus())) {
+        if (TranscodeTaskStatus.DONE.equals(task.getStatus())) {
             if (taskService.validCompleted(task.getTaskKey()) == null) {
-                task.setStatus(TranscodeTaskVO.STATUS_FAILED);
+                task.setStatus(TranscodeTaskStatus.FAILED);
                 task.setErrorMessage("成片已过期，请重新下载");
             } else touchLru(task.getTaskKey());
         }
-        if ("EXPIRED".equals(task.getStatus())) {
-            task.setStatus(TranscodeTaskVO.STATUS_FAILED);
+        if (TranscodeTaskStatus.EXPIRED.equals(task.getStatus())) {
+            task.setStatus(TranscodeTaskStatus.FAILED);
             task.setErrorMessage("成片已过期，请重新下载");
         }
         return toVO(task);

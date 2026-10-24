@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
@@ -21,14 +22,14 @@ public class ContentDownloadService {
     private final ContentTypeStrategyRegistry strategies;
     private final TranscodePort transcode;
     private final S3StorageUtil storage;
-    public record Download(String contentId, String taskId, String status, String downloadUrl, String errorMessage) {}
+    public record Download(String contentId, String taskId, TranscodeTaskStatus status, String downloadUrl, String errorMessage) {}
 
     @ObservedBusiness(BusinessOperation.CREATE_DOWNLOAD)
     public Download create(Long id, Long viewer) {
         var content = access.readable(id, viewer);
         var media = strategies.get(content.getType()).loadMedia(List.of(id)).get(id);
         if (media == null) throw new BizException(ErrorCode.NOT_FOUND, "媒体不存在");
-        if (media.video() != null) return new Download(id.toString(), null, "DONE", signed(media.video().objectKey()), null);
+        if (media.video() != null) return new Download(id.toString(), null, TranscodeTaskStatus.DONE, signed(media.video().objectKey()), null);
         var d = media.dynamic();
         var dto = new TranscodeSubmitDTO();
         dto.setContentId(id); dto.setUserId(viewer); dto.setCanvasW(d.canvasW()); dto.setCanvasH(d.canvasH());
@@ -47,7 +48,7 @@ public class ContentDownloadService {
         if (task == null || !Objects.equals(viewer, task.getUserId())) throw new BizException(ErrorCode.NOT_FOUND, "下载任务不存在");
         access.readable(task.getContentId(), viewer);
         return new Download(task.getContentId().toString(), task.getTaskId().toString(), task.getStatus(),
-                "DONE".equals(task.getStatus()) ? signed(task.getResultObjectKey()) : null, task.getErrorMessage());
+                TranscodeTaskStatus.DONE.equals(task.getStatus()) ? signed(task.getResultObjectKey()) : null, task.getErrorMessage());
     }
     private String signed(String key) { return storage.signGetUrl(key, 1200); }
 }

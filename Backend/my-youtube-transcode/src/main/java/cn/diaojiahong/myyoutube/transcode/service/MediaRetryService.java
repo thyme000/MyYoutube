@@ -1,5 +1,8 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -36,7 +39,8 @@ public class MediaRetryService {
         if (request==null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "Missing task query");
         validate(request.taskType(),Arrays.stream(MediaTaskType.values()).map(Enum::name).toList());
         validate(request.phase(),List.of("DRAFT","CONTENT","REVIEW"));
-        validate(request.status(),List.of("ALL","PENDING","READY","RUNNING","RETRY_WAIT","SUCCESS","DEAD","BLOCKED"));
+        if (!"ALL".equals(request.status()))
+            validate(request.status(),Arrays.stream(MediaTaskStatus.values()).map(Enum::name).toList());
         validate(request.dependencyService(),List.of("ASR","OCR","LLM"));
         int limit=request.size()==null ? 20 : request.size();
         if (limit<1 || limit>100 || request.cursor()!=null && request.cursor()<0) throw new BizException(ErrorCode.INVALID_ARGUMENT, "非法查询分页");
@@ -45,15 +49,15 @@ public class MediaRetryService {
                 .eq(request.phase()!=null,MediaTask::getPhase,request.phase())
                 .eq(request.ownerId()!=null,MediaTask::getOwnerId,request.ownerId())
                 .eq(request.pipelineId()!=null,MediaTask::getPipelineId,request.pipelineId());
-        if (request.status()==null) q.in(MediaTask::getStatus,"DEAD","BLOCKED","RETRY_WAIT");
-        else if (!"ALL".equals(request.status())) q.eq(MediaTask::getStatus,request.status());
+        if (request.status()==null) q.in(MediaTask::getStatus,MediaTaskStatus.DEAD,MediaTaskStatus.BLOCKED,MediaTaskStatus.RETRY_WAIT);
+        else if (!"ALL".equals(request.status())) q.eq(MediaTask::getStatus,MediaTaskStatus.valueOf(request.status()));
         var page=rows.selectList(q.orderByAsc(MediaTask::getId).last("LIMIT "+limit));
         var results=new ArrayList<Task>();
         for (var row : page) {
             var resources=resources(row,new HashSet<>());
             if (request.dependencyService()!=null && !resources.contains(request.dependencyService())) continue;
-            String reason=Set.of("DEAD","BLOCKED").contains(row.getStatus()) ? null
-                    : "RETRY_WAIT".equals(row.getStatus()) ? "AUTOMATIC_RETRY_PENDING" : "TASK_NOT_FAILED";
+            String reason=Set.of(MediaTaskStatus.DEAD,MediaTaskStatus.BLOCKED).contains(row.getStatus()) ? null
+                    : MediaTaskStatus.RETRY_WAIT.equals(row.getStatus()) ? "AUTOMATIC_RETRY_PENDING" : "TASK_NOT_FAILED";
             if (reason==null) {
                 try { reason=owners.reason(row); }
                 catch (RuntimeException error) { reason="OWNER_CHECK_UNAVAILABLE"; }
@@ -69,7 +73,7 @@ public class MediaRetryService {
         var result=new TreeSet<String>();
         if (!visited.add(row.getId())) return result;
         if (row.getDependencyService()!=null) result.add(row.getDependencyService());
-        if (result.isEmpty() && !"BLOCKED".equals(row.getStatus())) {
+        if (result.isEmpty() && !MediaTaskStatus.BLOCKED.equals(row.getStatus())) {
             switch (row.getTaskType()) {
                 case "SUMMARY", "TAG", "REVIEW" -> result.add("LLM");
                 case "OCR" -> result.add("OCR");
@@ -83,7 +87,7 @@ public class MediaRetryService {
                 default -> { }
             }
         }
-        if ("BLOCKED".equals(row.getStatus()) && row.getPipelineId()!=null) {
+        if (MediaTaskStatus.BLOCKED.equals(row.getStatus()) && row.getPipelineId()!=null) {
             var nodes=tasks.listPipeline(row.getPipelineId(),row.getPhase());
             for (var node:nodes) if (MediaTaskType.fromCode(row.getTaskType()).getDependencies().contains(node.getTaskType()))
                 result.addAll(resources(node,visited));
@@ -110,7 +114,7 @@ public class MediaRetryService {
         var skipped = new HashMap<Long, String>();
         for (var id : ids) {
             var row = candidates.get(id);
-            String reason = row == null ? "TASK_MISSING" : !Set.of("DEAD", "BLOCKED").contains(row.getStatus())
+            String reason = row == null ? "TASK_MISSING" : !Set.of(MediaTaskStatus.DEAD, MediaTaskStatus.BLOCKED).contains(row.getStatus())
                     ? "TASK_STATE_CHANGED" : owners.reason(row);
             if (reason == null) selected.put(id, row.getAttempt()); else skipped.put(id, reason);
         }
@@ -124,16 +128,16 @@ public class MediaRetryService {
             var active = store.active();
             if (active != null) {
                 var view = store.batch(active.getId());
-                if ("RUNNING".equals(view.status())) {
+                if (MediaRetryBatchStatus.RUNNING.equals(view.status())) {
                     occupation.publish(active, store.selection(active).stream().map(Item::taskId).toList(), view);
                     view = store.batch(active.getId());
-                    if ("RUNNING".equals(view.status())) return busy(view);
+                    if (MediaRetryBatchStatus.RUNNING.equals(view.status())) return busy(view);
                 }
             }
             return transaction.execute(tx -> {
-                var items = ids.stream().map(id -> new Item(id, skipped.containsKey(id) ? "SKIPPED" : "PENDING",
+                var items = ids.stream().map(id -> new Item(id, skipped.containsKey(id) ? MediaRetryItemState.SKIPPED : MediaRetryItemState.PENDING,
                         candidates.containsKey(id) ? candidates.get(id).getAttempt() : -1, null, skipped.get(id))).toList();
-                var row = new MediaRetryBatch().setRequestId(request.requestId()).setActorId(actorId).setStatus("QUEUED")
+                var row = new MediaRetryBatch().setRequestId(request.requestId()).setActorId(actorId).setStatus(MediaRetryBatchStatus.QUEUED)
                         .setActive(1).setEventSequence(0L).setSelectionJson(JsonUtil.toJson(items))
                         .setMaxConcurrency(properties.getRetryConcurrency()).setCreatedAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
                 store.insert(row);
@@ -147,7 +151,7 @@ public class MediaRetryService {
                 });
                 skipped.putAll(tasks.resumeSelected(row.getId(), selected));
                 items = items.stream().map(item -> skipped.containsKey(item.taskId())
-                        ? new Item(item.taskId(), "SKIPPED", item.initialAttempt(), null, skipped.get(item.taskId())) : item).toList();
+                        ? new Item(item.taskId(), MediaRetryItemState.SKIPPED, item.initialAttempt(), null, skipped.get(item.taskId())) : item).toList();
                 store.start(row, items);
                 store.afterCommit(() -> log.info("Retry batch accepted batchId={} actorId={} selected={}", row.getId(), actorId, ids.size()));
                 return new Admission(true, "RETRY_BATCH_CREATED", "补跑任务已受理", store.snapshot(row).batch());

@@ -1,8 +1,8 @@
 package cn.diaojiahong.myyoutube.transcode.mq.listener;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
 import cn.diaojiahong.myyoutube.transcode.chain.dynamic.DynamicTranscodeChain;
 import cn.diaojiahong.myyoutube.transcode.chain.dynamic.TranscodeContext;
 import cn.diaojiahong.myyoutube.transcode.chain.dynamic.TranscodeNotifier;
@@ -45,7 +45,7 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
             log.warn("转码任务不存在, 消息已丢弃 taskId={}", msg.getTaskId());
             return;
         }
-        if (TranscodeTaskVO.STATUS_DONE.equals(task.getStatus()) || TranscodeTaskVO.STATUS_FAILED.equals(task.getStatus())) {
+        if (TranscodeTaskStatus.DONE.equals(task.getStatus()) || TranscodeTaskStatus.FAILED.equals(task.getStatus())) {
             log.debug("转码任务已终态, 跳过重复投递 taskId={} status={}", msg.getTaskId(), task.getStatus());
             return;
         }
@@ -61,8 +61,8 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
     }
 
     private void process(TranscodeTask task) {
-        if (task == null || TranscodeTaskVO.STATUS_DONE.equals(task.getStatus())
-                || TranscodeTaskVO.STATUS_FAILED.equals(task.getStatus())) return;
+        if (task == null || TranscodeTaskStatus.DONE.equals(task.getStatus())
+                || TranscodeTaskStatus.FAILED.equals(task.getStatus())) return;
         var cached = taskService.validCompleted(task.getTaskKey());
         if (cached != null) {
             var affected = taskService.listInflightByKey(task.getTaskKey());
@@ -74,9 +74,9 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
         }
         // 认领: PENDING -> PROCESSING, 抢不到说明同任务正被处理
         TranscodeTask claim = new TranscodeTask();
-        claim.setStatus(TranscodeTaskVO.STATUS_PROCESSING);
-        boolean claimed = taskService.updateByIdWithStatus(task.getId(), claim, TranscodeTaskVO.STATUS_PENDING);
-        if (!claimed && !TranscodeTaskVO.STATUS_PROCESSING.equals(task.getStatus())) {
+        claim.setStatus(TranscodeTaskStatus.PROCESSING);
+        boolean claimed = taskService.updateByIdWithStatus(task.getId(), claim, TranscodeTaskStatus.PENDING);
+        if (!claimed && !TranscodeTaskStatus.PROCESSING.equals(task.getStatus())) {
             log.debug("动态成片认领失败, 跳过 taskId={} status={}", task.getId(), task.getStatus());
             return;
         }

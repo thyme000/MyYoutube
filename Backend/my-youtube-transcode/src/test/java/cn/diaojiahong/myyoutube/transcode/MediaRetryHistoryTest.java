@@ -1,11 +1,15 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.*;
 import cn.diaojiahong.myyoutube.transcode.domain.po.*;
 import cn.diaojiahong.myyoutube.transcode.mapper.*;
 import cn.diaojiahong.myyoutube.transcode.service.*;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.*;
@@ -40,13 +44,26 @@ class MediaRetryHistoryTest {
         new ResourceDatabasePopulator(new ClassPathResource("pipeline-schema.sql")).execute(database);
     }
     MediaRetryBatch row(long id) {
-        return new MediaRetryBatch().setId(id).setRequestId("history-" + id).setActorId(1L).setStatus("COMPLETED")
+        return new MediaRetryBatch().setId(id).setRequestId("history-" + id).setActorId(1L).setStatus(MediaRetryBatchStatus.COMPLETED)
                 .setMaxConcurrency(1).setSelectionJson("[]").setCreatedAt(LocalDateTime.parse("2026-10-18T12:00:00"));
+    }
+    @Test void batchStatusPersistsAsItsCodeAndSupportsConditionalUpdates() {
+        var row = row(1).setStatus(MediaRetryBatchStatus.QUEUED);
+        batches.insert(row);
+        var jdbc = new JdbcTemplate(database);
+        for (var status : MediaRetryBatchStatus.values()) {
+            var previous = batches.selectById(row.getId()).getStatus();
+            assertEquals(1, batches.update(null, new LambdaUpdateWrapper<MediaRetryBatch>()
+                    .eq(MediaRetryBatch::getId, row.getId()).eq(MediaRetryBatch::getStatus, previous)
+                    .set(MediaRetryBatch::getStatus, status)));
+            assertEquals(status.getCode(), jdbc.queryForObject("SELECT status FROM media_retry_batch WHERE id=?", String.class, row.getId()));
+            assertEquals(status, batches.selectById(row.getId()).getStatus());
+        }
     }
     @Test void historyUsesDescendingCursorAndDoesNotRereadFrozenTaskResults() {
         for (long id : List.of(1L,2L,3L)) {
             var row = row(id);
-            var view = new Batch(id,"COMPLETED",0,0,0,0,0,0,0,0,null,row.getCreatedAt(),null);
+            var view = new Batch(id,MediaRetryBatchStatus.COMPLETED,0,0,0,0,0,0,0,0,null,row.getCreatedAt(),null);
             row.setResultJson(JsonUtil.toJson(new RetryBatchStore.Snapshot(view,List.of(),List.of())));
             batches.insert(row);
         }
@@ -60,13 +77,13 @@ class MediaRetryHistoryTest {
         assertTrue(MediaTaskIntegrationTest.SqlProbe.SQL.get().stream().noneMatch(sql -> sql.contains("FROM media_task")));
     }
     @Test void listingHistoryLazilyFreezesAnUnfinishedRecordWhoseTasksHaveEnded() {
-        var row = row(4).setStatus("RUNNING").setActive(1)
-                .setSelectionJson(JsonUtil.toJson(List.of(new Item(15L,"PENDING",1,null,null))));
+        var row = row(4).setStatus(MediaRetryBatchStatus.RUNNING).setActive(1)
+                .setSelectionJson(JsonUtil.toJson(List.of(new Item(15L,MediaRetryItemState.PENDING,1,null,null))));
         batches.insert(row);
         tasks.insert(new MediaTask().setId(15L).setOwnerId(1L).setRetryBatchId(4L).setPhase("DRAFT")
-                .setTaskType("TRANSCODE").setStatus("SUCCESS").setAttempt(2).setRetryCount(0)
+                .setTaskType("TRANSCODE").setStatus(MediaTaskStatus.SUCCESS).setAttempt(2).setRetryCount(0)
                 .setCompletionAck(false).setDependenciesJson("{}"));
-        assertEquals("COMPLETED",history.history(null,20).items().get(0).status());
+        assertEquals(MediaRetryBatchStatus.COMPLETED,history.history(null,20).items().get(0).status());
         assertNull(batches.selectById(4L).getActive());
         assertNotNull(batches.selectById(4L).getResultJson());
     }

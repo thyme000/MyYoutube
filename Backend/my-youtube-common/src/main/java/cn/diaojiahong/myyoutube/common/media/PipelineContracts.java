@@ -8,7 +8,7 @@ public final class PipelineContracts {
     public record Input(Long pipelineId, Long contentId, Long userId, String title,
                         String description, String tags, String coverObjectKey, ContentMedia media, long submittedAt) {}
 
-    public record Manifest(Long pipelineId, Long contentId, String status, Input input,
+    public record Manifest(Long pipelineId, Long contentId, PipelineStatus status, Input input,
                            Map<String, String> results, long completedAt) {}
 
     public record ReviewSpec(boolean enabled, String model, String rulesVersion, String rules, double maxRisk,

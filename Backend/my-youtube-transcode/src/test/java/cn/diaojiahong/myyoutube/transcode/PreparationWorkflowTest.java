@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.*;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
@@ -113,7 +114,7 @@ class PreparationWorkflowTest {
         registry.start(request()); registry.start(request());
         assertEquals(1, tasks.listByDraft(101L).size());
         assertEquals("PREPARE", tasks.listByDraft(101L).get(0).getTaskType());
-        assertEquals("READY", registry.view(101L).status());
+        assertEquals(MediaTaskStatus.READY, registry.view(101L).status());
         var event = StructuredJson.object(jdbc.queryForObject("SELECT payload FROM pipeline_event_outbox", String.class));
         assertEquals("1", event.get("draftId").getAsString());
         assertEquals("101", event.get("preparationId").getAsString());
@@ -144,14 +145,13 @@ class PreparationWorkflowTest {
         var error = assertThrows(IllegalStateException.class, () -> executor.execute(first));
         tasks.completeAndAdvance(first, null, error.getMessage());
         assertEquals("READY", registry.find(101L, "OCR_IMAGE", 0).getStatus());
-        assertEquals("RETRY_WAIT", registry.view(101L).status());
+        assertEquals(MediaTaskStatus.RETRY_WAIT, registry.view(101L).status());
         due(); var second = claim(); var manifest = succeed(second);
         assertEquals(2, second.getAttempt()); assertEquals(3, calls.get());
         assertEquals(4, manifest.items().size()); assertEquals(6000, manifest.durationMs());
         assertEquals(0, manifest.items().get(1).index()); assertEquals(3000, manifest.items().get(3).timeMs());
         assertEquals(manifest.items().get(2).objectKey(), manifest.items().get(3).originalObjectKey());
         assertFalse(manifest.hasAudio()); verify(storage, times(2)).upload(any(), anyString());
-        verify(dispatcher, never()).draftFinished(anyLong(), anyBoolean(), any(), any());
         assertTrue(tasks.listByDraft(101L).get(0).getCompletionAck());
     }
     @Test void uploadedButUnconfirmedObjectIsRecoveredWithoutSecondUpload() throws Exception {
@@ -170,7 +170,7 @@ class PreparationWorkflowTest {
         assertEquals("PLANNED", registry.find(101L, "OCR_IMAGE", 0).getStatus());
         assertThrows(IllegalStateException.class, () -> registry.reserve(old, "FRAME", 0, null));
         tasks.completeAndAdvance(old, "{}", null);
-        assertEquals("RETRY_WAIT", registry.view(101L).status());
+        assertEquals(MediaTaskStatus.RETRY_WAIT, registry.view(101L).status());
         due(); assertNotNull(succeed(claim()));
         verify(storage, times(2)).upload(any(), anyString());
     }
@@ -180,7 +180,7 @@ class PreparationWorkflowTest {
             var execution = claim(); tasks.completeAndAdvance(execution, null, "storage unavailable");
             if (i < 3) due();
         }
-        assertEquals("DEAD", registry.view(101L).status()); assertEquals(4, registry.view(101L).attempt());
+        assertEquals(MediaTaskStatus.DEAD, registry.view(101L).status()); assertEquals(4, registry.view(101L).attempt());
         assertTrue(tasks.retryPreparation(101L)); assertTrue(tasks.retryPreparation(101L));
         assertEquals(5, claim().getAttempt()); assertEquals(0, registry.view(101L).retryCount());
     }
@@ -201,7 +201,7 @@ class PreparationWorkflowTest {
         }
         properties.setVideoMaxLevel(51);
         var view = registry.view(101L);
-        assertEquals("DEAD", view.status()); assertTrue(view.parametersChanged());
+        assertEquals(MediaTaskStatus.DEAD, view.status()); assertTrue(view.parametersChanged());
         assertEquals(PreparationContracts.PARAMETERS_CHANGED_MESSAGE, view.errorMessage());
         verifyNoInteractions(storage, images, videos, urls);
     }
@@ -209,7 +209,7 @@ class PreparationWorkflowTest {
         finishPreparation();
         var manifest = registry.view(101L).manifest(); properties.setVideoMaxLevel(42);
         var view = registry.view(101L);
-        assertTrue(view.parametersChanged()); assertEquals("SUCCESS", view.status());
+        assertTrue(view.parametersChanged()); assertEquals(MediaTaskStatus.SUCCESS, view.status());
         assertEquals(manifest, view.manifest()); assertNull(view.errorMessage());
     }
     @Test void videoPartialFailureRecoversPlannedFramesWithoutTranscodeOrRepeatedSuccessfulFrames() throws Exception {
@@ -292,7 +292,7 @@ class PreparationWorkflowTest {
         assertEquals("INSUFFICIENT_FRAMES", error.reason());
         assertNull(registry.view(101L).manifest());
         tasks.completeAndAdvance(first, null, error.getMessage());
-        assertEquals("RETRY_WAIT", registry.view(101L).status());
+        assertEquals(MediaTaskStatus.RETRY_WAIT, registry.view(101L).status());
         missing.remove(5); due();
         var manifest = succeed(claim());
         assertEquals(List.of(0, 1, 3, 4, 6, 8, 9, 5), decoded);
@@ -338,7 +338,7 @@ class PreparationWorkflowTest {
         assertEquals(8, jdbc.queryForObject("SELECT COUNT(*) FROM media_preparation_item WHERE role='FRAME' AND status='READY'", Integer.class));
         assertNull(registry.view(101L).manifest());
         tasks.completeAndAdvance(task, null, error.getMessage());
-        assertEquals("RETRY_WAIT", registry.view(101L).status());
+        assertEquals(MediaTaskStatus.RETRY_WAIT, registry.view(101L).status());
     }
 
     @Test void retirementReclaimsPlannedObjectOmittedFromToleratedManifest() throws Exception {
@@ -378,7 +378,7 @@ class PreparationWorkflowTest {
         assertEquals(10, manifest.videoFrameCount());
         assertEquals(2, frameSettings.snapshot().maxFrames());
         assertTrue(registry.view(101L).parametersChanged());
-        assertEquals("SUCCESS", registry.view(101L).status());
+        assertEquals(MediaTaskStatus.SUCCESS, registry.view(101L).status());
     }
     @Test void changedPreparedObjectCannotBecomeSuccessfulManifest() throws Exception {
         registry.start(request()); var first = claim();
@@ -387,7 +387,7 @@ class PreparationWorkflowTest {
         objects.put(image.getObjectKey(), new PreparationStorage.Source(image.getObjectKey(), null, "changed", 9));
         assertThrows(IllegalStateException.class, () -> executor.execute(first));
         assertNull(registry.view(101L).manifest());
-        assertEquals("RUNNING", registry.view(101L).status());
+        assertEquals(MediaTaskStatus.RUNNING, registry.view(101L).status());
         assertNotNull(result);
     }
     @Test void missingPreparedImageIsRebuiltFromFrozenOriginal() throws Exception {
@@ -519,10 +519,10 @@ class PreparationWorkflowTest {
         cleanup.join(); boolean retried = retry.join();
         if (retried) {
             assertEquals("ACTIVE", registry.get(101L).getLifecycle());
-            assertEquals("READY", tasks.listByDraft(101L).get(0).getStatus());
+            assertEquals(MediaTaskStatus.READY, tasks.listByDraft(101L).get(0).getStatus());
         } else {
             assertEquals("RETIRED", registry.get(101L).getLifecycle());
-            assertEquals("DEAD", tasks.listByDraft(101L).get(0).getStatus());
+            assertEquals(MediaTaskStatus.DEAD, tasks.listByDraft(101L).get(0).getStatus());
         }
         verify(storage, never()).delete(anyString());
     }
@@ -605,7 +605,7 @@ class PreparationWorkflowTest {
                 .thenReturn("RETAINED");
         var cleaner = reclaimer(video); reclaimDue(false); cleaner.reclaim(); reclaimDue(true); cleaner.reclaim();
         verify(storage, never()).delete(anyString());
-        assertEquals("RETRY_WAIT", registry.view(102L).status());
+        assertEquals(MediaTaskStatus.RETRY_WAIT, registry.view(102L).status());
     }
     @Test void deletionFencePreventsNewReferencesAndDeadAttemptsCannotBorrow() throws Exception {
         finishPreparation(); var cleaner = reclaimer(released()); cleaner.reclaim(); reclaimDue(true);

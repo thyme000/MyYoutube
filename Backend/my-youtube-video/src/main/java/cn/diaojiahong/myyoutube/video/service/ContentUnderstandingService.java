@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.media.*;
@@ -77,7 +78,7 @@ public class ContentUnderstandingService {
                     Boolean.TRUE.equals(current.getReceived()) ? "ALREADY_RECEIVED" : "CANCELLED");
             tasks.received(manifest.pipelineId()); return;
         }
-        if (!"COMPLETED".equals(manifest.status()) || !manifest.results().keySet().equals(Set.of("COVER", "ASR", "OCR", "SUMMARY", "TAG")))
+        if (!PipelineStatus.COMPLETED.equals(manifest.status()) || !manifest.results().keySet().equals(Set.of("COVER", "ASR", "OCR", "SUMMARY", "TAG")))
             throw new IllegalArgumentException("Incomplete Pipeline manifest");
         if (!manifest.input().equals(JsonUtil.fromJson(current.getInputJson(), Input.class))) throw new IllegalArgumentException("Pipeline input mismatch");
         var asr = StructuredJson.object(manifest.results().get("ASR"));
@@ -146,7 +147,7 @@ public class ContentUnderstandingService {
             return false;
         }
         var pipeline = tasks.pipeline(row.getPipelineId());
-        if (pipeline == null || !"WAITING_ARTIFACTS".equals(pipeline.status())) {
+        if (pipeline == null || !PipelineStatus.WAITING_ARTIFACTS.equals(pipeline.status())) {
             log.debug("Pipeline retry rejected contentId={} pipelineId={} reason=PIPELINE_{}", videoId, row.getPipelineId(),
                     pipeline == null ? "MISSING" : pipeline.status());
             return false;

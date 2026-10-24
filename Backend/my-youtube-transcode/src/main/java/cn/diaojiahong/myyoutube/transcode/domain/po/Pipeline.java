@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.domain.po;
 
+import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 import lombok.experimental.Accessors;
@@ -15,7 +16,7 @@ public class Pipeline {
     private Long contentId;
     @TableField(updateStrategy = FieldStrategy.NEVER)
     private String inputJson;
-    private String status;
+    private PipelineStatus status;
     private Boolean received;
     private String manifestJson;
     private LocalDateTime submittedAt;

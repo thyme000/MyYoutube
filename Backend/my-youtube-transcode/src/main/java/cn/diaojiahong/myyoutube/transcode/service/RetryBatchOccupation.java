@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.*;
 import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
@@ -31,7 +32,7 @@ public class RetryBatchOccupation {
                 Duration.ofSeconds(properties.getRetryOccupationSeconds()));
     }
     public void update(Batch view) {
-        String next = "RUNNING".equals(view.status()) ? JsonUtil.toJson(view) : "";
+        String next = MediaRetryBatchStatus.RUNNING.equals(view.status()) ? JsonUtil.toJson(view) : "";
         redis.getScript(StringCodec.INSTANCE).eval(RScript.Mode.READ_WRITE,
                 "local value=redis.call('get',KEYS[1]); if not value then return 0 end; "
                         + "local current=cjson.decode(value); if current.batch.batchId ~= ARGV[1] then return 0 end; "

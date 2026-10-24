@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.api;
 
+import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -26,7 +28,7 @@ public interface MediaTaskPort {
     @PostMapping("/preparations/{preparationId}/retry")
     boolean retryPreparation(@PathVariable("preparationId") Long preparationId);
     record TaskResult(String taskType, String status, String resultJson) {}
-    record Node(Long taskId, String taskType, String phase, String status, int attempt, int retryCount,
+    record Node(Long taskId, String taskType, String phase, MediaTaskStatus status, int attempt, int retryCount,
                 String resultJson, String errorMessage) {}
-    record PipelineView(Long pipelineId, Long contentId, String status, List<Node> tasks) {}
+    record PipelineView(Long pipelineId, Long contentId, PipelineStatus status, List<Node> tasks) {}
 }

@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeSubmitDTO;
-import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
 import cn.diaojiahong.myyoutube.transcode.mapper.TranscodeTaskMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -73,21 +73,21 @@ public class TranscodeTaskService {
         String requestJson = objectMapper.writeValueAsString(dto);
 
         var lock = artifactLock(taskKey);
-        if (!lock.tryLock()) return insert(dto, taskKey, requestJson, TranscodeTaskVO.STATUS_PENDING, null);
+        if (!lock.tryLock()) return insert(dto, taskKey, requestJson, TranscodeTaskStatus.PENDING, null);
         try {
             var done = validCompleted(taskKey);
-            return insert(dto, taskKey, requestJson, done == null ? TranscodeTaskVO.STATUS_PENDING : TranscodeTaskVO.STATUS_DONE,
+            return insert(dto, taskKey, requestJson, done == null ? TranscodeTaskStatus.PENDING : TranscodeTaskStatus.DONE,
                     done == null ? null : done.getResultObjectKey());
         } finally { lock.unlock(); }
     }
 
     public TranscodeTask validCompleted(String taskKey) {
         var done = taskMapper.selectOne(new LambdaQueryWrapper<TranscodeTask>()
-                .eq(TranscodeTask::getTaskKey, taskKey).eq(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_DONE).last("limit 1"));
+                .eq(TranscodeTask::getTaskKey, taskKey).eq(TranscodeTask::getStatus, TranscodeTaskStatus.DONE).last("limit 1"));
         if (done == null || done.getResultObjectKey() == null || done.getResultObjectKey().isBlank()) return null;
         if (storage.objectExists(done.getResultObjectKey())) return done;
         taskMapper.update(null, new LambdaUpdateWrapper<TranscodeTask>().eq(TranscodeTask::getTaskKey, taskKey)
-                .eq(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_DONE).set(TranscodeTask::getStatus, "EXPIRED"));
+                .eq(TranscodeTask::getStatus, TranscodeTaskStatus.DONE).set(TranscodeTask::getStatus, TranscodeTaskStatus.EXPIRED));
         return null;
     }
 
@@ -96,7 +96,7 @@ public class TranscodeTaskService {
     }
 
     /** 带状态条件的更新, 返回是否命中(用于任务认领) */
-    public boolean updateByIdWithStatus(Long id, TranscodeTask patch, String expectedStatus) {
+    public boolean updateByIdWithStatus(Long id, TranscodeTask patch, TranscodeTaskStatus expectedStatus) {
         return taskMapper.update(patch, new LambdaUpdateWrapper<TranscodeTask>()
                 .eq(TranscodeTask::getId, id)
                 .eq(TranscodeTask::getStatus, expectedStatus)) > 0;
@@ -105,30 +105,30 @@ public class TranscodeTaskService {
     public List<TranscodeTask> listInflightByKey(String taskKey) {
         return taskMapper.selectList(new LambdaQueryWrapper<TranscodeTask>()
                 .eq(TranscodeTask::getTaskKey, taskKey)
-                .in(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_PENDING, TranscodeTaskVO.STATUS_PROCESSING));
+                .in(TranscodeTask::getStatus, TranscodeTaskStatus.PENDING, TranscodeTaskStatus.PROCESSING));
     }
 
     public void completeByKey(String taskKey, String resultObjectKey) {
         TranscodeTask patch = new TranscodeTask();
-        patch.setStatus(TranscodeTaskVO.STATUS_DONE);
+        patch.setStatus(TranscodeTaskStatus.DONE);
         patch.setResultObjectKey(resultObjectKey);
         taskMapper.update(patch, new LambdaQueryWrapper<TranscodeTask>()
                 .eq(TranscodeTask::getTaskKey, taskKey)
-                .in(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_PENDING, TranscodeTaskVO.STATUS_PROCESSING));
+                .in(TranscodeTask::getStatus, TranscodeTaskStatus.PENDING, TranscodeTaskStatus.PROCESSING));
     }
 
     public void failByKey(String taskKey, String errorMessage) {
         String err = errorMessage != null && errorMessage.length() > 500 ? errorMessage.substring(0, 500) : errorMessage;
         TranscodeTask patch = new TranscodeTask();
-        patch.setStatus(TranscodeTaskVO.STATUS_FAILED);
+        patch.setStatus(TranscodeTaskStatus.FAILED);
         patch.setErrorMessage(err);
         taskMapper.update(patch, new LambdaQueryWrapper<TranscodeTask>()
                 .eq(TranscodeTask::getTaskKey, taskKey)
-                .in(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_PENDING, TranscodeTaskVO.STATUS_PROCESSING));
+                .in(TranscodeTask::getStatus, TranscodeTaskStatus.PENDING, TranscodeTaskStatus.PROCESSING));
     }
 
     private TranscodeTask insert(TranscodeSubmitDTO dto, String taskKey, String requestJson,
-                                 String status, String resultObjectKey) {
+                                 TranscodeTaskStatus status, String resultObjectKey) {
         TranscodeTask task = new TranscodeTask();
         task.setTaskKey(taskKey);
         task.setContentId(dto.getContentId());

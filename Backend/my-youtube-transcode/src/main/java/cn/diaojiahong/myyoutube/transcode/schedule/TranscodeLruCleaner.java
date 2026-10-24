@@ -1,8 +1,8 @@
 package cn.diaojiahong.myyoutube.transcode.schedule;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
-import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
 import cn.diaojiahong.myyoutube.transcode.mapper.TranscodeTaskMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -49,7 +49,7 @@ public class TranscodeLruCleaner {
                     redisTemplate.opsForZSet().remove(RedisConstants.TRANSCODE_LRU, taskKey);
                     for (TranscodeTask task : taskMapper.selectList(new LambdaQueryWrapper<TranscodeTask>()
                             .eq(TranscodeTask::getTaskKey, taskKey)
-                            .eq(TranscodeTask::getStatus, TranscodeTaskVO.STATUS_DONE))) {
+                            .eq(TranscodeTask::getStatus, TranscodeTaskStatus.DONE))) {
                         if (task.getResultObjectKey() != null && !task.getResultObjectKey().isEmpty()) {
                             storageUtil.deleteObjectQuietly(task.getResultObjectKey());
                         }

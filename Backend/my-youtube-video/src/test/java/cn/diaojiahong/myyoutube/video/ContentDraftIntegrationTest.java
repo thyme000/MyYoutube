@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -320,7 +321,7 @@ class ContentDraftIntegrationTest {
         var row = rows.selectById(id);
         var request = PreparedDraftTestSupport.request(row);
         when(tasks.preparation(row.getPreparationId())).thenReturn(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(
-                row.getPreparationId(), "SUCCESS", 1, 0, null, PreparedDraftTestSupport.manifest(request), false));
+                row.getPreparationId(), MediaTaskStatus.SUCCESS, 1, 0, null, PreparedDraftTestSupport.manifest(request), false));
         jdbc.update("UPDATE media_draft SET preparation_after=CURRENT_TIMESTAMP WHERE id=?", id);
         reconcileDue();
         assertEquals(MediaDraftStatusEnum.READY, rows.selectById(id).getStatus());
@@ -448,7 +449,7 @@ class ContentDraftIntegrationTest {
         when(tasks.preparation(created.preparationId())).thenAnswer(call -> {
             var replacement = dynamic(); replacement.getItems().get(1).setImageObjectKey("uploads/picture/9/20261011/replaced.png");
             drafts.saveDynamic(created.draftId(), 9L, replacement);
-            return new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(created.preparationId(), "SUCCESS", 1, 0, null,
+            return new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(created.preparationId(), MediaTaskStatus.SUCCESS, 1, 0, null,
                     PreparedDraftTestSupport.manifest(request), false);
         });
         reconcileDue();
@@ -462,7 +463,7 @@ class ContentDraftIntegrationTest {
     @Test void deadTaskRetryRejectsLateFailureAndKeepsSamePreparation() {
         var created = drafts.saveDynamic(null, 9L, dynamic());
         var row = rows.selectById(created.draftId()); var request = PreparedDraftTestSupport.request(row);
-        var dead = new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(created.preparationId(), "DEAD", 4, 3, "下载失败", null, false);
+        var dead = new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(created.preparationId(), MediaTaskStatus.DEAD, 4, 3, "下载失败", null, false);
         when(tasks.preparation(created.preparationId())).thenReturn(dead);
         reconcileDue(); assertEquals("failed", drafts.get(created.draftId(), 9L).status());
         assertTrue(coordinator.retry(created.draftId(), 9L)); assertTrue(coordinator.retry(created.draftId(), 9L));
@@ -470,7 +471,7 @@ class ContentDraftIntegrationTest {
         reconcileDue(); assertEquals("processing", drafts.get(created.draftId(), 9L).status());
         assertEquals(5, rows.selectById(created.draftId()).getPreparationAttempt());
         when(tasks.preparation(created.preparationId())).thenReturn(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(
-                created.preparationId(), "SUCCESS", 5, 0, null, PreparedDraftTestSupport.manifest(request), false));
+                created.preparationId(), MediaTaskStatus.SUCCESS, 5, 0, null, PreparedDraftTestSupport.manifest(request), false));
         jdbc.update("UPDATE media_draft SET preparation_after=CURRENT_TIMESTAMP WHERE id=?", created.draftId());
         reconcileDue(); assertEquals("ready", drafts.get(created.draftId(), 9L).status());
         assertEquals(created.preparationId(), drafts.get(created.draftId(), 9L).preparationId());
@@ -497,7 +498,7 @@ class ContentDraftIntegrationTest {
     void retryChangedConfiguration(Long id) {
         var before = rows.selectById(id);
         when(tasks.preparation(before.getPreparationId())).thenReturn(new PreparationContracts.View(
-                before.getPreparationId(), "DEAD", 4, 3, PreparationContracts.PARAMETERS_CHANGED_MESSAGE, null, true));
+                before.getPreparationId(), MediaTaskStatus.DEAD, 4, 3, PreparationContracts.PARAMETERS_CHANGED_MESSAGE, null, true));
         reconcileDue(); assertEquals("failed", drafts.get(id, 9L).status());
         assertTrue(coordinator.retry(id, 9L));
         var renewed = rows.selectById(id);
@@ -520,7 +521,7 @@ class ContentDraftIntegrationTest {
 
     @Test void retryCannotReplaceMediaEditedWhileCheckingConfiguration() {
         var created = drafts.saveDynamic(null, 9L, dynamic());
-        var dead = new PreparationContracts.View(created.preparationId(), "DEAD", 4, 3, "旧配置", null, true);
+        var dead = new PreparationContracts.View(created.preparationId(), MediaTaskStatus.DEAD, 4, 3, "旧配置", null, true);
         when(tasks.preparation(created.preparationId())).thenReturn(dead); reconcileDue();
         when(tasks.preparation(created.preparationId())).thenAnswer(call -> {
             var replacement = dynamic(); replacement.getItems().get(1).setImageObjectKey("uploads/picture/9/20261011/replaced.png");
@@ -537,7 +538,7 @@ class ContentDraftIntegrationTest {
     @Test void unavailableConfigurationCheckLeavesFailedDraftRetryable() {
         var created = drafts.saveDynamic(null, 9L, dynamic());
         when(tasks.preparation(created.preparationId())).thenReturn(new PreparationContracts.View(
-                created.preparationId(), "DEAD", 4, 3, "下载失败", null, false));
+                created.preparationId(), MediaTaskStatus.DEAD, 4, 3, "下载失败", null, false));
         reconcileDue();
         when(tasks.preparation(created.preparationId())).thenReturn(null);
         assertEquals(ErrorCode.DEPENDENCY_FAILURE,
@@ -555,7 +556,7 @@ class ContentDraftIntegrationTest {
         var incomplete = new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Manifest(valid.preparationId(), valid.draftId(),
                 valid.mediaVersion(), valid.userId(), valid.parameterVersion(), valid.items().subList(0, 3), valid.durationMs(), valid.hasAudio(), valid.videoFrameCount(), valid.videoSampling());
         when(tasks.preparation(created.preparationId())).thenReturn(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.View(
-                created.preparationId(), "SUCCESS", 1, 0, null, incomplete, false));
+                created.preparationId(), MediaTaskStatus.SUCCESS, 1, 0, null, incomplete, false));
         reconcileDue(); assertEquals("processing", drafts.get(created.draftId(), 9L).status());
         assertNull(rows.selectById(created.draftId()).getPreparedJson());
         assertThrows(BizException.class, () -> publish.submit(created.draftId(), 9L));

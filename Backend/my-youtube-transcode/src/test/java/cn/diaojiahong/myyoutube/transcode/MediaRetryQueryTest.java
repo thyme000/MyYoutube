@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.Query;
 import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
 import cn.diaojiahong.myyoutube.transcode.domain.po.MediaTask;
@@ -36,7 +38,7 @@ class MediaRetryQueryTest {
 
     void task(long id, String resource) {
         rows.insert(new MediaTask().setId(id).setOwnerId(id).setPhase("DRAFT").setTaskType("TRANSCODE")
-                .setStatus("DEAD").setAttempt(0).setRetryCount(0).setCompletionAck(false)
+                .setStatus(MediaTaskStatus.DEAD).setAttempt(0).setRetryCount(0).setCompletionAck(false)
                 .setDependenciesJson("{}").setDependencyService(resource));
     }
 
@@ -64,5 +66,24 @@ class MediaRetryQueryTest {
         var page = service.query(query(null, null, 20));
         assertEquals(List.of(2L, 3L), page.items().stream().map(cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.Task::taskId).toList());
         assertNull(page.nextCursor());
+    }
+
+    @Test void statusFilterUsesEnumCodesAndPreservesAllAndDefaultSelections() {
+        for (var status : MediaTaskStatus.values()) {
+            long id = status.ordinal() + 1L;
+            task(id, "LLM");
+            rows.updateById(rows.selectById(id).setStatus(status));
+        }
+        for (var status : MediaTaskStatus.values()) {
+            var page = service.query(new Query(null, null, null, status.getCode(), null, null, null, 20, null));
+            assertEquals(List.of(status), page.items().stream().map(cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.Task::status).toList());
+        }
+        assertEquals(MediaTaskStatus.values().length,
+                service.query(new Query(null, null, null, "ALL", null, null, null, 20, null)).items().size());
+        assertEquals(java.util.Set.of(MediaTaskStatus.DEAD, MediaTaskStatus.BLOCKED, MediaTaskStatus.RETRY_WAIT),
+                service.query(query(null, null, 20)).items().stream()
+                        .map(cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.Task::status).collect(java.util.stream.Collectors.toSet()));
+        assertThrows(BizException.class,
+                () -> service.query(new Query(null, null, null, "INVALID", null, null, null, 20, null)));
     }
 }

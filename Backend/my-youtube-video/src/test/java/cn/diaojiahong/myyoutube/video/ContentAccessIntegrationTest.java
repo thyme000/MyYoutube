@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.comment.cache.CommentListCache;
 import cn.diaojiahong.myyoutube.comment.domain.dto.*;
 import cn.diaojiahong.myyoutube.comment.service.impl.ContentCommentServiceImpl;
@@ -118,7 +119,7 @@ class ContentAccessIntegrationTest {
         assertThrows(BizException.class, () -> settings.update(1L,7L,new ContentSettingsService.Settings("unlisted",1)));
     }
     @Test void completedDownloadRechecksCurrentAccessAndRequester() {
-        when(transcode.getTask(20L)).thenReturn(TranscodeTaskVO.builder().taskId(20L).contentId(1L).userId(9L).status("DONE").resultObjectKey("export.mp4").build());
+        when(transcode.getTask(20L)).thenReturn(TranscodeTaskVO.builder().taskId(20L).contentId(1L).userId(9L).status(TranscodeTaskStatus.DONE).resultObjectKey("export.mp4").build());
         when(storage.signGetUrl("export.mp4",1200L)).thenReturn("signed");
         assertEquals("signed",downloads.status(20L,9L).downloadUrl());
         assertThrows(BizException.class, () -> downloads.status(20L,10L));

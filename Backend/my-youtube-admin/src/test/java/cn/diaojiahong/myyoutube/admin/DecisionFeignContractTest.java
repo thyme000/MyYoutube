@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.admin;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
 import cn.diaojiahong.myyoutube.admin.controller.AdminContentVectorDeadLetterController;
 import cn.diaojiahong.myyoutube.admin.controller.AdminMediaRetryController;
 import cn.diaojiahong.myyoutube.common.config.JacksonConfig;
@@ -83,7 +84,7 @@ class DecisionFeignContractTest {
     }
 
     @Test void admissionKeepsAcceptedAndBusyDecisionsAcrossTheHttpBoundary() {
-        var batch = new MediaRetryPort.Batch(id, "RUNNING", 1, 0, 1, 0, 0, 0, 1, 1, null, null, null);
+        var batch = new MediaRetryPort.Batch(id, MediaRetryBatchStatus.RUNNING, 1, 0, 1, 0, 0, 0, 1, 1, null, null, null);
         runner().run(context -> {
             assertThat(context).hasNotFailed();
             var mvc = mvc(context.getBean(MediaRetryPort.class), context.getBean(ContentVectorDeadLetterPort.class));

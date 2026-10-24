@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.preparation;
 
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.transcode.domain.po.*;
@@ -30,7 +31,7 @@ public class PreparationReclaimer {
     private final PreparationStorage storage;
     private final TransactionTemplate transaction;
     private final io.micrometer.core.instrument.MeterRegistry metrics;
-    private static final Set<String> TERMINAL = Set.of("SUCCESS", "DEAD", "BLOCKED");
+    private static final Set<MediaTaskStatus> TERMINAL = Set.of(MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD, MediaTaskStatus.BLOCKED);
 
     @Scheduled(fixedDelay = 900000, initialDelay = 300000)
     @ObservedBusiness(BusinessOperation.RECLAIM_MEDIA)

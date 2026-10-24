@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
 import com.sun.net.httpserver.HttpServer;
 import feign.Feign;
 import feign.Retryer;
@@ -115,7 +117,7 @@ class RetryBatchIntegrationTest {
     void failedPipeline() {
         tasks.start(input(100,1)); succeed("COVER");
         for (String type:List.of("ASR","OCR")) tasks.deferAndAdvance(claim(node(type)),new ModelUnavailable(type,"MODEL_CIRCUIT_OPEN",30,null));
-        assertEquals("WAITING_ARTIFACTS",tasks.view(100L).status());
+        assertEquals(PipelineStatus.WAITING_ARTIFACTS,tasks.view(100L).status());
     }
     Admission create(String request,String... types) {
         return retries.create(new Request(request,Arrays.stream(types).map(t -> node(t).getId()).toList()),1L);
@@ -171,8 +173,8 @@ class RetryBatchIntegrationTest {
             assertEquals(ErrorCode.STATE_CONFLICT, conflict.getErrorCode());
             assertEquals(4, calls.get());
             assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM media_retry_batch", Integer.class));
-            assertEquals("SUCCESS", node("COVER").getStatus());
-            assertEquals("DEAD", node("OCR").getStatus());
+            assertEquals(MediaTaskStatus.SUCCESS,node("COVER").getStatus());
+            assertEquals(MediaTaskStatus.DEAD,node("OCR").getStatus());
         } finally { server.stop(0); }
     }
     @Test void concurrentAdmissionsHaveOneWinnerAndIdempotentReplay() {
@@ -195,13 +197,13 @@ class RetryBatchIntegrationTest {
     }
     @Test void selectedBranchPreservesSuccessAndLeavesIndependentDeadBranch() {
         failedPipeline(); var selected=create("asr-only","ASR");
-        assertEquals("READY",node("ASR").getStatus());
-        assertEquals("DEAD",node("OCR").getStatus());
-        assertEquals("SUCCESS",node("COVER").getStatus());
+        assertEquals(MediaTaskStatus.READY,node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.DEAD,node("OCR").getStatus());
+        assertEquals(MediaTaskStatus.SUCCESS,node("COVER").getStatus());
         succeed("ASR");
         assertNull(batches.current());
-        assertEquals("COMPLETED",batches.batch(selected.batch().batchId()).status());
-        assertEquals("WAITING_ARTIFACTS",tasks.view(100L).status());
+        assertEquals(MediaRetryBatchStatus.COMPLETED,batches.batch(selected.batch().batchId()).status());
+        assertEquals(PipelineStatus.WAITING_ARTIFACTS,tasks.view(100L).status());
         assertEquals(2,node("ASR").getAttempt());
     }
     @Test void downstreamSharesBudgetAndBatchRemainsUntilTagCompletes() {
@@ -216,7 +218,7 @@ class RetryBatchIntegrationTest {
         assertNotNull(batches.current());
         succeed("TAG");
         assertNull(batches.current());
-        assertEquals("COMPLETED",tasks.view(100L).status());
+        assertEquals(PipelineStatus.COMPLETED,tasks.view(100L).status());
         assertEquals(4,batches.batch(batch.batchId()).affectedTasks());
         assertEquals(4,batches.affected(batch.batchId()).size());
     }
@@ -225,23 +227,23 @@ class RetryBatchIntegrationTest {
         tasks.start(input(200,2));
         assertNull(claim(node("ASR")));
         assertEquals("NORMAL_TASKS_FIRST",batches.batch(batch.batchId()).waitReason());
-        assertEquals("PROCESSING",tasks.view(200L).status());
-        assertEquals("READY",node("ASR").getStatus());
+        assertEquals(PipelineStatus.PROCESSING,tasks.view(200L).status());
+        assertEquals(MediaTaskStatus.READY,node("ASR").getStatus());
     }
     @Test void blockedSelectionDoesNotSilentlyResumeUnselectedUpstream() {
         failedPipeline(); var batch=create("blocked","SUMMARY").batch();
         assertNull(batches.current());
-        assertEquals("SKIPPED",batches.items(batch.batchId()).get(0).state());
+        assertEquals(MediaRetryItemState.SKIPPED,batches.items(batch.batchId()).get(0).state());
         assertEquals("DEPENDENCY_NOT_SELECTED",batches.items(batch.batchId()).get(0).reason());
-        assertEquals("DEAD",node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.DEAD,node("ASR").getStatus());
     }
     @Test void ownerDeletionAfterSelectionSkipsAndReleasesBatch() {
         failedPipeline(); var batch=create("deleted","ASR").batch();
         when(owners.reason(any())).thenReturn("OWNER_DELETED");
         assertNull(claim(node("ASR")));
         assertNull(batches.current());
-        assertEquals("SKIPPED",batches.items(batch.batchId()).get(0).state());
-        assertEquals("BLOCKED",node("ASR").getStatus());
+        assertEquals(MediaRetryItemState.SKIPPED,batches.items(batch.batchId()).get(0).state());
+        assertEquals(MediaTaskStatus.BLOCKED,node("ASR").getStatus());
     }
     @Test void transientOwnerCheckFailureRejectsWithoutPersistingAQueuedBatch() {
         failedPipeline();
@@ -250,15 +252,15 @@ class RetryBatchIntegrationTest {
         assertNull(batches.current());
         assertEquals(0,batchRows.selectCount(null));
         reset(owners);
-        assertEquals("RUNNING",create("owner-down","ASR").batch().status());
+        assertEquals(MediaRetryBatchStatus.RUNNING,create("owner-down","ASR").batch().status());
     }
     @Test void batchHistorySurvivesRetryingSameTaskInLaterBatch() {
         failedPipeline(); var old=create("old","ASR").batch();
         tasks.deferAndAdvance(claim(node("ASR")),new ModelUnavailable("ASR","MODEL_CIRCUIT_OPEN",30,null));
-        assertEquals("COMPLETED_WITH_FAILURES",batches.batch(old.batchId()).status());
+        assertEquals(MediaRetryBatchStatus.COMPLETED_WITH_FAILURES,batches.batch(old.batchId()).status());
         var next=create("new","ASR").batch(); succeed("ASR");
         assertEquals(1,batches.batch(old.batchId()).affectedTasks());
-        assertEquals("FAILED",batches.items(old.batchId()).get(0).state());
+        assertEquals(MediaRetryItemState.FAILED,batches.items(old.batchId()).get(0).state());
         assertEquals(2,batches.items(old.batchId()).get(0).executionAttempt());
         assertEquals(3,batches.items(next.batchId()).get(0).executionAttempt());
     }
@@ -303,7 +305,7 @@ class RetryBatchIntegrationTest {
         assertEquals(0,node("SUMMARY").getAttempt());
         when(owners.reason(any())).thenReturn("OWNER_DELETED");
         assertNull(claim(node("SUMMARY")));
-        assertEquals("BLOCKED",node("SUMMARY").getStatus());
+        assertEquals(MediaTaskStatus.BLOCKED,node("SUMMARY").getStatus());
         assertEquals("RETRY_SKIPPED_OWNER_DELETED",node("SUMMARY").getFailureCode());
         assertNull(batches.current());
     }
@@ -313,8 +315,8 @@ class RetryBatchIntegrationTest {
         jdbc.update("UPDATE media_task SET dispatch_after=? WHERE task_type='OCR'",java.time.LocalDateTime.now().minusMinutes(1));
         tasks.recover();
         assertNull(claim(node("OCR")));
-        assertEquals("RUNNING",node("ASR").getStatus());
-        assertEquals("READY",node("OCR").getStatus());
+        assertEquals(MediaTaskStatus.RUNNING,node("ASR").getStatus());
+        assertEquals(MediaTaskStatus.READY,node("OCR").getStatus());
     }
 
     @Test void cachedBusyAndCurrentStatusDoNotReadTheDatabase() {
@@ -342,9 +344,9 @@ class RetryBatchIntegrationTest {
     @Test void historyAccessFinishesCommittedTasksWhenCompletionCallbackWasLost() {
         failedPipeline(); var batch=create("lazy-history","ASR").batch();
         jdbc.update("UPDATE media_task SET status='SUCCESS',attempt=attempt+1 WHERE task_type='ASR'");
-        assertEquals("RUNNING",batchRows.selectById(batch.batchId()).getStatus());
-        assertEquals("COMPLETED",batches.batch(batch.batchId()).status());
-        assertEquals("SUCCESS",batches.items(batch.batchId()).get(0).state());
+        assertEquals(MediaRetryBatchStatus.RUNNING,batchRows.selectById(batch.batchId()).getStatus());
+        assertEquals(MediaRetryBatchStatus.COMPLETED,batches.batch(batch.batchId()).status());
+        assertEquals(MediaRetryItemState.SUCCESS,batches.items(batch.batchId()).get(0).state());
         assertNotNull(batchRows.selectById(batch.batchId()).getResultJson());
         assertNull(occupation.current());
         occupation.update(batch);
@@ -356,7 +358,7 @@ class RetryBatchIntegrationTest {
         redis.getBucket("media:retry:active").delete();
         var next=create("next","OCR");
         assertTrue(next.accepted());
-        assertEquals("COMPLETED",batches.batch(old.batchId()).status());
+        assertEquals(MediaRetryBatchStatus.COMPLETED,batches.batch(old.batchId()).status());
         occupation.update(batches.batch(old.batchId()));
         assertEquals(next.batch().batchId(),occupation.current().batch().batchId());
     }
@@ -364,7 +366,7 @@ class RetryBatchIntegrationTest {
         failedPipeline();
         tasks.start(input(200,2));
         var others=tasks.listPipeline(200L,"CONTENT");
-        for (var row:others) if ("READY".equals(row.getStatus()))
+        for (var row:others) if (MediaTaskStatus.READY.equals(row.getStatus()))
             jdbc.update("UPDATE media_task SET status='DEAD' WHERE id=?",row.getId());
         var other=others.stream().filter(row -> "ASR".equals(row.getTaskType())).findFirst().orElseThrow();
         retries.create(new Request("cross-pipeline",List.of(node("ASR").getId(),other.getId())),1L);

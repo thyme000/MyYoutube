@@ -1,5 +1,8 @@
 package cn.diaojiahong.myyoutube.admin;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.admin.controller.AdminContentVectorDeadLetterController;
 import cn.diaojiahong.myyoutube.admin.controller.AdminHotSearchHistoryController;
 import cn.diaojiahong.myyoutube.admin.controller.AdminMediaRetryController;
@@ -44,7 +47,7 @@ class ExternalResponseContractTest {
     @AfterEach void clear() { UserContext.removeUser(); }
 
     MediaRetryPort.Batch batch() {
-        return new MediaRetryPort.Batch(id, "RUNNING", 1, 0, 1, 0, 0, 0, 1, 1, null, null, null);
+        return new MediaRetryPort.Batch(id, MediaRetryBatchStatus.RUNNING, 1, 0, 1, 0, 0, 0, 1, 1, null, null, null);
     }
 
     @Test void acceptedAndRejectedAdmissionsRetainTheFullDecisionAndLargeBatchId() throws Exception {
@@ -80,8 +83,8 @@ class ExternalResponseContractTest {
 
     @Test void retryDetailRoutesWrapObjectsAndListsOnce() throws Exception {
         when(retries.batch(id)).thenReturn(batch());
-        when(retries.affected(id)).thenReturn(List.of(new MediaRetryPort.Affected(id, "RUNNING", 1, null)));
-        when(retries.items(id)).thenReturn(List.of(new MediaRetryPort.Item(id, "RUNNING", 0, 1, null)));
+        when(retries.affected(id)).thenReturn(List.of(new MediaRetryPort.Affected(id, MediaTaskStatus.RUNNING, 1, null)));
+        when(retries.items(id)).thenReturn(List.of(new MediaRetryPort.Item(id, MediaRetryItemState.RUNNING, 0, 1, null)));
         var path = "/admin/media-retry-batches/" + id;
         mvc.perform(get(path)).andExpect(status().isOk()).andExpect(jsonPath("$.data.batchId").value(Long.toString(id)));
         for (String suffix : List.of("tasks", "items")) {

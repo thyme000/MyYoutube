@@ -1,5 +1,8 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
+import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.*;
 import cn.diaojiahong.myyoutube.common.media.StructuredJson;
 import cn.diaojiahong.myyoutube.common.media.*;
@@ -58,7 +61,7 @@ public class MediaTaskService {
             lock(input.pipelineId());
             lifecycle.requireActive(input.media());
             var pipeline = new Pipeline().setId(input.pipelineId()).setContentId(input.contentId())
-                    .setInputJson(JsonUtil.toJson(input)).setStatus("PROCESSING").setReceived(false)
+                    .setInputJson(JsonUtil.toJson(input)).setStatus(PipelineStatus.PROCESSING).setReceived(false)
                     .setSubmittedAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(input.submittedAt()), ZoneOffset.UTC));
             try {
                 pipelines.insert(pipeline);
@@ -107,15 +110,15 @@ public class MediaTaskService {
             var row = tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, preparationId)
                     .eq(MediaTask::getPhase, "DRAFT").eq(MediaTask::getTaskType, "PREPARE").last("FOR UPDATE"));
             if (row == null) { log.debug("Preparation retry ignored: no task preparationId={}", preparationId); return false; }
-            if (Set.of("READY", "RUNNING", "RETRY_WAIT").contains(row.getStatus())) {
+            if (Set.of(MediaTaskStatus.READY, MediaTaskStatus.RUNNING, MediaTaskStatus.RETRY_WAIT).contains(row.getStatus())) {
                 log.debug("Preparation retry ignored: task still active preparationId={} status={}", preparationId, row.getStatus());
                 return true;
             }
-            if (!"DEAD".equals(row.getStatus())) {
+            if (!MediaTaskStatus.DEAD.equals(row.getStatus())) {
                 log.debug("Preparation retry rejected: task not exhausted preparationId={} status={}", preparationId, row.getStatus());
                 return false;
             }
-            if (retryBatches != null && row.getRetryBatchId() != null && Set.of("QUEUED","RUNNING").contains(retryBatches.status(row.getRetryBatchId()))) return false;
+            if (retryBatches != null && row.getRetryBatchId() != null && Set.of(MediaRetryBatchStatus.QUEUED,MediaRetryBatchStatus.RUNNING).contains(retryBatches.status(row.getRetryBatchId()))) return false;
             row.setRetryBatchId(null).setFailureCode(null).setDependencyService(null);
             row.setRetryCount(0).setErrorMessage(null).setCompletionAck(false).setUnavailableDeadline(null);
             afterCommit(() -> log.info("Preparation retry accepted preparationId={} attempt={}", preparationId, row.getAttempt()));
@@ -130,7 +133,7 @@ public class MediaTaskService {
         }
         transaction.executeWithoutResult(tx -> {
             var pipeline = lock(pipelineId);
-            if (pipeline == null || !"COMPLETED".equals(pipeline.getStatus())) throw new IllegalStateException("Pipeline is not completed");
+            if (pipeline == null || !PipelineStatus.COMPLETED.equals(pipeline.getStatus())) throw new IllegalStateException("Pipeline is not completed");
             lifecycle.requireActive(JsonUtil.fromJson(pipeline.getInputJson(), Input.class).media());
             var manifest = JsonUtil.fromJson(pipeline.getManifestJson(), Manifest.class);
             MediaTask row;
@@ -146,7 +149,7 @@ public class MediaTaskService {
     }
     private MediaTask insert(Long owner, Long pipelineId, String phase, MediaTaskType type, Input input) {
         var row = new MediaTask().setOwnerId(owner).setPipelineId(pipelineId).setPhase(phase).setTaskType(type.name())
-                .setStatus("PENDING").setAttempt(0).setRetryCount(0).setCompletionAck(false);
+                .setStatus(MediaTaskStatus.PENDING).setAttempt(0).setRetryCount(0).setCompletionAck(false);
         row.setDraftInputJson(pipelineId == null ? JsonUtil.toJson(input) : null).setDependenciesJson("{}");
         tasks.insert(row);
         return row;
@@ -173,14 +176,14 @@ public class MediaTaskService {
                 log.debug("Task claim skipped taskId={} reason=OWNER_RETIRED", message.getTaskId());
                 if (manualCandidate != null && manualCandidate.getRetryBatchId() != null) {
                     var row=tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getId,message.getTaskId()).last("FOR UPDATE"));
-                    if (row!=null && "READY".equals(row.getStatus()) && Objects.equals(row.getAttempt(),message.getAttempt()))
+                    if (row!=null && MediaTaskStatus.READY.equals(row.getStatus()) && Objects.equals(row.getAttempt(),message.getAttempt()))
                         skipRetryRow(row,pipeline,"OWNER_RETIRED");
                 }
                 return null;
             }
             var row = tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getId, message.getTaskId()).last("FOR UPDATE"));
             if (row == null || !Objects.equals(row.getPipelineId(), message.getPipelineId())
-                    || !Objects.equals(row.getPhase(), message.getPhase()) || !"READY".equals(row.getStatus())
+                    || !Objects.equals(row.getPhase(), message.getPhase()) || !MediaTaskStatus.READY.equals(row.getStatus())
                     || !Objects.equals(row.getAttempt(), message.getAttempt())) {
                 metrics.counter("media.claim.skipped", "phase", row == null ? "UNKNOWN" : row.getPhase()).increment();
                 log.debug("Task claim skipped taskId={} reason={} messageAttempt={}", message.getTaskId(), skipReason(row, message), message.getAttempt());
@@ -204,17 +207,17 @@ public class MediaTaskService {
             }
             int nextAttempt = row.getAttempt() + 1;
             int claimed = tasks.update(null,new LambdaUpdateWrapper<MediaTask>().eq(MediaTask::getId,row.getId())
-                    .eq(MediaTask::getStatus,"READY").eq(MediaTask::getAttempt,row.getAttempt())
-                    .set(MediaTask::getStatus,"RUNNING").set(MediaTask::getAttempt,nextAttempt)
+                    .eq(MediaTask::getStatus,MediaTaskStatus.READY).eq(MediaTask::getAttempt,row.getAttempt())
+                    .set(MediaTask::getStatus,MediaTaskStatus.RUNNING).set(MediaTask::getAttempt,nextAttempt)
                     .set(MediaTask::getStartedAt,now).set(MediaTask::getUpdateTime,now));
             if (claimed == 0) {
                 log.debug("Task claim skipped taskId={} reason=CLAIM_LOST", message.getTaskId());
                 return null;
             }
-            row.setStatus("RUNNING").setAttempt(nextAttempt).setStartedAt(now).setUpdateTime(now);
+            row.setStatus(MediaTaskStatus.RUNNING).setAttempt(nextAttempt).setStartedAt(now).setUpdateTime(now);
             if (retryBatches != null) retryBatches.taskChanged(row.getRetryBatchId());
             var input = input(row, pipeline);
-            eventJournal.task(row, "READY", row.getTaskType() + "_STARTED", input, null);
+            eventJournal.task(row, MediaTaskStatus.READY, row.getTaskType() + "_STARTED", input, null);
             afterCommit(() -> metrics.timer("media.node.wait", "type", row.getTaskType())
                     .record(Math.max(0, Duration.between(row.getReadyAt(), now).toMillis()), TimeUnit.MILLISECONDS));
             afterCommit(() -> log.info("Task claimed taskId={} pipelineId={} batchId={} type={} attempt={}",
@@ -223,9 +226,9 @@ public class MediaTaskService {
         });
     }
     private void skipRetryRow(MediaTask row, Pipeline pipeline, String reason) {
-        row.setStatus("BLOCKED").setFailureCode("RETRY_SKIPPED_"+reason).setErrorMessage(reason)
+        row.setStatus(MediaTaskStatus.BLOCKED).setFailureCode("RETRY_SKIPPED_"+reason).setErrorMessage(reason)
                 .setNextRetryAt(null).setCompletionAck(false).setUpdateTime(LocalDateTime.now(ZoneOffset.UTC));
-        eventJournal.task(row,"READY",row.getTaskType()+"_BLOCKED",input(row,pipeline),null);
+        eventJournal.task(row,MediaTaskStatus.READY,row.getTaskType()+"_BLOCKED",input(row,pipeline),null);
         save(row);
         afterCommit(() -> log.info("Retry owner changed batchId={} taskId={} reason={}",row.getRetryBatchId(),row.getId(),reason));
         if ("CONTENT".equals(row.getPhase())) advance(pipeline,listPipeline(row.getPipelineId(),"CONTENT"));
@@ -247,7 +250,7 @@ public class MediaTaskService {
             var pipeline = message.getPipelineId() == null ? null : lock(message.getPipelineId());
             var row = tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getId, message.getTaskId()).last("FOR UPDATE"));
             if (row == null || !Objects.equals(row.getPipelineId(), message.getPipelineId())
-                    || !"RUNNING".equals(row.getStatus()) || !Objects.equals(row.getAttempt(), message.getAttempt())) return;
+                    || !MediaTaskStatus.RUNNING.equals(row.getStatus()) || !Objects.equals(row.getAttempt(), message.getAttempt())) return;
             if (resource != null) row.setDependencyService(resource);
             if (unavailable == null) finish(row, result, error, input(row, pipeline));
             else defer(row, unavailable, input(row, pipeline));
@@ -261,27 +264,27 @@ public class MediaTaskService {
         if (row == null) return "TASK_MISSING";
         if (!Objects.equals(row.getPipelineId(), message.getPipelineId())) return "PIPELINE_MISMATCH";
         if (!Objects.equals(row.getPhase(), message.getPhase())) return "PHASE_MISMATCH";
-        if (!"READY".equals(row.getStatus())) return "STATUS_" + row.getStatus();
+        if (!MediaTaskStatus.READY.equals(row.getStatus())) return "STATUS_" + row.getStatus();
         return "ATTEMPT_MISMATCH";
     }
     private void finish(MediaTask row, String result, String error, Input input) {
-        String from = row.getStatus();
+        MediaTaskStatus from = row.getStatus();
         if (error == null) {
             if (result == null) throw new IllegalArgumentException("Missing task output");
             StructuredJson.object(result);
             row.setFailureCode(null).setDependencyService(null);
-            row.setStatus("SUCCESS").setResultJson(result).setErrorMessage(null).setNextRetryAt(null).setUnavailableDeadline(null);
+            row.setStatus(MediaTaskStatus.SUCCESS).setResultJson(result).setErrorMessage(null).setNextRetryAt(null).setUnavailableDeadline(null);
         } else {
             row.setFailureCode("Worker lease expired".equals(error) ? "TASK_LEASE_EXPIRED" : "TASK_EXECUTION_FAILED");
             row.setErrorMessage(error.substring(0, Math.min(500, error.length())));
             if (row.getRetryCount() >= 3) {
-                row.setStatus("DEAD").setNextRetryAt(null);
+                row.setStatus(MediaTaskStatus.DEAD).setNextRetryAt(null);
                 log.error("Task retries exhausted, manual retry required taskType={} taskId={} pipelineId={} attempt={} retryCount={} error={}",
                         row.getTaskType(), row.getId(), row.getPipelineId(), row.getAttempt(), row.getRetryCount(), row.getErrorMessage());
             } else {
                 int retry = row.getRetryCount();
                 long backoffSeconds = new long[]{30,120,600}[retry];
-                row.setRetryCount(retry + 1).setStatus("RETRY_WAIT")
+                row.setRetryCount(retry + 1).setStatus(MediaTaskStatus.RETRY_WAIT)
                         .setNextRetryAt(LocalDateTime.now(ZoneOffset.UTC).plusSeconds(backoffSeconds));
                 log.debug("Task retry scheduled taskType={} taskId={} pipelineId={} attempt={} nextRetryCount={} backoffSeconds={} error={}",
                         row.getTaskType(), row.getId(), row.getPipelineId(), row.getAttempt(), row.getRetryCount(), backoffSeconds, row.getErrorMessage());
@@ -296,8 +299,8 @@ public class MediaTaskService {
         var now = LocalDateTime.now(ZoneOffset.UTC);
         row.setFailureCode(unavailable.code()).setDependencyService(unavailable.resource());
         if (unavailable.terminal()) {
-            String from = row.getStatus();
-            row.setStatus("DEAD").setNextRetryAt(null).setUnavailableDeadline(null)
+            MediaTaskStatus from = row.getStatus();
+            row.setStatus(MediaTaskStatus.DEAD).setNextRetryAt(null).setUnavailableDeadline(null)
                     .setErrorMessage(unavailable.code()).setCompletionAck(false).setUpdateTime(now);
             eventJournal.task(row, from, row.getTaskType() + "_FAILED", input, unavailable.code());
             save(row);
@@ -316,17 +319,17 @@ public class MediaTaskService {
             return;
         }
         var retryAt = now.plusSeconds(unavailable.retryAfterSeconds() + java.util.concurrent.ThreadLocalRandom.current().nextInt(6));
-        row.setStatus("RETRY_WAIT").setNextRetryAt(retryAt.isAfter(row.getUnavailableDeadline()) ? row.getUnavailableDeadline() : retryAt);
-        eventJournal.task(row, "RUNNING", row.getTaskType() + "_DEFERRED", input, unavailable.code());
+        row.setStatus(MediaTaskStatus.RETRY_WAIT).setNextRetryAt(retryAt.isAfter(row.getUnavailableDeadline()) ? row.getUnavailableDeadline() : retryAt);
+        eventJournal.task(row, MediaTaskStatus.RUNNING, row.getTaskType() + "_DEFERRED", input, unavailable.code());
         save(row);
         afterCommit(() -> log.info("Task deferred taskId={} pipelineId={} batchId={} attempt={} resource={} reason={} retryAt={} deadline={}",
                 row.getId(), row.getPipelineId(), row.getRetryBatchId(), row.getAttempt(), unavailable.resource(), unavailable.code(), row.getNextRetryAt(), row.getUnavailableDeadline()));
         afterCommit(() -> metrics.counter("media.model.deferred", "type", row.getTaskType(), "reason", unavailable.code()).increment());
     }
     private void unavailableExpired(MediaTask row, Input input) {
-        String from = row.getStatus();
+        MediaTaskStatus from = row.getStatus();
         row.setFailureCode("MODEL_UNAVAILABLE_TIMEOUT");
-        row.setStatus("DEAD").setNextRetryAt(null).setErrorMessage("MODEL_UNAVAILABLE_TIMEOUT")
+        row.setStatus(MediaTaskStatus.DEAD).setNextRetryAt(null).setErrorMessage("MODEL_UNAVAILABLE_TIMEOUT")
                 .setCompletionAck(false).setUpdateTime(LocalDateTime.now(ZoneOffset.UTC));
         eventJournal.task(row, from, row.getTaskType() + "_FAILED", input, "MODEL_UNAVAILABLE_TIMEOUT");
         save(row);
@@ -336,25 +339,25 @@ public class MediaTaskService {
     private void advance(Pipeline pipeline, List<MediaTask> nodes) {
         advance(pipeline, nodes, Map.of());
     }
-    private void advance(Pipeline pipeline, List<MediaTask> nodes, Map<Long, String> resumed) {
-        if (pipeline == null || "COMPLETED".equals(pipeline.getStatus())) return;
+    private void advance(Pipeline pipeline, List<MediaTask> nodes, Map<Long, MediaTaskStatus> resumed) {
+        if (pipeline == null || PipelineStatus.COMPLETED.equals(pipeline.getStatus())) return;
         var input = JsonUtil.fromJson(pipeline.getInputJson(), Input.class);
         Map<String, MediaTask> byType = nodes.stream().collect(Collectors.toMap(MediaTask::getTaskType, t -> t));
         boolean changed;
         do {
             changed = false;
             for (var row : nodes) {
-                if (!"PENDING".equals(row.getStatus())) continue;
+                if (!MediaTaskStatus.PENDING.equals(row.getStatus())) continue;
                 var deps = MediaTaskType.fromCode(row.getTaskType()).getDependencies();
-                if (deps.stream().anyMatch(d -> Set.of("DEAD", "BLOCKED").contains(byType.get(d).getStatus()))) {
-                    String upstream = deps.stream().filter(d -> Set.of("DEAD", "BLOCKED").contains(byType.get(d).getStatus()))
+                if (deps.stream().anyMatch(d -> Set.of(MediaTaskStatus.DEAD, MediaTaskStatus.BLOCKED).contains(byType.get(d).getStatus()))) {
+                    String upstream = deps.stream().filter(d -> Set.of(MediaTaskStatus.DEAD, MediaTaskStatus.BLOCKED).contains(byType.get(d).getStatus()))
                             .collect(Collectors.joining(","));
                     log.warn("Task blocked by upstream failure taskType={} taskId={} pipelineId={} upstream={}",
                             row.getTaskType(), row.getId(), row.getPipelineId(), upstream);
-                    row.setStatus("BLOCKED").setErrorMessage("Upstream terminal failure");
-                    eventJournal.task(row, resumed.getOrDefault(row.getId(), "PENDING"), row.getTaskType() + "_BLOCKED", input, null);
+                    row.setStatus(MediaTaskStatus.BLOCKED).setErrorMessage("Upstream terminal failure");
+                    eventJournal.task(row, resumed.getOrDefault(row.getId(), MediaTaskStatus.PENDING), row.getTaskType() + "_BLOCKED", input, null);
                     save(row); changed = true;
-                } else if (deps.stream().allMatch(d -> "SUCCESS".equals(byType.get(d).getStatus()))) {
+                } else if (deps.stream().allMatch(d -> MediaTaskStatus.SUCCESS.equals(byType.get(d).getStatus()))) {
                     log.debug("Task released taskType={} taskId={} pipelineId={} dependencies={}",
                             row.getTaskType(), row.getId(), row.getPipelineId(), deps);
                     ready(row, deps.stream().collect(Collectors.toMap(d -> d, d -> byType.get(d).getResultJson())), input,
@@ -362,18 +365,18 @@ public class MediaTaskService {
                 }
             }
         } while (changed);
-        String status;
+        PipelineStatus status;
         try { status = PipelineState.derive(nodes); }
         catch (IllegalStateException e) {
             metrics.counter("media.pipeline.graph.errors").increment();
             log.error("Pipeline dependency anomaly pipelineId={}", pipeline.getId(), e);
-            pipelines.update(null,new LambdaUpdateWrapper<Pipeline>().eq(Pipeline::getId,pipeline.getId()).set(Pipeline::getStatus,"PROCESSING")); return;
+            pipelines.update(null,new LambdaUpdateWrapper<Pipeline>().eq(Pipeline::getId,pipeline.getId()).set(Pipeline::getStatus,PipelineStatus.PROCESSING)); return;
         }
-        String previous = pipeline.getStatus();
+        PipelineStatus previous = pipeline.getStatus();
         pipeline.setStatus(status);
         if (!status.equals(previous)) eventJournal.pipeline(pipeline, previous,
-                "COMPLETED".equals(status) ? "PIPELINE_COMPLETED" : "WAITING_ARTIFACTS".equals(status) ? "PIPELINE_WAITING_ARTIFACTS" : "PIPELINE_RESUMED", input);
-        if ("COMPLETED".equals(status)) {
+                PipelineStatus.COMPLETED.equals(status) ? "PIPELINE_COMPLETED" : PipelineStatus.WAITING_ARTIFACTS.equals(status) ? "PIPELINE_WAITING_ARTIFACTS" : "PIPELINE_RESUMED", input);
+        if (PipelineStatus.COMPLETED.equals(status)) {
             var now = LocalDateTime.now(ZoneOffset.UTC);
             var manifest = new Manifest(pipeline.getId(), pipeline.getContentId(), status, input,
                     nodes.stream().collect(Collectors.toMap(MediaTask::getTaskType, MediaTask::getResultJson)),
@@ -390,11 +393,11 @@ public class MediaTaskService {
         pipelines.updateById(pipeline);
     }
     private void ready(MediaTask row, Map<String, String> deps, Input input) {
-        ready(row, deps, input, row.getStatus(), "DEAD".equals(row.getStatus()));
+        ready(row, deps, input, row.getStatus(), MediaTaskStatus.DEAD.equals(row.getStatus()));
     }
-    private void ready(MediaTask row, Map<String, String> deps, Input input, String from, boolean manual) {
+    private void ready(MediaTask row, Map<String, String> deps, Input input, MediaTaskStatus from, boolean manual) {
         var now = LocalDateTime.now(ZoneOffset.UTC);
-        row.setDependenciesJson(JsonUtil.toJson(deps)).setStatus("READY").setReadyAt(now)
+        row.setDependenciesJson(JsonUtil.toJson(deps)).setStatus(MediaTaskStatus.READY).setReadyAt(now)
                 .setNextRetryAt(null).setDispatchAfter(now.plusSeconds(30));
         eventJournal.task(row, from, row.getTaskType() + (manual ? "_RETRY_REQUESTED" : "_READY"), input, null);
         save(row);
@@ -415,18 +418,18 @@ public class MediaTaskService {
     }
     private void notifyResult(MediaTask row) {
         if ("DRAFT".equals(row.getPhase()) && "PREPARE".equals(row.getTaskType())) {
-            if (Set.of("SUCCESS", "DEAD").contains(row.getStatus())) {
+            if (Set.of(MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD).contains(row.getStatus())) {
                 row.setCompletionAck(true); save(row);
             }
         } else if ("REVIEW".equals(row.getPhase())) {
             var result = new ReviewResult(row.getPipelineId(), row.getOwnerId(), row.getId(), row.getAttempt(),
-                    row.getResultJson(), row.getErrorMessage(), "DEAD".equals(row.getStatus()));
+                    row.getResultJson(), row.getErrorMessage(), MediaTaskStatus.DEAD.equals(row.getStatus()));
             afterCommit(() -> dispatcher.reviewed(result));
         } else if ("DRAFT".equals(row.getPhase()) && MediaTaskType.TRANSCODE.name().equals(row.getTaskType())
-                && Set.of("SUCCESS", "DEAD").contains(row.getStatus())) {
+                && Set.of(MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD).contains(row.getStatus())) {
             afterCommit(() -> {
-                Long duration = "SUCCESS".equals(row.getStatus()) ? StructuredJson.object(row.getResultJson()).get("durationMs").getAsLong() : null;
-                dispatcher.draftFinished(row.getOwnerId(), "SUCCESS".equals(row.getStatus()), duration, row.getErrorMessage());
+                Long duration = MediaTaskStatus.SUCCESS.equals(row.getStatus()) ? StructuredJson.object(row.getResultJson()).get("durationMs").getAsLong() : null;
+                dispatcher.draftFinished(row.getOwnerId(), MediaTaskStatus.SUCCESS.equals(row.getStatus()), duration, row.getErrorMessage());
                 resultReceived(row.getId(), row.getAttempt());
             });
         }
@@ -436,28 +439,28 @@ public class MediaTaskService {
                 .filter(Objects::nonNull).distinct().forEach(retryBatches::batch);
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             var pipeline = lock(id);
-            if (pipeline == null || "COMPLETED".equals(pipeline.getStatus())) {
+            if (pipeline == null || PipelineStatus.COMPLETED.equals(pipeline.getStatus())) {
                 log.debug("Pipeline retry rejected pipelineId={} reason={}", id, pipeline == null ? "PIPELINE_MISSING" : "ALREADY_COMPLETED");
                 return false;
             }
             lifecycle.requireActive(JsonUtil.fromJson(pipeline.getInputJson(), Input.class).media());
-            if ("PROCESSING".equals(pipeline.getStatus())) {
+            if (PipelineStatus.PROCESSING.equals(pipeline.getStatus())) {
                 log.debug("Pipeline retry no-op pipelineId={} reason=STILL_PROCESSING", id);
                 return true;
             }
             var nodes = listPipeline(id, "CONTENT");
             if (retryBatches != null && nodes.stream().anyMatch(row -> row.getRetryBatchId() != null
-                    && Set.of("QUEUED", "RUNNING").contains(retryBatches.status(row.getRetryBatchId())))) return false;
-            var resumed = new HashMap<Long, String>();
-            for (var row : nodes) if (Set.of("DEAD", "BLOCKED").contains(row.getStatus())) {
+                    && Set.of(MediaRetryBatchStatus.QUEUED, MediaRetryBatchStatus.RUNNING).contains(retryBatches.status(row.getRetryBatchId())))) return false;
+            var resumed = new HashMap<Long, MediaTaskStatus>();
+            for (var row : nodes) if (Set.of(MediaTaskStatus.DEAD, MediaTaskStatus.BLOCKED).contains(row.getStatus())) {
                 resumed.put(row.getId(), row.getStatus());
                 row.setRetryBatchId(null).setFailureCode(null).setDependencyService(null);
-                row.setStatus("PENDING").setRetryCount(0).setErrorMessage(null).setCompletionAck(false)
+                row.setStatus(MediaTaskStatus.PENDING).setRetryCount(0).setErrorMessage(null).setCompletionAck(false)
                         .setNextRetryAt(null).setUnavailableDeadline(null);
             }
             advance(pipeline, nodes, resumed);
             var input = JsonUtil.fromJson(pipeline.getInputJson(), Input.class);
-            for (var row : nodes) if (resumed.containsKey(row.getId()) && "PENDING".equals(row.getStatus())) {
+            for (var row : nodes) if (resumed.containsKey(row.getId()) && MediaTaskStatus.PENDING.equals(row.getStatus())) {
                 eventJournal.task(row, resumed.get(row.getId()), row.getTaskType() + "_RETRY_REQUESTED", input, null); save(row);
             }
             String resumedTasks = nodes.stream().filter(n -> resumed.containsKey(n.getId()))
@@ -496,27 +499,27 @@ public class MediaTaskService {
                     group.stream().map(MediaTask::getId).toList()).orderByAsc(MediaTask::getId).last("FOR UPDATE"))
                     : listPipeline(pipeline.getId(),first.getPhase());
             var byType=nodes.stream().collect(Collectors.toMap(MediaTask::getTaskType,row -> row));
-            var resumed=new HashMap<Long,String>();
+            var resumed=new HashMap<Long,MediaTaskStatus>();
             var excluded=new HashSet<Long>();
             for (var row : nodes) if (selected.containsKey(row.getId())) {
-                if (!Objects.equals(row.getAttempt(),selected.get(row.getId())) || !Set.of("DEAD","BLOCKED").contains(row.getStatus())) {
+                if (!Objects.equals(row.getAttempt(),selected.get(row.getId())) || !Set.of(MediaTaskStatus.DEAD,MediaTaskStatus.BLOCKED).contains(row.getStatus())) {
                     skipped.put(row.getId(),"TASK_STATE_CHANGED"); excluded.add(row.getId()); continue;
                 }
-                if ("DEAD".equals(row.getStatus())) resumed.put(row.getId(),row.getStatus());
+                if (MediaTaskStatus.DEAD.equals(row.getStatus())) resumed.put(row.getId(),row.getStatus());
             }
             boolean changed;
             do {
                 changed=false;
-                for (var row : nodes) if ("BLOCKED".equals(row.getStatus()) && !resumed.containsKey(row.getId()) && !excluded.contains(row.getId())) {
+                for (var row : nodes) if (MediaTaskStatus.BLOCKED.equals(row.getStatus()) && !resumed.containsKey(row.getId()) && !excluded.contains(row.getId())) {
                     var deps=MediaTaskType.fromCode(row.getTaskType()).getDependencies();
-                    if (!deps.isEmpty() && deps.stream().allMatch(d -> "SUCCESS".equals(byType.get(d).getStatus()) || resumed.containsKey(byType.get(d).getId()))
+                    if (!deps.isEmpty() && deps.stream().allMatch(d -> MediaTaskStatus.SUCCESS.equals(byType.get(d).getStatus()) || resumed.containsKey(byType.get(d).getId()))
                             && (selected.containsKey(row.getId()) || deps.stream().anyMatch(d -> resumed.containsKey(byType.get(d).getId())))) {
-                        resumed.put(row.getId(),"BLOCKED"); changed=true;
+                        resumed.put(row.getId(),MediaTaskStatus.BLOCKED); changed=true;
                     }
                 }
             } while (changed);
             for (var row : nodes) if (selected.containsKey(row.getId()) && !resumed.containsKey(row.getId()))
-                skipped.put(row.getId(),"BLOCKED".equals(row.getStatus()) ? "DEPENDENCY_NOT_SELECTED" : "TASK_STATE_CHANGED");
+                skipped.put(row.getId(),MediaTaskStatus.BLOCKED.equals(row.getStatus()) ? "DEPENDENCY_NOT_SELECTED" : "TASK_STATE_CHANGED");
             if (resumed.isEmpty()) continue;
             if (pipeline!=null) {
                 try { lifecycle.requireActive(JsonUtil.fromJson(pipeline.getInputJson(),Input.class).media()); }
@@ -526,7 +529,7 @@ public class MediaTaskService {
                 }
             }
             for (var row : nodes) if (resumed.containsKey(row.getId())) {
-                row.setRetryBatchId(batchId).setStatus("PENDING").setRetryCount(0).setFailureCode(null).setDependencyService(null)
+                row.setRetryBatchId(batchId).setStatus(MediaTaskStatus.PENDING).setRetryCount(0).setFailureCode(null).setDependencyService(null)
                         .setErrorMessage(null).setCompletionAck(false).setNextRetryAt(null).setUnavailableDeadline(null);
                 eventJournal.task(row,resumed.get(row.getId()),row.getTaskType()+"_RETRY_REQUESTED",input(row,pipeline),null);
                 save(row);
@@ -540,12 +543,12 @@ public class MediaTaskService {
     }
     public void heartbeat(Long taskId, int attempt) {
         if (tasks.update(null, new LambdaUpdateWrapper<MediaTask>().eq(MediaTask::getId, taskId)
-                .eq(MediaTask::getStatus, "RUNNING").eq(MediaTask::getAttempt, attempt)
+                .eq(MediaTask::getStatus, MediaTaskStatus.RUNNING).eq(MediaTask::getAttempt, attempt)
                 .set(MediaTask::getUpdateTime, LocalDateTime.now(ZoneOffset.UTC))) == 0)
             throw new IllegalStateException("Task lease lost");
     }
     public void received(Long pipelineId) {
-        pipelines.update(null, new LambdaUpdateWrapper<Pipeline>().eq(Pipeline::getId, pipelineId).eq(Pipeline::getStatus, "COMPLETED")
+        pipelines.update(null, new LambdaUpdateWrapper<Pipeline>().eq(Pipeline::getId, pipelineId).eq(Pipeline::getStatus, PipelineStatus.COMPLETED)
                 .set(Pipeline::getReceived, true));
     }
     public void resultReceived(Long id, int attempt) {
@@ -572,7 +575,7 @@ public class MediaTaskService {
     }
     public List<MediaTaskPort.PipelineView> waiting(int page, int size) {
         int limit = Math.min(100, Math.max(1, size)), offset = (Math.max(1, page) - 1) * limit;
-        return pipelines.selectList(new LambdaQueryWrapper<Pipeline>().eq(Pipeline::getStatus, "WAITING_ARTIFACTS")
+        return pipelines.selectList(new LambdaQueryWrapper<Pipeline>().eq(Pipeline::getStatus, PipelineStatus.WAITING_ARTIFACTS)
                 .orderByAsc(Pipeline::getId).last("LIMIT " + limit + " OFFSET " + offset)).stream().map(this::view).toList();
     }
     public void recover() {
@@ -580,11 +583,11 @@ public class MediaTaskService {
         long cursor = 0;
         while (true) {
             var page = tasks.selectList(new LambdaQueryWrapper<MediaTask>().gt(MediaTask::getId, cursor)
-                    .and(q -> q.eq(MediaTask::getStatus, "READY").le(MediaTask::getDispatchAfter, now)
-                            .or().eq(MediaTask::getStatus, "RETRY_WAIT").le(MediaTask::getNextRetryAt, now)
-                            .or().eq(MediaTask::getStatus, "RUNNING").lt(MediaTask::getUpdateTime, now.minusSeconds(properties.getLeaseSeconds()))
-                            .or().eq(MediaTask::getPhase, "DRAFT").in(MediaTask::getStatus, "SUCCESS", "DEAD").eq(MediaTask::getCompletionAck, false)
-                            .or().eq(MediaTask::getPhase, "REVIEW").in(MediaTask::getStatus, "SUCCESS", "DEAD").eq(MediaTask::getCompletionAck, false))
+                    .and(q -> q.eq(MediaTask::getStatus, MediaTaskStatus.READY).le(MediaTask::getDispatchAfter, now)
+                            .or().eq(MediaTask::getStatus, MediaTaskStatus.RETRY_WAIT).le(MediaTask::getNextRetryAt, now)
+                            .or().eq(MediaTask::getStatus, MediaTaskStatus.RUNNING).lt(MediaTask::getUpdateTime, now.minusSeconds(properties.getLeaseSeconds()))
+                            .or().eq(MediaTask::getPhase, "DRAFT").in(MediaTask::getStatus, MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD).eq(MediaTask::getCompletionAck, false)
+                            .or().eq(MediaTask::getPhase, "REVIEW").in(MediaTask::getStatus, MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD).eq(MediaTask::getCompletionAck, false))
                     .orderByAsc(MediaTask::getId).last("LIMIT 100"));
             if (page.isEmpty()) break;
             cursor = page.get(page.size()-1).getId();
@@ -604,13 +607,13 @@ public class MediaTaskService {
         boolean graphChanged = false;
         var changedBatches = new HashSet<Long>();
         for (var row : rows) {
-            if ("RUNNING".equals(row.getStatus()) && row.getUpdateTime().isBefore(now.minusSeconds(properties.getLeaseSeconds()))) {
+            if (MediaTaskStatus.RUNNING.equals(row.getStatus()) && row.getUpdateTime().isBefore(now.minusSeconds(properties.getLeaseSeconds()))) {
                 log.warn("Task lease expired, requeued taskType={} taskId={} pipelineId={} attempt={} leaseSeconds={}",
                         row.getTaskType(), row.getId(), row.getPipelineId(), row.getAttempt(), properties.getLeaseSeconds());
                 finish(row, null, "Worker lease expired", input); graphChanged = true;
                 changedBatches.add(row.getRetryBatchId());
                 if (!"CONTENT".equals(row.getPhase())) notifyResult(row);
-            } else if ("RETRY_WAIT".equals(row.getStatus()) && !row.getNextRetryAt().isAfter(now)) {
+            } else if (MediaTaskStatus.RETRY_WAIT.equals(row.getStatus()) && !row.getNextRetryAt().isAfter(now)) {
                 if (row.getUnavailableDeadline() != null && !now.isBefore(row.getUnavailableDeadline())) {
                     unavailableExpired(row, input); graphChanged = true;
                     changedBatches.add(row.getRetryBatchId());
@@ -620,12 +623,12 @@ public class MediaTaskService {
                 metrics.timer("media.node.retry.wait", "type", row.getTaskType()).record(Math.max(0, Duration.between(row.getUpdateTime(), now).toMillis()), TimeUnit.MILLISECONDS);
                 ready(row, dependencies(row), input);
                 changedBatches.add(row.getRetryBatchId());
-            } else if ("READY".equals(row.getStatus()) && !row.getDispatchAfter().isAfter(now)) {
+            } else if (MediaTaskStatus.READY.equals(row.getStatus()) && !row.getDispatchAfter().isAfter(now)) {
                 log.debug("Task redispatch taskType={} taskId={} pipelineId={} attempt={}", row.getTaskType(), row.getId(), row.getPipelineId(), row.getAttempt());
                 row.setDispatchAfter(now.plusSeconds(30)); save(row);
                 var execution = message(row, input);
                 afterCommit(() -> dispatcher.dispatch(execution));
-            } else if (!Boolean.TRUE.equals(row.getCompletionAck()) && Set.of("SUCCESS", "DEAD").contains(row.getStatus())) notifyResult(row);
+            } else if (!Boolean.TRUE.equals(row.getCompletionAck()) && Set.of(MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD).contains(row.getStatus())) notifyResult(row);
         }
         if (graphChanged && "CONTENT".equals(first.getPhase())) advance(pipeline, rows);
         if (retryBatches != null) changedBatches.stream().filter(Objects::nonNull).forEach(retryBatches::taskChanged);
@@ -635,7 +638,7 @@ public class MediaTaskService {
         var now = LocalDateTime.now(ZoneOffset.UTC);
         while (true) {
             var page = pipelines.selectList(new LambdaQueryWrapper<Pipeline>().gt(Pipeline::getId, cursor)
-                    .eq(Pipeline::getStatus, "COMPLETED").eq(Pipeline::getReceived, false).le(Pipeline::getNotifyAfter, now)
+                    .eq(Pipeline::getStatus, PipelineStatus.COMPLETED).eq(Pipeline::getReceived, false).le(Pipeline::getNotifyAfter, now)
                     .orderByAsc(Pipeline::getId).last("LIMIT 100"));
             if (page.isEmpty()) break;
             cursor = page.get(page.size()-1).getId();

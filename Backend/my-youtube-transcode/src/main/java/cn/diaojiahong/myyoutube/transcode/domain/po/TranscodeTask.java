@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.domain.po;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -29,7 +30,7 @@ public class TranscodeTask implements Serializable {
 
     private Long userId;
 
-    private String status;
+    private TranscodeTaskStatus status;
 
     private String requestJson;
 

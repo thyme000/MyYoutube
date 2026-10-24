@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
@@ -116,7 +117,7 @@ public class DraftPreparationService {
                     draft.getId(), draft.getPreparationId());
             return;
         }
-        if ("SUCCESS".equals(result.status())) {
+        if (MediaTaskStatus.SUCCESS.equals(result.status())) {
             var frozen = PreparedMedia.freeze(request, result.manifest());
             observation.update(draft.getId(), version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                     .set(MediaDraft::getStatus, MediaDraftStatusEnum.READY).set(MediaDraft::getPreparedJson, JsonUtil.toJson(frozen.media()))
@@ -125,7 +126,7 @@ public class DraftPreparationService {
             log.info("Draft preparation ready draftId={} preparationId={} mediaVersion={} attempt={} media={} durationMs={} frames={}",
                     draft.getId(), draft.getPreparationId(), draft.getMediaVersion(), result.attempt(), frozen.media().type(),
                     frozen.media().durationMs(), frozen.media().preparation().videoFrameCount());
-        } else if ("DEAD".equals(result.status())) {
+        } else if (MediaTaskStatus.DEAD.equals(result.status())) {
             String error = result.errorMessage() == null ? "媒体准备失败" : result.errorMessage();
             observation.update(draft.getId(), version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                     .set(MediaDraft::getStatus, MediaDraftStatusEnum.FAILED).set(MediaDraft::getPreparationAttempt, result.attempt())

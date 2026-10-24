@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.preparation;
 
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.*;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
@@ -82,10 +83,10 @@ public class PreparationRegistry {
                 .eq(MediaTask::getPhase, "DRAFT").eq(MediaTask::getTaskType, "PREPARE"));
         if (row == null) throw new IllegalStateException("Missing preparation task");
         boolean parametersChanged = !Objects.equals(preparation.getParameterVersion(), parameterVersion());
-        String error = "DEAD".equals(row.getStatus()) && parametersChanged
+        String error = MediaTaskStatus.DEAD.equals(row.getStatus()) && parametersChanged
                 ? PreparationContracts.PARAMETERS_CHANGED_MESSAGE : row.getErrorMessage();
         return new View(id, row.getStatus(), row.getAttempt(), row.getRetryCount(), error,
-                "SUCCESS".equals(row.getStatus()) ? JsonUtil.fromJson(row.getResultJson(), Manifest.class) : null, parametersChanged);
+                MediaTaskStatus.SUCCESS.equals(row.getStatus()) ? JsonUtil.fromJson(row.getResultJson(), Manifest.class) : null, parametersChanged);
     }
 
     public PreparationItem find(Long id, String role, int index) {
@@ -167,7 +168,7 @@ public class PreparationRegistry {
             throw new IllegalStateException("Preparation is retired or missing");
         var row = taskRows.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getId, task.getTaskId()).last("FOR UPDATE"));
         if (row == null || !"DRAFT".equals(row.getPhase()) || !"PREPARE".equals(row.getTaskType())
-                || !Objects.equals(row.getOwnerId(), task.getOwnerId()) || !"RUNNING".equals(row.getStatus())
+                || !Objects.equals(row.getOwnerId(), task.getOwnerId()) || !MediaTaskStatus.RUNNING.equals(row.getStatus())
                 || !Objects.equals(row.getAttempt(), task.getAttempt())) throw new IllegalStateException("Preparation lease lost");
     }
 }

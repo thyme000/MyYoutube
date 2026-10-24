@@ -1,5 +1,8 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -50,14 +53,14 @@ public class RetryBatchStore {
     }
     public void insert(MediaRetryBatch row) {
         batches.insert(row);
-        event(row, null, "QUEUED", "RETRY_BATCH_CREATED");
+        event(row, null, MediaRetryBatchStatus.QUEUED, "RETRY_BATCH_CREATED");
     }
     public void start(MediaRetryBatch row, List<Item> selection) {
-        row.setStatus("RUNNING").setSelectionJson(JsonUtil.toJson(selection));
-        event(row, "QUEUED", "RUNNING", "RETRY_BATCH_STARTED");
+        row.setStatus(MediaRetryBatchStatus.RUNNING).setSelectionJson(JsonUtil.toJson(selection));
+        event(row, MediaRetryBatchStatus.QUEUED, MediaRetryBatchStatus.RUNNING, "RETRY_BATCH_STARTED");
         batches.updateById(row);
     }
-    public String status(Long id) {
+    public MediaRetryBatchStatus status(Long id) {
         var row = batches.selectById(id);
         return row == null ? null : row.getStatus();
     }
@@ -81,7 +84,7 @@ public class RetryBatchStore {
         var row = active();
         if (row == null) return null;
         var view = batch(row.getId());
-        return "RUNNING".equals(view.status()) ? view : null;
+        return MediaRetryBatchStatus.RUNNING.equals(view.status()) ? view : null;
     }
     public Batch batch(Long id) {
         var snapshot = reconcile(id);
@@ -109,16 +112,16 @@ public class RetryBatchStore {
             }
             var result = snapshot(row);
             if (result.batch().unfinishedTasks() == 0) {
-                String state = result.tasks().stream().anyMatch(t -> Set.of("DEAD", "BLOCKED").contains(t.status())
+                MediaRetryBatchStatus state = result.tasks().stream().anyMatch(t -> Set.of(MediaTaskStatus.DEAD, MediaTaskStatus.BLOCKED).contains(t.status())
                         && (t.reason() == null || !t.reason().startsWith("RETRY_SKIPPED_")))
-                        ? "COMPLETED_WITH_FAILURES" : "COMPLETED";
+                        ? MediaRetryBatchStatus.COMPLETED_WITH_FAILURES : MediaRetryBatchStatus.COMPLETED;
                 row.setStatus(state).setActive(null).setCompletedAt(now());
                 result = snapshot(row);
                 row.setResultJson(JsonUtil.toJson(result));
-                event(row, "RUNNING", state, "RETRY_BATCH_COMPLETED");
+                event(row, MediaRetryBatchStatus.RUNNING, state, "RETRY_BATCH_COMPLETED");
                 batches.updateById(row);
                 afterCommit(() -> {
-                    if (metrics != null) metrics.counter("media.retry.batch.completed", "state", state).increment();
+                    if (metrics != null) metrics.counter("media.retry.batch.completed", "state", state.getCode()).increment();
                     log.info("Retry batch completed batchId={} state={}", id, state);
                 });
             }
@@ -143,48 +146,48 @@ public class RetryBatchStore {
                 .orderByAsc(MediaTask::getId));
         var byId = affected.stream().collect(Collectors.toMap(MediaTask::getId, Function.identity()));
         var items = selection(row).stream().map(item -> {
-            if ("SKIPPED".equals(item.state())) return item;
+            if (MediaRetryItemState.SKIPPED.equals(item.state())) return item;
             var task = byId.get(item.taskId());
-            if (task == null) return new Item(item.taskId(), "SKIPPED", item.initialAttempt(), null, "TASK_MISSING");
-            String state = switch (task.getStatus()) {
-                case "SUCCESS" -> "SUCCESS";
-                case "DEAD", "BLOCKED" -> task.getFailureCode() != null && task.getFailureCode().startsWith("RETRY_SKIPPED_") ? "SKIPPED" : "FAILED";
-                case "PENDING", "READY" -> "PENDING";
-                default -> "RUNNING";
+            if (task == null) return new Item(item.taskId(), MediaRetryItemState.SKIPPED, item.initialAttempt(), null, "TASK_MISSING");
+            MediaRetryItemState state = switch (task.getStatus()) {
+                case SUCCESS -> MediaRetryItemState.SUCCESS;
+                case DEAD, BLOCKED -> task.getFailureCode() != null && task.getFailureCode().startsWith("RETRY_SKIPPED_") ? MediaRetryItemState.SKIPPED : MediaRetryItemState.FAILED;
+                case PENDING, READY -> MediaRetryItemState.PENDING;
+                case RUNNING, RETRY_WAIT -> MediaRetryItemState.RUNNING;
             };
             return new Item(item.taskId(), state, item.initialAttempt(),
                     task.getAttempt() > item.initialAttempt() ? task.getAttempt() : null, task.getFailureCode());
         }).toList();
         var counts = items.stream().collect(Collectors.groupingBy(Item::state, Collectors.counting()));
-        int running = (int) affected.stream().filter(t -> "RUNNING".equals(t.getStatus())).count();
-        int unfinished = (int) affected.stream().filter(t -> Set.of("PENDING", "READY", "RUNNING", "RETRY_WAIT").contains(t.getStatus())).count();
+        int running = (int) affected.stream().filter(t -> MediaTaskStatus.RUNNING.equals(t.getStatus())).count();
+        int unfinished = (int) affected.stream().filter(t -> Set.of(MediaTaskStatus.PENDING, MediaTaskStatus.READY, MediaTaskStatus.RUNNING, MediaTaskStatus.RETRY_WAIT).contains(t.getStatus())).count();
         String wait = null;
-        if ("RUNNING".equals(row.getStatus()) && unfinished > 0) {
+        if (MediaRetryBatchStatus.RUNNING.equals(row.getStatus()) && unfinished > 0) {
             if (running >= row.getMaxConcurrency()) wait = "RETRY_CONCURRENCY_LIMIT";
             else if (normalReady()) wait = "NORMAL_TASKS_FIRST";
         }
-        var view = new Batch(row.getId(), row.getStatus(), items.size(), count(counts, "PENDING"), count(counts, "RUNNING"),
-                count(counts, "SUCCESS"), count(counts, "FAILED"), count(counts, "SKIPPED"), affected.size(), unfinished,
+        var view = new Batch(row.getId(), row.getStatus(), items.size(), count(counts, MediaRetryItemState.PENDING), count(counts, MediaRetryItemState.RUNNING),
+                count(counts, MediaRetryItemState.SUCCESS), count(counts, MediaRetryItemState.FAILED), count(counts, MediaRetryItemState.SKIPPED), affected.size(), unfinished,
                 wait, row.getCreatedAt(), row.getCompletedAt());
         return new Snapshot(view, items, affected.stream().map(t -> new Affected(t.getId(), t.getStatus(), t.getAttempt(), t.getFailureCode())).toList());
     }
     public boolean permit(Long id) {
         var row = batches.selectById(id);
-        return row != null && "RUNNING".equals(row.getStatus())
+        return row != null && MediaRetryBatchStatus.RUNNING.equals(row.getStatus())
                 && tasks.selectCount(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getRetryBatchId, id)
-                        .eq(MediaTask::getStatus, "RUNNING")) < row.getMaxConcurrency()
+                        .eq(MediaTask::getStatus, MediaTaskStatus.RUNNING)) < row.getMaxConcurrency()
                 && !normalReady();
     }
     private boolean normalReady() {
-        return tasks.exists(new LambdaQueryWrapper<MediaTask>().isNull(MediaTask::getRetryBatchId).eq(MediaTask::getStatus, "READY"));
+        return tasks.exists(new LambdaQueryWrapper<MediaTask>().isNull(MediaTask::getRetryBatchId).eq(MediaTask::getStatus, MediaTaskStatus.READY));
     }
-    private static int count(Map<String, Long> counts, String state) { return counts.getOrDefault(state, 0L).intValue(); }
-    private void event(MediaRetryBatch row, String from, String to, String code) {
+    private static int count(Map<MediaRetryItemState, Long> counts, MediaRetryItemState state) { return counts.getOrDefault(state, 0L).intValue(); }
+    private void event(MediaRetryBatch row, MediaRetryBatchStatus from, MediaRetryBatchStatus to, String code) {
         if (events == null || !events.enabled()) return;
         long sequence = events.next(row.getEventSequence());
         row.setEventSequence(sequence);
         batches.updateById(row);
-        events.record(new PipelineEventPort.Subject("RETRY_BATCH", row.getId(), null, null, null, null, null, null, null), sequence, code, from, to);
+        events.record(new PipelineEventPort.Subject("RETRY_BATCH", row.getId(), null, null, null, null, null, null, null), sequence, code, from == null ? null : from.getCode(), to.getCode());
     }
     public void afterCommit(Runnable action) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

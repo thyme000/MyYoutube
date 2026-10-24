@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.transcode.api.dto.*;
@@ -30,18 +31,18 @@ class DownloadCoalescingTest {
         doAnswer(c -> { mutex.unlock(); return null; }).when(lock).unlock();
         when(service.artifactLock("same-media")).thenReturn(lock);
         var rows = new ConcurrentHashMap<Long, TranscodeTask>();
-        for (long i = 1; i <= 8; i++) rows.put(i, new TranscodeTask().setId(i).setTaskKey("same-media").setStatus("PENDING"));
+        for (long i = 1; i <= 8; i++) rows.put(i, new TranscodeTask().setId(i).setTaskKey("same-media").setStatus(TranscodeTaskStatus.PENDING));
         when(service.getById(anyLong())).thenAnswer(c -> rows.get(c.getArgument(0)));
-        when(service.updateByIdWithStatus(anyLong(), any(), eq("PENDING"))).thenAnswer(c -> {
+        when(service.updateByIdWithStatus(anyLong(), any(), eq(TranscodeTaskStatus.PENDING))).thenAnswer(c -> {
             var row = rows.get(c.getArgument(0));
-            if (!"PENDING".equals(row.getStatus())) return false;
-            row.setStatus("PROCESSING"); return true;
+            if (!TranscodeTaskStatus.PENDING.equals(row.getStatus())) return false;
+            row.setStatus(TranscodeTaskStatus.PROCESSING); return true;
         });
         var count = new AtomicInteger();
         doAnswer(c -> {
             count.incrementAndGet();
             Thread.sleep(30);
-            rows.values().forEach(row -> row.setStatus("DONE"));
+            rows.values().forEach(row -> row.setStatus(TranscodeTaskStatus.DONE));
             return null;
         }).when(chains).execute(eq(DynamicTranscodeChain.GROUP), any());
         var listener = new TranscodeTaskListener(service, notifier, chains);
@@ -54,7 +55,7 @@ class DownloadCoalescingTest {
             }
             for (var future : futures) future.get(5, TimeUnit.SECONDS);
             assertEquals(1, count.get());
-            assertTrue(rows.values().stream().allMatch(row -> "DONE".equals(row.getStatus())));
+            assertTrue(rows.values().stream().allMatch(row -> TranscodeTaskStatus.DONE.equals(row.getStatus())));
         } finally { pool.shutdownNow(); }
     }
     @Test void missingCachedObjectIsExpiredRatherThanReused() {
@@ -77,8 +78,8 @@ class DownloadCoalescingTest {
         when(storage.objectExists("valid.mp4")).thenReturn(true);
         var service = new TranscodeTaskService(mapper, new ObjectMapper(), redis, storage);
         var dto = new TranscodeSubmitDTO(); dto.setItems(List.of(new TranscodeItemDTO()));
-        assertEquals("DONE", service.submit(dto).getStatus());
-        assertEquals("PENDING", service.submit(dto).getStatus());
+        assertEquals(TranscodeTaskStatus.DONE, service.submit(dto).getStatus());
+        assertEquals(TranscodeTaskStatus.PENDING, service.submit(dto).getStatus());
         verify(lock, times(1)).unlock();
         verify(lock, never()).lockInterruptibly();
     }

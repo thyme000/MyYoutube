@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.domain.po;
 
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 import lombok.experimental.Accessors;
@@ -22,7 +23,7 @@ public class MediaTask {
     private String dependencyService;
     private String phase;
     private String taskType;
-    private String status;
+    private MediaTaskStatus status;
     private Boolean completionAck;
     private Integer attempt;
     private Integer retryCount;

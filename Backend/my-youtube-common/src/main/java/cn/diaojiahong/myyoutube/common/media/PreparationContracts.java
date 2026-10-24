@@ -15,6 +15,6 @@ public final class PreparationContracts {
                            VideoFrameSampling.Plan videoSampling) {
         public Manifest { items = List.copyOf(items); }
     }
-    public record View(Long preparationId, String status, int attempt, int retryCount,
+    public record View(Long preparationId, MediaTaskStatus status, int attempt, int retryCount,
                        String errorMessage, Manifest manifest, boolean parametersChanged) {}
 }

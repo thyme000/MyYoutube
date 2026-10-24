@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.api.vo;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,14 +18,9 @@ public class TranscodeTaskVO implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    public static final String STATUS_PENDING = "PENDING";
-    public static final String STATUS_PROCESSING = "PROCESSING";
-    public static final String STATUS_DONE = "DONE";
-    public static final String STATUS_FAILED = "FAILED";
-
     private Long taskId;
     private String taskKey;
-    private String status;
+    private TranscodeTaskStatus status;
     /** 任务归属用户, 查询时校验归属用 */
     private Long userId;
     private Long contentId;

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.domain.po;
 
+import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 import lombok.experimental.Accessors;
@@ -14,7 +15,7 @@ public class MediaRetryBatch {
     private Long eventSequence;
     private String requestId;
     private Long actorId;
-    private String status;
+    private MediaRetryBatchStatus status;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer active;
     private String selectionJson;
