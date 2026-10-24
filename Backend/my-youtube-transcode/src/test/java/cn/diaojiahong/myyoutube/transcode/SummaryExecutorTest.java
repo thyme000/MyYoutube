@@ -46,15 +46,35 @@ class SummaryExecutorTest {
         var fields = (Map<?, ?>) schema.get("properties");
         assertEquals(0, ((Map<?, ?>) fields.get("summary")).get("minLength"));
     }
-    @Test void emptySummaryCannotCarryChaptersAndWhitespaceOrNullIsNotEmptySummary() {
+    @Test void whitespaceOrNullIsNotEmptySummary() {
         var msg = input("美图");
         when(artifacts.read("asr",ContentArtifacts.Transcript.class)).thenReturn(
                 new ContentArtifacts.Transcript(List.of(new ContentArtifacts.Segment(0,1000,"零散词句"))));
-        for (String json : List.of("{\"summary\":\"\",\"chapters\":[{\"startMs\":0,\"title\":\"章节\"}]}",
-                "{\"summary\":\"  \",\"chapters\":[]}", "{\"summary\":null,\"chapters\":[]}")) {
+        for (String json : List.of("{\"summary\":\"  \",\"chapters\":[]}", "{\"summary\":null,\"chapters\":[]}")) {
             when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(json,"test","stop",null));
             assertThrows(IllegalArgumentException.class, () -> executor.execute(msg));
         }
+    }
+    @Test void emptySummaryDiscardsChaptersWithoutRetryingModelCalls() {
+        var msg = input("标题");
+        when(artifacts.read("asr",ContentArtifacts.Transcript.class)).thenReturn(
+                new ContentArtifacts.Transcript(List.of(new ContentArtifacts.Segment(0,1000,"文本"))));
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(
+                "{\"summary\":\"\",\"chapters\":[{\"startMs\":99999,\"title\":\"应丢弃\"}]}", "test", "stop", null));
+        executor.execute(msg);
+        verify(llm, times(1)).chat(any());
+        verify(artifacts).write(100L,"SUMMARY",1,new ContentArtifacts.Summary("",List.of()));
+    }
+    @Test void emptyChunkChaptersDoNotCauseAnotherRoundOfModelCalls() {
+        var msg = input("标题");
+        var properties = new PipelineProperties(); properties.setChunkCharacters(1024);
+        when(artifacts.read("ocr",ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(
+                List.of(new ContentArtifacts.Frame(0,0,"frame","片段".repeat(1700)))));
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(
+                "{\"summary\":\"\",\"chapters\":[{\"startMs\":0,\"title\":\"丢弃\"}]}", "test", "stop", null));
+        new SummaryTaskExecutor(artifacts, properties, llm, guard, prompts).execute(msg);
+        verify(llm, times(4)).chat(any());
+        verify(artifacts).write(100L,"SUMMARY",1,new ContentArtifacts.Summary("",List.of()));
     }
     @Test void emptyChunksAreSkippedDuringMergeAndAllEmptyChunksNeedNoMergeCall() {
         var msg = input("美图");

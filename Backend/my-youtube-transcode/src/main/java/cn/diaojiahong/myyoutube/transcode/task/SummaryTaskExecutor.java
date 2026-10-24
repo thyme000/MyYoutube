@@ -72,7 +72,8 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
             if (reduced.size() >= summaries.size()) throw new IllegalStateException("摘要合并未收敛");
             summaries = reduced;
         }
-        var result = new ContentArtifacts.Summary(summaries.isEmpty() ? "" : summaries.get(0), summaries.isEmpty() ? List.of() : chapters.stream()
+        String summary = summaries.isEmpty() ? "" : summaries.get(0);
+        var result = new ContentArtifacts.Summary(summary, summary.isEmpty() ? List.of() : chapters.stream()
                 .sorted(Comparator.comparingLong(ContentArtifacts.Chapter::startMs)).distinct().toList());
         log.info("Summary completed pipelineId={} taskId={} attempt={} evidenceChars={} chunks={} mergeRounds={} chapters={} summaryLength={} elapsedMs={}",
                 msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), evidence.length(), chunks, mergeRounds,
@@ -90,12 +91,19 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
         if (response == null || !"stop".equals(response.getFinishReason()))
             throw new IllegalArgumentException("摘要未正常结束");
         var json = StructuredJson.strictObject(response.getContent());
+        if (json.has("summary") && json.get("summary").isJsonPrimitive()
+                && json.getAsJsonPrimitive("summary").isString() && json.get("summary").getAsString().isEmpty()
+                && json.has("chapters") && json.get("chapters").isJsonArray() && !json.getAsJsonArray("chapters").isEmpty()) {
+            log.info("Summary chapters discarded reason=EMPTY_SUMMARY count={}", json.getAsJsonArray("chapters").size());
+            json.add("chapters", new com.google.gson.JsonArray());
+        }
         validateStructure(json, allowChapters);
         var result = JsonUtil.fromJson(json.toString(), ContentArtifacts.Summary.class);
-        if (result == null || result.summary() == null || result.summary().length() > summaryLimit || result.chapters() == null
-                || (!result.summary().isEmpty() && result.summary().isBlank())
-                || (result.summary().isEmpty() && !result.chapters().isEmpty()))
+        if (result == null || result.summary() == null || result.chapters() == null)
             throw new IllegalArgumentException("摘要输出不完整");
+        String summary = result.summary();
+        boolean whitespaceOnly = !summary.isEmpty() && summary.isBlank();
+        if (summary.length() > summaryLimit || whitespaceOnly) throw new IllegalArgumentException("摘要长度或内容非法");
         return result;
     }
 
