@@ -3,7 +3,9 @@ package cn.diaojiahong.myyoutube.video.controller;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.video.domain.dto.AudioPublishDTO;
+import cn.diaojiahong.myyoutube.video.domain.dto.AudioUploadDTO;
+import cn.diaojiahong.myyoutube.video.domain.vo.AudioUploadVO;
+import cn.diaojiahong.myyoutube.video.service.AudioUploadService;
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioVO;
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioPage;
 import cn.diaojiahong.myyoutube.video.service.IAudioService;
@@ -29,12 +31,21 @@ import org.springframework.http.HttpStatus;
 public class AudioController {
 
     private final IAudioService audioService;
+    private final AudioUploadService uploads;
 
-    @PostMapping("/publish")
+    @PostMapping("/uploads")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    @Operation(summary = "受理音频，后台校验文件后等待审核")
-    public Result<String> publish(@RequestBody AudioPublishDTO dto) {
-        return Result.success(audioService.publish(dto));
+    @Operation(summary = "登记音频上传并返回绑定文件信息的直传地址")
+    public Result<AudioUploadVO> upload(@RequestBody AudioUploadDTO dto) {
+        return Result.success(uploads.start(dto));
+    }
+
+    @PostMapping("/uploads/{id}/complete")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @Operation(summary = "提醒后端检查本人已登记的音频上传")
+    public Result<Void> complete(@PathVariable Long id) {
+        uploads.complete(id);
+        return Result.success();
     }
 
     @GetMapping("/mine/{id}")

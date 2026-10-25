@@ -55,8 +55,7 @@ public class InternalStorageEventController {
                 continue;
             }
             String key = URLDecoder.decode(rawKey, StandardCharsets.UTF_8);
-            // 只有视频目录进管线; 头像/聊天图/动态图不触发
-            if (!key.startsWith(VIDEO_KEY_PREFIX)) {
+            if (!key.startsWith(VIDEO_KEY_PREFIX) && !key.startsWith("uploads/audio/") && !key.startsWith("uploads/audio-cover/")) {
                 continue;
             }
             long size = record.path("s3").path("object").path("size").asLong(0);

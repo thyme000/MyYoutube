@@ -35,6 +35,12 @@ public class Audio implements Serializable {
     private String requestFingerprint;
     private String sourceObjectKey;
     private String sourceCoverObjectKey;
+    private Long uploadSize;
+    private String uploadContentType;
+    private Long coverUploadSize;
+    private String coverUploadContentType;
+    private LocalDateTime uploadDeadline;
+    private LocalDateTime uploadAfter;
 
     private String objectKey;
     private String coverObjectKey;

@@ -10,6 +10,7 @@ import software.amazon.awssdk.services.s3.model.PutBucketNotificationConfigurati
 import software.amazon.awssdk.services.s3.model.QueueConfiguration;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.TopicConfiguration;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -49,6 +50,8 @@ class VideoUploadNotificationJobTest {
         assertEquals(QUEUE_ARN, rule.queueArn());
         assertEquals("s3:ObjectCreated:*", rule.eventsAsStrings().get(0));
         assertEquals("uploads/video/", rule.filter().key().filterRules().get(0).value());
+        assertEquals(List.of("uploads/video/", "uploads/audio/", "uploads/audio-cover/"), config.queueConfigurations().stream()
+                .filter(r -> !"other".equals(r.id())).map(r -> r.filter().key().filterRules().get(0).value()).toList());
     }
 
     @Test
@@ -56,7 +59,7 @@ class VideoUploadNotificationJobTest {
         when(client.getBucketNotificationConfiguration(any(GetBucketNotificationConfigurationRequest.class)))
                 .thenReturn(GetBucketNotificationConfigurationResponse.builder().build());
         job.reconcile();
-        var installed = capturePut().notificationConfiguration().queueConfigurations().get(0);
+        var installed = capturePut().notificationConfiguration().queueConfigurations();
         clearInvocations(client);
         when(client.getBucketNotificationConfiguration(any(GetBucketNotificationConfigurationRequest.class)))
                 .thenReturn(GetBucketNotificationConfigurationResponse.builder().queueConfigurations(installed).build());
@@ -79,7 +82,7 @@ class VideoUploadNotificationJobTest {
         job.reconcile();
 
         var rules = capturePut().notificationConfiguration().queueConfigurations();
-        assertEquals(2, rules.size());
+        assertEquals(4, rules.size());
         assertEquals(otherRule, rules.get(0));
         assertEquals(QUEUE_ARN, rules.get(1).queueArn());
     }

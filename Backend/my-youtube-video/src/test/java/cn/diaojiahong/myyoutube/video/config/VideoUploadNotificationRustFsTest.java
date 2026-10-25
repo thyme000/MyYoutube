@@ -38,8 +38,9 @@ class VideoUploadNotificationRustFsTest {
             var after = observedClient.getBucketNotificationConfiguration(request);
             assertEquals(before.topicConfigurations(), after.topicConfigurations());
             assertEquals(before.lambdaFunctionConfigurations(), after.lambdaFunctionConfigurations());
-            assertEquals(before.queueConfigurations().stream().filter(rule -> !"video-upload".equals(rule.id())).toList(),
-                    after.queueConfigurations().stream().filter(rule -> !"video-upload".equals(rule.id())).toList());
+            var owned = java.util.Set.of("video-upload", "audio-upload", "audio-cover-upload");
+            assertEquals(before.queueConfigurations().stream().filter(rule -> !owned.contains(rule.id())).toList(),
+                    after.queueConfigurations().stream().filter(rule -> !owned.contains(rule.id())).toList());
             assertTrue(after.queueConfigurations().stream().anyMatch(rule -> "video-upload".equals(rule.id())
                     && "arn:rustfs:sqs::primary:webhook".equals(rule.queueArn())
                     && rule.eventsAsStrings().contains("s3:ObjectCreated:*")

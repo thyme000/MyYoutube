@@ -11,7 +11,7 @@ public final class AudioPreparationContracts {
             if (audioId == null || audioId <= 0 || userId == null || userId <= 0)
                 throw new IllegalArgumentException("音频身份无效");
             upload(objectKey, "audio", userId);
-            if (coverObjectKey != null) upload(coverObjectKey, "picture", userId);
+            if (coverObjectKey != null) upload(coverObjectKey, "audio-cover", userId);
         }
         public String prefix() { return "media-prepared/" + userId + "/" + audioId + "/audio-"; }
     }

@@ -4,13 +4,13 @@ import cn.diaojiahong.myyoutube.video.domain.vo.AudioPage;
 
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.video.domain.dto.AudioPublishDTO;
+import cn.diaojiahong.myyoutube.video.domain.dto.AudioUploadDTO;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioVO;
 
 public interface IAudioService {
 
-    String publish(AudioPublishDTO dto);
+    String registerUpload(AudioUploadDTO dto);
     AudioVO getMine(Long id);
     boolean retry(Long id);
     PageResult<AudioVO> myAudios(PageQuery pageQuery);

@@ -30,25 +30,22 @@ import java.util.List;
 @ConditionalOnProperty(name = "my-youtube.s3.video-upload-notification-enabled", havingValue = "true")
 public class VideoUploadNotificationJob {
 
-    private static final String RULE_ID = "video-upload";
     private final S3Client client;
     private final S3Properties properties;
-    private final QueueConfiguration expected;
+    private final List<QueueConfiguration> expected;
 
     public VideoUploadNotificationJob(S3Client client, S3Properties properties,
                                       @Value("${my-youtube.s3.video-upload-notification-queue-arn}") String queueArn) {
         this.client = client;
         this.properties = properties;
-        this.expected = QueueConfiguration.builder()
-                .id(RULE_ID)
-                .queueArn(queueArn)
-                .events(Event.S3_OBJECT_CREATED)
-                .filter(NotificationConfigurationFilter.builder()
-                        .key(S3KeyFilter.builder()
-                                .filterRules(FilterRule.builder().name(FilterRuleName.PREFIX).value("uploads/video/").build())
-                                .build())
-                        .build())
-                .build();
+        this.expected = List.of(rule("video-upload", "uploads/video/", queueArn),
+                rule("audio-upload", "uploads/audio/", queueArn), rule("audio-cover-upload", "uploads/audio-cover/", queueArn));
+    }
+
+    private QueueConfiguration rule(String id, String prefix, String queueArn) {
+        return QueueConfiguration.builder().id(id).queueArn(queueArn).events(Event.S3_OBJECT_CREATED)
+                .filter(NotificationConfigurationFilter.builder().key(S3KeyFilter.builder()
+                        .filterRules(FilterRule.builder().name(FilterRuleName.PREFIX).value(prefix).build()).build()).build()).build();
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -68,11 +65,11 @@ public class VideoUploadNotificationJob {
             }
 
             var ownedRules = current.queueConfigurations().stream()
-                    .filter(rule -> RULE_ID.equals(rule.id())).toList();
-            if (ownedRules.size() == 1 && matchesExpected(ownedRules.get(0))) return;
+                    .filter(rule -> expected.stream().anyMatch(e -> e.id().equals(rule.id()))).toList();
+            if (ownedRules.size() == expected.size() && ownedRules.containsAll(expected)) return;
             var queues = new ArrayList<>(current.queueConfigurations());
-            queues.removeIf(queue -> RULE_ID.equals(queue.id()));
-            queues.add(expected);
+            queues.removeIf(queue -> expected.stream().anyMatch(e -> e.id().equals(queue.id())));
+            queues.addAll(expected);
             var notification = NotificationConfiguration.builder()
                     .queueConfigurations(queues)
                     .topicConfigurations(current.topicConfigurations())
@@ -81,18 +78,10 @@ public class VideoUploadNotificationJob {
                 notification.eventBridgeConfiguration(current.eventBridgeConfiguration());
             client.putBucketNotificationConfiguration(PutBucketNotificationConfigurationRequest.builder()
                     .bucket(bucket).notificationConfiguration(notification.build()).build());
-            log.info("已修复视频上传桶通知: bucket={}, rule={}", bucket, RULE_ID);
+            log.info("已修复媒体上传桶通知: bucket={}", bucket);
         } catch (Exception error) {
-            log.warn("视频上传桶通知检查失败: bucket={}", bucket, error);
+            log.warn("媒体上传桶通知检查失败: bucket={}", bucket, error);
         }
     }
 
-    private boolean matchesExpected(QueueConfiguration rule) {
-        if (!RULE_ID.equals(rule.id()) || !expected.queueArn().equals(rule.queueArn())
-                || !rule.eventsAsStrings().equals(List.of("s3:ObjectCreated:*"))) return false;
-        var filter = rule.filter();
-        if (filter == null || filter.key() == null || filter.key().filterRules().size() != 1) return false;
-        var prefix = filter.key().filterRules().get(0);
-        return "prefix".equalsIgnoreCase(prefix.nameAsString()) && "uploads/video/".equals(prefix.value());
-    }
 }

@@ -46,7 +46,7 @@ class AudioPreparationWorkflowTest {
     PreparedImageWriter images;
     AudioPrepareTaskExecutor executor;
     final Map<String, PreparationStorage.Source> objects = new HashMap<>();
-    Request request() { return new Request(501L, 9L, "uploads/audio/9/day/a.wav", "uploads/picture/9/day/cover.png"); }
+    Request request() { return new Request(501L, 9L, "uploads/audio/9/day/a.wav", "uploads/audio-cover/9/day/cover.png"); }
     @BeforeEach void setup() throws Exception {
         jdbc = new JdbcTemplate(database); reset(dispatcher); observations.getRecording().setEnabled(false);
         OutboxTestDatabase.reset(jdbc);
@@ -160,7 +160,7 @@ class AudioPreparationWorkflowTest {
         assertEquals(MediaTaskStatus.SUCCESS, tasks.audioPreparationView(501L).status()); assertEquals(1, rows.selectCount(null));
     }
     @Test void registrationRejectsForeignCoverBeforeCreatingTask() {
-        assertThrows(IllegalArgumentException.class, () -> tasks.startAudioPreparation(new Request(501L, 9L, request().objectKey(), "uploads/picture/7/day/cover.png")));
+        assertThrows(IllegalArgumentException.class, () -> tasks.startAudioPreparation(new Request(501L, 9L, request().objectKey(), "uploads/audio-cover/7/day/cover.png")));
         assertEquals(0, rows.selectCount(null));
     }
     @Test void concurrentRegistrationIsIdempotent() {

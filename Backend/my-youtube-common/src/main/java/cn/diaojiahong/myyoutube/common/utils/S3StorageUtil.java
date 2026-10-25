@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.common.utils;
 
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.common.media.MediaInputs;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.properties.S3Properties;
 import lombok.extern.slf4j.Slf4j;
@@ -220,6 +221,31 @@ public class S3StorageUtil {
                         .contentLength(contentLength).contentType(contentType))
                 .build();
         return s3Presigner.presignPutObject(request).url().toString();
+    }
+
+    public record UploadMetadata(long bytes, String contentType) {}
+
+    public UploadMetadata inspectUpload(String key, Duration timeout) {
+        requireUploadKey(key);
+        try {
+            var head = s3Client.headObject(software.amazon.awssdk.services.s3.model.HeadObjectRequest.builder()
+                    .bucket(properties.getBucketName()).key(key).overrideConfiguration(c -> c.apiCallTimeout(timeout)).build());
+            return new UploadMetadata(head.contentLength(), head.contentType());
+        } catch (S3Exception error) {
+            if (error.statusCode() == 404) return null;
+            throw error;
+        }
+    }
+
+    public void deleteUpload(String key, Duration timeout) {
+        requireUploadKey(key);
+        s3Client.deleteObject(DeleteObjectRequest.builder().bucket(properties.getBucketName()).key(key)
+                .overrideConfiguration(c -> c.apiCallTimeout(timeout)).build());
+    }
+
+    private static void requireUploadKey(String key) {
+        MediaInputs.objectKey(key);
+        if (!key.startsWith("uploads/")) throw new IllegalArgumentException("Expected upload key");
     }
 
     /**

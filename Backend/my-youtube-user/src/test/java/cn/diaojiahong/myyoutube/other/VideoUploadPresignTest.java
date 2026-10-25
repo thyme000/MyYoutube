@@ -46,13 +46,10 @@ class VideoUploadPresignTest {
         verifyNoInteractions(drafts);
     }
 
-    @Test void audioPutBindsSizeAndTypeWithoutCreatingVideoDraft() {
+    @Test void audioCannotBypassTheRegisteredUploadEndpoint() {
         UserContext.setUser("1");
-        when(storage.buildUniqueObjectKey(1L, "audio", "music.mp3")).thenReturn("uploads/audio/1/day/music.mp3");
-        when(storage.presignPutUrl("uploads/audio/1/day/music.mp3", 1800, 1024, "audio/mpeg")).thenReturn("signed-audio");
-        assertEquals("signed-audio", service.presignUpload("audio", "music.mp3", 1024L, "audio/mpeg").getUrl());
-        verify(storage).presignPutUrl("uploads/audio/1/day/music.mp3", 1800, 1024, "audio/mpeg");
-        verifyNoInteractions(drafts);
+        assertThrows(BizException.class, () -> service.presignUpload("audio", "music.mp3", 1024L, "audio/mpeg"));
+        verifyNoInteractions(storage, drafts);
     }
 
     @Test void audioCannotIssueUnboundedUploadSignatures() {

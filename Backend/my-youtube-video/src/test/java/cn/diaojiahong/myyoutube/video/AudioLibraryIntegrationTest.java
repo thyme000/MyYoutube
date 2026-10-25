@@ -33,7 +33,8 @@ import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.config.AudioProcessingProperties;
 import cn.diaojiahong.myyoutube.video.controller.AudioController;
 import cn.diaojiahong.myyoutube.video.controller.InternalAudioDocumentController;
-import cn.diaojiahong.myyoutube.video.domain.dto.AudioPublishDTO;
+import cn.diaojiahong.myyoutube.video.domain.dto.AudioUploadDTO;
+import cn.diaojiahong.myyoutube.video.service.AudioUploadService;
 import cn.diaojiahong.myyoutube.video.domain.enums.*;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
 import cn.diaojiahong.myyoutube.video.mapper.AudioMapper;
@@ -98,6 +99,7 @@ class AudioLibraryIntegrationTest {
     final AudioPreparationPort tasks = mock(AudioPreparationPort.class);
     final AudioProcessingProperties properties = new AudioProcessingProperties();
     AudioServiceImpl service;
+    AudioUploadService uploads;
     AudioPreparationService coordinator;
     JdbcTemplate jdbc;
 
@@ -120,15 +122,151 @@ class AudioLibraryIntegrationTest {
         when(users.listByIds(anyCollection())).thenReturn(List.of(user));
         when(storage.signGetUrl(anyString(), anyLong())).thenAnswer(c -> "signed/" + c.getArgument(0));
         service = new AudioServiceImpl(rows, storage, users, new ContentSubmissionRules("content-moderation/blocked.txt"), properties, search);
+        uploads = new AudioUploadService(service, rows, storage, properties);
+        when(storage.buildUniqueObjectKey(anyLong(), anyString(), anyString())).thenAnswer(c ->
+                "uploads/" + c.getArgument(1) + "/" + c.getArgument(0) + "/day/" + java.util.UUID.randomUUID() + "/" + c.getArgument(2));
+        when(storage.presignPutUrl(anyString(), anyLong(), anyLong(), anyString())).thenReturn("signed-put");
+        when(storage.inspectUpload(anyString(), any())).thenReturn(new S3StorageUtil.UploadMetadata(4096, "audio/wav"));
         reviews = new AudioReviewService(rows, reviewRecords,
                 new TransactionTemplate(new DataSourceTransactionManager(database)));
         coordinator = new AudioPreparationService(rows, tasks, properties, reviews);
     }
     @AfterEach void cleanup() { UserContext.removeUser(); }
-    AudioPublishDTO upload(String key) {
-        var dto = new AudioPublishDTO(); dto.setRequestId(key); dto.setObjectKey("uploads/audio/9/20261024/" + key + ".wav"); return dto;
+    AudioUploadDTO upload(String key) {
+        var dto = new AudioUploadDTO(); dto.setRequestId(key); dto.setAudio(new AudioUploadDTO.File(key + ".wav", 4096, "audio/wav")); return dto;
     }
-    long publish() { return Long.parseLong(service.publish(upload("request-1"))); }
+    long publish() { return publish(upload("request-1")); }
+    long publish(AudioUploadDTO dto) {
+        long id = Long.parseLong(uploads.start(dto).audioId());
+        if (dto.getCover() != null) when(storage.inspectUpload(eq(rows.selectById(id).getSourceCoverObjectKey()), any()))
+                .thenReturn(new S3StorageUtil.UploadMetadata(dto.getCover().bytes(), dto.getCover().contentType()));
+        uploads.complete(id);
+        return id;
+    }
+
+    @Test void scannerRecoversWhenBothFrontendConfirmationAndStorageNotificationAreLost() {
+        long id = Long.parseLong(uploads.start(upload("lost")).audioId());
+        uploads.reconcile();
+        assertEquals(AudioProcessingStatus.PROCESSING, rows.selectById(id).getProcessingStatus());
+        assertNotNull(rows.selectById(id).getProcessingDeadline());
+        assertNull(rows.selectById(id).getUploadAfter());
+        verifyNoInteractions(tasks);
+    }
+
+    @Test void customCoverMustArriveBeforePreparationAndNotificationsAreIdempotent() {
+        var dto = upload("cover-event"); dto.setCover(new AudioUploadDTO.File("c.png", 1024, "image/png"));
+        var issued = uploads.start(dto); long id = Long.parseLong(issued.audioId());
+        when(storage.inspectUpload(eq(issued.cover().objectKey()), any())).thenReturn(null);
+        uploads.uploaded(issued.audio().objectKey());
+        assertEquals(AudioProcessingStatus.UPLOADING, rows.selectById(id).getProcessingStatus());
+        assertNull(rows.selectById(id).getPreparationAfter());
+        when(storage.inspectUpload(eq(issued.cover().objectKey()), any())).thenReturn(new S3StorageUtil.UploadMetadata(1024, "image/png"));
+        jdbc.update("UPDATE audio SET upload_after=? WHERE id=?", LocalDateTime.now().minusSeconds(1), id);
+        uploads.uploaded(issued.cover().objectKey());
+        long version = rows.selectById(id).getIndexVersion();
+        clearInvocations(storage);
+        uploads.uploaded(issued.audio().objectKey()); uploads.complete(id); uploads.reconcile();
+        assertEquals(AudioProcessingStatus.PROCESSING, rows.selectById(id).getProcessingStatus());
+        assertEquals(version, rows.selectById(id).getIndexVersion());
+        verifyNoInteractions(storage);
+    }
+
+    @Test void nonexistentObjectsDoNotStartPreparationAndUnknownKeysCannotCreateRecords() {
+        var issued = uploads.start(upload("missing")); long id = Long.parseLong(issued.audioId());
+        when(storage.inspectUpload(anyString(), any())).thenReturn(null);
+        uploads.complete(id); uploads.uploaded("uploads/audio/9/day/unregistered");
+        assertEquals(AudioProcessingStatus.UPLOADING, rows.selectById(id).getProcessingStatus());
+        assertEquals(1, rows.selectCount(null)); assertNull(rows.selectById(id).getPreparationAfter());
+        clearInvocations(storage); UserContext.setUser("7");
+        assertThrows(BizException.class, () -> uploads.complete(id)); verifyNoInteractions(storage);
+    }
+
+    @Test void technicalStorageFailureRemainsRetryableWithoutPretendingTheFileIsMissing() {
+        var issued = uploads.start(upload("storage-failure")); long id = Long.parseLong(issued.audioId());
+        when(storage.inspectUpload(anyString(), any())).thenThrow(new IllegalStateException("storage down"));
+        uploads.complete(id);
+        assertEquals(AudioProcessingStatus.UPLOADING, rows.selectById(id).getProcessingStatus());
+        assertNotNull(rows.selectById(id).getUploadAfter());
+        doReturn(new S3StorageUtil.UploadMetadata(4096, "audio/wav")).when(storage).inspectUpload(anyString(), any());
+        jdbc.update("UPDATE audio SET upload_after=? WHERE id=?", LocalDateTime.now().minusSeconds(1), id);
+        uploads.reconcile();
+        assertEquals(AudioProcessingStatus.PROCESSING, rows.selectById(id).getProcessingStatus());
+    }
+
+    @ParameterizedTest @CsvSource({"1234,audio/wav", "4096,application/octet-stream"})
+    void metadataMismatchInvalidatesTheUploadWithoutRunningMediaTasks(long size, String type) {
+        var issued = uploads.start(upload("mismatch")); long id = Long.parseLong(issued.audioId());
+        when(storage.inspectUpload(anyString(), any())).thenReturn(new S3StorageUtil.UploadMetadata(size, type));
+        uploads.complete(id);
+        assertEquals(AudioProcessingStatus.EXPIRED, rows.selectById(id).getProcessingStatus());
+        assertNull(rows.selectById(id).getPreparationAfter()); assertFalse(service.retry(id));
+        verifyNoInteractions(tasks);
+    }
+
+    @Test void expiryStopsLateNotificationsAndCleanupRetriesOnlyTheRegisteredFiles() {
+        var dto = upload("expired"); dto.setCover(new AudioUploadDTO.File("c.png", 1024, "image/png"));
+        var issued = uploads.start(dto); long id = Long.parseLong(issued.audioId());
+        jdbc.update("UPDATE audio SET upload_deadline=? WHERE id=?", LocalDateTime.now().minusSeconds(1), id);
+        clearInvocations(storage); uploads.reconcile();
+        assertEquals(AudioProcessingStatus.EXPIRED, rows.selectById(id).getProcessingStatus());
+        verifyNoInteractions(storage);
+        uploads.uploaded(issued.audio().objectKey());
+        assertEquals(AudioProcessingStatus.EXPIRED, rows.selectById(id).getProcessingStatus());
+        doThrow(new IllegalStateException("unavailable")).doNothing().when(storage).deleteUpload(eq(issued.cover().objectKey()), any());
+        jdbc.update("UPDATE audio SET upload_after=? WHERE id=?", LocalDateTime.now().minusSeconds(1), id);
+        uploads.reconcile(); assertNotNull(rows.selectById(id).getUploadAfter());
+        jdbc.update("UPDATE audio SET upload_after=? WHERE id=?", LocalDateTime.now().minusSeconds(1), id);
+        uploads.reconcile(); assertNull(rows.selectById(id).getUploadAfter());
+        verify(storage, times(2)).deleteUpload(eq(issued.audio().objectKey()), any());
+        verify(storage, times(2)).deleteUpload(eq(issued.cover().objectKey()), any());
+        verify(storage, never()).inspectUpload(anyString(), any());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"is_delete=1", "review_status='banned'"})
+    void changesDuringStorageInspectionCannotStartProcessing(String mutation) {
+        long id = Long.parseLong(uploads.start(upload("race")).audioId());
+        when(storage.inspectUpload(anyString(), any())).thenAnswer(c -> {
+            jdbc.update("UPDATE audio SET " + mutation + " WHERE id=?", id);
+            return new S3StorageUtil.UploadMetadata(4096, "audio/wav");
+        });
+        uploads.complete(id);
+        assertEquals(AudioProcessingStatus.UPLOADING, rows.selectById(id).getProcessingStatus());
+        assertNull(rows.selectById(id).getPreparationAfter());
+    }
+
+    @Test void concurrentConfirmationAndStorageEventInspectOnceAndAdvanceOnce() throws Exception {
+        var issued = uploads.start(upload("concurrent-confirmation")); long id = Long.parseLong(issued.audioId());
+        var inspecting = new CountDownLatch(1); var release = new CountDownLatch(1);
+        when(storage.inspectUpload(anyString(), any())).thenAnswer(c -> {
+            inspecting.countDown(); assertTrue(release.await(5, TimeUnit.SECONDS));
+            return new S3StorageUtil.UploadMetadata(4096, "audio/wav");
+        });
+        var first = CompletableFuture.runAsync(() -> uploads.uploaded(issued.audio().objectKey()));
+        try {
+            assertTrue(inspecting.await(5, TimeUnit.SECONDS)); uploads.complete(id); uploads.reconcile();
+        } finally { release.countDown(); }
+        first.get(5, TimeUnit.SECONDS);
+        verify(storage, times(1)).inspectUpload(anyString(), any());
+        assertEquals(AudioProcessingStatus.PROCESSING, rows.selectById(id).getProcessingStatus());
+    }
+
+    @Test void lostAdmissionResponseReusesTheSameKeysAndDoesNotExtendTheDeadline() {
+        var dto = upload("lost-response"); var first = uploads.start(dto);
+        var second = uploads.start(dto);
+        assertEquals(first.audioId(), second.audioId()); assertEquals(first.audio().objectKey(), second.audio().objectKey());
+        assertEquals(first.expiresAt(), second.expiresAt()); assertEquals(1, rows.selectCount(null));
+        verify(storage, times(1)).buildUniqueObjectKey(anyLong(), anyString(), anyString());
+    }
+
+    @Test void issuingSignatureFailureKeepsTheRegisteredIntentForSafeRetry() {
+        var dto = upload("sign-failure");
+        when(storage.presignPutUrl(anyString(), anyLong(), anyLong(), anyString())).thenThrow(new IllegalStateException("signer"));
+        assertThrows(IllegalStateException.class, () -> uploads.start(dto));
+        assertEquals(1, rows.selectCount(null));
+        doReturn("signed-put").when(storage).presignPutUrl(anyString(), anyLong(), anyLong(), anyString());
+        assertEquals(rows.selectList(null).get(0).getId().toString(), uploads.start(dto).audioId());
+        verify(storage, times(1)).buildUniqueObjectKey(anyLong(), anyString(), anyString());
+    }
 
     private AudioServiceImpl transactionalService() {
         var factory = new ProxyFactory(service);
@@ -219,38 +357,38 @@ class AudioLibraryIntegrationTest {
     }
 
     @Test void admissionDoesNotReadStorageOrTrustClientDurationAndUsesNickname() {
-        long id = publish(); var row = rows.selectById(id);
+        long id = Long.parseLong(uploads.start(upload("request-1")).audioId()); var row = rows.selectById(id);
         assertEquals("测试作者 的音频", row.getTitle()); assertNull(row.getDurationMs()); assertNull(row.getObjectKey());
-        assertEquals(AudioProcessingStatus.PROCESSING, row.getProcessingStatus()); assertEquals(AudioReviewStatus.PENDING, row.getReviewStatus());
-        assertEquals("public", row.getVisibility()); verifyNoInteractions(storage, tasks);
+        assertEquals(AudioProcessingStatus.UPLOADING, row.getProcessingStatus()); assertEquals(AudioReviewStatus.PENDING, row.getReviewStatus());
+        assertEquals("public", row.getVisibility()); verify(storage, never()).inspectUpload(anyString(), any()); verifyNoInteractions(tasks);
     }
     @Test void replayUsesStableRequestEvenAfterNicknameChanges() {
-        var dto = upload("retry"); String first = service.publish(dto); reset(users);
-        assertEquals(first, service.publish(dto)); assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM audio", Integer.class));
+        var dto = upload("retry"); String first = service.registerUpload(dto); reset(users); clearInvocations(storage);
+        assertEquals(first, service.registerUpload(dto)); assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM audio", Integer.class));
         verifyNoInteractions(users, storage, tasks);
     }
     @Test void changedReplayCannotReplaceFileCoverOrName() {
-        var dto = upload("same"); service.publish(dto);
-        dto.setCoverObjectKey("uploads/picture/9/20261024/cover.jpg"); assertThrows(BizException.class, () -> service.publish(dto));
-        dto.setCoverObjectKey(null); dto.setTitle("改名"); assertThrows(BizException.class, () -> service.publish(dto));
-        dto.setTitle(null); dto.setObjectKey("uploads/audio/9/20261024/new.wav"); assertThrows(BizException.class, () -> service.publish(dto));
+        var dto = upload("same"); service.registerUpload(dto);
+        dto.setCover(new AudioUploadDTO.File("cover.jpg", 1024, "image/jpeg")); assertThrows(BizException.class, () -> service.registerUpload(dto));
+        dto.setCover(null); dto.setTitle("改名"); assertThrows(BizException.class, () -> service.registerUpload(dto));
+        dto.setTitle(null); dto.setAudio(new AudioUploadDTO.File("new.wav", 4096, "audio/wav")); assertThrows(BizException.class, () -> service.registerUpload(dto));
     }
     @Test void concurrentAdmissionCreatesOnlyOneAudio() {
-        var first = CompletableFuture.supplyAsync(() -> { UserContext.setUser("9"); try { return service.publish(upload("concurrent")); } finally { UserContext.removeUser(); } });
-        var second = CompletableFuture.supplyAsync(() -> { UserContext.setUser("9"); try { return service.publish(upload("concurrent")); } finally { UserContext.removeUser(); } });
+        var first = CompletableFuture.supplyAsync(() -> { UserContext.setUser("9"); try { return service.registerUpload(upload("concurrent")); } finally { UserContext.removeUser(); } });
+        var second = CompletableFuture.supplyAsync(() -> { UserContext.setUser("9"); try { return service.registerUpload(upload("concurrent")); } finally { UserContext.removeUser(); } });
         assertEquals(first.join(), second.join()); assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM audio", Integer.class));
     }
-    @Test void rejectsCrossUserKeysUrlsAndWrongDirectories() {
+    @Test void invalidUploadMetadataCannotRegisterAnAudio() {
         var dto = upload("bad");
-        for (String key : List.of("uploads/audio/19/x/9/file.wav", "uploads/picture/9/file.wav", "https://example.com/uploads/audio/9/a.wav", "uploads/audio/9/../7/a.wav", "uploads/audio/9/" + "x".repeat(512))) {
-            dto.setObjectKey(key); assertThrows(BizException.class, () -> service.publish(dto));
+        for (long bytes : new long[]{0, -1, 128L * 1024 * 1024 + 1}) {
+            dto.setAudio(new AudioUploadDTO.File("a.wav", bytes, "audio/wav")); assertThrows(BizException.class, () -> service.registerUpload(dto));
         }
-        dto.setObjectKey("uploads/audio/9/day/file.wav"); dto.setCoverObjectKey("uploads/picture/7/day/cover.jpg");
-        assertThrows(BizException.class, () -> service.publish(dto)); assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM audio", Integer.class));
+        dto.setAudio(new AudioUploadDTO.File("a.wav", 1024, "video/mp4"));
+        assertThrows(BizException.class, () -> service.registerUpload(dto)); assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM audio", Integer.class));
     }
     @Test void validatesInitialTitleBeforeAdmission() {
-        var dto = upload("bad-title"); dto.setTitle("x".repeat(101)); assertThrows(BizException.class, () -> service.publish(dto));
-        dto.setTitle("赌博"); assertThrows(BizException.class, () -> service.publish(dto));
+        var dto = upload("bad-title"); dto.setTitle("x".repeat(101)); assertThrows(BizException.class, () -> service.registerUpload(dto));
+        dto.setTitle("赌博"); assertThrows(BizException.class, () -> service.registerUpload(dto));
     }
     @Test void unfinishedAudioIsNotDiscoverableOrReferenceableAndNoSourcePreviewIsSigned() {
         long id = publish(); assertThrows(BizException.class, () -> service.getReferenceable(id, 9L));
@@ -265,8 +403,8 @@ class AudioLibraryIntegrationTest {
         assertTrue(service.library(null, new PageQuery()).getList().isEmpty());
     }
     @Test void completedProcessingPersistsServerMetadataAndWaitsForManualReview() {
-        var dto = upload("cover"); dto.setCoverObjectKey("uploads/picture/9/day/cover.png");
-        long id = Long.parseLong(service.publish(dto));
+        var dto = upload("cover"); dto.setCover(new AudioUploadDTO.File("cover.png", 1024, "image/png"));
+        long id = publish(dto);
         when(tasks.preparation(id)).thenReturn(new View(id, MediaTaskStatus.SUCCESS, 1, 0, prepared(id), null, null));
         coordinator.reconcile(); var row = rows.selectById(id);
         assertEquals(AudioProcessingStatus.READY, row.getProcessingStatus()); assertEquals(AudioReviewStatus.PENDING, row.getReviewStatus());
@@ -347,24 +485,26 @@ class AudioLibraryIntegrationTest {
     @Test void ownerManagementRejectsCrossUserAccessAndDeletedReplay() {
         long id = publish(); UserContext.setUser("7");
         assertThrows(BizException.class, () -> service.getMine(id)); assertThrows(BizException.class, () -> service.delete(id)); assertThrows(BizException.class, () -> service.retry(id));
-        UserContext.setUser("9"); service.delete(id); assertThrows(BizException.class, () -> service.publish(upload("request-1")));
+        UserContext.setUser("9"); service.delete(id); assertThrows(BizException.class, () -> service.registerUpload(upload("request-1")));
     }
     @Test void avatarFallbackIsBatchedAndCustomCoverTakesPrecedence() {
-        long id = publish(); var dto = upload("second"); dto.setCoverObjectKey("uploads/picture/9/day/c.jpg");
-        long second = Long.parseLong(service.publish(dto)); approve(id); approve(second);
+        long id = publish(); var dto = upload("second"); dto.setCover(new AudioUploadDTO.File("c.jpg", 1024, "image/jpeg"));
+        long second = publish(dto); approve(id); approve(second);
         jdbc.update("UPDATE audio SET cover_object_key=? WHERE id=?", request(second).prefix() + "cover.jpg", second);
         clearInvocations(users); var result = service.myAudios(new PageQuery());
         assertEquals(2, result.getList().size()); verify(users, times(1)).listByIds(List.of(9L));
         assertEquals("signed/" + request(second).prefix() + "cover.jpg", result.getList().stream().filter(a -> a.getId().equals(Long.toString(second))).findFirst().orElseThrow().getCoverUrl());
     }
     @Test void httpAdmissionIsAcceptedAndClientDurationIsNotPersisted() throws Exception {
-        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
-        mvc.perform(post("/audios/publish").contentType("application/json").content("{\"requestId\":\"http\",\"objectKey\":\"uploads/audio/9/day/a.wav\",\"durationMs\":1}"))
-                .andExpect(status().isAccepted()).andExpect(jsonPath("$.data").isString());
+        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads)).setControllerAdvice(new GlobalExceptionHandler()).build();
+        mvc.perform(post("/audios/uploads").contentType("application/json").content("{\"requestId\":\"http\",\"audio\":{\"filename\":\"a.wav\",\"bytes\":4096,\"contentType\":\"audio/wav\"},\"objectKey\":\"uploads/audio/7/fake\",\"durationMs\":1}"))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.data.audioId").isString())
+                .andExpect(jsonPath("$.data.audio.url").value("signed-put"));
         assertNull(jdbc.queryForObject("SELECT duration_ms FROM audio", Integer.class));
         long id = jdbc.queryForObject("SELECT id FROM audio", Long.class);
         mvc.perform(get("/audios/" + id)).andExpect(status().isNotFound());
-        mvc.perform(get("/audios/mine/" + id)).andExpect(status().isOk()).andExpect(jsonPath("$.data.processingStatus").value("processing"))
+        assertTrue(rows.selectById(id).getSourceObjectKey().startsWith("uploads/audio/9/"));
+        mvc.perform(get("/audios/mine/" + id)).andExpect(status().isOk()).andExpect(jsonPath("$.data.processingStatus").value("uploading"))
                 .andExpect(jsonPath("$.data.reviewStatus").value("pending"));
     }
     AudioAnalysisContracts.Request analysisRequest(long id, MediaTaskType type) {
@@ -595,7 +735,7 @@ class AudioLibraryIntegrationTest {
         assertEquals("您的音频已通过审核。", service.getMine(id).getReviewReason());
         assertEquals("技术识别失败，人工完整试听及封面核验通过", rows.selectById(id).getReviewReason());
         when(search.search(any())).thenReturn(new AudioDiscoveryContracts.Slice(List.of(id), false));
-        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service)).build();
+        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads)).build();
         mvc.perform(get("/audios/" + id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.reviewReason").doesNotExist())
                 .andExpect(jsonPath("$.data.errorMessage").doesNotExist())
@@ -614,7 +754,7 @@ class AudioLibraryIntegrationTest {
         var matching = rows.selectOne(new LambdaQueryWrapper<Audio>()
                 .eq(Audio::getId, id).eq(Audio::getAnalysisStatus, phase));
         assertEquals(phase, matching.getAnalysisStatus());
-        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service)).build();
+        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads)).build();
         mvc.perform(get("/audios/mine/" + id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.analysisStatus").value(phase.getCode()));
     }

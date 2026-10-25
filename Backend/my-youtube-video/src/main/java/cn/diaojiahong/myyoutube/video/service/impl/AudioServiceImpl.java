@@ -5,7 +5,6 @@ import cn.diaojiahong.myyoutube.video.domain.vo.AudioPage;
 import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.media.MediaInputs;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
@@ -17,7 +16,9 @@ import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.config.AudioProcessingProperties;
-import cn.diaojiahong.myyoutube.video.domain.dto.AudioPublishDTO;
+import cn.diaojiahong.myyoutube.video.domain.dto.AudioUploadDTO;
+import cn.diaojiahong.myyoutube.common.media.AudioPreparationContracts;
+import cn.diaojiahong.myyoutube.video.service.AudioUploadService;
 import cn.diaojiahong.myyoutube.video.domain.enums.*;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioVO;
@@ -52,23 +53,28 @@ public class AudioServiceImpl implements IAudioService {
     private final AudioProcessingProperties processing;
     private final AudioSearchPort search;
 
-    @Override public String publish(AudioPublishDTO dto) {
+    @Override public String registerUpload(AudioUploadDTO dto) {
         Long userId = getUserId();
         if (dto == null || dto.getRequestId() == null || !dto.getRequestId().matches("[A-Za-z0-9_-]{1,64}"))
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "请提供有效的音频上传请求标识");
-        String source = ownedUpload(dto.getObjectKey(), "audio", userId);
-        String cover = StringUtils.hasText(dto.getCoverObjectKey()) ? ownedUpload(dto.getCoverObjectKey(), "picture", userId) : null;
+        validateFile(dto.getAudio(), "audio", AudioPreparationContracts.MAX_SOURCE_BYTES);
+        if (dto.getCover() != null) validateFile(dto.getCover(), "image", 8L * 1024 * 1024);
         String requestedTitle = StringUtils.hasText(dto.getTitle()) ? dto.getTitle().trim() : null;
-        String fingerprint = fingerprint(source, cover, requestedTitle);
+        String fingerprint = fingerprint(dto, requestedTitle);
         var existing = request(userId, dto.getRequestId());
         if (existing != null) return replay(existing, fingerprint);
         String title = rules.title(requestedTitle == null ? defaultTitle(userId) : requestedTitle);
-        var now = LocalDateTime.now();
+        String source = storageUtil.buildUniqueObjectKey(userId, "audio", dto.getAudio().filename());
+        String cover = dto.getCover() == null ? null : storageUtil.buildUniqueObjectKey(userId, "audio-cover", dto.getCover().filename());
+        var now = LocalDateTime.now().withNano(0);
         var audio = new Audio().setUploaderId(userId).setTitle(title).setRequestId(dto.getRequestId()).setRequestFingerprint(fingerprint)
                 .setSourceObjectKey(source).setSourceCoverObjectKey(cover).setVisibility(VISIBILITY_PUBLIC).setIsDelete(0)
-                .setProcessingStatus(AudioProcessingStatus.PROCESSING).setReviewStatus(AudioReviewStatus.PENDING)
-                .setPreparationAttempt(0).setPreparationRetry(false).setPreparationAfter(now)
-                .setProcessingDeadline(now.plusMinutes(processing.getDeadlineMinutes()));
+                .setUploadSize(dto.getAudio().bytes()).setUploadContentType(dto.getAudio().contentType())
+                .setCoverUploadSize(dto.getCover() == null ? null : dto.getCover().bytes())
+                .setCoverUploadContentType(dto.getCover() == null ? null : dto.getCover().contentType())
+                .setUploadDeadline(now.plusSeconds(AudioUploadService.UPLOAD_SECONDS + AudioUploadService.GRACE_SECONDS)).setUploadAfter(now)
+                .setProcessingStatus(AudioProcessingStatus.UPLOADING).setReviewStatus(AudioReviewStatus.PENDING)
+                .setPreparationAttempt(0).setPreparationRetry(false);
         try { audioMapper.insert(audio); }
         catch (DuplicateKeyException e) {
             existing = request(userId, dto.getRequestId());
@@ -230,18 +236,16 @@ public class AudioServiceImpl implements IAudioService {
         return (nickname == null ? "用户" + userId : nickname.trim()) + " 的音频";
     }
 
-    private static String ownedUpload(String value, String directory, Long userId) {
-        if (!StringUtils.hasText(value) || value.length() > 512 || !value.equals(value.trim())) throw new BizException(ErrorCode.INVALID_ARGUMENT, "上传文件标识无效");
-        try { MediaInputs.objectKey(value); }
-        catch (IllegalArgumentException e) { throw new BizException(ErrorCode.INVALID_ARGUMENT, "上传文件标识无效"); }
-        if (!value.startsWith("uploads/" + directory + "/" + userId + "/") || value.contains("//"))
-            throw new BizException(ErrorCode.FORBIDDEN, "无权使用该上传文件");
-        return value;
+    private static void validateFile(AudioUploadDTO.File file, String type, long limit) {
+        if (file == null || file.filename() == null || file.filename().isBlank() || file.filename().length() > 255
+                || file.bytes() < 1 || file.bytes() > limit || file.contentType() == null || file.contentType().length() > 128
+                || !file.contentType().matches(type + "/[a-zA-Z0-9.+-]+"))
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "上传文件名称、大小或类型无效");
     }
 
-    private static String fingerprint(String source, String cover, String title) {
+    private static String fingerprint(AudioUploadDTO dto, String title) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                .digest(JsonUtil.toJson(Arrays.asList(source, cover, title)).getBytes(StandardCharsets.UTF_8))); }
+                .digest(JsonUtil.toJson(Arrays.asList(dto.getAudio(), dto.getCover(), title)).getBytes(StandardCharsets.UTF_8))); }
         catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
 
