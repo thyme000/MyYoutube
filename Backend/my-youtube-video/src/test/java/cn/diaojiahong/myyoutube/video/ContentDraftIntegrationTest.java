@@ -26,6 +26,9 @@ import cn.diaojiahong.myyoutube.content.strategy.*;
 import cn.diaojiahong.myyoutube.transcode.api.MediaTaskPort;
 import cn.diaojiahong.myyoutube.video.api.enums.*;
 import cn.diaojiahong.myyoutube.video.chain.dynamic.*;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import cn.diaojiahong.myyoutube.video.domain.dto.*;
 import cn.diaojiahong.myyoutube.video.domain.po.*;
 import cn.diaojiahong.myyoutube.video.mapper.*;
@@ -103,8 +106,8 @@ class ContentDraftIntegrationTest {
         @Bean MediaDraftService mediaDrafts(MediaDraftMapper rows, cn.diaojiahong.myyoutube.video.service.DraftObservation observation) { return new MediaDraftService(rows, observation); }
         @Bean ContentSubmissionService publish(MediaDraftService drafts, MediaTaskPort tasks, VideoMapper videos,
                                             DynamicMapper dynamics, DynamicMediaPreparationService preparation,
-                                            ContentMapper contents, ContentUnderstandingService understanding, TransactionTemplate tx) {
-            var strategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos), new DynamicContentStrategy(dynamics)));
+                                            ContentMapper contents, ContentUnderstandingService understanding, TransactionTemplate tx, IAudioService audio) {
+            var strategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos), new DynamicContentStrategy(dynamics, audio)));
             return new ContentSubmissionService(drafts, contents, strategies, understanding, tx, rules());
         }
     }
@@ -154,7 +157,7 @@ class ContentDraftIntegrationTest {
                   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
                 """);
         jdbc.execute("CREATE TABLE video(id BIGINT PRIMARY KEY,object_key VARCHAR(512),duration_ms BIGINT)");
-        jdbc.execute("CREATE TABLE dynamic(id BIGINT PRIMARY KEY,media_json TEXT)");
+        jdbc.execute("CREATE TABLE dynamic(id BIGINT PRIMARY KEY,audio_id BIGINT,media_json TEXT)");
         jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
         when(understanding.enroll(any(), any())).thenReturn(100L);
         when(understanding.get(anyLong())).thenAnswer(call -> new ContentUnderstanding().setContentId(call.getArgument(0)).setPipelineId(100L));
@@ -437,6 +440,43 @@ class ContentDraftIntegrationTest {
         verify(understanding, times(1)).enroll(any(), argThat(m -> m.dynamic() != null));
         verifyNoInteractions(tasks);
     }
+    @Test void formalSubmissionRechecksAudioInTheFreezeTransactionAndPersistsItsIdentity() {
+        var dto = dynamic(); dto.setAudioId(20L);
+        when(audio.getReferenceable(20L, 9L)).thenReturn(new Audio().setId(20L)
+                .setObjectKey("media-prepared/7/20/audio-source").setDurationMs(120000));
+        var draft = drafts.saveDynamic(null, 9L, dto);
+        ready(draft.draftId());
+        doAnswer(call -> {
+            assertTrue(TransactionSynchronizationManager.isActualTransactionActive());
+            assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));
+            return new Audio().setId(20L);
+        }).when(audio).lockReferenceable(20L, 9L);
+        var receipt = submitClaimed(publish, draft.draftId(), 9L);
+        assertEquals(20L, jdbc.queryForObject("SELECT audio_id FROM dynamic WHERE id=?", Long.class, receipt.contentId()));
+        assertEquals(receipt, submitClaimed(publish, draft.draftId(), 9L));
+        verify(audio, times(1)).lockReferenceable(20L, 9L);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ErrorCode.class, names = {"FORBIDDEN", "NOT_FOUND", "INVALID_ARGUMENT"})
+    void invalidAudioAtFormalSubmissionFailsPublicationWithoutFreezingTheDraft(ErrorCode code) {
+        var dto = dynamic(); dto.setAudioId(20L);
+        when(audio.getReferenceable(20L, 9L)).thenReturn(new Audio().setId(20L)
+                .setObjectKey("uploads/audio/7/day/music.mp3").setDurationMs(120000));
+        var draft = drafts.saveDynamic(null, 9L, dto);
+        ready(draft.draftId());
+        doThrow(new BizException(code, "所选音频不可用，请重新选择")).when(audio).lockReferenceable(20L, 9L);
+        publications.request(draft.draftId(), 9L, rows.selectById(draft.draftId()).getRevision());
+        publications.scan();
+        var current = rows.selectById(draft.draftId());
+        assertEquals(DraftSubmissionState.FAILED, current.getSubmissionState());
+        assertEquals(MediaDraftStatusEnum.READY, current.getStatus());
+        assertEquals(1, current.getSubmissionAttempts());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM dynamic", Integer.class));
+        verify(understanding, never()).enroll(any(), any());
+    }
+
     @Test void editDuringMaterialValidationCannotSubmitOldSnapshot() {
         Long id = readyVideo();
         var metadata = new ContentMetadataDTO(); metadata.setTitle("初始"); drafts.saveMetadata(id, 9L, metadata);
@@ -455,13 +495,15 @@ class ContentDraftIntegrationTest {
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));
         verify(understanding, never()).enroll(any(), any());
     }
-    @Test void nativeSubmissionUsesFrozenMediaAfterAudioPermissionsChange() {
+    @Test void submittedDynamicRetainsAudioGrantAfterPermissionsChange() {
         var dto = dynamic(); dto.setAudioId(20L);
         when(audio.getReferenceable(20L, 9L)).thenReturn(new Audio().setId(20L).setObjectKey("uploads/audio/7/20261011/music.mp3").setDurationMs(2000));
         var draft = drafts.saveDynamic(null, 9L, dto);
-        ready(draft.draftId()); clearInvocations(audio, storage, tasks);
-        when(audio.getReferenceable(20L, 9L)).thenThrow(new BizException(ErrorCode.FORBIDDEN, "已移除音频权限"));
-        assertNotNull(submitClaimed(publish, draft.draftId(), 9L));
+        ready(draft.draftId());
+        var receipt = submitClaimed(publish, draft.draftId(), 9L);
+        clearInvocations(audio, storage, tasks);
+        when(audio.lockReferenceable(20L, 9L)).thenThrow(new BizException(ErrorCode.FORBIDDEN, "已移除音频权限"));
+        assertEquals(receipt, submitClaimed(publish, draft.draftId(), 9L));
         assertEquals(MediaDraftStatusEnum.SUBMITTED, rows.selectById(draft.draftId()).getStatus());
         verifyNoInteractions(audio, storage, tasks);
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM content", Integer.class));

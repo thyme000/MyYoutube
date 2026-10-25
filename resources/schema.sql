@@ -338,7 +338,9 @@ CREATE TABLE IF NOT EXISTS `audio_review_record` (
 -- 图集配乐动态(主体表; 时间轴/焦点等嵌套结构存 JSON 列)
 CREATE TABLE IF NOT EXISTS `dynamic` (
     `id` BIGINT NOT NULL PRIMARY KEY COMMENT '与 content 相同',
-    `media_json` JSON NOT NULL COMMENT '有序图片、画布、转场和可选原始音频快照，无签名URL'
+    `audio_id` BIGINT DEFAULT NULL COMMENT '正式提交使用的音频，治理关联不依赖 JSON 解析',
+    `media_json` JSON NOT NULL COMMENT '有序图片、画布、转场和可选原始音频快照，无签名URL',
+    KEY `idx_dynamic_audio` (`audio_id`, `id`)
 ) ENGINE=InnoDB COMMENT='原生图集媒体';
 
 -- 可靠管线事件与业务状态同库、同事务记录。

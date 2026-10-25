@@ -65,6 +65,10 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -125,6 +129,67 @@ class AudioLibraryIntegrationTest {
         var dto = new AudioPublishDTO(); dto.setRequestId(key); dto.setObjectKey("uploads/audio/9/20261024/" + key + ".wav"); return dto;
     }
     long publish() { return Long.parseLong(service.publish(upload("request-1"))); }
+
+    private AudioServiceImpl transactionalService() {
+        var factory = new ProxyFactory(service);
+        factory.setProxyTargetClass(true);
+        factory.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(database), new AnnotationTransactionAttributeSource()));
+        return (AudioServiceImpl) factory.getProxy();
+    }
+
+    @Test void submissionAudioLockRequiresAnExistingTransaction() {
+        long id = publish(); approve(id);
+        assertThrows(IllegalTransactionStateException.class, () -> transactionalService().lockReferenceable(id, 9L));
+    }
+
+    @ParameterizedTest @CsvSource({"public,7,true", "private,9,true", "private,7,false"})
+    void lockedAudioUsesTheSameOwnershipRulesAsDraftSelection(String visibility, long author, boolean allowed) {
+        long id = publish(); approve(id); service.setVisibility(id, visibility);
+        var transaction = new TransactionTemplate(new DataSourceTransactionManager(database));
+        var locked = transactionalService();
+        if (allowed) assertEquals(id, transaction.execute(tx -> locked.lockReferenceable(id, author)).getId());
+        else assertEquals(ErrorCode.FORBIDDEN, assertThrows(BizException.class,
+                () -> transaction.execute(tx -> locked.lockReferenceable(id, author))).getErrorCode());
+    }
+
+    @ParameterizedTest @CsvSource({"visibility='private',FORBIDDEN", "is_delete=1,NOT_FOUND", "review_status='banned',INVALID_ARGUMENT"})
+    void submissionWaitingForAudioLockChecksTheCommittedMutation(String mutation, ErrorCode expected) throws Exception {
+        long id = publish(); approve(id);
+        var transaction = new TransactionTemplate(new DataSourceTransactionManager(database));
+        var locked = transactionalService();
+        var entered = new CountDownLatch(1); var waiting = new AtomicReference<CompletableFuture<ErrorCode>>();
+        transaction.executeWithoutResult(tx -> {
+            jdbc.update("UPDATE audio SET " + mutation + " WHERE id=?", id);
+            waiting.set(CompletableFuture.supplyAsync(() -> {
+                entered.countDown();
+                try { transaction.execute(inner -> locked.lockReferenceable(id, 7L)); return null; }
+                catch (BizException error) { return error.getErrorCode(); }
+            }));
+            try { assertTrue(entered.await(5, TimeUnit.SECONDS)); }
+            catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AssertionError(error); }
+            assertThrows(TimeoutException.class, () -> waiting.get().get(200, TimeUnit.MILLISECONDS));
+        });
+        assertEquals(expected, waiting.get().get(5, TimeUnit.SECONDS));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"visibility='private'", "is_delete=1", "review_status='banned'"})
+    void successfulSubmissionHoldsAudioLockUntilTheOuterTransactionCommits(String mutation) throws Exception {
+        long id = publish(); approve(id);
+        var transaction = new TransactionTemplate(new DataSourceTransactionManager(database));
+        var locked = transactionalService();
+        var entered = new CountDownLatch(1); var waiting = new AtomicReference<CompletableFuture<Integer>>();
+        transaction.executeWithoutResult(tx -> {
+            assertEquals(id, locked.lockReferenceable(id, 7L).getId());
+            waiting.set(CompletableFuture.supplyAsync(() -> {
+                entered.countDown();
+                return jdbc.update("UPDATE audio SET " + mutation + " WHERE id=?", id);
+            }));
+            try { assertTrue(entered.await(5, TimeUnit.SECONDS)); }
+            catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AssertionError(error); }
+            assertThrows(TimeoutException.class, () -> waiting.get().get(200, TimeUnit.MILLISECONDS));
+        });
+        assertEquals(1, waiting.get().get(5, TimeUnit.SECONDS));
+    }
 
     @ParameterizedTest @CsvSource({"0,10", "1,101", "100,100", "2147483647,100"})
     void invalidSearchBoundsAreRejectedBeforeCallingTheSearchPort(int pageNo, int pageSize) {

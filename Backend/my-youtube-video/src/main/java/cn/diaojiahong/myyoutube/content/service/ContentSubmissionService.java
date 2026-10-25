@@ -59,6 +59,7 @@ public class ContentSubmissionService {
         var media = strategy.prepare(draft);
         try {
             Receipt receipt = transaction.execute(tx -> {
+                strategy.validateSubmission(media, userId);
                 if (!drafts.submit(draft, media.durationMs())) throw new BizException(ErrorCode.STATE_CONFLICT, "发布状态已变化，本次提交未生效");
                 contents.insert(content);
                 strategy.persist(draftId, media);

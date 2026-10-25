@@ -23,4 +23,5 @@ public interface IAudioService {
      * 新增引用必须处理完成且审核通过，私密音频仅本人可用。
      */
     Audio getReferenceable(Long audioId, Long userId);
+    Audio lockReferenceable(Long audioId, Long userId);
 }

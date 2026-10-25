@@ -15,10 +15,6 @@ public class AudioReferenceStep extends DynamicPreparationStep {
         this.audioService = audioService;
     }
 
-    /**
-     * 音频库引用校验: 公开或本人私有才可用; objectKey/时长/标题作为快照落库,
-     * 之后音频转私密/删除/改名均不影响已发布动态(在先使用权)。
-     */
     @Override
     public void apply(DynamicPreparationContext ctx) {
         if (ctx.getDto().getAudioId() == null) {
@@ -27,7 +23,7 @@ public class AudioReferenceStep extends DynamicPreparationStep {
         }
         var audio = audioService.getReferenceable(ctx.getDto().getAudioId(), ctx.getUserId());
         if (audio == null || audio.getDurationMs() == null || audio.getDurationMs() <= 0
-                || audio.getObjectKey() == null || !audio.getObjectKey().startsWith("uploads/audio/"))
+                || audio.getObjectKey() == null || audio.getObjectKey().isBlank())
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "音频素材无效");
         ctx.setAudio(audio.getId(), audio.getObjectKey(), audio.getTitle(), audio.getDurationMs());
     }

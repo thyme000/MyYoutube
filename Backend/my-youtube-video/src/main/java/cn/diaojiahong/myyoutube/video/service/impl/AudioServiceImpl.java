@@ -29,6 +29,8 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -152,11 +154,22 @@ public class AudioServiceImpl implements IAudioService {
     }
 
     @Override public Audio getReferenceable(Long audioId, Long userId) {
-        var audio = audioMapper.selectById(audioId);
+        return requireReferenceable(audioMapper.selectById(audioId), userId);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Audio lockReferenceable(Long audioId, Long userId) {
+        // 与私密、删除和审核更新串行，锁一直保留到内容及快照提交完成。
+        return requireReferenceable(audioMapper.selectOne(new LambdaQueryWrapper<Audio>()
+                .eq(Audio::getId, audioId).last("FOR UPDATE")), userId);
+    }
+
+    private Audio requireReferenceable(Audio audio, Long userId) {
         if (audio == null || !Integer.valueOf(0).equals(audio.getIsDelete()))
             throw new BizException(ErrorCode.NOT_FOUND, "音频不存在或已被删除");
         if (audio.getProcessingStatus() != AudioProcessingStatus.READY || audio.getReviewStatus() != AudioReviewStatus.APPROVED)
-            throw new BizException(ErrorCode.STATE_CONFLICT, "音频尚未通过审核或已不可用");
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "所选音频尚未通过审核或已不可用，请重新选择");
         if (!VISIBILITY_PUBLIC.equals(audio.getVisibility()) && !Objects.equals(audio.getUploaderId(), userId))
             throw new BizException(ErrorCode.FORBIDDEN, "无权使用该音频");
         return audio;

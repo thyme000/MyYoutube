@@ -9,6 +9,7 @@ import java.util.Map;
 public interface ContentTypeStrategy {
     ContentTypeEnum type();
     ContentMedia prepare(MediaDraft draft);
+    default void validateSubmission(ContentMedia media, Long authorId) {}
     void persist(Long contentId, ContentMedia media);
     Map<Long, ContentMedia> loadMedia(Collection<Long> ids);
 }
