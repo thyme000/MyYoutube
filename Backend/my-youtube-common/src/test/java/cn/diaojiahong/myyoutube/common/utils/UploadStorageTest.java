@@ -2,6 +2,8 @@ package cn.diaojiahong.myyoutube.common.utils;
 
 import cn.diaojiahong.myyoutube.common.properties.S3Properties;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
@@ -36,5 +38,14 @@ class UploadStorageTest {
         assertThrows(S3Exception.class, () -> storage.deleteUpload("uploads/audio/9/a", timeout));
         verify(client).deleteObject(argThat((DeleteObjectRequest r) -> r.key().equals("uploads/audio/9/a")
                 && r.overrideConfiguration().orElseThrow().apiCallTimeout().orElseThrow().equals(timeout)));
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void missingMetadataIsARecoverableStorageFailureRatherThanANullPointer(boolean missingLength) {
+        var response = HeadObjectResponse.builder();
+        if (missingLength) response.contentType("audio/wav");
+        else response.contentLength(12L);
+        when(client.headObject(any(HeadObjectRequest.class))).thenReturn(response.build());
+        assertThrows(IllegalStateException.class, () -> storage.inspectUpload("uploads/audio/9/a", timeout));
     }
 }

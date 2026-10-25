@@ -53,6 +53,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import javax.sql.DataSource;
 import java.nio.file.*;
 import java.time.Instant;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -194,13 +195,115 @@ class AudioLibraryIntegrationTest {
     }
 
     @ParameterizedTest @CsvSource({"1234,audio/wav", "4096,application/octet-stream"})
-    void metadataMismatchInvalidatesTheUploadWithoutRunningMediaTasks(long size, String type) {
+    void metadataMismatchDefersInspectionAndSuccessfulRetransmissionClearsTheMessage(long size, String type) {
         var issued = uploads.start(upload("mismatch")); long id = Long.parseLong(issued.audioId());
         when(storage.inspectUpload(anyString(), any())).thenReturn(new S3StorageUtil.UploadMetadata(size, type));
         uploads.complete(id);
-        assertEquals(AudioProcessingStatus.EXPIRED, rows.selectById(id).getProcessingStatus());
+        var waiting = rows.selectById(id);
+        assertEquals(AudioProcessingStatus.UPLOADING, waiting.getProcessingStatus());
+        assertTrue(Duration.between(LocalDateTime.now(), waiting.getUploadAfter()).getSeconds() >= 58);
+        assertTrue(service.getMine(id).getErrorMessage().contains("重新上传"));
         assertNull(rows.selectById(id).getPreparationAfter()); assertFalse(service.retry(id));
         verifyNoInteractions(tasks);
+        clearInvocations(storage);
+        uploads.complete(id); uploads.uploaded(issued.audio().objectKey()); uploads.reconcile();
+        verifyNoInteractions(storage);
+        when(storage.inspectUpload(anyString(), any())).thenReturn(new S3StorageUtil.UploadMetadata(4096, "audio/wav"));
+        jdbc.update("UPDATE audio SET upload_after=? WHERE id=?", LocalDateTime.now().minusSeconds(1), id);
+        uploads.reconcile();
+        assertEquals(AudioProcessingStatus.PROCESSING, rows.selectById(id).getProcessingStatus());
+        assertNull(service.getMine(id).getErrorMessage());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"AUDIO/WAV", "audio/wav; charset=UTF-8", " Audio/Wav ; charset=x"})
+    void typeNormalizationAcceptsEquivalentStorageMetadata(String type) {
+        long id = Long.parseLong(uploads.start(upload("normalized")).audioId());
+        when(storage.inspectUpload(anyString(), any())).thenReturn(new S3StorageUtil.UploadMetadata(4096, type));
+        uploads.complete(id);
+        assertEquals(AudioProcessingStatus.PROCESSING, rows.selectById(id).getProcessingStatus());
+    }
+
+    @Test void mismatchBackoffDoesNotExtendTheUploadDeadline() {
+        long id = Long.parseLong(uploads.start(upload("near-deadline")).audioId());
+        var deadline = LocalDateTime.now().plusSeconds(20).withNano(0);
+        jdbc.update("UPDATE audio SET upload_deadline=? WHERE id=?", deadline, id);
+        when(storage.inspectUpload(anyString(), any())).thenReturn(new S3StorageUtil.UploadMetadata(1, "audio/wav"));
+        uploads.complete(id);
+        assertEquals(deadline, rows.selectById(id).getUploadAfter());
+        jdbc.update("UPDATE audio SET upload_deadline=?,upload_after=? WHERE id=?", LocalDateTime.now().minusSeconds(1), LocalDateTime.now().minusSeconds(1), id);
+        uploads.reconcile();
+        assertEquals(AudioProcessingStatus.EXPIRED, rows.selectById(id).getProcessingStatus());
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void endedUploadAndClosedSigningWindowReturnTheDedicatedCode(boolean ended) throws Exception {
+        var dto = upload("restart"); long id = Long.parseLong(uploads.start(dto).audioId());
+        if (ended) jdbc.update("UPDATE audio SET processing_status='expired' WHERE id=?", id);
+        else jdbc.update("UPDATE audio SET upload_deadline=? WHERE id=?", LocalDateTime.now().plusMinutes(5), id);
+        assertEquals(ErrorCode.AUDIO_UPLOAD_EXPIRED, assertThrows(BizException.class, () -> uploads.start(dto)).getErrorCode());
+        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads)).setControllerAdvice(new GlobalExceptionHandler()).build();
+        mvc.perform(post("/audios/uploads").contentType("application/json")
+                        .content("{\"requestId\":\"restart\",\"audio\":{\"filename\":\"restart.wav\",\"bytes\":4096,\"contentType\":\"audio/wav\"}}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(40907));
+        assertEquals(ended ? AudioProcessingStatus.EXPIRED : AudioProcessingStatus.UPLOADING, rows.selectById(id).getProcessingStatus());
+        assertEquals(1, service.myAudios(new PageQuery()).getList().size());
+        if (ended) { service.delete(id); assertTrue(service.myAudios(new PageQuery()).getList().isEmpty()); }
+    }
+
+    @ParameterizedTest @EnumSource(value = AudioProcessingStatus.class, names = {"PROCESSING", "READY"})
+    void signingExpiryDoesNotInvalidateAlreadyProcessingOrPreparedAudio(AudioProcessingStatus phase) {
+        long id = publish();
+        jdbc.update("UPDATE audio SET processing_status=?,upload_deadline=? WHERE id=?", phase.getCode(), LocalDateTime.now().minusMinutes(1), id);
+        var result = uploads.start(upload("request-1"));
+        assertEquals(Long.toString(id), result.audioId()); assertEquals(phase.getCode(), result.processingStatus());
+        assertNull(result.audio());
+    }
+
+    @ParameterizedTest @EnumSource(value = AudioProcessingStatus.class, names = {"UPLOADING", "EXPIRED"})
+    void banTerminatesOnlyTheUnfinishedUploadAndKeepsDelayedCleanupReachable(AudioProcessingStatus phase) {
+        var dto = upload("banned-upload"); dto.setCover(new AudioUploadDTO.File("c.png", 1024, "image/png"));
+        var issued = uploads.start(dto); long id = Long.parseLong(issued.audioId());
+        jdbc.update("UPDATE audio SET processing_status=? WHERE id=?", phase.getCode(), id);
+        assertTrue(reviews.decide(id, "BAN", "封禁上传", 1L));
+        var banned = rows.selectById(id);
+        assertEquals(AudioReviewStatus.BANNED, banned.getReviewStatus()); assertEquals(AudioProcessingStatus.EXPIRED, banned.getProcessingStatus());
+        assertEquals(banned.getUploadDeadline().plusHours(24), banned.getUploadAfter());
+        assertEquals(ErrorCode.STATE_CONFLICT, assertThrows(BizException.class, () -> uploads.start(dto)).getErrorCode());
+        clearInvocations(storage); uploads.reconcile(); verifyNoInteractions(storage);
+        doThrow(new IllegalStateException("unavailable")).doNothing().when(storage).deleteUpload(eq(issued.audio().objectKey()), any());
+        jdbc.update("UPDATE audio SET upload_after=? WHERE id=?", LocalDateTime.now().minusSeconds(1), id);
+        uploads.reconcile(); assertNotNull(rows.selectById(id).getUploadAfter());
+        jdbc.update("UPDATE audio SET upload_after=? WHERE id=?", LocalDateTime.now().minusSeconds(1), id);
+        uploads.reconcile();
+        assertNull(rows.selectById(id).getUploadAfter()); assertEquals(AudioReviewStatus.BANNED, rows.selectById(id).getReviewStatus());
+        assertEquals(1, service.myAudios(new PageQuery()).getList().size());
+        verify(storage, times(2)).deleteUpload(eq(issued.audio().objectKey()), any());
+        verify(storage).deleteUpload(eq(issued.cover().objectKey()), any());
+        verify(storage, never()).inspectUpload(anyString(), any());
+        assertEquals(1, manualAuditCount(id));
+    }
+
+    @ParameterizedTest @EnumSource(value = AudioProcessingStatus.class, names = {"PROCESSING", "READY"})
+    void banDoesNotScheduleUploadCleanupForProcessingOrPreparedAudio(AudioProcessingStatus phase) {
+        long id = publish();
+        if (phase == AudioProcessingStatus.READY) approve(id);
+        assertTrue(reviews.decide(id, "BAN", "封禁音频", 1L));
+        assertEquals(phase, rows.selectById(id).getProcessingStatus());
+        assertNull(rows.selectById(id).getUploadAfter());
+        clearInvocations(storage); uploads.reconcile(); verifyNoInteractions(storage);
+    }
+
+    @Test void banDuringInspectionPreventsTheOldWorkerFromStartingProcessing() {
+        long id = Long.parseLong(uploads.start(upload("ban-race")).audioId());
+        when(storage.inspectUpload(anyString(), any())).thenAnswer(c -> {
+            assertTrue(reviews.decide(id, "BAN", "中止上传", 1L));
+            return new S3StorageUtil.UploadMetadata(4096, "audio/wav");
+        });
+        uploads.complete(id);
+        assertEquals(AudioReviewStatus.BANNED, rows.selectById(id).getReviewStatus());
+        assertEquals(AudioProcessingStatus.EXPIRED, rows.selectById(id).getProcessingStatus());
+        assertEquals(rows.selectById(id).getUploadDeadline().plusHours(24), rows.selectById(id).getUploadAfter());
+        assertNull(rows.selectById(id).getPreparationAfter());
     }
 
     @Test void expiryStopsLateNotificationsAndCleanupRetriesOnlyTheRegisteredFiles() {

@@ -230,6 +230,8 @@ public class S3StorageUtil {
         try {
             var head = s3Client.headObject(software.amazon.awssdk.services.s3.model.HeadObjectRequest.builder()
                     .bucket(properties.getBucketName()).key(key).overrideConfiguration(c -> c.apiCallTimeout(timeout)).build());
+            if (head.contentLength() == null || head.contentType() == null || head.contentType().isBlank())
+                throw new IllegalStateException("上传对象缺少大小或类型元数据");
             return new UploadMetadata(head.contentLength(), head.contentType());
         } catch (S3Exception error) {
             if (error.statusCode() == 404) return null;

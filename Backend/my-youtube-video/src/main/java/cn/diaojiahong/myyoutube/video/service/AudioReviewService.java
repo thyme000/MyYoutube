@@ -68,9 +68,13 @@ public class AudioReviewService {
                     || audio.getAnalysisStatus() != AudioAnalysisStatus.MANUAL && audio.getAnalysisStatus() != AudioAnalysisStatus.FAILED))
                 throw new BizException(ErrorCode.STATE_CONFLICT, "音频尚未进入人工审核或已有终审结论");
             var status = ban ? AudioReviewStatus.BANNED : "PASS".equals(decision) ? AudioReviewStatus.APPROVED : AudioReviewStatus.REJECTED;
-            if (rows.update(null, AudioIndexChanges.bump(new LambdaUpdateWrapper<Audio>().eq(Audio::getId, id))
+            var update = AudioIndexChanges.bump(new LambdaUpdateWrapper<Audio>().eq(Audio::getId, id))
                     .set(Audio::getReviewStatus, status).set(Audio::getReviewReason, reason.trim()).set(Audio::getErrorMessage, null).set(Audio::getPreparationAfter, null)
-                    .set(Audio::getProcessingDeadline, null).set(Audio::getPreparationRetry, false)) != 1) return false;
+                    .set(Audio::getProcessingDeadline, null).set(Audio::getPreparationRetry, false);
+            if (ban && (audio.getProcessingStatus() == AudioProcessingStatus.UPLOADING || audio.getProcessingStatus() == AudioProcessingStatus.EXPIRED))
+                update.set(Audio::getProcessingStatus, AudioProcessingStatus.EXPIRED)
+                        .set(Audio::getUploadAfter, audio.getUploadDeadline().plusHours(24));
+            if (rows.update(null, update) != 1) return false;
             record(audio, "MANUAL", decision, reason.trim(), null, audio.getAnalysisAttempt(), actor);
             return true;
         }));

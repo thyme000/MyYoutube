@@ -18,6 +18,7 @@ public enum ErrorCode {
     DRAFT_VERSION_CHANGED(40904, 409, "草稿版本已变化，请刷新"),
     DRAFT_EXPIRED(40905, 409, "草稿已过期，请重新上传"),
     DRAFT_ALREADY_SUBMITTED(40906, 409, "草稿已提交，不能编辑或取消发布"),
+    AUDIO_UPLOAD_EXPIRED(40907, 409, "本次上传已结束，请重新发起上传"),
     PAYLOAD_TOO_LARGE(41301, 413, "上传内容过大"),
     UNSUPPORTED_MEDIA_TYPE(41501, 415, "不支持该请求内容类型"),
     RATE_LIMITED(42901, 429, "操作过于频繁，请稍后再试"),
