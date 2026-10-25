@@ -44,6 +44,10 @@ public class OtherService implements IOtherService {
         if ("work".equals(bizType) && (fileSize == null || fileSize < VIDEO_MIN_BYTES || fileSize > VIDEO_MAX_BYTES
                 || contentType == null || !contentType.matches("video/[a-zA-Z0-9.+-]+")))
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "请选择不超过 500 MB 的非空视频文件，并提供视频类型");
+        if ("audio".equals(bizType) && (fileSize == null || fileSize < 1
+                || fileSize > cn.diaojiahong.myyoutube.common.media.AudioPreparationContracts.MAX_SOURCE_BYTES
+                || contentType == null || !contentType.matches("audio/[a-zA-Z0-9.+-]+")))
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "请选择不超过 128 MB 的非空音频文件，并提供音频类型");
         Long userId = Long.valueOf(UserContext.getUserId());
 
         String objectKey = storageUtil.buildUniqueObjectKey(userId, biz, filename);
@@ -61,7 +65,9 @@ public class OtherService implements IOtherService {
             vo.setDraftId(draftId);
             log.info("视频上传凭证已发放 userId={} draftId={} objectKey={}", userId, draftId, objectKey);
         } else {
-            String url = storageUtil.presignPutUrl(objectKey, PRESIGN_EXPIRE_SECONDS);
+            String url = "audio".equals(bizType)
+                    ? storageUtil.presignPutUrl(objectKey, PRESIGN_EXPIRE_SECONDS, fileSize, contentType)
+                    : storageUtil.presignPutUrl(objectKey, PRESIGN_EXPIRE_SECONDS);
             vo.setUploadType("put");
             vo.setUrl(url);
             log.debug("上传凭证已发放 userId={} biz={} objectKey={}", userId, biz, objectKey);
