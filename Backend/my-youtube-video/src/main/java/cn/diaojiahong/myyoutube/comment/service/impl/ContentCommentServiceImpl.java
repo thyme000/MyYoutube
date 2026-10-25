@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.comment.service.impl;
 
+import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
@@ -39,7 +40,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -113,7 +113,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
             comment.setReplyUserId(parentRef.getUserId());
         }
         // save() 后 DB 生成的 create_time 不回填内存对象, 显式赋值: 游标与榜单排序都靠它
-        comment.setCreateTime(LocalDateTime.now());
+        comment.setCreateTime(BusinessTime.now());
         // 事务只圈 DB 写, 避免包住 MQ
         transactionTemplate.executeWithoutResult(tx -> {
             access.requireCommentable(access.locked(content.getId()), userId);
@@ -450,11 +450,11 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
     }
 
     private static long epochSecond(LocalDateTime time) {
-        return time.atZone(ZoneId.systemDefault()).toEpochSecond();
+        return BusinessTime.toInstant(time).getEpochSecond();
     }
 
     private static LocalDateTime toLocalDateTime(long epochSecond) {
-        return LocalDateTime.ofInstant(java.time.Instant.ofEpochSecond(epochSecond), ZoneId.systemDefault());
+        return BusinessTime.fromInstant(java.time.Instant.ofEpochSecond(epochSecond));
     }
 
     private static int clampPageSize(Integer pageSize) {

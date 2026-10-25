@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.video;
 
 import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.comment.cache.CommentListCache;
+import cn.diaojiahong.myyoutube.comment.cursor.CommentCursor;
 import cn.diaojiahong.myyoutube.comment.domain.dto.*;
 import cn.diaojiahong.myyoutube.comment.service.impl.ContentCommentServiceImpl;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -13,6 +14,7 @@ import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.transcode.api.TranscodePort;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.video.service.PublicationEffectsService;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
@@ -23,11 +25,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.*;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 import javax.sql.DataSource;
 import java.util.*;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.concurrent.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -51,13 +57,20 @@ class ContentAccessIntegrationTest {
             return new ContentSettingsService(access,mapper,events,effects);
         }
         @Bean S3StorageUtil storage() { return mock(S3StorageUtil.class); }
+        @Bean UserPort users() {
+            var users = mock(UserPort.class);
+            var author = new UserSummary(); author.setId(9L); author.setNickname("评论者");
+            when(users.listByIds(anyCollection())).thenReturn(List.of(author)); return users;
+        }
         @Bean TranscodePort transcode() { return mock(TranscodePort.class); }
         @Bean ContentDownloadService downloads(ContentAccessService access, S3StorageUtil storage, TranscodePort transcode) {
             return new ContentDownloadService(access,mock(ContentTypeStrategyRegistry.class),transcode,storage);
         }
-        @Bean ContentCommentServiceImpl comments(IContentService contents, ContentAccessService access, TransactionTemplate tx) {
-            return new ContentCommentServiceImpl(mock(UserPort.class),mock(S3StorageUtil.class),contents,access,
-                    mock(org.springframework.data.redis.core.StringRedisTemplate.class),mock(org.apache.rocketmq.spring.core.RocketMQTemplate.class),tx,mock(CommentListCache.class));
+        @Bean ContentCommentServiceImpl comments(IContentService contents, ContentAccessService access, TransactionTemplate tx, UserPort users) {
+            var redis = mock(StringRedisTemplate.class);
+            when(redis.executePipelined(any(RedisCallback.class))).thenReturn(Collections.singletonList(null));
+            return new ContentCommentServiceImpl(users,mock(S3StorageUtil.class),contents,access,
+                    redis,mock(org.apache.rocketmq.spring.core.RocketMQTemplate.class),tx,mock(CommentListCache.class));
         }
     }
     @Autowired DataSource ds;
@@ -78,6 +91,22 @@ class ContentAccessIntegrationTest {
         jdbc.update("INSERT INTO content(id,type,author_id,title,status,visibility,is_delete,allow_comment) VALUES(1,'dynamic',7,'标题','published','public',0,1)");
     }
     @AfterEach void clear() { UserContext.removeUser(); }
+
+    @Test void latestCommentCursorHasExactEpochAndCanContinueAcrossPages() {
+        jdbc.update("INSERT INTO content_comment(id,content_id,user_id,path,level,content,status,create_time) VALUES(1,1,9,'1',1,'旧','visible',?)",
+                LocalDateTime.parse("2026-10-25T09:59:59"));
+        jdbc.update("INSERT INTO content_comment(id,content_id,user_id,path,level,content,status,create_time) VALUES(2,1,9,'2',1,'新','visible',?)",
+                LocalDateTime.parse("2026-10-25T10:00:00"));
+        var query = new CommentListQuery(); query.setContentId(1L); query.setTab("latest"); query.setPageSize(1);
+        var first = comments.getRootComments(query);
+        var cursor = CommentCursor.decode(first.getNextCursor());
+        assertEquals(Instant.parse("2026-10-25T02:00:00Z").getEpochSecond(), cursor.getScore());
+        assertEquals(2L, cursor.getId());
+        query.setCursor(first.getNextCursor());
+        var second = comments.getRootComments(query);
+        assertEquals("旧", second.getList().get(0).getContent()); assertFalse(second.isHasMore());
+    }
+
     CommentDTO comment(Long parent) { var dto=new CommentDTO();dto.setContentId(1L);dto.setContent("评论");dto.setParentId(parent);return dto; }
     @Test void closingCommentsPreservesExistingRowsAndBlocksBothNewCommentsAndReplies() {
         comments.publishComment(comment(null));

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
+import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
@@ -78,8 +79,7 @@ public class LatestFuser implements RecallFuser {
         } catch (NumberFormatException ignored) {
         }
         try {
-            return LocalDateTime.parse(text, TEXT_TIME)
-                    .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+            return BusinessTime.toInstant(LocalDateTime.parse(text, TEXT_TIME)).toEpochMilli();
         } catch (Exception ignored) {
         }
         try {

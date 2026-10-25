@@ -10,6 +10,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.PasswordEncoder;
+import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import cn.diaojiahong.myyoutube.common.utils.RegexUtils;
 import cn.diaojiahong.myyoutube.auth.domain.dto.ForgetPasswordDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.LoginRequestDTO;
@@ -31,7 +32,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -138,7 +138,7 @@ public class AuthServiceImpl implements IAuthService {
         User user = BeanUtil.toBean(registerRequestDTO, User.class);
         user.setPassword(PasswordEncoder.encode(registerRequestDTO.getPassword()));
         user.setNickname(registerRequestDTO.getUsername());
-        user.setCreateTime(LocalDateTime.now());
+        user.setCreateTime(BusinessTime.now());
         user.setFans(0L);
         user.setContentCount(0L);
         user.setLikeCount(0L);

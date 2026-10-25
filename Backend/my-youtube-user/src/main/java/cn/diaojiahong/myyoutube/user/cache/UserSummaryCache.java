@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.user.cache;
 
+import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import lombok.RequiredArgsConstructor;
@@ -9,8 +10,6 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -146,7 +145,7 @@ public class UserSummaryCache {
         fields.put(F_LIKE, String.valueOf(s.getLikeCount() == null ? 0 : s.getLikeCount()));
         fields.put(F_CONTENT, String.valueOf(s.getContentCount() == null ? 0 : s.getContentCount()));
         fields.put(F_CREATE_TIME, s.getCreateTime() == null ? ""
-                : String.valueOf(s.getCreateTime().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()));
+                : String.valueOf(BusinessTime.toInstant(s.getCreateTime()).toEpochMilli()));
         return fields;
     }
 
@@ -163,7 +162,7 @@ public class UserSummaryCache {
         s.setContentCount(Long.valueOf(f.getOrDefault(F_CONTENT, "0")));
         String createTime = f.get(F_CREATE_TIME);
         s.setCreateTime(createTime == null || createTime.isEmpty() ? null
-                : LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(createTime)), ZoneId.systemDefault()));
+                : BusinessTime.fromInstant(Instant.ofEpochMilli(Long.parseLong(createTime))));
         return s;
     }
 

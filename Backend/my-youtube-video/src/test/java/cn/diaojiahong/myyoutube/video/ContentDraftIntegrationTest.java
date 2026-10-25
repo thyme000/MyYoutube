@@ -1,5 +1,8 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
+import java.time.Instant;
+
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.mq.message.DraftPublicationMessage;
@@ -289,7 +292,10 @@ class ContentDraftIntegrationTest {
         var dto = dynamic(); dto.setTitle("奉劝大家不要赌博 ＡＢＣ\u200b");
         dto.setDescription("警方打击出售个人信息的行为\n保留  原始格式与全角２０２６");
         Long id = drafts.saveDynamic(null, 9L, dto).draftId(); ready(id);
+        var before = Instant.now().minusSeconds(1);
         submitClaimed(publish, id, 9L);
+        var created = BusinessTime.toInstant(contentRows.selectById(id).getCreateTime());
+        assertFalse(created.isBefore(before)); assertFalse(created.isAfter(Instant.now().plusSeconds(1)));
         assertEquals(dto.getTitle(), rows.selectById(id).getTitle());
         assertEquals(dto.getDescription(), rows.selectById(id).getDescription());
         assertEquals(dto.getTitle(), contentRows.selectById(id).getTitle());

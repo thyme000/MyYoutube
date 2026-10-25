@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
@@ -52,7 +53,7 @@ public class ContentSubmissionService {
                 .setDescription(rules.description(draft.getDescription()))
                 .setVisibility("public")
                 .setAllowComment(rules.allowComment(draft.getAllowComment()))
-                .setCoverObjectKey(draft.getPreparedCoverObjectKey()).setStatus("review").setIsDelete(0).setCreateTime(LocalDateTime.now());
+                .setCoverObjectKey(draft.getPreparedCoverObjectKey()).setStatus("review").setIsDelete(0).setCreateTime(BusinessTime.now());
         var strategy = strategies.get(draft.getType());
         if (strategy == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "不支持的内容类型");
         var media = strategy.prepare(draft);

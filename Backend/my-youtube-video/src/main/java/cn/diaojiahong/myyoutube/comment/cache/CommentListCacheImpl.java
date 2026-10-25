@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.comment.cache;
 
+import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import cn.diaojiahong.myyoutube.comment.cursor.CommentCursor;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentTab;
@@ -14,7 +15,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -118,6 +118,6 @@ public class CommentListCacheImpl implements CommentListCache {
     }
 
     private static long epochSecond(LocalDateTime time) {
-        return time == null ? 0 : time.atZone(ZoneId.systemDefault()).toEpochSecond();
+        return time == null ? 0 : BusinessTime.toInstant(time).getEpochSecond();
     }
 }
