@@ -1,6 +1,9 @@
 package cn.diaojiahong.myyoutube.search;
 
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
+import cn.diaojiahong.myyoutube.common.mq.message.UserDocSyncMessage;
+import cn.diaojiahong.myyoutube.mq.listener.EsDocumentListener;
+import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.*;
 import cn.diaojiahong.myyoutube.search.port.ContentDocPortImpl;
 import cn.diaojiahong.myyoutube.search.service.ContentDocumentWriter;
@@ -13,12 +16,19 @@ import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.data.elasticsearch.client.ClientConfiguration;
 import org.springframework.data.elasticsearch.client.elc.*;
 import org.springframework.data.elasticsearch.repository.support.ElasticsearchRepositoryFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -46,6 +56,56 @@ class LiveContentSearchTest {
         port=new ContentDocPortImpl(repository,contents,writer,operations);
     }
     @AfterEach void close() throws Exception { if(client!=null) client._transport().close(); }
+
+    @ParameterizedTest @CsvSource({"video,private", "video,banned", "video,deleted", "dynamic,private", "dynamic,banned", "dynamic,deleted"})
+    void latePublicSnapshotCannotOverwriteNewerRestriction(String type, String restriction) throws Exception {
+        var old = message(1); old.setType(type);
+        var current = message(1); current.setType(type); current.setIndexVersion(2L);
+        if ("deleted".equals(restriction)) current.setDeleted(true);
+        else if ("banned".equals(restriction)) current.setStatusCode("banned");
+        else current.setVisibilityCode("private");
+        var started = new CountDownLatch(1); var resume = new CountDownLatch(1); var calls = new AtomicInteger();
+        when(users.getUser(9L)).thenAnswer(call -> {
+            if (calls.incrementAndGet() == 1) {
+                started.countDown(); assertTrue(resume.await(10, TimeUnit.SECONDS));
+            }
+            var user = new UserSummary(); user.setId(9L); user.setNickname("作者"); return user;
+        });
+        var delayed = CompletableFuture.runAsync(() -> writer.write(old));
+        try {
+            assertTrue(started.await(10, TimeUnit.SECONDS));
+            writer.write(current);
+        } finally { resume.countDown(); }
+        delayed.get(10, TimeUnit.SECONDS);
+        var saved = repository.findById(1L).orElseThrow();
+        assertEquals(2L, saved.getIndexVersion());
+        if ("deleted".equals(restriction)) { assertTrue(saved.getDeleted()); assertNull(saved.getTitle()); }
+        else if ("banned".equals(restriction)) assertEquals("banned", saved.getStatus());
+        else assertEquals("private", saved.getVisibility());
+        var source = client.get(g -> g.index("content").id("1"), Map.class).source();
+        assertEquals(List.of(), ((Map<?, ?>) source.get("suggest")).get("input"));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"private", "banned", "deleted"})
+    void delayedAuthorSnapshotCannotRestoreRestrictedSuggestions(String restriction) {
+        var userIndex = operations.indexOps(UserDoc.class);
+        if (userIndex.exists()) userIndex.delete(); userIndex.createWithMapping();
+        var userDocs = new ElasticsearchRepositoryFactory(operations).getRepository(UserDocRepository.class);
+        writer.write(message(1)); var old = repository.findById(1L).orElseThrow();
+        var current = message(1); current.setIndexVersion(2L);
+        if ("deleted".equals(restriction)) current.setDeleted(true);
+        else if ("banned".equals(restriction)) current.setStatusCode("banned");
+        else current.setVisibilityCode("private");
+        var delayed = mock(ContentDocRepository.class);
+        when(delayed.findContentDocByAuthorId(9L)).thenAnswer(call -> {
+            writer.write(current); return List.of(old);
+        });
+        var listener = new EsDocumentListener(users, userDocs, delayed, operations);
+        listener.onMessage(new UserDocSyncMessage(9L));
+        operations.indexOps(ContentDoc.class).refresh();
+        assertEquals(2L, repository.findById(1L).orElseThrow().getIndexVersion());
+        assertEquals(0, repository.findById(1L).orElseThrow().getSuggest().getInput().length);
+    }
 
     @Test void conditionalVectorWriteCannotOverwriteAConcurrentWinner() throws Exception {
         writer.write(message(1));
@@ -112,20 +172,24 @@ class LiveContentSearchTest {
     }
 
     ContentDocMessage message(long id) {
-        return ContentDocMessage.builder().contentId(id).type("dynamic").title("图集标题").authorId(9L)
+        return ContentDocMessage.builder().contentId(id).indexVersion(1L).type("dynamic").title("图集标题").authorId(9L)
                 .statusCode("published").visibilityCode("public").coverUrl("selected-cover").playCount(0L).likeCount(0L).build();
     }
     @Test void optionalEmptyMetadataCanBeIndexedAndRebuiltPrivateThenDeleted() {
         var message=message(1); when(contents.searchDocument(1L)).thenReturn(message);
         port.rebuildContent(1L);
         var saved=repository.findById(1L).orElseThrow(); assertEquals("dynamic",saved.getType()); assertEquals("selected-cover",saved.getCoverUrl());
-        message.setVisibilityCode("private"); port.rebuildContent(1L);
+        message.setVisibilityCode("private"); message.setIndexVersion(2L); port.rebuildContent(1L);
         assertEquals("private",repository.findById(1L).orElseThrow().getVisibility());
-        when(contents.searchDocument(1L)).thenReturn(null); port.rebuildContent(1L); assertFalse(repository.existsById(1L));
+        when(contents.searchDocument(1L)).thenReturn(ContentDocMessage.builder().contentId(1L).indexVersion(3L).deleted(true).build());
+        port.deleteDoc(1L);
+        var tombstone = repository.findById(1L).orElseThrow();
+        assertEquals(true, tombstone.getDeleted()); assertNull(tombstone.getTitle());
+        writer.write(message); assertEquals(true, repository.findById(1L).orElseThrow().getDeleted());
     }
     @Test void staleCounterSnapshotCannotRestorePublicStateOrResurrectDeletedDocument() {
         writer.write(message(1)); var old=repository.findById(1L).orElseThrow();
-        var current=message(1); current.setVisibilityCode("private"); current.setStatusCode("banned"); writer.write(current);
+        var current=message(1); current.setIndexVersion(2L); current.setVisibilityCode("private"); current.setStatusCode("banned"); writer.write(current);
         doReturn(List.of(old)).when(repository).findAllById(List.of(1L));
         var counts=List.of(new cn.diaojiahong.myyoutube.search.api.ContentDocPort.CountSync(1L,5L,3L));
         port.syncPlayLikeBatch(counts);
@@ -152,13 +216,13 @@ class LiveContentSearchTest {
         assertFalse(client.indices().getMapping(mapping -> mapping.index("content"))
                 .result().get("content").mappings().properties().get("summary").text().index());
 
-        first.setVisibilityCode("private"); writer.write(first);
+        first.setVisibilityCode("private"); first.setIndexVersion(2L); writer.write(first);
         assertEquals(vector, repository.findById(1L).orElseThrow().getVector());
         assertEquals(List.of("2"), vectors.knnSearch(query, null, 10));
-        first.setStatusCode("banned"); first.setVisibilityCode("public"); writer.write(first);
+        first.setStatusCode("banned"); first.setVisibilityCode("public"); first.setIndexVersion(3L); writer.write(first);
         assertEquals(vector, repository.findById(1L).orElseThrow().getVector());
         assertEquals(List.of("2"), vectors.knnSearch(query, null, 10));
-        first.setStatusCode("published"); writer.write(first);
+        first.setStatusCode("published"); first.setIndexVersion(4L); writer.write(first);
         assertEquals(vector, repository.findById(1L).orElseThrow().getVector());
         assertEquals(Set.of("1", "2"), Set.copyOf(vectors.knnSearch(query, null, 10)));
     }

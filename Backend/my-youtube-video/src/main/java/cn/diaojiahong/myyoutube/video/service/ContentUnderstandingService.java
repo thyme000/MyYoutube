@@ -113,6 +113,7 @@ public class ContentUnderstandingService {
             var mapped = tagMapper.map(rawTags);
             contentTags.saveAutoTags(video.getId(), mapped.weights());
             contents.update(null, new LambdaUpdateWrapper<cn.diaojiahong.myyoutube.content.domain.po.Content>().eq(cn.diaojiahong.myyoutube.content.domain.po.Content::getId, video.getId())
+                    .setSql("index_version = index_version + 1")
                     .set(cn.diaojiahong.myyoutube.content.domain.po.Content::getCoverObjectKey, cover.get("coverObjectKey").getAsString())
                     .set(cn.diaojiahong.myyoutube.content.domain.po.Content::getTags, String.join(",", mapped.names())).set(cn.diaojiahong.myyoutube.content.domain.po.Content::getCategoryCode, mapped.categoryCode()));
             long readyAt = System.currentTimeMillis();

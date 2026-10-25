@@ -15,6 +15,7 @@ import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.domain.vo.NotificationVO;
 import cn.diaojiahong.myyoutube.notification.mapper.UserNotificationMapper;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
+import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
@@ -81,7 +82,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
                     // 通知保留，失效或已无权访问的内容不提供跳转目标。
                 }
             }
-            vo.setContent(r.getContent());
+            vo.setContent(ReviewFeedback.notificationContent(r));
             vo.setRefId(r.getRefId());
             vo.setCreateTime(r.getCreateTime());
             vo.setIsRead(r.getIsRead().equals(1));

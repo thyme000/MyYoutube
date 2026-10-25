@@ -17,6 +17,12 @@ public class ContentDoc {
     @Id
     private Long id;
 
+    @Field(type = FieldType.Long)
+    private Long indexVersion;
+
+    @Field(type = FieldType.Boolean)
+    private Boolean deleted;
+
     /** 内容类型: video/dynamic */
     @Field(type = FieldType.Keyword)
     private String type;

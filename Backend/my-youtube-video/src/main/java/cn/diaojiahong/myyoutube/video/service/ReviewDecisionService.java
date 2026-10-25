@@ -213,6 +213,7 @@ public class ReviewDecisionService {
         String expected = publishedBan ? "published" : "review";
         if (content == null || Integer.valueOf(1).equals(content.getIsDelete()) || !expected.equals(content.getStatus())) return false;
         if (!contents.lambdaUpdate().eq(Content::getId, id).eq(Content::getStatus, expected)
+                .setSql("index_version = index_version + 1")
                 .set(Content::getStatus, target.getCode()).update()) return false;
         int delta = publishedBan ? -1 : target == ContentStatusEnum.PUBLISHED ? 1 : 0;
         var event = new ContentPublicationEvent().setContentId(id).setAuthorId(content.getAuthorId()).setStatus(target.getCode())

@@ -20,6 +20,8 @@ import cn.diaojiahong.myyoutube.video.service.PublicationEffectsService;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.*;
@@ -85,7 +87,7 @@ class ContentAccessIntegrationTest {
     @BeforeEach void schema() {
         reset(tx,transcode,storage);
         UserContext.setUser("9"); jdbc=new JdbcTemplate(ds); ContentTestDatabase.drop(jdbc,"content","content_comment","content_publication_event");
-        jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
+        jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE content_comment(id BIGINT AUTO_INCREMENT PRIMARY KEY,content_id BIGINT,user_id BIGINT,path VARCHAR(256),level INT,reply_user_id BIGINT,content TEXT,like_count INT,reply_count INT,status VARCHAR(16),create_time TIMESTAMP,update_time TIMESTAMP)");
         new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(new org.springframework.core.io.ClassPathResource("pipeline-schema.sql")).execute(ds);
         jdbc.update("INSERT INTO content(id,type,author_id,title,status,visibility,is_delete,allow_comment) VALUES(1,'dynamic',7,'标题','published','public',0,1)");
@@ -107,6 +109,21 @@ class ContentAccessIntegrationTest {
         assertEquals("旧", second.getList().get(0).getContent()); assertFalse(second.isHasMore());
     }
 
+    @ParameterizedTest @ValueSource(strings = {"video", "dynamic"})
+    void visibilityAndDeletionAdvanceIndexVersionButCommentSettingsDoNot(String type) {
+        jdbc.update("UPDATE content SET type=? WHERE id=1", type);
+        settings.update(1L, 7L, new ContentSettingsService.Settings("public", 0));
+        assertEquals(1L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+        settings.update(1L, 7L, new ContentSettingsService.Settings("private", 0));
+        assertEquals(2L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+        settings.update(1L, 7L, new ContentSettingsService.Settings("private", 1));
+        assertEquals(2L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+        settings.update(1L, 7L, new ContentSettingsService.Settings("public", 1));
+        assertEquals(3L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+        settings.delete(1L, 7L);
+        assertEquals(4L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+        assertEquals(1, jdbc.queryForObject("SELECT is_delete FROM content WHERE id=1", Integer.class));
+    }
     CommentDTO comment(Long parent) { var dto=new CommentDTO();dto.setContentId(1L);dto.setContent("评论");dto.setParentId(parent);return dto; }
     @Test void closingCommentsPreservesExistingRowsAndBlocksBothNewCommentsAndReplies() {
         comments.publishComment(comment(null));

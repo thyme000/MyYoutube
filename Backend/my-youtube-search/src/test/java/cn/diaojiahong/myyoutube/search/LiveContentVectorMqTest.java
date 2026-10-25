@@ -224,7 +224,7 @@ class LiveContentVectorMqTest {
     }
 
     private ContentDocMessage document(Long id, String title) {
-        return ContentDocMessage.builder().contentId(id).type("video").authorId(9L).title(title)
+        return ContentDocMessage.builder().contentId(id).indexVersion(1L).type("video").authorId(9L).title(title)
                 .description("简介").summary("摘要").statusCode("published").visibilityCode("public").build();
     }
 

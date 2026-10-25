@@ -16,12 +16,11 @@ import org.springframework.data.elasticsearch.core.suggest.Completion;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.ArrayList;
 import java.util.Map;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
-import org.springframework.data.elasticsearch.core.document.Document;
 import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
 import org.springframework.data.elasticsearch.core.query.UpdateQuery;
+import org.springframework.data.elasticsearch.core.query.ScriptType;
 
 @Slf4j
 @Component
@@ -32,6 +31,21 @@ import org.springframework.data.elasticsearch.core.query.UpdateQuery;
         selectorExpression = MqConstants.TAG_ES_USER,
         maxReconsumeTimes = 3)
 public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> {
+
+    private static final String AUTHOR_SCRIPT = """
+            if (ctx._source.deleted == true) { ctx.op = 'noop'; }
+            else {
+                ctx._source.authorName = params.name;
+                def words = [];
+                if (ctx._source.status == 'published' && ctx._source.visibility == 'public') {
+                    if (ctx._source.title != null) { words.add(ctx._source.title); }
+                    if (ctx._source.description != null) { words.add(ctx._source.description); }
+                    words.add(params.name);
+                    if (ctx._source.tagNames != null) { words.addAll(ctx._source.tagNames); }
+                }
+                ctx._source.suggest = ['input': words];
+            }
+            """;
 
     private final UserPort userPort;
     private final UserDocRepository userDocRepository;
@@ -53,17 +67,10 @@ public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> 
             List<ContentDoc> contents = contentDocRepository.findContentDocByAuthorId(message.getUserId());
             if (contents != null && !contents.isEmpty()) {
                 var updates = contents.stream().map(content -> {
-                    var words = new ArrayList<String>();
-                    if ("published".equals(content.getStatus()) && "public".equals(content.getVisibility())) {
-                        if (content.getTitle() != null) words.add(content.getTitle());
-                        if (content.getDescription() != null) words.add(content.getDescription());
-                        if (user.getNickname() != null) words.add(user.getNickname());
-                        if (content.getTagNames() != null) words.addAll(content.getTagNames());
-                    }
                     return UpdateQuery.builder(content.getId().toString())
-                            .withDocument(Document.from(Map.of("authorName", user.getNickname() == null ? "" : user.getNickname(),
-                                    "suggest", Map.of("input", words))))
-                            .withDocAsUpsert(false).withRetryOnConflict(3).build();
+                            .withScriptType(ScriptType.INLINE).withLang("painless").withScript(AUTHOR_SCRIPT)
+                            .withParams(Map.of("name", user.getNickname() == null ? "" : user.getNickname()))
+                            .withRetryOnConflict(3).build();
                 }).toList();
                 operations.bulkUpdate(updates, IndexCoordinates.of("content"));
             }

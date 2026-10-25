@@ -20,6 +20,8 @@ public class ContentDocMessage {
     /** 与 ContentTypeEnum.code 一致: video/dynamic */
     private String type;
     private Long contentId;
+    private Long indexVersion;
+    private boolean deleted;
     private String title;
     private String description;
     private String summary;

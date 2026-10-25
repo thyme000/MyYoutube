@@ -30,13 +30,15 @@ public class ContentSettingsService {
         var content = access.requireOwner(access.locked(id), viewer);
         if (!"published".equals(content.getStatus())) throw new BizException(ErrorCode.STATE_CONFLICT, "仅可修改已发布内容");
         contents.update(null, new LambdaUpdateWrapper<Content>().eq(Content::getId, id)
+                .setSql(!content.getVisibility().equals(settings.visibility()), "index_version = index_version + 1")
                 .set(Content::getVisibility, settings.visibility()).set(Content::getAllowComment, settings.allowComment()));
         if (!content.getVisibility().equals(settings.visibility())) rebuild(content, 0);
     }
     @Transactional
     public void delete(Long id, Long viewer) {
         var content = access.requireOwner(access.locked(id), viewer);
-        contents.update(null, new LambdaUpdateWrapper<Content>().eq(Content::getId, id).set(Content::getIsDelete, 1));
+        contents.update(null, new LambdaUpdateWrapper<Content>().eq(Content::getId, id)
+                .setSql("index_version = index_version + 1").set(Content::getIsDelete, 1));
         rebuild(content, "published".equals(content.getStatus()) ? -1 : 0);
     }
     private void rebuild(Content content, int delta) {

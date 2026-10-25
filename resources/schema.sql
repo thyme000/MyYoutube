@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS `content` (
     `is_delete` TINYINT NOT NULL DEFAULT 0,
     `status` VARCHAR(16) NOT NULL DEFAULT 'review' COMMENT 'review/published/banned',
     `visibility`    VARCHAR(16) NOT NULL DEFAULT 'public' COMMENT 'public/private, 随领域状态机',
+    `index_version` BIGINT NOT NULL DEFAULT 1 COMMENT '内容索引快照版本，与审核锁独立',
     `play_count`    BIGINT      NOT NULL DEFAULT 0,
     `like_count`    BIGINT      NOT NULL DEFAULT 0,
     `collect_count` BIGINT      NOT NULL DEFAULT 0,

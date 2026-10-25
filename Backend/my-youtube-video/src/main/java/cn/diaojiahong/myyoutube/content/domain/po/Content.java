@@ -26,6 +26,7 @@ public class Content implements Serializable {
     private Integer isDelete;
     private String status;
     private String visibility;
+    private Long indexVersion;
     private Long playCount;
     private Long likeCount;
     private Long collectCount;

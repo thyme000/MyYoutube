@@ -30,13 +30,12 @@ public class ContentDocPortImpl implements ContentDocPort {
     @Override
     public void rebuildContent(Long contentId) {
         var current = contents.searchDocument(contentId);
-        if (current == null) contentDocRepository.deleteById(contentId);
-        else writer.write(current);
+        if (current != null) writer.write(current);
     }
 
     @Override
     public void deleteDoc(Long contentId) {
-        contentDocRepository.deleteById(contentId);
+        rebuildContent(contentId);
     }
 
     @Override

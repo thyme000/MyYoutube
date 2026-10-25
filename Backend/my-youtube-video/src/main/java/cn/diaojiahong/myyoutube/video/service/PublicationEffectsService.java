@@ -8,6 +8,7 @@ import cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.*;
+import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.ContentCountEvent;
@@ -118,7 +119,7 @@ public class PublicationEffectsService {
             if (Boolean.TRUE.equals(locked.getNoticeDone())) return false;
             boolean saved = notifications.save(new UserNotification().setReceiverId(event.getAuthorId()).setType("SYSTEM_NOTICE").setRefType("CONTENT")
                     .setRefId(event.getContentId()).setTitle("published".equals(event.getStatus()) ? "内容审核通过" : "内容审核未通过")
-                    .setContent(event.getReason()).setIsRead(0));
+                    .setContent(ReviewFeedback.message("内容", "published".equals(event.getStatus()))).setIsRead(0));
             if (!saved) throw new IllegalStateException("审核通知落库失败");
             events.update(null, update(event).set(ContentPublicationEvent::getNoticeDone, true));
             return true;

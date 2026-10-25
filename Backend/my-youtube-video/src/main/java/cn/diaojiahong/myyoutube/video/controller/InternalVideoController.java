@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.video.controller;
 
 import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
 import cn.diaojiahong.myyoutube.common.counter.CounterType;
+import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
@@ -22,6 +23,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
@@ -48,9 +51,13 @@ public class InternalVideoController {
     private final IUserTagPreferenceService userTagPreferenceService;
 
     @GetMapping("/content/search-document/{contentId}")
-    public cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage searchDocument(@PathVariable Long contentId) {
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ContentDocMessage searchDocument(@PathVariable Long contentId) {
         var content = contentService.getById(contentId);
-        if (content == null || Integer.valueOf(1).equals(content.getIsDelete())) return null;
+        if (content == null) return null;
+        if (Integer.valueOf(1).equals(content.getIsDelete()))
+            return ContentDocMessage.builder().contentId(contentId)
+                    .indexVersion(content.getIndexVersion()).deleted(true).build();
         var tagIds = contentTags.lambdaQuery().eq(cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag::getContentId, contentId)
                 .list().stream().map(cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag::getTagId).toList();
         var understanding = understandings.selectById(contentId);

@@ -35,7 +35,7 @@ class SearchDocumentContractTest {
         when(tagQuery.list()).thenReturn(List.of());
         var understandings = mock(ContentUnderstandingMapper.class);
         var content = new Content().setId(1L).setType(type).setTitle("标题").setDescription("简介")
-                .setStatus("published").setVisibility("public").setIsDelete(0);
+                .setStatus("published").setVisibility("public").setIsDelete(0).setIndexVersion(3L);
         when(contents.getById(1L)).thenReturn(content);
         when(understandings.selectById(1L)).thenReturn(new ContentUnderstanding().setSummary("语音与画面生成的摘要"));
         var controller = new InternalVideoController(tags, contents, understandings, mock(ContentLikeMapper.class),
@@ -47,11 +47,17 @@ class SearchDocumentContractTest {
         assertEquals("标题", document.getTitle());
         assertEquals("简介", document.getDescription());
         assertEquals("语音与画面生成的摘要", document.getSummary());
+        assertEquals(3L, document.getIndexVersion()); assertFalse(document.isDeleted());
 
         when(understandings.selectById(1L)).thenReturn(new ContentUnderstanding().setSummary(""));
         assertEquals("", controller.searchDocument(1L).getSummary());
         content.setIsDelete(1);
-        assertNull(controller.searchDocument(1L));
+        content.setIndexVersion(4L);
+        var tombstone = controller.searchDocument(1L);
+        assertTrue(tombstone.isDeleted()); assertEquals(4L, tombstone.getIndexVersion());
+        assertNull(tombstone.getTitle()); assertNull(tombstone.getSummary());
         verify(understandings, times(2)).selectById(1L);
+        when(contents.getById(1L)).thenReturn(null);
+        assertNull(controller.searchDocument(1L));
     }
 }

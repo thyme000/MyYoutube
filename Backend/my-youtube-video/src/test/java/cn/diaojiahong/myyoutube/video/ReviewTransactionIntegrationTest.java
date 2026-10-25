@@ -111,7 +111,7 @@ class ReviewTransactionIntegrationTest {
         ContentTestDatabase.outbox(jdbc);
         for (String table : new String[]{"content_review_record", "content_publication_event", "content_understanding", "video", "content"}) jdbc.execute("DROP TABLE IF EXISTS " + table);
         jdbc.execute("CREATE TABLE video(id BIGINT PRIMARY KEY,object_key VARCHAR(512),duration_ms BIGINT)");
-        jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
+        jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
         new ResourceDatabasePopulator(new ClassPathResource("pipeline-schema.sql")).execute(dataSource);
         jdbc.update("INSERT INTO video VALUES(1,'processed.mp4',1000)");
         jdbc.update("INSERT INTO content(id,type,author_id,title,status,visibility,is_delete) VALUES(1,'video',9,'标题','review','public',0)");
@@ -209,6 +209,7 @@ class ReviewTransactionIntegrationTest {
         assertTrue(understanding.selectById(1L).getReceived());
         assertEquals("",understanding.selectById(1L).getSummary());
         assertEquals("cover", jdbc.queryForObject("SELECT cover_object_key FROM content WHERE id=1", String.class));
+        assertEquals(2L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
         verify(artifacts,times(1)).read("summary",ContentArtifacts.Summary.class);
         verify(tasks,times(2)).received(100L);
         verifyNoInteractions(mq);
@@ -294,8 +295,37 @@ class ReviewTransactionIntegrationTest {
         assertEquals("review", jdbc.queryForObject("SELECT status FROM content WHERE id=1", String.class));
         assertEquals(ContentReviewState.AUTO_RUNNING, understanding.selectById(1L).getState());
         assertEquals(0, count("content_review_record")); assertEquals(0, count("content_publication_event"));
+        assertEquals(1L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
         assertEquals(0L, understanding.selectById(1L).getEventSequence());
     }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"video,PASS", "dynamic,PASS", "video,REJECT", "dynamic,REJECT", "video,BAN", "dynamic,BAN"})
+    void manualReviewKeepsInternalRemarksButNotificationUsesFixedFeedback(String type, String decision) {
+        String internal = "模型识别失败，人工复核记录和内部证据";
+        jdbc.update("UPDATE content SET type=? WHERE id=1", type);
+        if ("BAN".equals(decision)) {
+            state(ContentReviewState.APPROVED);
+            jdbc.update("UPDATE content SET status='published' WHERE id=1");
+            assertTrue(decisions.banPublished(1L, internal, 7L));
+        } else {
+            state(ContentReviewState.MANUAL_PENDING);
+            assertTrue(decisions.manual(1L, "PASS".equals(decision), internal, 7L));
+        }
+        var notifications = mock(cn.diaojiahong.myyoutube.notification.service.IUserNotificationService.class);
+        when(notifications.save(any())).thenReturn(true);
+        var events = new org.mybatis.spring.SqlSessionTemplate(contextFactory()).getMapper(ContentPublicationEventMapper.class);
+        var effects = new PublicationEffectsService(events, mock(cn.diaojiahong.myyoutube.user.api.UserPort.class),
+                mock(cn.diaojiahong.myyoutube.search.api.ContentDocPort.class), mock(cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher.class),
+                notifications, mock(cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher.class), tx, mock(org.redisson.api.RedissonClient.class), mq);
+        Long eventId = jdbc.queryForObject("SELECT id FROM content_publication_event", Long.class);
+        effects.apply(new cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage(eventId, "NOTICE"));
+        verify(notifications).save(argThat(n -> ("PASS".equals(decision)
+                ? "您的内容已通过审核。" : "您的内容未通过审核，已限制展示。").equals(n.getContent())));
+        assertEquals(internal, jdbc.queryForObject("SELECT reason FROM content_review_record", String.class));
+        assertEquals(internal, jdbc.queryForObject("SELECT reason FROM content_publication_event", String.class));
+        assertEquals(2L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+    }
+
     @Test void publicationBranchesProgressDespiteCountFailureAndNoticeIsExactlyOnce() {
         jdbc.execute("CREATE TABLE IF NOT EXISTS test_notice(id BIGINT AUTO_INCREMENT PRIMARY KEY)");
         jdbc.execute("TRUNCATE TABLE test_notice");
