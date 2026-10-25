@@ -148,7 +148,7 @@ public class ReviewTaskExecutor implements MediaTaskExecutor {
         });
     }
 
-    private static Map<String, Object> responseFormat() {
+    static Map<String, Object> responseFormat() {
         var evidence = Map.of("type", "object", "additionalProperties", false,
                 "required", List.of("category", "location", "quote"), "properties", Map.of(
                         "category", Map.of("type", "string"), "location", Map.of("type", "string"),

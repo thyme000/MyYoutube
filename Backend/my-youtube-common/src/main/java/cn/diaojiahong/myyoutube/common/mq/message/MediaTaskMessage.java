@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.common.mq.message;
 
+import cn.diaojiahong.myyoutube.common.media.AudioAnalysisContracts;
+
 import cn.diaojiahong.myyoutube.common.media.AudioPreparationContracts;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.Input;
 import lombok.*;
@@ -21,5 +23,6 @@ public class MediaTaskMessage {
     private String phase;
     private Input input;
     private AudioPreparationContracts.Request audioInput;
+    private AudioAnalysisContracts.Request audioAnalysisInput;
     private Map<String, String> dependencies;
 }

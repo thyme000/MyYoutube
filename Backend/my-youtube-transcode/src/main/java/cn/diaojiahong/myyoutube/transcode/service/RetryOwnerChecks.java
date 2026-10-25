@@ -21,7 +21,7 @@ public class RetryOwnerChecks {
 
     public String reason(MediaTask row) {
         if (row == null) return "TASK_MISSING";
-        if (MediaTaskType.AUDIO_PREPARE.matches(row.getTaskType())) return "USE_AUDIO_RETRY";
+        if (MediaTaskType.fromCode(row.getTaskType()).isAudio()) return "USE_AUDIO_RETRY";
         Long ownerId=row.getOwnerId(), preparationId=null, version=null;
         if ("PREPARE".equals(row.getTaskType())) {
             var preparation=preparations.selectById(ownerId);

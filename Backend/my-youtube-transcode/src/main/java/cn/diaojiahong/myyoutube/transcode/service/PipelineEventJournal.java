@@ -33,7 +33,7 @@ public class PipelineEventJournal {
         } else if ("PREPARE".equals(row.getTaskType())) {
             var preparation = lifecycle.lock(row.getOwnerId());
             draftId = preparation.getDraftId(); preparationId = preparation.getId(); version = preparation.getMediaVersion();
-        } else if ("DRAFT".equals(row.getPhase()) && !MediaTaskType.AUDIO_PREPARE.matches(row.getTaskType())) draftId = row.getOwnerId();
+        } else if ("DRAFT".equals(row.getPhase()) && !MediaTaskType.fromCode(row.getTaskType()).isAudio()) draftId = row.getOwnerId();
         row.setEventSequence(events.next(row.getEventSequence()));
         // RUNNING 不会完整保存任务，此处需在同一事务中单独持久化事件序号。
         if (MediaTaskStatus.RUNNING.equals(row.getStatus())) tasks.update(null, new LambdaUpdateWrapper<MediaTask>()

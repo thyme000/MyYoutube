@@ -35,7 +35,7 @@ public class MediaTaskWorker {
         context.put("pipelineId", Objects.toString(claimed.getPipelineId(), null));
         context.put("traceId", org.slf4j.MDC.get("traceId"));
         if (!"DRAFT".equals(claimed.getPhase())) context.put("contentId", claimed.getOwnerId().toString());
-        else context.put(MediaTaskType.AUDIO_PREPARE.matches(claimed.getTaskType()) ? "audioId"
+        else context.put(MediaTaskType.fromCode(claimed.getTaskType()).isAudio() ? "audioId"
                 : MediaTaskType.PREPARE.matches(claimed.getTaskType()) ? "preparationId" : "draftId", claimed.getOwnerId().toString());
         var preparation = claimed.getInput() == null ? null : claimed.getInput().media().preparation();
         if (preparation != null) {

@@ -1,7 +1,17 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.observability.PipelineObservationProperties;
+import cn.diaojiahong.myyoutube.common.observability.PipelineEventJson;
+import cn.diaojiahong.myyoutube.transcode.task.MediaTaskExecutor;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.concurrent.CompletableFuture;
 import cn.diaojiahong.myyoutube.common.media.AudioPreparationContracts.*;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
+import cn.diaojiahong.myyoutube.common.media.AudioAnalysisContracts;
+import com.google.gson.JsonParser;
+import java.util.stream.Collectors;
 import cn.diaojiahong.myyoutube.common.media.InvalidMediaInputException;
 import static cn.diaojiahong.myyoutube.common.media.InvalidMediaInputException.Reason.*;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
@@ -29,7 +39,7 @@ class AudioPreparationWorkflowTest {
     @Autowired MediaTaskService tasks;
     @Autowired MediaTaskMapper rows;
     @Autowired MediaTaskDispatcher dispatcher;
-    @Autowired cn.diaojiahong.myyoutube.common.observability.PipelineObservationProperties observations;
+    @Autowired PipelineObservationProperties observations;
     JdbcTemplate jdbc;
     PreparationStorage storage;
     PreparedAudioReader reader;
@@ -42,6 +52,8 @@ class AudioPreparationWorkflowTest {
         OutboxTestDatabase.reset(jdbc);
         jdbc.execute("DROP TABLE IF EXISTS media_task"); jdbc.execute("DROP TABLE IF EXISTS media_pipeline");
         new ResourceDatabasePopulator(new ClassPathResource("pipeline-schema.sql")).execute(database);
+        if (System.getProperty("retry.mysql.url") != null || Boolean.getBoolean("content.integration"))
+            jdbc.execute("ALTER TABLE media_task MODIFY draft_input_json JSON");
         storage = mock(PreparationStorage.class); reader = mock(PreparedAudioReader.class); images = mock(PreparedImageWriter.class);
         executor = new AudioPrepareTaskExecutor(storage, reader, images, new AudioPreparationProperties());
         objects.clear();
@@ -62,11 +74,23 @@ class AudioPreparationWorkflowTest {
         return MediaTaskMessage.builder().taskId(row.getId()).phase(row.getPhase()).attempt(row.getAttempt()).build();
     }
     @Test void registrationIsIdempotentAndDoesNotCreateFakeContentOrPreparation() {
-        tasks.startAudioPreparation(request()); tasks.startAudioPreparation(request());
+        tasks.startAudioPreparation(request());
+        if (System.getProperty("retry.mysql.url") != null)
+            assertNotEquals(JsonUtil.toJson(request()), rows.selectList(null).get(0).getDraftInputJson());
+        rewriteInputJson(MediaTaskType.AUDIO_PREPARE); tasks.startAudioPreparation(request());
         assertEquals(1, rows.selectCount(null)); assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM media_pipeline", Integer.class));
         assertEquals(MediaTaskStatus.READY, tasks.audioPreparationView(501L).status());
         var changed = new Request(501L, 9L, "uploads/audio/9/day/other.wav", null);
         assertThrows(IllegalArgumentException.class, () -> tasks.startAudioPreparation(changed));
+    }
+
+    private void rewriteInputJson(MediaTaskType type) {
+        var row = rows.selectList(null).stream().filter(r -> r.getTaskType().equals(type.name())).findFirst().orElseThrow();
+        var original = JsonParser.parseString(row.getDraftInputJson()).getAsJsonObject();
+        var names = new ArrayList<>(original.keySet()); Collections.reverse(names);
+        String reordered = names.stream().map(name -> JsonUtil.toJson(name) + " : " + original.get(name))
+                .collect(Collectors.joining(",\n", "{\n", "\n}"));
+        jdbc.update("UPDATE media_task SET draft_input_json=? WHERE id=?", reordered, row.getId());
     }
     @Test void workerUsesPersistedAudioInputAndDoesNotNeedPipelineInput() throws Exception {
         tasks.startAudioPreparation(request()); var incoming = message(); incoming.setAudioInput(new Request(501L, 7L, "uploads/audio/7/foreign.wav", null));
@@ -82,7 +106,7 @@ class AudioPreparationWorkflowTest {
         var events = jdbc.queryForList("SELECT payload FROM pipeline_event_outbox", String.class);
         assertEquals(3, events.size());
         for (String payload : events) {
-            var event = cn.diaojiahong.myyoutube.common.observability.PipelineEventJson.decode(payload);
+            var event = PipelineEventJson.decode(payload);
             assertNull(event.contentId()); assertNull(event.draftId()); assertNotNull(event.taskId());
         }
     }
@@ -110,7 +134,7 @@ class AudioPreparationWorkflowTest {
     @Test void infrastructureFailureUsesExistingRetryAndAttemptFence() throws Exception {
         tasks.startAudioPreparation(request()); var first = tasks.claim(message()); tasks.completeAndAdvance(first, null, "storage unavailable");
         assertEquals(MediaTaskStatus.RETRY_WAIT, tasks.audioPreparationView(501L).status());
-        jdbc.update("UPDATE media_task SET next_retry_at=?", java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusMinutes(1)); tasks.recover();
+        jdbc.update("UPDATE media_task SET next_retry_at=?", LocalDateTime.now(ZoneOffset.UTC).minusMinutes(1)); tasks.recover();
         var second = tasks.claim(message()); assertEquals(2, second.getAttempt());
         tasks.completeAndAdvance(first, executor.execute(first), null); assertEquals(MediaTaskStatus.RUNNING, tasks.audioPreparationView(501L).status());
         tasks.completeAndAdvance(second, executor.execute(second), null); assertEquals(MediaTaskStatus.SUCCESS, tasks.audioPreparationView(501L).status());
@@ -140,10 +164,71 @@ class AudioPreparationWorkflowTest {
         assertEquals(0, rows.selectCount(null));
     }
     @Test void concurrentRegistrationIsIdempotent() {
-        var first = java.util.concurrent.CompletableFuture.runAsync(() -> tasks.startAudioPreparation(request()));
-        var second = java.util.concurrent.CompletableFuture.runAsync(() -> tasks.startAudioPreparation(request()));
-        java.util.concurrent.CompletableFuture.allOf(first, second).join();
+        var first = CompletableFuture.runAsync(() -> tasks.startAudioPreparation(request()));
+        var second = CompletableFuture.runAsync(() -> tasks.startAudioPreparation(request()));
+        CompletableFuture.allOf(first, second).join();
         assertEquals(1, rows.selectCount(null)); assertEquals(MediaTaskStatus.READY, tasks.audioPreparationView(501L).status());
+    }
+    @Test void analysisUsesPersistedInputsAndReviewRetriesRetainTheSuccessfulTranscript() throws Exception {
+        tasks.startAudioPreparation(request()); var prepare = tasks.claim(message()); tasks.completeAndAdvance(prepare, executor.execute(prepare), null);
+        var analysis = new AudioAnalysisTaskService(tasks);
+        var input = new AudioAnalysisContracts.Request(501L, 9L, "音频", request().prefix() + "source", 1234,
+                MediaTaskType.AUDIO_ASR, null);
+        analysis.start(input); rewriteInputJson(MediaTaskType.AUDIO_ASR); analysis.start(input);
+        var changed = new AudioAnalysisContracts.Request(input.audioId(), input.userId(), "不同标题",
+                input.objectKey(), input.durationMs(), input.type(), null);
+        assertThrows(IllegalArgumentException.class, () -> analysis.start(changed));
+        var row = rows.selectList(null).stream().filter(r -> r.getTaskType().equals(input.type().name())).findFirst().orElseThrow();
+        var incoming = MediaTaskMessage.builder().taskId(row.getId()).phase(row.getPhase()).attempt(row.getAttempt()).build();
+        var claimed = tasks.claim(incoming); assertEquals(input, claimed.getAudioAnalysisInput()); assertNull(claimed.getInput());
+        String key = input.prefix() + "asr/1/result.json";
+        tasks.completeAndAdvance(claimed, JsonUtil.toJson(new AudioAnalysisContracts.TranscriptResult(501L, input.objectKey(), key, 0)), null);
+        var review = new AudioAnalysisContracts.Request(501L, 9L, "音频", input.objectKey(), 1234,
+                MediaTaskType.AUDIO_REVIEW, key);
+        analysis.start(review); rewriteInputJson(MediaTaskType.AUDIO_REVIEW); analysis.start(review);
+        assertThrows(IllegalArgumentException.class, () -> analysis.start(new AudioAnalysisContracts.Request(review.audioId(), review.userId(),
+                "不同标题", review.objectKey(), review.durationMs(), review.type(), review.transcriptKey())));
+        var reviewRow = rows.selectList(null).stream().filter(r -> r.getTaskType().equals(review.type().name())).findFirst().orElseThrow();
+        var reviewMessage = MediaTaskMessage.builder().taskId(reviewRow.getId()).phase(reviewRow.getPhase()).attempt(reviewRow.getAttempt()).build();
+        tasks.completeAndAdvance(tasks.claim(reviewMessage), null, "model unavailable");
+        assertEquals(MediaTaskStatus.RETRY_WAIT, analysis.view(501L, review.type()).status());
+        assertEquals(MediaTaskStatus.SUCCESS, analysis.view(501L, input.type()).status());
+        assertFalse(analysis.retry(999L, input.type()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM media_pipeline", Integer.class));
+    }
+    @Test void analysisCannotRunBeforePreparationAndCannotUseAnotherTranscript() throws Exception {
+        var analysis = new AudioAnalysisTaskService(tasks);
+        var input = new AudioAnalysisContracts.Request(501L, 9L, "音频", request().prefix() + "source", 1234,
+                MediaTaskType.AUDIO_ASR, null);
+        assertThrows(IllegalArgumentException.class, () -> analysis.start(input));
+        tasks.startAudioPreparation(request()); var prepare = tasks.claim(message()); tasks.completeAndAdvance(prepare, executor.execute(prepare), null);
+        assertThrows(IllegalArgumentException.class, () -> analysis.start(new AudioAnalysisContracts.Request(501L, 9L, "音频", input.objectKey(), 1234,
+                MediaTaskType.AUDIO_REVIEW, "audio-artifacts/9/501/asr/1/unregistered.json")));
+    }
+    @Test void analysisWorkerEventsHaveNoFakeContentOrDraftIdentity() throws Exception {
+        tasks.startAudioPreparation(request()); var prepared = tasks.claim(message()); tasks.completeAndAdvance(prepared, executor.execute(prepared), null);
+        observations.getRecording().setEnabled(true);
+        var analysis = new AudioAnalysisTaskService(tasks);
+        var request = new AudioAnalysisContracts.Request(501L, 9L, "音频", request().prefix() + "source", 1234,
+                MediaTaskType.AUDIO_ASR, null);
+        analysis.start(request);
+        var row = rows.selectList(null).stream().filter(r -> r.getTaskType().equals(request.type().name())).findFirst().orElseThrow();
+        var strategy = new MediaTaskExecutor() {
+            public MediaTaskType type() { return request.type(); }
+            public String execute(MediaTaskMessage task) {
+                assertEquals(request, task.getAudioAnalysisInput());
+                return JsonUtil.toJson(new AudioAnalysisContracts.TranscriptResult(501L, request.objectKey(), request.prefix() + "asr/1/out.json", 0));
+            }
+        };
+        try (var worker = new WorkerClose(new MediaTaskWorker(tasks, List.of(strategy)))) {
+            worker.value.execute(MediaTaskMessage.builder().taskId(row.getId()).phase(row.getPhase()).attempt(row.getAttempt()).build());
+        }
+        assertEquals(MediaTaskStatus.SUCCESS, analysis.view(501L, request.type()).status());
+        var events = jdbc.queryForList("SELECT payload FROM pipeline_event_outbox", String.class); assertEquals(3, events.size());
+        for (String payload : events) {
+            var event = PipelineEventJson.decode(payload);
+            assertNull(event.contentId()); assertNull(event.draftId());
+        }
     }
     record WorkerClose(MediaTaskWorker value) implements AutoCloseable { @Override public void close() { value.close(); } }
 }
