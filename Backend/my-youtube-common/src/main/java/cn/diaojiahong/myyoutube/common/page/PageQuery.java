@@ -20,8 +20,14 @@ public class PageQuery {
      * 转换为 MyBatis Plus 的 Page 对象
      */
     public <T> Page<T> toPage() {
+        validate();
+        return new Page<>(pageNo, pageSize);
+    }
+
+    public void validate() { validate(pageNo, pageSize); }
+
+    public static void validate(int pageNo, int pageSize) {
         if (pageNo < 1 || pageSize < 1 || pageSize > 100)
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "分页参数无效，页码须为正数，每页条数为 1~100");
-        return new Page<>(pageNo, pageSize);
     }
 }

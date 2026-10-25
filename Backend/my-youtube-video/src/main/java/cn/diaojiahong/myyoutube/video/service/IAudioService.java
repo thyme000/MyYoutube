@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.video.domain.vo.AudioPage;
+
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.video.domain.dto.AudioPublishDTO;
@@ -12,7 +14,9 @@ public interface IAudioService {
     AudioVO getMine(Long id);
     boolean retry(Long id);
     PageResult<AudioVO> myAudios(PageQuery pageQuery);
-    PageResult<AudioVO> library(String keyword, PageQuery pageQuery);
+    AudioPage library(String keyword, PageQuery pageQuery);
+    AudioPage searchMine(String keyword, PageQuery pageQuery);
+    AudioVO detail(Long id);
     void setVisibility(Long id, String visibility);
     void delete(Long id);
     /**

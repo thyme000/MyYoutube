@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.video.domain.dto.AudioPublishDTO;
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioVO;
+import cn.diaojiahong.myyoutube.video.domain.vo.AudioPage;
 import cn.diaojiahong.myyoutube.video.service.IAudioService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,6 +19,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/audios")
@@ -28,7 +31,7 @@ public class AudioController {
     private final IAudioService audioService;
 
     @PostMapping("/publish")
-    @org.springframework.web.bind.annotation.ResponseStatus(org.springframework.http.HttpStatus.ACCEPTED)
+    @ResponseStatus(HttpStatus.ACCEPTED)
     @Operation(summary = "受理音频，后台校验文件后等待审核")
     public Result<String> publish(@RequestBody AudioPublishDTO dto) {
         return Result.success(audioService.publish(dto));
@@ -36,11 +39,15 @@ public class AudioController {
 
     @GetMapping("/mine/{id}")
     @Operation(summary = "查询本人的音频处理状态")
-    public Result<AudioVO> getMine(@PathVariable Long id) { return Result.success(audioService.getMine(id)); }
+    public Result<AudioVO> getMine(@PathVariable Long id) {
+        return Result.success(audioService.getMine(id));
+    }
 
     @PostMapping("/{id}/retry")
     @Operation(summary = "重试本人处理失败的音频")
-    public Result<Boolean> retry(@PathVariable Long id) { return Result.success(audioService.retry(id)); }
+    public Result<Boolean> retry(@PathVariable Long id) {
+        return Result.success(audioService.retry(id));
+    }
 
     @GetMapping("/my")
     @Operation(summary = "我的音频列表(含私密)")
@@ -50,9 +57,21 @@ public class AudioController {
 
     @GetMapping("/library")
     @Operation(summary = "公开音频库(可选关键词搜索)")
-    public Result<PageResult<AudioVO>> library(@RequestParam(required = false) String keyword,
-                                               @ModelAttribute PageQuery pageQuery) {
+    public Result<AudioPage> library(@RequestParam(required = false) String keyword,
+                                     @ModelAttribute PageQuery pageQuery) {
         return Result.success(audioService.library(keyword, pageQuery));
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "查询公开音频详情")
+    public Result<AudioVO> detail(@PathVariable Long id) {
+        return Result.success(audioService.detail(id));
+    }
+
+    @GetMapping("/mine/search")
+    @Operation(summary = "按名称搜索本人的音频")
+    public Result<AudioPage> searchMine(@RequestParam(required = false) String keyword, @ModelAttribute PageQuery page) {
+        return Result.success(audioService.searchMine(keyword, page));
     }
 
     @PostMapping("/{id}/visibility")

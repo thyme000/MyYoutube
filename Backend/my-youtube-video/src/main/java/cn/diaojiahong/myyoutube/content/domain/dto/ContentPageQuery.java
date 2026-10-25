@@ -16,8 +16,8 @@ public class ContentPageQuery extends PageQuery {
         var result = type == null ? null : ContentTypeEnum.fromCode(type);
         if (type != null && result == null)
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "内容类型无效");
-        if (getPageNo() < 1 || getPageSize() < 1 || getPageSize() > 100
-                || (long) (getPageNo() - 1) * getPageSize() > Integer.MAX_VALUE)
+        validate();
+        if ((long) (getPageNo() - 1) * getPageSize() > Integer.MAX_VALUE)
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "分页参数无效");
         type = result == null ? null : result.getCode();
         return result;

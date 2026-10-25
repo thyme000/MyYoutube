@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.domain.po;
 
+import cn.diaojiahong.myyoutube.video.domain.enums.AudioAnalysisStatus;
+
 import cn.diaojiahong.myyoutube.video.domain.enums.AudioProcessingStatus;
 import cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus;
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -47,6 +49,15 @@ public class Audio implements Serializable {
     private LocalDateTime preparationAfter;
     private LocalDateTime processingDeadline;
     private String errorMessage;
+    private AudioAnalysisStatus analysisStatus;
+    private Integer analysisAttempt;
+    private String transcriptKey;
+    private String machineResultJson;
+    private String reviewReason;
+    private Long indexVersion;
+    private Long indexedVersion;
+    private LocalDateTime indexAfter;
+    private LocalDateTime indexPendingSince;
 
     /** public/private */
     private String visibility;

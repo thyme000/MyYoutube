@@ -11,6 +11,8 @@ class PageQueryTest {
             var query = new PageQuery();
             query.setPageNo(bounds[0]); query.setPageSize(bounds[1]);
             assertThrows(BizException.class, query::toPage);
+            assertThrows(BizException.class, query::validate);
+            assertThrows(BizException.class, () -> PageQuery.validate(bounds[0], bounds[1]));
         }
     }
 

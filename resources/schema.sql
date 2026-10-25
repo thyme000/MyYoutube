@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `user` (
     `id`              BIGINT       NOT NULL COMMENT '雪花ID',
     `username`        VARCHAR(64)  NOT NULL COMMENT '用户名, 唯一',
     `password`        VARCHAR(100) NOT NULL COMMENT 'BCrypt加密密码',
+    `role`            VARCHAR(16)  NOT NULL DEFAULT 'USER' COMMENT 'USER/ADMIN/SUPER_ADMIN',
     `avatar_url`      VARCHAR(512) NOT NULL DEFAULT '' COMMENT '头像URL',
     `email`           VARCHAR(128)          DEFAULT NULL,
     `phone`           VARCHAR(20)           DEFAULT NULL,
@@ -33,8 +34,8 @@ CREATE TABLE IF NOT EXISTS `user` (
 ) ENGINE=InnoDB COMMENT='用户';
 
 -- 初始用户, 密码明文: password (BCrypt)
-INSERT INTO `user` (`id`, `username`, `password`, `nickname`)
-VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'thyme');
+INSERT INTO `user` (`id`, `username`, `password`, `nickname`, `role`)
+VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'thyme', 'SUPER_ADMIN');
 INSERT INTO `user` (`id`, `username`, `password`, `nickname`)
 VALUES (2, 'test', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'test');
 
@@ -279,35 +280,60 @@ CREATE TABLE IF NOT EXISTS `item_similarity` (
 
 -- 音频库(动态/幻灯片合成共用; 用户上传自动入库, 默认公开, 可转私密)
 CREATE TABLE IF NOT EXISTS `audio` (
-    `id`           BIGINT       NOT NULL COMMENT '雪花ID',
-    `uploader_id`  BIGINT       NOT NULL COMMENT '上传者',
-    `title`        VARCHAR(100)          DEFAULT '' COMMENT '展示名',
-    `request_id` VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    `request_fingerprint` VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    `source_object_key` VARCHAR(512) NOT NULL COMMENT '待后台固定的上传原件',
-    `source_cover_object_key` VARCHAR(512) DEFAULT NULL,
-    `object_key`   VARCHAR(512) DEFAULT NULL COMMENT '后台验证通过的不可变音频',
-    `cover_object_key` VARCHAR(512) DEFAULT NULL COMMENT '仅供人工审核的不可变封面',
-    `duration_ms`  INT DEFAULT NULL COMMENT '服务端实际解码时长(毫秒)',
-    `file_size` BIGINT DEFAULT NULL,
-    `mime` VARCHAR(64) DEFAULT NULL,
-    `processing_status` VARCHAR(16) NOT NULL DEFAULT 'processing',
-    `review_status` VARCHAR(16) NOT NULL DEFAULT 'pending',
-    `preparation_attempt` INT NOT NULL DEFAULT 0,
-    `preparation_retry` TINYINT NOT NULL DEFAULT 0,
-    `preparation_after` DATETIME DEFAULT NULL,
-    `processing_deadline` DATETIME DEFAULT NULL,
-    `error_message` VARCHAR(500) DEFAULT NULL,
-    `visibility`   VARCHAR(16)  NOT NULL DEFAULT 'public' COMMENT 'public/private',
-    `create_time`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `update_time`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `is_delete`    TINYINT      NOT NULL DEFAULT 0 COMMENT '0正常 1已删除',
+    `id`                      BIGINT        NOT NULL COMMENT '雪花ID',
+    `uploader_id`             BIGINT        NOT NULL COMMENT '上传者',
+    `title`                   VARCHAR(100)  DEFAULT '' COMMENT '展示名',
+    `request_id`              VARCHAR(64)   CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    `request_fingerprint`     VARCHAR(64)   CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    `source_object_key`       VARCHAR(512)  NOT NULL COMMENT '待后台固定的上传原件',
+    `source_cover_object_key` VARCHAR(512)  DEFAULT NULL,
+    `object_key`              VARCHAR(512)  DEFAULT NULL COMMENT '后台验证通过的不可变音频',
+    `cover_object_key`        VARCHAR(512)  DEFAULT NULL COMMENT '仅供人工审核的不可变封面',
+    `duration_ms`             INT           DEFAULT NULL COMMENT '服务端实际解码时长(毫秒)',
+    `file_size`               BIGINT        DEFAULT NULL,
+    `mime`                    VARCHAR(64)   DEFAULT NULL,
+    `processing_status`       VARCHAR(16)   NOT NULL DEFAULT 'processing',
+    `review_status`           VARCHAR(16)   NOT NULL DEFAULT 'pending',
+    `preparation_attempt`     INT           NOT NULL DEFAULT 0,
+    `preparation_retry`       TINYINT       NOT NULL DEFAULT 0,
+    `preparation_after`       DATETIME      DEFAULT NULL,
+    `processing_deadline`     DATETIME      DEFAULT NULL,
+    `error_message`           VARCHAR(500)  DEFAULT NULL,
+    `analysis_status`         VARCHAR(24)   DEFAULT NULL,
+    `analysis_attempt`        INT           NOT NULL DEFAULT 0,
+    `transcript_key`          VARCHAR(512)  DEFAULT NULL,
+    `machine_result_json`     MEDIUMTEXT,
+    `review_reason`           VARCHAR(4000) DEFAULT NULL,
+    `index_version`           BIGINT        NOT NULL DEFAULT 1,
+    `indexed_version`         BIGINT        NOT NULL DEFAULT 0,
+    `index_after`             DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `index_pending_since`     DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `visibility`              VARCHAR(16)   NOT NULL DEFAULT 'public' COMMENT 'public/private',
+    `create_time`             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `is_delete`               TINYINT       NOT NULL DEFAULT 0 COMMENT '0正常 1已删除',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_audio_request` (`uploader_id`, `request_id`),
     KEY `idx_audio_processing` (`processing_status`, `review_status`, `is_delete`, `preparation_after`, `id`),
+    KEY `idx_audio_index` (`index_after`, `id`),
+    KEY `idx_audio_index_pending` (`index_pending_since`, `id`),
     KEY `idx_uploader` (`uploader_id`, `create_time`),
     KEY `idx_visibility_create` (`visibility`, `review_status`, `processing_status`, `is_delete`, `create_time`)
 ) ENGINE=InnoDB COMMENT='音频库';
+
+CREATE TABLE IF NOT EXISTS `audio_review_record` (
+    `id`           BIGINT        NOT NULL,
+    `audio_id`     BIGINT        NOT NULL,
+    `source`       VARCHAR(16)   NOT NULL,
+    `decision`     VARCHAR(32)   NOT NULL,
+    `reason`       VARCHAR(4000),
+    `payload_json` MEDIUMTEXT,
+    `attempt`      INT,
+    `actor_id`     BIGINT,
+    `create_time`  DATETIME      NOT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_audio_review` (`audio_id`, `create_time`, `id`)
+) ENGINE=InnoDB COMMENT='音频独立审核记录';
 
 -- 图集配乐动态(主体表; 时间轴/焦点等嵌套结构存 JSON 列)
 CREATE TABLE IF NOT EXISTS `dynamic` (

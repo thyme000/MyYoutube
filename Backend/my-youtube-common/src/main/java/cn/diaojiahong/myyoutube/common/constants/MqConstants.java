@@ -36,4 +36,5 @@ public class MqConstants {
     public static final String TAG_PUBLISH = "publish";
     public static final String TAG_ES_USER = "user";
     public static final String TAG_ES_CONTENT = "video";
+    public static final String TAG_ES_AUDIO = "audio";
 }

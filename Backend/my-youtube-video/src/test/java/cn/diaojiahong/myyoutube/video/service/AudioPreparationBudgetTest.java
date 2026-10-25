@@ -23,7 +23,7 @@ class AudioPreparationBudgetTest {
     final AudioPreparationPort tasks = mock(AudioPreparationPort.class);
     final AudioProcessingProperties properties = new AudioProcessingProperties();
     final AtomicLong clock = new AtomicLong();
-    final AudioPreparationService service = new AudioPreparationService(rows, tasks, properties, clock::get);
+    final AudioPreparationService service = new AudioPreparationService(rows, tasks, properties, mock(AudioReviewService.class), clock::get);
 
     @BeforeEach void setup() {
         properties.validate();
