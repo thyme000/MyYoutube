@@ -10,7 +10,7 @@ import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
-import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.transcode.domain.po.*;
 import cn.diaojiahong.myyoutube.transcode.mapper.*;
 import cn.diaojiahong.myyoutube.transcode.api.MediaTaskPort;
@@ -19,6 +19,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.*;
@@ -41,10 +42,71 @@ public class MediaTaskService {
     private final cn.diaojiahong.myyoutube.video.api.ContentPipelinePort video;
     private final PipelineEventJournal eventJournal;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     private RetryBatchStore retryBatches;
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     private RetryOwnerChecks retryOwners;
+
+    public void startAudioPreparation(AudioPreparationContracts.Request request) {
+        request.validate();
+        try { transaction.executeWithoutResult(tx -> {
+            var row = audioPreparation(request.audioId());
+            if (row != null) {
+                if (!request.equals(JsonUtil.fromJson(row.getDraftInputJson(), AudioPreparationContracts.Request.class)))
+                    throw new IllegalArgumentException("audioId input mismatch");
+                return;
+            }
+            row = new MediaTask().setOwnerId(request.audioId()).setPhase("DRAFT").setTaskType(MediaTaskType.AUDIO_PREPARE.name())
+                    .setStatus(MediaTaskStatus.PENDING).setAttempt(0).setRetryCount(0).setCompletionAck(false)
+                    .setDraftInputJson(JsonUtil.toJson(request)).setDependenciesJson("{}");
+            tasks.insert(row);
+            ready(row, Map.of(), null);
+        }); } catch (DuplicateKeyException duplicate) {
+            var existing = audioPreparation(request.audioId());
+            if (existing == null) throw duplicate;
+            if (!request.equals(JsonUtil.fromJson(existing.getDraftInputJson(), AudioPreparationContracts.Request.class)))
+                throw new IllegalArgumentException("audioId input mismatch");
+        }
+    }
+
+    public AudioPreparationContracts.View audioPreparationView(Long id) {
+        var row = audioPreparation(id);
+        return row == null ? null : new AudioPreparationContracts.View(id, row.getStatus(), row.getAttempt(), row.getRetryCount(),
+                row.getResultJson() == null ? null : JsonUtil.fromJson(row.getResultJson(), AudioPreparationContracts.Result.class),
+                row.getErrorMessage(), row.getFailureCode());
+    }
+
+    public boolean retryAudioPreparation(Long id) {
+        return Boolean.TRUE.equals(transaction.execute(tx -> {
+            var row = tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, id)
+                    .eq(MediaTask::getPhase, "DRAFT").eq(MediaTask::getTaskType, MediaTaskType.AUDIO_PREPARE.name()).last("FOR UPDATE"));
+            if (row == null) return false;
+            if (Set.of(MediaTaskStatus.READY, MediaTaskStatus.RUNNING, MediaTaskStatus.RETRY_WAIT, MediaTaskStatus.SUCCESS).contains(row.getStatus())) return true;
+            if (row.getStatus() != MediaTaskStatus.DEAD) return false;
+            row.setRetryCount(0).setErrorMessage(null).setFailureCode(null).setCompletionAck(false).setUnavailableDeadline(null);
+            ready(row, Map.of(), null);
+            return true;
+        }));
+    }
+
+    private MediaTask audioPreparation(Long id) {
+        return tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, id)
+                .eq(MediaTask::getPhase, "DRAFT").eq(MediaTask::getTaskType, MediaTaskType.AUDIO_PREPARE.name()));
+    }
+
+    public void rejectAudioPreparation(MediaTaskMessage message, InvalidMediaInputException.Reason reason) {
+        Objects.requireNonNull(reason);
+        transaction.executeWithoutResult(tx -> {
+            var row = tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getId, message.getTaskId()).last("FOR UPDATE"));
+            if (row == null || !MediaTaskType.AUDIO_PREPARE.matches(row.getTaskType()) || row.getStatus() != MediaTaskStatus.RUNNING
+                    || !Objects.equals(row.getAttempt(), message.getAttempt())) return;
+            row.setStatus(MediaTaskStatus.DEAD).setFailureCode(reason.code())
+                    .setErrorMessage(reason.code()).setNextRetryAt(null)
+                    .setCompletionAck(true).setUpdateTime(LocalDateTime.now(ZoneOffset.UTC));
+            eventJournal.task(row, MediaTaskStatus.RUNNING, MediaTaskType.AUDIO_PREPARE.name() + "_FAILED", null, reason.code());
+            save(row);
+        });
+    }
 
     public void start(Input input) {
         if (input == null || input.pipelineId() == null || input.contentId() == null || input.userId() == null
@@ -391,6 +453,7 @@ public class MediaTaskService {
         afterCommit(() -> dispatcher.dispatch(execution));
     }
     private Input input(MediaTask row, Pipeline pipeline) {
+        if (MediaTaskType.AUDIO_PREPARE.matches(row.getTaskType())) return null;
         return JsonUtil.fromJson(pipeline == null ? row.getDraftInputJson() : pipeline.getInputJson(), Input.class);
     }
     private Map<String, String> dependencies(MediaTask row) {
@@ -398,12 +461,17 @@ public class MediaTaskService {
                 com.google.gson.reflect.TypeToken.getParameterized(Map.class, String.class, String.class).getType());
     }
     private MediaTaskMessage message(MediaTask row, Input input) {
+        if (MediaTaskType.AUDIO_PREPARE.matches(row.getTaskType())) {
+            var audio = JsonUtil.fromJson(row.getDraftInputJson(), AudioPreparationContracts.Request.class);
+            return MediaTaskMessage.builder().taskId(row.getId()).ownerId(row.getOwnerId()).phase(row.getPhase())
+                    .taskType(row.getTaskType()).attempt(row.getAttempt()).userId(audio.userId()).audioInput(audio).build();
+        }
         return MediaTaskMessage.builder().taskId(row.getId()).ownerId(row.getOwnerId()).pipelineId(row.getPipelineId())
                 .retryBatchId(row.getRetryBatchId()).phase(row.getPhase()).taskType(row.getTaskType()).attempt(row.getAttempt())
                 .userId(input.userId()).objectKey(input.media().video() == null ? null : input.media().video().objectKey()).input(input).dependencies(dependencies(row)).build();
     }
     private void notifyResult(MediaTask row) {
-        if ("DRAFT".equals(row.getPhase()) && "PREPARE".equals(row.getTaskType())) {
+        if ("DRAFT".equals(row.getPhase()) && Set.of(MediaTaskType.PREPARE.name(), MediaTaskType.AUDIO_PREPARE.name()).contains(row.getTaskType())) {
             if (Set.of(MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD).contains(row.getStatus())) {
                 row.setCompletionAck(true); save(row);
             }

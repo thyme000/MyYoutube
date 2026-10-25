@@ -6,7 +6,7 @@ import java.util.*;
 public final class BusinessContext implements AutoCloseable {
     public static final Map<String, String> HEADERS = Map.ofEntries(
             Map.entry("batchId", "X-Retry-Batch-Id"), Map.entry("pipelineId", "X-Pipeline-Id"), Map.entry("contentId", "X-Content-Id"),
-            Map.entry("taskId", "X-Task-Id"), Map.entry("draftId", "X-Draft-Id"),
+            Map.entry("taskId", "X-Task-Id"), Map.entry("draftId", "X-Draft-Id"), Map.entry("audioId", "X-Audio-Id"),
             Map.entry("preparationId", "X-Preparation-Id"), Map.entry("mediaVersion", "X-Media-Version"),
             Map.entry("attempt", "X-Task-Attempt"), Map.entry("taskType", "X-Task-Type"),
             Map.entry("traceId", "X-Business-Trace-Id"));

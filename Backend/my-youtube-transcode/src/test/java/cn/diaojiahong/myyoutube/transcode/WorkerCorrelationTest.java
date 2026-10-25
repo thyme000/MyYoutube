@@ -3,7 +3,7 @@ package cn.diaojiahong.myyoutube.transcode;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.transcode.config.FeignRetryConfiguration;
-import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.transcode.service.*;
 import cn.diaojiahong.myyoutube.transcode.task.MediaTaskExecutor;
 import feign.RequestTemplate;

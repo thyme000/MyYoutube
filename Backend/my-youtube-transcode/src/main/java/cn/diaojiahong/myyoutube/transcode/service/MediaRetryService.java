@@ -11,7 +11,7 @@ import cn.diaojiahong.myyoutube.transcode.domain.po.MediaTask;
 import cn.diaojiahong.myyoutube.transcode.domain.po.MediaRetryBatch;
 import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
-import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.transcode.mapper.MediaTaskMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;

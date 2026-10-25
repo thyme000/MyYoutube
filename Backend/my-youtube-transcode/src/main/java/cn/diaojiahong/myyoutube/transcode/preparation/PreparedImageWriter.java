@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.transcode.preparation;
 
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.metadata.exif.ExifIFD0Directory;
+import cn.diaojiahong.myyoutube.common.media.InvalidMediaInputException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
@@ -27,25 +28,28 @@ public class PreparedImageWriter {
 
     public Result write(Path source, Path output) throws Exception {
         long started = System.nanoTime();
-        if (source.equals(output) || Files.size(source) <= 0 || Files.size(source) > properties.getSourceBytes())
-            throw new IllegalArgumentException("图片文件大小超限或路径无效");
+        if (source.equals(output)) throw new IllegalArgumentException("图片输入与输出路径相同");
+        if (Files.size(source) <= 0 || Files.size(source) > properties.getSourceBytes())
+            throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
         String mime;
         try (var input = Files.newInputStream(source)) {
             mime = new Tika().detect(input.readNBytes(65536));
         }
-        if (!mime.startsWith("image/")) throw new IllegalArgumentException("素材不是受支持的图片");
+        if (!mime.startsWith("image/")) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
         try (var input = ImageIO.createImageInputStream(source.toFile())) {
             var readers = ImageIO.getImageReaders(input);
-            if (!readers.hasNext()) throw new IllegalArgumentException("图片无法解码");
+            if (!readers.hasNext()) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
             var reader = readers.next();
             BufferedImage decoded = null;
             BufferedImage result = null;
             try {
                 reader.setInput(input, true, true);
-                int width = reader.getWidth(0), height = reader.getHeight(0);
+                int width, height;
+                try { width = reader.getWidth(0); height = reader.getHeight(0); }
+                catch (javax.imageio.IIOException e) { throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE, e); }
                 if (width <= 0 || height <= 0 || (long) width * height > properties.getSourcePixels()
                         || Math.max(width, height) > properties.getSourceLongEdge())
-                    throw new IllegalArgumentException("图片源尺寸超限");
+                    throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
                 int orientation = orientation(source);
                 int orientedWidth = orientation >= 5 ? height : width;
                 int orientedHeight = orientation >= 5 ? width : height;
@@ -55,8 +59,9 @@ public class PreparedImageWriter {
                     int sample = Math.max(1, Math.min(orientedWidth / dimensions[0], orientedHeight / dimensions[1]));
                     parameters.setSourceSubsampling(sample, sample, 0, 0);
                 }
-                decoded = reader.read(0, parameters);
-                if (decoded == null) throw new IOException("图片解码失败");
+                try { decoded = reader.read(0, parameters); }
+                catch (javax.imageio.IIOException e) { throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE, e); }
+                if (decoded == null) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
                 result = new BufferedImage(dimensions[0], dimensions[1], BufferedImage.TYPE_INT_RGB);
                 var graphics = result.createGraphics();
                 try {
@@ -90,10 +95,12 @@ public class PreparedImageWriter {
     }
 
     private static int orientation(Path source) throws Exception {
-        var metadata = ImageMetadataReader.readMetadata(source.toFile());
+        com.drew.metadata.Metadata metadata;
+        try { metadata = ImageMetadataReader.readMetadata(source.toFile()); }
+        catch (com.drew.imaging.ImageProcessingException e) { throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE, e); }
         var exif = metadata.getFirstDirectoryOfType(ExifIFD0Directory.class);
         Integer value = exif == null ? null : exif.getInteger(ExifIFD0Directory.TAG_ORIENTATION);
-        if (value != null && (value < 1 || value > 8)) throw new IllegalArgumentException("图片方向非法");
+        if (value != null && (value < 1 || value > 8)) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
         return value == null ? 1 : value;
     }
 

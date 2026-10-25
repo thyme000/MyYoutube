@@ -1,15 +1,19 @@
 package cn.diaojiahong.myyoutube.common.observability;
 
+import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public record PipelineEvent(@JsonProperty("@timestamp") Instant occurredAt, Service service, Event event,
                             Aggregate aggregate, Trace trace, String pipelineId, String contentId,
                             String taskId, String draftId, String preparationId, String mediaVersion,
                             Integer attempt, Boolean retryable, Boolean terminal, Integer nextAttempt,
                             Instant nextRetryAt, State state, Failure failure) {
-    private static final Set<String> TYPES = Set.of("PREPARE", "TRANSCODE", "COVER", "ASR", "OCR", "SUMMARY", "TAG", "REVIEW");
+    private static final Set<String> TYPES = Arrays.stream(MediaTaskType.values())
+            .map(Enum::name).collect(Collectors.toUnmodifiableSet());
     private static final Set<String> CONTENT_CODES = Set.of("RETRY_BATCH_CREATED", "RETRY_BATCH_STARTED", "RETRY_BATCH_COMPLETED", "CONTENT_SUBMITTED", "ARTIFACTS_STORED", "PIPELINE_COMPLETED",
             "PIPELINE_WAITING_ARTIFACTS", "REVIEW_AUTO_PENDING", "REVIEW_MANUAL_PENDING", "REVIEW_APPROVED", "REVIEW_REJECTED",
             "CONTENT_BANNED", "DRAFT_READY", "DRAFT_FAILED", "DRAFT_SUBMITTED", "DRAFT_PROCESSING", "DRAFT_UPLOADING",

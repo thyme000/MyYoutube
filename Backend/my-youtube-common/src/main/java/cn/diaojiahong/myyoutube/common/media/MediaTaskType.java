@@ -1,17 +1,18 @@
-package cn.diaojiahong.myyoutube.transcode.domain.enums;
+package cn.diaojiahong.myyoutube.common.media;
 
 import java.util.List;
 import java.util.Set;
 
 public enum MediaTaskType {
-    TRANSCODE, PREPARE, COVER, ASR, OCR, SUMMARY, TAG, REVIEW;
+    TRANSCODE, PREPARE, AUDIO_PREPARE, COVER, ASR, OCR, SUMMARY, TAG, REVIEW;
     public Set<String> getDependencies() {
         return switch (this) {
-            case SUMMARY -> Set.of("ASR", "OCR");
-            case TAG -> Set.of("SUMMARY");
+            case SUMMARY -> Set.of(ASR.name(), OCR.name());
+            case TAG -> Set.of(SUMMARY.name());
             default -> Set.of();
         };
     }
     public static List<MediaTaskType> contentTypes() { return List.of(COVER, ASR, OCR, SUMMARY, TAG); }
+    public boolean matches(String code) { return name().equals(code); }
     public static MediaTaskType fromCode(String code) { return valueOf(code); }
 }

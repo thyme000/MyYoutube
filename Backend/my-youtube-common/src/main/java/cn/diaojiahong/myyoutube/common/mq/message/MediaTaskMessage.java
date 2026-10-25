@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.mq.message;
 
+import cn.diaojiahong.myyoutube.common.media.AudioPreparationContracts;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.Input;
 import lombok.*;
 import java.util.Map;
@@ -19,5 +20,6 @@ public class MediaTaskMessage {
     private Integer attempt;
     private String phase;
     private Input input;
+    private AudioPreparationContracts.Request audioInput;
     private Map<String, String> dependencies;
 }

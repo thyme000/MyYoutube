@@ -10,7 +10,7 @@ import cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure;
 import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
 import cn.diaojiahong.myyoutube.transcode.api.*;
 import cn.diaojiahong.myyoutube.transcode.config.FeignRetryConfiguration;
-import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.transcode.service.*;
 import cn.diaojiahong.myyoutube.transcode.task.MediaTaskExecutor;
 import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;

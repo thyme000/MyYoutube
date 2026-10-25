@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.transcode.domain.po.MediaTask;
 import cn.diaojiahong.myyoutube.transcode.mapper.*;
 import cn.diaojiahong.myyoutube.transcode.preparation.PreparationRegistry;
@@ -20,6 +21,7 @@ public class RetryOwnerChecks {
 
     public String reason(MediaTask row) {
         if (row == null) return "TASK_MISSING";
+        if (MediaTaskType.AUDIO_PREPARE.matches(row.getTaskType())) return "USE_AUDIO_RETRY";
         Long ownerId=row.getOwnerId(), preparationId=null, version=null;
         if ("PREPARE".equals(row.getTaskType())) {
             var preparation=preparations.selectById(ownerId);

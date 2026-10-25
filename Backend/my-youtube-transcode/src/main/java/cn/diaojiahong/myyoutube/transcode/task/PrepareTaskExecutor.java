@@ -7,7 +7,7 @@ import cn.diaojiahong.myyoutube.common.media.VideoFrameSampling;
 import cn.diaojiahong.myyoutube.common.media.PreparedMedia;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.common.utils.*;
-import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.transcode.domain.po.PreparationItem;
 import cn.diaojiahong.myyoutube.transcode.preparation.*;
 import lombok.RequiredArgsConstructor;

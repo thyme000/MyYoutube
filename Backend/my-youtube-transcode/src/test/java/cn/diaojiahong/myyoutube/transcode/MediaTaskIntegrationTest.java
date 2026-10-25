@@ -11,7 +11,7 @@ import org.springframework.boot.autoconfigure.http.HttpMessageConverters;
 import cn.diaojiahong.myyoutube.common.feign.ModelErrorDecoder;
 import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
 import cn.diaojiahong.myyoutube.transcode.task.MediaTaskExecutor;
-import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskType;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;

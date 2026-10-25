@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.preparation;
 
 import cn.diaojiahong.myyoutube.common.properties.S3Properties;
+import cn.diaojiahong.myyoutube.common.media.InvalidMediaInputException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -24,8 +25,9 @@ public class PreparationStorage {
 
     public Source inspect(String key) {
         var head = s3.headObject(HeadObjectRequest.builder().bucket(properties.getBucketName()).key(key).build());
-        if (head.contentLength() == null || head.contentLength() <= 0 || head.eTag() == null || head.eTag().isBlank())
-            throw new IllegalArgumentException("素材对象为空或缺少条件校验标识");
+        if (head.contentLength() == null || head.eTag() == null || head.eTag().isBlank())
+            throw new IllegalStateException("存储对象缺少条件校验元数据");
+        if (head.contentLength() <= 0) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.EMPTY_MEDIA);
         return new Source(key, head.versionId(), head.eTag(), head.contentLength());
     }
 
@@ -50,7 +52,7 @@ public class PreparationStorage {
     }
 
     public void download(Source source, Path destination, long maxBytes) throws Exception {
-        if (source.bytes() > maxBytes) throw new IllegalArgumentException("素材文件大小超限");
+        if (source.bytes() > maxBytes) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.MEDIA_TOO_LARGE);
         var request = GetObjectRequest.builder().bucket(properties.getBucketName()).key(source.key()).ifMatch(source.etag());
         if (source.versionId() != null && !source.versionId().equals("null")) request.versionId(source.versionId());
         boolean completed = false;
@@ -60,7 +62,8 @@ public class PreparationStorage {
             int read;
             while ((read = input.read(buffer)) != -1) {
                 size += read;
-                if (size > maxBytes || size > source.bytes()) throw new IllegalArgumentException("素材读取大小超限");
+                if (size > maxBytes) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.MEDIA_TOO_LARGE);
+                if (size > source.bytes()) throw new IllegalStateException("素材读取大小与存储元数据不一致");
                 output.write(buffer, 0, read);
             }
             if (size != source.bytes()) throw new IllegalStateException("素材读取不完整");
