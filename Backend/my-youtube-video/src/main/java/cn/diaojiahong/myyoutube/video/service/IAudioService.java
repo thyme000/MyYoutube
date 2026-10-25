@@ -9,14 +9,14 @@ import cn.diaojiahong.myyoutube.video.domain.vo.AudioVO;
 public interface IAudioService {
 
     String publish(AudioPublishDTO dto);
+    AudioVO getMine(Long id);
+    boolean retry(Long id);
     PageResult<AudioVO> myAudios(PageQuery pageQuery);
     PageResult<AudioVO> library(String keyword, PageQuery pageQuery);
     void setVisibility(Long id, String visibility);
     void delete(Long id);
     /**
-     * 引用校验 + 取库条目: 公开或本人私有才可见, 不可见/不存在返回 fail 信息。
-     * 动态发布与幻灯片合成共用。
+     * 新增引用必须处理完成且审核通过，私密音频仅本人可用。
      */
     Audio getReferenceable(Long audioId, Long userId);
-    AudioVO toVO(Audio audio, boolean withUrl);
 }

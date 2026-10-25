@@ -28,10 +28,19 @@ public class AudioController {
     private final IAudioService audioService;
 
     @PostMapping("/publish")
-    @Operation(summary = "音频入库(上传后调用, 默认公开)")
+    @org.springframework.web.bind.annotation.ResponseStatus(org.springframework.http.HttpStatus.ACCEPTED)
+    @Operation(summary = "受理音频，后台校验文件后等待审核")
     public Result<String> publish(@RequestBody AudioPublishDTO dto) {
         return Result.success(audioService.publish(dto));
     }
+
+    @GetMapping("/mine/{id}")
+    @Operation(summary = "查询本人的音频处理状态")
+    public Result<AudioVO> getMine(@PathVariable Long id) { return Result.success(audioService.getMine(id)); }
+
+    @PostMapping("/{id}/retry")
+    @Operation(summary = "重试本人处理失败的音频")
+    public Result<Boolean> retry(@PathVariable Long id) { return Result.success(audioService.retry(id)); }
 
     @GetMapping("/my")
     @Operation(summary = "我的音频列表(含私密)")

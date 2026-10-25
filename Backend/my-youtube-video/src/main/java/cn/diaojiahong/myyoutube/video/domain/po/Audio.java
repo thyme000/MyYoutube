@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.domain.po;
 
+import cn.diaojiahong.myyoutube.video.domain.enums.AudioProcessingStatus;
+import cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -27,9 +29,24 @@ public class Audio implements Serializable {
 
     private String title;
 
+    private String requestId;
+    private String requestFingerprint;
+    private String sourceObjectKey;
+    private String sourceCoverObjectKey;
+
     private String objectKey;
+    private String coverObjectKey;
 
     private Integer durationMs;
+    private Long fileSize;
+    private String mime;
+    private AudioProcessingStatus processingStatus;
+    private AudioReviewStatus reviewStatus;
+    private Integer preparationAttempt;
+    private Boolean preparationRetry;
+    private LocalDateTime preparationAfter;
+    private LocalDateTime processingDeadline;
+    private String errorMessage;
 
     /** public/private */
     private String visibility;

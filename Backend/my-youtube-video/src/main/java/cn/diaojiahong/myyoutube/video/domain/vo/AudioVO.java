@@ -15,6 +15,12 @@ public class AudioVO {
     private String title;
 
     private Integer durationMs;
+    private Long fileSize;
+    private String mime;
+    private cn.diaojiahong.myyoutube.video.domain.enums.AudioProcessingStatus processingStatus;
+    private cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus reviewStatus;
+    private String errorMessage;
+    private String coverUrl;
 
     /** public/private */
     private String visibility;
