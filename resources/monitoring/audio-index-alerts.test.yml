@@ -1,0 +1,95 @@
+rule_files:
+  - pipeline-alerts.yml
+evaluation_interval: 15s
+tests:
+  - name: fresh-backlog-and-age-alert-and-recover
+    interval: 15s
+    input_series:
+      - series: 'myyoutube_audio_index_pending_lowerbound{job="video",instance="video-a",service="video"}'
+        values: '1001+0x24 0+0x8'
+      - series: 'myyoutube_audio_index_oldest_seconds{job="video",instance="video-a",service="video"}'
+        values: '600+0x24 0+0x8'
+      - series: 'pipeline_metrics_sample_enabled{job="video",instance="video-a",service="video",component="audio_index",group="all",kind="all"}'
+        values: '1+0x32'
+      - series: 'pipeline_metrics_sample_success{job="video",instance="video-a",service="video",component="audio_index",group="all",kind="all"}'
+        values: '1+0x32'
+      - series: 'pipeline_metrics_sample_age_seconds{job="video",instance="video-a",service="video",component="audio_index",group="all",kind="all"}'
+        values: '0+0x32'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AudioIndexBacklogHigh
+        exp_alerts:
+          - exp_labels: {job: video, instance: video-a, service: video, severity: warning}
+            exp_annotations: {summary: "video 音频索引待同步超过 1000 条"}
+      - eval_time: 6m
+        alertname: AudioIndexSyncDelayed
+        exp_alerts:
+          - exp_labels: {job: video, instance: video-a, service: video, severity: warning}
+            exp_annotations: {summary: "video 音频索引超过 5 分钟未完成同步，检查 MQ、ES 消费和版本确认"}
+      - eval_time: 8m
+        alertname: AudioIndexBacklogHigh
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: AudioIndexSyncDelayed
+        exp_alerts: []
+  - name: repeated-delivery-failures-do-not-require-backlog-sampler
+    interval: 1m
+    input_series:
+      - series: 'myyoutube_audio_index_delivery_failures_total{job="video",instance="video-a",service="video",scope="record"}'
+        values: '0+1x8'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AudioIndexDeliveryFailures
+        exp_alerts:
+          - exp_labels: {job: video, instance: video-a, service: video, scope: record, severity: warning}
+            exp_annotations: {summary: "video 音频索引同步持续失败（record），检查 MQ 和音频待同步记录"}
+  - name: disabled-failed-stale-or-boundary-samples-do-not-alert
+    interval: 15s
+    input_series:
+      - series: 'myyoutube_audio_index_pending_lowerbound{job="video",instance="disabled"}'
+        values: '2000+0x24'
+      - series: 'myyoutube_audio_index_oldest_seconds{job="video",instance="disabled"}'
+        values: '600+0x24'
+      - series: 'pipeline_metrics_sample_enabled{job="video",instance="disabled",component="audio_index",group="all",kind="all"}'
+        values: '0+0x24'
+      - series: 'pipeline_metrics_sample_success{job="video",instance="disabled",component="audio_index",group="all",kind="all"}'
+        values: '1+0x24'
+      - series: 'pipeline_metrics_sample_age_seconds{job="video",instance="disabled",component="audio_index",group="all",kind="all"}'
+        values: '0+0x24'
+      - series: 'myyoutube_audio_index_pending_lowerbound{job="video",instance="failed"}'
+        values: '2000+0x24'
+      - series: 'myyoutube_audio_index_oldest_seconds{job="video",instance="failed"}'
+        values: '600+0x24'
+      - series: 'pipeline_metrics_sample_enabled{job="video",instance="failed",component="audio_index",group="all",kind="all"}'
+        values: '1+0x24'
+      - series: 'pipeline_metrics_sample_success{job="video",instance="failed",component="audio_index",group="all",kind="all"}'
+        values: '0+0x24'
+      - series: 'pipeline_metrics_sample_age_seconds{job="video",instance="failed",component="audio_index",group="all",kind="all"}'
+        values: '0+0x24'
+      - series: 'myyoutube_audio_index_pending_lowerbound{job="video",instance="stale"}'
+        values: '2000+0x24'
+      - series: 'myyoutube_audio_index_oldest_seconds{job="video",instance="stale"}'
+        values: '600+0x24'
+      - series: 'pipeline_metrics_sample_enabled{job="video",instance="stale",component="audio_index",group="all",kind="all"}'
+        values: '1+0x24'
+      - series: 'pipeline_metrics_sample_success{job="video",instance="stale",component="audio_index",group="all",kind="all"}'
+        values: '1+0x24'
+      - series: 'pipeline_metrics_sample_age_seconds{job="video",instance="stale",component="audio_index",group="all",kind="all"}'
+        values: '120+0x24'
+      - series: 'myyoutube_audio_index_pending_lowerbound{job="video",instance="boundary"}'
+        values: '1000+0x24'
+      - series: 'myyoutube_audio_index_oldest_seconds{job="video",instance="boundary"}'
+        values: '300+0x24'
+      - series: 'pipeline_metrics_sample_enabled{job="video",instance="boundary",component="audio_index",group="all",kind="all"}'
+        values: '1+0x24'
+      - series: 'pipeline_metrics_sample_success{job="video",instance="boundary",component="audio_index",group="all",kind="all"}'
+        values: '1+0x24'
+      - series: 'pipeline_metrics_sample_age_seconds{job="video",instance="boundary",component="audio_index",group="all",kind="all"}'
+        values: '0+0x24'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AudioIndexBacklogHigh
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: AudioIndexSyncDelayed
+        exp_alerts: []

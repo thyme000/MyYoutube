@@ -85,6 +85,21 @@ groups:
         for: 1m
         labels: {severity: warning}
         annotations: {summary: "发布副作用超过 10 分钟未完成"}
+      - alert: AudioIndexDeliveryFailures
+        expr: sum by(job,instance,service,scope) (increase(myyoutube_audio_index_delivery_failures_total[5m])) >= 3
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 音频索引同步持续失败（{{ $labels.scope }}），检查 MQ 和音频待同步记录"}
+      - alert: AudioIndexBacklogHigh
+        expr: myyoutube_audio_index_pending_lowerbound > 1000 and on(job,instance) (pipeline:sample:fresh{component="audio_index"} == 1)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 音频索引待同步超过 1000 条"}
+      - alert: AudioIndexSyncDelayed
+        expr: myyoutube_audio_index_oldest_seconds > 300 and on(job,instance) (pipeline:sample:fresh{component="audio_index"} == 1)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.service }} 音频索引超过 5 分钟未完成同步，检查 MQ、ES 消费和版本确认"}
       - alert: ModelCircuitOpen
         expr: increase(model_circuit_transitions_total{state="OPEN"}[5m]) > 0
         labels: {severity: warning}
