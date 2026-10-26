@@ -61,7 +61,7 @@ class DraftSubmissionTest {
         assertEquals("media-prepared/9/101/video", media.getValue().getObjectKey()); assertEquals(1501L,media.getValue().getDurationMs());
         var common = org.mockito.ArgumentCaptor.forClass(cn.diaojiahong.myyoutube.content.domain.po.Content.class); verify(contents).insert(common.capture());
         assertEquals("简介",common.getValue().getDescription()); assertEquals("public",common.getValue().getVisibility());
-        assertEquals("review",common.getValue().getStatus());
+        assertEquals(ContentStatusEnum.REVIEW,common.getValue().getStatus());
         assertEquals(0,common.getValue().getAllowComment()); assertNull(common.getValue().getCoverObjectKey());
     }
     @Test void repeatedSubmissionReturnsEnrollmentWithoutPreparingMedia() {

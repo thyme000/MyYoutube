@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.content.service;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
@@ -23,7 +24,7 @@ public class AudioContentAccess {
     private final AfterCommitNotifications notifications;
 
     public Set<Long> blocked(List<Content> contents) {
-        var ids = contents.stream().filter(c -> c.getType() == ContentTypeEnum.DYNAMIC && !"banned".equals(c.getStatus()))
+        var ids = contents.stream().filter(c -> c.getType() == ContentTypeEnum.DYNAMIC && c.getStatus() != ContentStatusEnum.BANNED)
                 .map(Content::getId).distinct().toList();
         if (ids.isEmpty()) return Set.of();
         var references = dynamics.selectBatchIds(ids).stream().filter(d -> d.getAudioId() != null).toList();

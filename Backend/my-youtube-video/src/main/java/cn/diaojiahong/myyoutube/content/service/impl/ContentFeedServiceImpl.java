@@ -14,6 +14,7 @@ import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentSortEnum;
 import cn.diaojiahong.myyoutube.video.mapper.ContentReviewRecordMapper;
@@ -87,7 +88,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         var blocked = new HashSet<>(audioAccess.blocked(candidates));
         var rows = management ? candidates : candidates.stream().filter(c -> !blocked.contains(c.getId())).toList();
         if (management) {
-            var bannedIds = rows.stream().filter(c -> "banned".equals(c.getStatus())).map(Content::getId).toList();
+            var bannedIds = rows.stream().filter(c -> c.getStatus() == ContentStatusEnum.BANNED).map(Content::getId).toList();
             if (!bannedIds.isEmpty()) {
                 blocked.addAll(reviewRecords.audioBannedContentIds(bannedIds));
             }
@@ -130,6 +131,6 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         return result;
     }
     private LambdaQueryWrapper<Content> published() {
-        return new LambdaQueryWrapper<Content>().eq(Content::getIsDelete, 0).eq(Content::getStatus, "published");
+        return new LambdaQueryWrapper<Content>().eq(Content::getIsDelete, 0).eq(Content::getStatus, ContentStatusEnum.PUBLISHED);
     }
 }

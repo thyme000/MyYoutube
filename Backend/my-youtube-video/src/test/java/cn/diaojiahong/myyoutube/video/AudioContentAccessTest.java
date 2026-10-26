@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.content.service.AfterCommitNotifications;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
@@ -50,7 +51,7 @@ class AudioContentAccessTest {
     }
 
     @Test void alreadyBannedManagementRecordsDoNotRepeatTheCascadeNotification() {
-        assertTrue(access.blocked(List.of(new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setStatus("banned"))).isEmpty());
+        assertTrue(access.blocked(List.of(new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setStatus(ContentStatusEnum.BANNED))).isEmpty());
         verifyNoInteractions(dynamics, audios, mq);
     }
 }

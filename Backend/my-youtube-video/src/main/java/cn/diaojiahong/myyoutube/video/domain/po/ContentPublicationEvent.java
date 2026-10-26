@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.domain.po;
 
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 import lombok.experimental.Accessors;
@@ -15,7 +16,7 @@ public class ContentPublicationEvent {
     private Long contentId;
     @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.ser.std.ToStringSerializer.class)
     private Long authorId;
-    private String status;
+    private ContentStatusEnum status;
     private Integer delta;
     private String reason;
     private Boolean userCountDone;

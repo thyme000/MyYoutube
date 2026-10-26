@@ -9,6 +9,7 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.DraftSubmissionState;
 import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
@@ -53,7 +54,7 @@ public class ContentSubmissionService {
                 .setDescription(rules.description(draft.getDescription()))
                 .setVisibility("public")
                 .setAllowComment(rules.allowComment(draft.getAllowComment()))
-                .setCoverObjectKey(draft.getPreparedCoverObjectKey()).setStatus("review").setIsDelete(0).setCreateTime(BusinessTime.now());
+                .setCoverObjectKey(draft.getPreparedCoverObjectKey()).setStatus(ContentStatusEnum.REVIEW).setIsDelete(0).setCreateTime(BusinessTime.now());
         var strategy = strategies.get(draft.getType());
         if (strategy == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "不支持的内容类型");
         var media = strategy.prepare(draft);

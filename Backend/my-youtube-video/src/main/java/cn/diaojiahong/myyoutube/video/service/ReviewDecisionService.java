@@ -203,20 +203,20 @@ public class ReviewDecisionService {
         var row = lock(message.contentId());
         var content = contents.getBaseMapper().selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, message.contentId()).last("FOR UPDATE"));
         if (content == null || content.getType() != ContentTypeEnum.DYNAMIC || !Integer.valueOf(0).equals(content.getIsDelete())
-                || !("published".equals(content.getStatus()) || "review".equals(content.getStatus()))) return false;
+                || (content.getStatus() != ContentStatusEnum.PUBLISHED && content.getStatus() != ContentStatusEnum.REVIEW)) return false;
         var reference = dynamics.selectById(content.getId());
         if (reference == null || !message.audioId().equals(reference.getAudioId())) return false;
         var audio = audios.selectOne(new LambdaQueryWrapper<Audio>().eq(Audio::getId, message.audioId()).last("FOR UPDATE"));
         if (audio == null || audio.getReviewStatus() != AudioReviewStatus.BANNED
                 || audio.getIndexVersion() < message.audioVersion()) return false;
         String reason = "关联音频已被封禁，audioId=" + audio.getId();
-        if (!transition(content.getId(), ContentStatusEnum.BANNED, reason, "published".equals(content.getStatus()))) return false;
+        if (!transition(content.getId(), ContentStatusEnum.BANNED, reason, content.getStatus() == ContentStatusEnum.PUBLISHED)) return false;
         records.insert(new ContentReviewRecord().setContentId(content.getId()).setPipelineId(row == null ? null : row.getPipelineId())
                 .setAttempt(0).setSource("AUDIO").setDecision("BAN").setReason(reason)
                 .setEvidenceJson(JsonUtil.toJson(message)).setCreateTime(LocalDateTime.now()));
         if (row != null) understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>().eq(ContentUnderstanding::getContentId, content.getId())
                 .set(ContentUnderstanding::getState, ContentReviewState.CANCELLED));
-        observation.record(row, "CONTENT_AUDIO_BANNED", content.getStatus(), "banned");
+        observation.record(row, "CONTENT_AUDIO_BANNED", content.getStatus().getCode(), "banned");
         return true;
     }
 
@@ -239,14 +239,14 @@ public class ReviewDecisionService {
 
     private boolean transition(Long id, ContentStatusEnum target, String reason, boolean publishedBan) {
         var content = contents.getBaseMapper().selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, id).last("FOR UPDATE"));
-        String expected = publishedBan ? "published" : "review";
-        if (content == null || Integer.valueOf(1).equals(content.getIsDelete()) || !expected.equals(content.getStatus())) return false;
+        ContentStatusEnum expected = publishedBan ? ContentStatusEnum.PUBLISHED : ContentStatusEnum.REVIEW;
+        if (content == null || Integer.valueOf(1).equals(content.getIsDelete()) || content.getStatus() != expected) return false;
         if (target == ContentStatusEnum.PUBLISHED && audioAccess.bannedForPublication(content)) return false;
         if (!contents.lambdaUpdate().eq(Content::getId, id).eq(Content::getStatus, expected)
                 .setSql("index_version = index_version + 1")
-                .set(Content::getStatus, target.getCode()).update()) return false;
+                .set(Content::getStatus, target).update()) return false;
         int delta = publishedBan ? -1 : target == ContentStatusEnum.PUBLISHED ? 1 : 0;
-        var event = new ContentPublicationEvent().setContentId(id).setAuthorId(content.getAuthorId()).setStatus(target.getCode())
+        var event = new ContentPublicationEvent().setContentId(id).setAuthorId(content.getAuthorId()).setStatus(target)
                 .setDelta(delta).setReason(reason).setUserCountDone(false).setSearchDone(false).setNoticeDone(false).setCompleted(false);
         events.insert(event);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

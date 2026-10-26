@@ -303,7 +303,7 @@ class ContentDraftIntegrationTest {
         assertEquals(dto.getDescription(), rows.selectById(id).getDescription());
         assertEquals(dto.getTitle(), contentRows.selectById(id).getTitle());
         assertEquals(dto.getDescription(), contentRows.selectById(id).getDescription());
-        assertEquals("review", contentRows.selectById(id).getStatus());
+        assertEquals(ContentStatusEnum.REVIEW, contentRows.selectById(id).getStatus());
         verify(understanding).enroll(argThat(c -> c.getTitle().equals(dto.getTitle()) && c.getDescription().equals(dto.getDescription())), any());
     }
 

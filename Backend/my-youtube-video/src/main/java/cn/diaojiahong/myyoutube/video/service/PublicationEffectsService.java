@@ -10,6 +10,7 @@ import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.*;
 import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.ContentCountEvent;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentPublicationEvent;
@@ -89,7 +90,7 @@ public class PublicationEffectsService {
                 .eq(ContentPublicationEvent::getNoticeDone, true).set(ContentPublicationEvent::getCompleted, true));
         if (completed > 0) {
             log.info("Publication effects completed eventId={} contentId={} authorId={} status={} delta={}",
-                    event.getId(), event.getContentId(), event.getAuthorId(), event.getStatus(), event.getDelta());
+                    event.getId(), event.getContentId(), event.getAuthorId(), event.getStatus().getCode(), event.getDelta());
         } else {
             log.debug("Publication branch applied, waiting for remaining branches eventId={} branch={}", event.getId(), message.branch());
         }
@@ -119,7 +120,7 @@ public class PublicationEffectsService {
         boolean inserted = Boolean.TRUE.equals(transaction.execute(tx -> {
             var locked = events.selectOne(new LambdaQueryWrapper<ContentPublicationEvent>().eq(ContentPublicationEvent::getId, event.getId()).last("FOR UPDATE"));
             if (Boolean.TRUE.equals(locked.getNoticeDone())) return false;
-            boolean approved = "published".equals(event.getStatus());
+            boolean approved = event.getStatus() == ContentStatusEnum.PUBLISHED;
             boolean audioBanned = !approved && reviewRecords.audioBannedContentIds(List.of(event.getContentId())).contains(event.getContentId());
             var feedback = ReviewFeedback.reviewNotice(approved, audioBanned);
             boolean saved = notifications.save(new UserNotification().setReceiverId(event.getAuthorId()).setType("SYSTEM_NOTICE").setRefType("CONTENT")
@@ -130,7 +131,7 @@ public class PublicationEffectsService {
         }));
         if (inserted) {
             log.info("Publication notice stored eventId={} contentId={} receiverId={} status={}",
-                    event.getId(), event.getContentId(), event.getAuthorId(), event.getStatus());
+                    event.getId(), event.getContentId(), event.getAuthorId(), event.getStatus().getCode());
             try { push.pushSseSignal(event.getAuthorId(), NotificationPublisher.NOTIFY_DIRTY_SIGNAL); }
             catch (Exception e) { log.debug("SSE reminder failed after durable notification", e); }
         }

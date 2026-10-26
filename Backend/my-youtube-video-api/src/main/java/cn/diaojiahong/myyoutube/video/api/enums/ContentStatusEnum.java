@@ -3,7 +3,7 @@ package cn.diaojiahong.myyoutube.video.api.enums;
 import com.baomidou.mybatisplus.annotation.EnumValue;
 
 /**
- * 视频状态枚举
+ * 内容状态枚举
  * 对应数据库 status 字段：review(待审核)/published(已发布)/banned(已封禁)
  */
 public enum ContentStatusEnum {

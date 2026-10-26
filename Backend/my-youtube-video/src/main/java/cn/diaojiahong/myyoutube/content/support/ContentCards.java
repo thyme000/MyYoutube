@@ -10,6 +10,7 @@ public final class ContentCards {
     public static ContentSummary summary(Content c, ContentMedia media) {
         var summary = BeanUtil.copyProperties(c, ContentSummary.class);
         summary.setType(c.getType().getCode());
+        summary.setStatus(c.getStatus().getCode());
         summary.setCoverUrl(c.getCoverObjectKey());
         if (media != null && media.video() != null) {
             summary.setVideoUrl(media.video().objectKey());

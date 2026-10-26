@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.video.api.ContentAdminPort;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 
 import lombok.RequiredArgsConstructor;
@@ -40,11 +41,11 @@ public class InternalAdminContentController implements ContentAdminPort {
 
     @PostMapping("/mark-status")
     public Boolean markStatus(@RequestBody ContentAdminPort.MarkStatus mark) {
-        if ("published".equals(mark.getStatusCode()))
+        if (ContentStatusEnum.PUBLISHED.getCode().equals(mark.getStatusCode()))
             return decisions.manual(mark.getContentId(), true, mark.getReason(), mark.getActorId());
-        if ("banned".equals(mark.getStatusCode())) {
+        if (ContentStatusEnum.BANNED.getCode().equals(mark.getStatusCode())) {
             var video = contentService.getById(mark.getContentId());
-            boolean published = video != null && "published".equals(video.getStatus());
+            boolean published = video != null && video.getStatus() == ContentStatusEnum.PUBLISHED;
             return published ? decisions.banPublished(mark.getContentId(), mark.getReason(), mark.getActorId())
                     : decisions.manual(mark.getContentId(), false, mark.getReason(), mark.getActorId());
         }
@@ -66,16 +67,17 @@ public class InternalAdminContentController implements ContentAdminPort {
 
     @PostMapping("/page")
     public PageResult<ContentSummary> pageContents(@RequestBody ContentAdminPort.AdminContentQuery query) {
+        ContentStatusEnum status = null;
         if (query.getStatusCode() != null) {
-            try { cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum.fromCode(query.getStatusCode()); }
+            try { status = ContentStatusEnum.fromCode(query.getStatusCode()); }
             catch (IllegalArgumentException error) { throw new BizException(ErrorCode.INVALID_ARGUMENT, "审核状态无效", error); }
         }
         var type = query.getType() == null ? null : cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum.fromCode(query.getType());
         if (query.getType() != null && type == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "内容类型无效");
         var page = contentService.lambdaQuery().eq(Content::getIsDelete, 0)
-                .eq(query.getStatusCode() != null, Content::getStatus, query.getStatusCode())
+                .eq(status != null, Content::getStatus, status)
                 .eq(type != null, Content::getType, type)
-                .apply("review".equals(query.getStatusCode()), "EXISTS (SELECT 1 FROM content_understanding u WHERE u.content_id = content.id AND u.state = 'MANUAL_PENDING')")
+                .apply(status == ContentStatusEnum.REVIEW, "EXISTS (SELECT 1 FROM content_understanding u WHERE u.content_id = content.id AND u.state = 'MANUAL_PENDING')")
                 .eq(query.getUserId() != null, Content::getAuthorId, query.getUserId())
                 .eq(query.getCategoryCode() != null, Content::getCategoryCode, query.getCategoryCode())
                 .orderByDesc(Content::getCreateTime)

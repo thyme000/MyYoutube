@@ -11,6 +11,7 @@ import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus;
 import cn.diaojiahong.myyoutube.video.domain.enums.AudioProcessingStatus;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
@@ -188,11 +189,11 @@ class ReviewTransactionIntegrationTest {
         jdbc.update("UPDATE content SET status='published' WHERE id=1");
         var access = new ContentAccessService(contentRows, audioAccess);
         assertThrows(BizException.class, () -> access.readable(1L, 9L));
-        assertEquals("published", contents.getById(1L).getStatus());
+        assertEquals(ContentStatusEnum.PUBLISHED, contents.getById(1L).getStatus());
         var message = ArgumentCaptor.forClass(AudioContentBanMessage.class);
         verify(mq).asyncSend(eq(MqConstants.TOPIC_AUDIO_CONTENT_BAN), message.capture(), any(SendCallback.class));
         assertTrue(decisions.banByAudio(message.getValue())); assertFalse(decisions.banByAudio(message.getValue()));
-        assertEquals("banned", contents.getById(1L).getStatus()); assertEquals(2L, contents.getById(1L).getIndexVersion());
+        assertEquals(ContentStatusEnum.BANNED, contents.getById(1L).getStatus()); assertEquals(2L, contents.getById(1L).getIndexVersion());
         assertEquals(1, count("content_review_record")); assertEquals(1, count("content_publication_event"));
         assertEquals(-1, jdbc.queryForObject("SELECT delta FROM content_publication_event", Integer.class));
         assertEquals("AUDIO", jdbc.queryForObject("SELECT source FROM content_review_record", String.class));
@@ -218,14 +219,14 @@ class ReviewTransactionIntegrationTest {
         assertEquals(0, jdbc.queryForObject("SELECT delta FROM content_publication_event", Integer.class));
         assertFalse(decisions.machine(1L, 1, verdict("PASS")));
         assertThrows(BizException.class, () -> decisions.manual(1L, true, "通过", 7L));
-        assertEquals("banned", contents.getById(1L).getStatus()); assertEquals(1, count("content_review_record"));
+        assertEquals(ContentStatusEnum.BANNED, contents.getById(1L).getStatus()); assertEquals(1, count("content_review_record"));
     }
 
     @ParameterizedTest @ValueSource(booleans = {true, false})
     void lateApprovalIsRefusedEvenBeforeTheLazyBanHasRun(boolean manual) throws Exception {
         dynamicAudio(AudioReviewStatus.BANNED); state(manual ? ContentReviewState.MANUAL_PENDING : ContentReviewState.AUTO_RUNNING);
         assertFalse(manual ? decisions.manual(1L, true, "通过", 7L) : decisions.machine(1L, 1, verdict("PASS")));
-        assertEquals("review", contents.getById(1L).getStatus()); assertEquals(0, count("content_publication_event"));
+        assertEquals(ContentStatusEnum.REVIEW, contents.getById(1L).getStatus()); assertEquals(0, count("content_publication_event"));
         verify(mq).asyncSend(eq(MqConstants.TOPIC_AUDIO_CONTENT_BAN), any(AudioContentBanMessage.class), any(SendCallback.class));
     }
 
@@ -257,7 +258,7 @@ class ReviewTransactionIntegrationTest {
         assertTrue(dynamics.pendingAudioBans(1, 1).isEmpty());
         assertTrue(decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 3)));
         assertTrue(dynamics.pendingAudioBans(0, 1).isEmpty());
-        assertEquals("banned", contents.getById(1L).getStatus());
+        assertEquals(ContentStatusEnum.BANNED, contents.getById(1L).getStatus());
     }
 
     @ParameterizedTest @ValueSource(strings = {"review", "published", "deleted", "banned", "not-banned", "video"})
@@ -274,7 +275,7 @@ class ReviewTransactionIntegrationTest {
         jdbc.update("UPDATE content SET status='published' WHERE id=1");
         jdbc.execute("ALTER TABLE content_review_record ADD CONSTRAINT reject_audio CHECK(source <> 'AUDIO')");
         assertThrows(RuntimeException.class, () -> decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 3)));
-        assertEquals("published", contents.getById(1L).getStatus()); assertEquals(1L, contents.getById(1L).getIndexVersion());
+        assertEquals(ContentStatusEnum.PUBLISHED, contents.getById(1L).getStatus()); assertEquals(1L, contents.getById(1L).getIndexVersion());
         assertEquals(ContentReviewState.APPROVED, understanding.selectById(1L).getState());
         assertEquals(0, count("content_publication_event")); verifyNoInteractions(effects);
     }
@@ -291,7 +292,7 @@ class ReviewTransactionIntegrationTest {
             jdbc.update("UPDATE audio SET review_status='banned',index_version=4 WHERE id=20");
         });
         assertFalse(pending.get().get(5, TimeUnit.SECONDS));
-        assertEquals("review", contents.getById(1L).getStatus()); assertEquals(0, count("content_publication_event"));
+        assertEquals(ContentStatusEnum.REVIEW, contents.getById(1L).getStatus()); assertEquals(0, count("content_publication_event"));
     }
     @Test void reviewResultKeepsExecutedTemplateVersionAfterHotUpdate() throws Exception {
         state(ContentReviewState.AUTO_PENDING);

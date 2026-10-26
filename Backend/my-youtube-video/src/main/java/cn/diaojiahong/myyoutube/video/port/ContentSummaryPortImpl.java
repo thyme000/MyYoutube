@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.content.support.ContentCards;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +24,7 @@ public class ContentSummaryPortImpl implements ContentSummaryPort {
         List<String> ids = query.ids();
         if (ids == null || ids.isEmpty()) return List.of();
         var rows = contents.selectList(new LambdaQueryWrapper<Content>().in(Content::getId, ids)
-                .eq(Content::getIsDelete, 0).eq(Content::getStatus, "published")
+                .eq(Content::getIsDelete, 0).eq(Content::getStatus, ContentStatusEnum.PUBLISHED)
                 .and(q -> q.eq(Content::getVisibility, "public")
                         .or(query.viewerId() != null).eq(query.viewerId() != null, Content::getAuthorId, query.viewerId())));
         var blocked = audioAccess.blocked(rows);

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.domain.po;
 
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
@@ -24,7 +25,7 @@ public class Content implements Serializable {
     private Integer allowComment;
     private String region;
     private Integer isDelete;
-    private String status;
+    private ContentStatusEnum status;
     private String visibility;
     private Long indexVersion;
     private Long playCount;

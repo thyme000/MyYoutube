@@ -12,6 +12,7 @@ import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
 import cn.diaojiahong.myyoutube.video.mapper.ContentReviewRecordMapper;
@@ -32,7 +33,7 @@ class ContentReadContractTest {
 
     @Test void bannedAudioBlocksDetailsSubtitlesAndBothNewAndPreviouslyCompletedDownloads() {
         var row = new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setAuthorId(9L)
-                .setVisibility("public").setStatus("published").setIsDelete(0);
+                .setVisibility("public").setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0);
         when(contents.selectById(1L)).thenReturn(row);
         var audios = mock(AudioContentAccess.class); when(audios.blocked(anyList())).thenReturn(Set.of(1L));
         var access = new ContentAccessService(contents, audios);
@@ -54,7 +55,7 @@ class ContentReadContractTest {
         when(strategy.type()).thenReturn(ContentTypeEnum.DYNAMIC);
         var registry=new ContentTypeStrategyRegistry(List.of(strategy));
         var content=new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setAuthorId(7L).setTitle("标题")
-                .setDescription("动态图集简介").setCoverObjectKey("second").setAllowComment(0).setVisibility("public").setStatus("published").setIsDelete(0);
+                .setDescription("动态图集简介").setCoverObjectKey("second").setAllowComment(0).setVisibility("public").setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0);
         when(contents.selectById(1L)).thenReturn(content);
         var dynamic=new DynamicMedia("vertical",1080,1920,"cut",0,List.of(
                 new DynamicMedia.Image("first",0,3000,0.5,0.5), new DynamicMedia.Image("second",3000,3000,0.5,0.5)),
@@ -77,7 +78,7 @@ class ContentReadContractTest {
     @Test void reviewMediaIncludesNativeImagesBeforePublicationButRejectsDeletedContent() {
         when(strategy.type()).thenReturn(ContentTypeEnum.DYNAMIC);
         var registry = new ContentTypeStrategyRegistry(List.of(strategy));
-        var content = new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setStatus("review").setIsDelete(0);
+        var content = new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setStatus(ContentStatusEnum.REVIEW).setIsDelete(0);
         when(contents.selectById(1L)).thenReturn(content);
         var media = new DynamicMedia("vertical",1080,1920,"cut",0,List.of(new DynamicMedia.Image("image",0,3000,.5,.5)),null,3000);
         when(strategy.loadMedia(List.of(1L))).thenReturn(Map.of(1L,new ContentMedia("dynamic",null,media)));
@@ -88,7 +89,7 @@ class ContentReadContractTest {
         assertThrows(BizException.class, () -> service.adminMedia(1L));
     }
     @Test void privateDetailAndSubtitleRefuseBeforeLoadingArtifactsOrSigningUrls() {
-        when(contents.selectById(1L)).thenReturn(new Content().setId(1L).setAuthorId(7L).setVisibility("private").setStatus("published").setIsDelete(0));
+        when(contents.selectById(1L)).thenReturn(new Content().setId(1L).setAuthorId(7L).setVisibility("private").setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0));
         var service=new ContentReadService(new ContentAccessService(contents,mock(AudioContentAccess.class)),registry,mock(ContentFeedServiceImpl.class),understanding,storage);
         assertThrows(BizException.class, () -> service.detail(1L,9L));
         assertThrows(BizException.class, () -> service.subtitles(1L,9L));

@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentPublicationEvent;
 import cn.diaojiahong.myyoutube.video.mapper.ContentPublicationEventMapper;
 import cn.diaojiahong.myyoutube.video.service.PublicationEffectsService;
@@ -28,7 +29,7 @@ public class ContentSettingsService {
                 || settings.allowComment() == null || settings.allowComment() < 0 || settings.allowComment() > 1)
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "可见性或评论设置无效");
         var content = access.requireOwner(access.locked(id), viewer);
-        if (!"published".equals(content.getStatus())) throw new BizException(ErrorCode.STATE_CONFLICT, "仅可修改已发布内容");
+        if (content.getStatus() != ContentStatusEnum.PUBLISHED) throw new BizException(ErrorCode.STATE_CONFLICT, "仅可修改已发布内容");
         contents.update(null, new LambdaUpdateWrapper<Content>().eq(Content::getId, id)
                 .setSql(!content.getVisibility().equals(settings.visibility()), "index_version = index_version + 1")
                 .set(Content::getVisibility, settings.visibility()).set(Content::getAllowComment, settings.allowComment()));
@@ -39,7 +40,7 @@ public class ContentSettingsService {
         var content = access.requireOwner(access.locked(id), viewer);
         contents.update(null, new LambdaUpdateWrapper<Content>().eq(Content::getId, id)
                 .setSql("index_version = index_version + 1").set(Content::getIsDelete, 1));
-        rebuild(content, "published".equals(content.getStatus()) ? -1 : 0);
+        rebuild(content, content.getStatus() == ContentStatusEnum.PUBLISHED ? -1 : 0);
     }
     private void rebuild(Content content, int delta) {
         var event = new ContentPublicationEvent().setContentId(content.getId()).setAuthorId(content.getAuthorId())
