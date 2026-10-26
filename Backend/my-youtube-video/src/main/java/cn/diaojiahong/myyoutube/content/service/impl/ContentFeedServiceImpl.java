@@ -118,11 +118,12 @@ public class ContentFeedServiceImpl implements IContentFeedService {
             vo.setAuthorNickname(names.get(row.getAuthorId()));
             vo.setAuthorAvatarUrl(storage.signGetUrl(avatars.get(row.getAuthorId()), SIGN_SECONDS));
             boolean audioRestricted = blocked.contains(row.getId());
-            if (audioRestricted) vo.setStatus("banned");
-            if ("banned".equals(vo.getStatus())) {
-                vo.setRestrictionReason(audioRestricted ? ReviewFeedback.audioBannedMessage() : ReviewFeedback.message("内容", false));
+            boolean restricted = audioRestricted || row.getStatus() == ContentStatusEnum.BANNED;
+            if (restricted) {
+                vo.setStatus(ContentStatusEnum.BANNED.getCode());
+                vo.setRestrictionReason(ReviewFeedback.contentRestrictionReason(audioRestricted));
             }
-            boolean signMedia = !"banned".equals(vo.getStatus());
+            boolean signMedia = !restricted;
             vo.setCoverUrl(signMedia ? storage.signGetUrl(vo.getCoverUrl(), SIGN_SECONDS) : null);
             vo.setVideoUrl(signMedia ? storage.signGetUrl(vo.getVideoUrl(), SIGN_SECONDS) : null);
             vo.setIsLike(liked.contains(row.getId())); vo.setIsFollow(Boolean.TRUE.equals(followMap.get(row.getAuthorId())));

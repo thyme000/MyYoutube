@@ -24,6 +24,10 @@ public final class ReviewFeedback {
         return "您的作品因使用的音频被封禁，已限制展示。";
     }
 
+    public static String contentRestrictionReason(boolean audioBanned) {
+        return audioBanned ? audioBannedMessage() : message("内容", false);
+    }
+
     public static String notificationContent(UserNotification notice) {
         if ("SYSTEM_NOTICE".equals(notice.getType()) && "CONTENT".equals(notice.getRefType())) {
             if (APPROVED_TITLE.equals(notice.getTitle())) return reviewNotice(true, false).content();
