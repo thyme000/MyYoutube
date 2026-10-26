@@ -82,7 +82,7 @@ class ContentDraftIntegrationTest {
         @Bean SimpleMeterRegistry publicationMetrics() { return new SimpleMeterRegistry(); }
         @Bean PublicationProperties publicationProperties() { return new PublicationProperties(); }
         @Bean DraftPublicationNotifications publicationNotifications(RocketMQTemplate mq, SimpleMeterRegistry metrics) {
-            return new DraftPublicationNotifications(mq, metrics);
+            return new DraftPublicationNotifications(new AfterCommitNotifications(mq, metrics));
         }
         @Bean RocketMQTemplate mq() { return mock(RocketMQTemplate.class); }
         @Bean MediaTaskPort tasks() { return mock(MediaTaskPort.class); }
