@@ -157,8 +157,8 @@ class ContentDraftIntegrationTest {
                   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
                 """);
         jdbc.execute("CREATE TABLE video(id BIGINT PRIMARY KEY,object_key VARCHAR(512),duration_ms BIGINT)");
-        jdbc.execute("CREATE TABLE dynamic(id BIGINT PRIMARY KEY,audio_id BIGINT,media_json TEXT)");
-        jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
+        jdbc.execute("CREATE TABLE dynamic(id BIGINT PRIMARY KEY,media_json TEXT)");
+        jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,audio_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
         when(understanding.enroll(any(), any())).thenReturn(100L);
         when(understanding.get(anyLong())).thenAnswer(call -> new ContentUnderstanding().setContentId(call.getArgument(0)).setPipelineId(100L));
         when(storage.readHeadBytes(anyString(), anyInt())).thenReturn("\u0089PNG\r\n\u001a\n12345678".getBytes(StandardCharsets.ISO_8859_1));
@@ -452,7 +452,7 @@ class ContentDraftIntegrationTest {
             return new Audio().setId(20L);
         }).when(audio).lockReferenceable(20L, 9L);
         var receipt = submitClaimed(publish, draft.draftId(), 9L);
-        assertEquals(20L, jdbc.queryForObject("SELECT audio_id FROM dynamic WHERE id=?", Long.class, receipt.contentId()));
+        assertEquals(20L, jdbc.queryForObject("SELECT audio_id FROM content WHERE id=?", Long.class, receipt.contentId()));
         assertEquals(receipt, submitClaimed(publish, draft.draftId(), 9L));
         verify(audio, times(1)).lockReferenceable(20L, 9L);
     }

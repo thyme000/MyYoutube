@@ -9,9 +9,7 @@ import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
-import cn.diaojiahong.myyoutube.video.domain.po.Dynamic;
 import cn.diaojiahong.myyoutube.video.mapper.AudioMapper;
-import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
 import org.apache.rocketmq.client.producer.SendCallback;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.junit.jupiter.api.Test;
@@ -21,37 +19,34 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class AudioContentAccessTest {
-    private final DynamicMapper dynamics = mock(DynamicMapper.class);
     private final AudioMapper audios = mock(AudioMapper.class);
     private final RocketMQTemplate mq = mock(RocketMQTemplate.class);
     private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
-    private final AudioContentAccess access = new AudioContentAccess(dynamics, audios, new AfterCommitNotifications(mq, metrics));
+    private final AudioContentAccess access = new AudioContentAccess(audios, new AfterCommitNotifications(mq, metrics));
 
     @Test void listChecksDeduplicateAudioIdsAndNotificationFailureCannotExposeBlockedContents() {
-        var one = new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC);
-        var two = new Content().setId(2L).setType(ContentTypeEnum.DYNAMIC);
-        when(dynamics.selectBatchIds(List.of(1L, 2L))).thenReturn(List.of(new Dynamic().setId(1L).setAudioId(20L), new Dynamic().setId(2L).setAudioId(20L)));
+        var one = new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setAudioId(20L);
+        var two = new Content().setId(2L).setType(ContentTypeEnum.VIDEO).setAudioId(20L);
         when(audios.selectBatchIds(List.of(20L))).thenReturn(List.of(new Audio().setId(20L).setIndexVersion(3L).setReviewStatus(AudioReviewStatus.BANNED)));
         doThrow(new IllegalStateException("MQ unavailable")).when(mq).asyncSend(anyString(), any(AudioContentBanMessage.class), any(SendCallback.class));
         assertEquals(Set.of(1L, 2L), access.blocked(List.of(one, two, one)));
-        verify(dynamics).selectBatchIds(List.of(1L, 2L)); verify(audios).selectBatchIds(List.of(20L));
+        verify(audios).selectBatchIds(List.of(20L));
         assertEquals(2, metrics.counter("audio.cascade.notification.failed").count());
     }
 
     @Test void privateAndSoftDeletedAudioDoNotInvalidateHistoricalReferences() {
-        when(dynamics.selectBatchIds(List.of(1L))).thenReturn(List.of(new Dynamic().setId(1L).setAudioId(20L)));
         when(audios.selectBatchIds(List.of(20L))).thenReturn(List.of(new Audio().setId(20L).setIsDelete(1).setVisibility("private").setReviewStatus(AudioReviewStatus.APPROVED)));
-        assertTrue(access.blocked(List.of(new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC))).isEmpty());
+        assertTrue(access.blocked(List.of(new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setAudioId(20L))).isEmpty());
         verifyNoInteractions(mq);
     }
 
-    @Test void videoReadsDoNotQueryTheAudioLibrary() {
+    @Test void contentsWithoutAudioReferencesDoNotQueryTheAudioLibrary() {
         assertTrue(access.blocked(List.of(new Content().setId(1L).setType(ContentTypeEnum.VIDEO))).isEmpty());
-        verifyNoInteractions(dynamics, audios, mq);
+        verifyNoInteractions(audios, mq);
     }
 
     @Test void alreadyBannedManagementRecordsDoNotRepeatTheCascadeNotification() {
-        assertTrue(access.blocked(List.of(new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setStatus(ContentStatusEnum.BANNED))).isEmpty());
-        verifyNoInteractions(dynamics, audios, mq);
+        assertTrue(access.blocked(List.of(new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setAudioId(20L).setStatus(ContentStatusEnum.BANNED))).isEmpty());
+        verifyNoInteractions(audios, mq);
     }
 }

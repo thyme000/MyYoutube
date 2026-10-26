@@ -17,6 +17,7 @@ public class Content implements Serializable {
     private Long id;
     private ContentTypeEnum type;
     private Long authorId;
+    private Long audioId;
     private String title;
     private String description;
     private String coverObjectKey;

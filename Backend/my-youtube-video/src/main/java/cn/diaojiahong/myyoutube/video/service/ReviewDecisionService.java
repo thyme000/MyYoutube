@@ -17,7 +17,6 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
-import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewState;
@@ -44,7 +43,6 @@ public class ReviewDecisionService {
     private final ContentObservation observation;
     private final cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings frameSettings;
     private final AudioContentAccess audioAccess;
-    private final DynamicMapper dynamics;
     private final AudioMapper audios;
 
     @Transactional
@@ -200,13 +198,12 @@ public class ReviewDecisionService {
 
     @Transactional
     public boolean banByAudio(AudioContentBanMessage message) {
-        var row = lock(message.contentId());
-        var content = contents.getBaseMapper().selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, message.contentId()).last("FOR UPDATE"));
-        if (content == null || content.getType() != ContentTypeEnum.DYNAMIC || !Integer.valueOf(0).equals(content.getIsDelete())
+        ContentUnderstanding row = lock(message.contentId());
+        Content content = contents.getBaseMapper().selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, message.contentId()).last("FOR UPDATE"));
+        if (content == null || !Integer.valueOf(0).equals(content.getIsDelete())
                 || (content.getStatus() != ContentStatusEnum.PUBLISHED && content.getStatus() != ContentStatusEnum.REVIEW)) return false;
-        var reference = dynamics.selectById(content.getId());
-        if (reference == null || !message.audioId().equals(reference.getAudioId())) return false;
-        var audio = audios.selectOne(new LambdaQueryWrapper<Audio>().eq(Audio::getId, message.audioId()).last("FOR UPDATE"));
+        if (!message.audioId().equals(content.getAudioId())) return false;
+        Audio audio = audios.selectOne(new LambdaQueryWrapper<Audio>().eq(Audio::getId, message.audioId()).last("FOR UPDATE"));
         if (audio == null || audio.getReviewStatus() != AudioReviewStatus.BANNED
                 || audio.getIndexVersion() < message.audioVersion()) return false;
         String reason = "关联音频已被封禁，audioId=" + audio.getId();

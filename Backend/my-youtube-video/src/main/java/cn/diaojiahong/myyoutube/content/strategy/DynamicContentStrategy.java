@@ -22,13 +22,17 @@ public class DynamicContentStrategy implements ContentTypeStrategy {
     }
 
     @Override public void validateSubmission(ContentMedia media, Long authorId) {
-        var audio = media.dynamic().audio();
+        DynamicMedia.Audio audio = media.dynamic().audio();
         if (audio != null) audios.lockReferenceable(audio.id(), authorId);
     }
 
+    @Override public Long audioId(ContentMedia media) {
+        DynamicMedia.Audio audio = media.dynamic().audio();
+        return audio == null ? null : audio.id();
+    }
+
     @Override public void persist(Long id, ContentMedia media) {
-        var audio = media.dynamic().audio();
-        dynamics.insert(new Dynamic().setId(id).setAudioId(audio == null ? null : audio.id()).setMediaJson(JsonUtil.toJson(media.dynamic())));
+        dynamics.insert(new Dynamic().setId(id).setMediaJson(JsonUtil.toJson(media.dynamic())));
     }
     @Override public Map<Long, ContentMedia> loadMedia(Collection<Long> ids) {
         if (ids.isEmpty()) return Map.of();

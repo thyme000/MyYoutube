@@ -10,6 +10,5 @@ import lombok.experimental.Accessors;
 public class Dynamic {
     @TableId(type = IdType.INPUT)
     private Long id;
-    private Long audioId;
     private String mediaJson;
 }

@@ -83,7 +83,7 @@ class ContentListsIntegrationTest {
     @BeforeEach void setup() {
         reset(audioAccess, reviewRecords);
         UserContext.setUser("7"); jdbc = new JdbcTemplate(ds); jdbc.execute("DROP ALL OBJECTS");
-        jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
+        jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,audio_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE content_collect(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,create_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE content_like(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,is_liked INT,create_time TIMESTAMP,update_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE user_view_history(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,view_time TIMESTAMP)");

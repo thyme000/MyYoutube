@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS `content` (
     `id`            BIGINT      NOT NULL COMMENT '雪花ID, 与领域表主键相同',
     `type`          VARCHAR(16) NOT NULL COMMENT 'video/dynamic',
     `author_id`     BIGINT      NOT NULL COMMENT '作者ID',
+    `audio_id`      BIGINT DEFAULT NULL COMMENT '内容使用的库内音频，跨内容类型统一关联',
     `title` VARCHAR(100) NOT NULL,
     `description` VARCHAR(512),
     `cover_object_key` VARCHAR(512),
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS `content` (
     `update_time`   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_author_create` (`author_id`, `create_time`),
+    KEY `idx_content_audio` (`audio_id`, `create_time`, `id`),
     KEY `idx_type_create` (`type`, `create_time`)
 ) ENGINE=InnoDB COMMENT='统一内容池';
 
@@ -348,9 +350,7 @@ CREATE TABLE IF NOT EXISTS `audio_review_record` (
 -- 图集配乐动态(主体表; 时间轴/焦点等嵌套结构存 JSON 列)
 CREATE TABLE IF NOT EXISTS `dynamic` (
     `id` BIGINT NOT NULL PRIMARY KEY COMMENT '与 content 相同',
-    `audio_id` BIGINT DEFAULT NULL COMMENT '正式提交使用的音频，治理关联不依赖 JSON 解析',
-    `media_json` JSON NOT NULL COMMENT '有序图片、画布、转场和可选原始音频快照，无签名URL',
-    KEY `idx_dynamic_audio` (`audio_id`, `id`)
+    `media_json` JSON NOT NULL COMMENT '有序图片、画布、转场和可选原始音频快照，无签名URL'
 ) ENGINE=InnoDB COMMENT='原生图集媒体';
 
 -- 可靠管线事件与业务状态同库、同事务记录。

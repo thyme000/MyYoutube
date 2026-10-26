@@ -1,20 +1,23 @@
 package cn.diaojiahong.myyoutube.video.service;
 
 import cn.diaojiahong.myyoutube.video.config.AudioCascadeProperties;
-import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
+import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RedissonClient;
+import org.redisson.api.RLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
+import java.util.List;
 
 @Service
 @Slf4j
 public class AudioContentBanRecovery {
-    private final DynamicMapper dynamics;
+    private final ContentMapper contents;
     private final ReviewDecisionService decisions;
     private final AudioCascadeProperties properties;
     private final RedissonClient redisson;
@@ -24,25 +27,25 @@ public class AudioContentBanRecovery {
     private long cursor;
 
     @Autowired
-    public AudioContentBanRecovery(DynamicMapper dynamics, ReviewDecisionService decisions,
+    public AudioContentBanRecovery(ContentMapper contents, ReviewDecisionService decisions,
             AudioCascadeProperties properties, RedissonClient redisson, MeterRegistry metrics) {
-        this(dynamics, decisions, properties, redisson, metrics, System::nanoTime);
+        this(contents, decisions, properties, redisson, metrics, System::nanoTime);
     }
-    AudioContentBanRecovery(DynamicMapper dynamics, ReviewDecisionService decisions,
+    AudioContentBanRecovery(ContentMapper contents, ReviewDecisionService decisions,
             AudioCascadeProperties properties, RedissonClient redisson, MeterRegistry metrics, LongSupplier ticker) {
-        this.dynamics = dynamics; this.decisions = decisions; this.properties = properties;
+        this.contents = contents; this.decisions = decisions; this.properties = properties;
         this.redisson = redisson; this.metrics = metrics; this.ticker = ticker;
     }
 
     @Scheduled(fixedDelayString = "#{@audioCascadeProperties.scanIntervalMs}", initialDelayString = "#{@audioCascadeProperties.scanIntervalMs}")
     public void recover() {
-        var lock = redisson.getLock("content:audio-ban-recovery");
+        RLock lock = redisson.getLock("content:audio-ban-recovery");
         if (!lock.tryLock()) return;
         try {
             long deadline = ticker.getAsLong() + TimeUnit.MILLISECONDS.toNanos(properties.getRoundBudgetMs());
-            var page = dynamics.pendingAudioBans(cursor, properties.getBatchSize());
+            List<AudioContentBanMessage> page = contents.pendingAudioBans(cursor, properties.getBatchSize());
             if (page.isEmpty()) { cursor = 0; return; }
-            for (var message : page) {
+            for (AudioContentBanMessage message : page) {
                 if (ticker.getAsLong() - deadline >= 0) return;
                 try { decisions.banByAudio(message); }
                 catch (Exception error) { failed(message.contentId(), "record", error); }

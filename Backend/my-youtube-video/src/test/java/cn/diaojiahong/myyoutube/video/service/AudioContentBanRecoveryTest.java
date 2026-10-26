@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.video.service;
 
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import cn.diaojiahong.myyoutube.video.config.AudioCascadeProperties;
-import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
+import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RLock;
@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class AudioContentBanRecoveryTest {
-    final DynamicMapper rows = mock(DynamicMapper.class);
+    final ContentMapper rows = mock(ContentMapper.class);
     final ReviewDecisionService decisions = mock(ReviewDecisionService.class);
     final RedissonClient redisson = mock(RedissonClient.class);
     final RLock lock = mock(RLock.class);

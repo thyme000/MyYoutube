@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.content.mapper.ContentMapper">
+    <select id="pendingAudioBans" resultType="cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage" timeout="5">
+        <bind name="banned" value="@cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus@BANNED.code"/>
+        <bind name="published" value="@cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum@PUBLISHED.code"/>
+        <bind name="review" value="@cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum@REVIEW.code"/>
+        SELECT c.id AS contentId, a.id AS audioId, a.index_version AS audioVersion
+        FROM content c JOIN audio a ON a.id = c.audio_id
+        WHERE c.id &gt; #{afterId} AND a.review_status = #{banned}
+          AND c.is_delete = 0 AND c.status IN (#{review}, #{published})
+        ORDER BY c.id LIMIT #{limit}
+    </select>
+</mapper>

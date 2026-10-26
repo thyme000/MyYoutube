@@ -10,6 +10,11 @@ import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentVisibilityEnum;
+import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategy;
+import cn.diaojiahong.myyoutube.common.media.ContentMedia;
+import cn.diaojiahong.myyoutube.video.domain.po.MediaDraft;
+import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.DraftSubmissionState;
 import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
@@ -36,7 +41,7 @@ public class ContentSubmissionService {
     @ObservedBusiness(BusinessOperation.SUBMIT_CONTENT)
     public Receipt submitRequested(Long draftId, Long userId, Integer revision, LocalDateTime lease) {
         if (revision == null || lease == null) throw new BizException(ErrorCode.STATE_CONFLICT, "缺少发布版本或认领租约");
-        var draft = drafts.getById(draftId);
+        MediaDraft draft = drafts.getById(draftId);
         if (draft == null || !userId.equals(draft.getUserId())) throw new BizException(ErrorCode.NOT_FOUND, "草稿不存在");
         if (draft.getStatus() == MediaDraftStatusEnum.SUBMITTED) {
             log.debug("Content submit reused existing registration draftId={}", draftId);
@@ -52,25 +57,26 @@ public class ContentSubmissionService {
         var content = new Content().setId(draftId).setType(draft.getType()).setAuthorId(userId)
                 .setTitle(rules.title(draft.getTitle()))
                 .setDescription(rules.description(draft.getDescription()))
-                .setVisibility("public")
+                .setVisibility(ContentVisibilityEnum.PUBLIC.getCode())
                 .setAllowComment(rules.allowComment(draft.getAllowComment()))
                 .setCoverObjectKey(draft.getPreparedCoverObjectKey()).setStatus(ContentStatusEnum.REVIEW).setIsDelete(0).setCreateTime(BusinessTime.now());
-        var strategy = strategies.get(draft.getType());
+        ContentTypeStrategy strategy = strategies.get(draft.getType());
         if (strategy == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "不支持的内容类型");
-        var media = strategy.prepare(draft);
+        ContentMedia media = strategy.prepare(draft);
+        content.setAudioId(strategy.audioId(media));
         try {
             Receipt receipt = transaction.execute(tx -> {
                 strategy.validateSubmission(media, userId);
                 if (!drafts.submit(draft, media.durationMs())) throw new BizException(ErrorCode.STATE_CONFLICT, "发布状态已变化，本次提交未生效");
                 contents.insert(content);
                 strategy.persist(draftId, media);
-                return new Receipt(draftId, understanding.enroll(content, media), "submitted");
+                return new Receipt(draftId, understanding.enroll(content, media), MediaDraftStatusEnum.SUBMITTED.getCode());
             });
             log.info("Content submit accepted draftId={} contentId={} pipelineId={} userId={} media={} durationMs={}",
                     draftId, receipt.contentId(), receipt.pipelineId(), userId, draft.getType(), media.durationMs());
             return receipt;
         } catch (BizException e) {
-            var current = drafts.getById(draftId);
+            MediaDraft current = drafts.getById(draftId);
             if (current != null && current.getStatus() == MediaDraftStatusEnum.SUBMITTED) {
                 log.debug("Content submit resolved as already submitted draftId={}", draftId);
                 return receipt(draftId);
@@ -80,8 +86,8 @@ public class ContentSubmissionService {
     }
 
     public Receipt receipt(Long id) {
-        var row = understanding.get(id);
+        ContentUnderstanding row = understanding.get(id);
         if (row == null) throw new IllegalStateException("已提交草稿缺少加工登记");
-        return new Receipt(id, row.getPipelineId(), "submitted");
+        return new Receipt(id, row.getPipelineId(), MediaDraftStatusEnum.SUBMITTED.getCode());
     }
 }
