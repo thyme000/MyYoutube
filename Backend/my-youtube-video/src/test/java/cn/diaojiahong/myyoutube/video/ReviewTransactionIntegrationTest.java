@@ -214,6 +214,39 @@ class ReviewTransactionIntegrationTest {
         assertEquals(1, count("content_review_record")); assertEquals(1, count("content_publication_event"));
     }
 
+    @Test void differentContentsUsingTheSameAudioDoNotWaitForEachOther() throws Exception {
+        dynamicAudio(AudioReviewStatus.BANNED); state(ContentReviewState.APPROVED);
+        jdbc.update("UPDATE content SET status='published' WHERE id=1");
+        jdbc.update("INSERT INTO content(id,type,author_id,audio_id,title,status,visibility,is_delete) VALUES(2,'dynamic',9,20,'另一条作品','published','public',0)");
+        understanding.insert(new ContentUnderstanding().setContentId(2L).setPipelineId(101L)
+                .setState(ContentReviewState.APPROVED).setReviewAttempt(1).setReceived(true)
+                .setInputJson(JsonUtil.toJson(input())).setSubmissionAck(true).setRetryRequested(false)
+                .setSubmittedAt(LocalDateTime.now(ZoneOffset.UTC)));
+        var firstProcessed = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        CompletableFuture<Boolean> first = CompletableFuture.supplyAsync(() -> tx.execute(status -> {
+            boolean changed = decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 3));
+            firstProcessed.countDown();
+            try { assertTrue(releaseFirst.await(10, TimeUnit.SECONDS)); }
+            catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AssertionError(error); }
+            return changed;
+        }));
+        CompletableFuture<Boolean> second = null;
+        try {
+            assertTrue(firstProcessed.await(5, TimeUnit.SECONDS));
+            second = CompletableFuture.supplyAsync(() -> decisions.banByAudio(new AudioContentBanMessage(2L, 20L, 3)));
+            assertTrue(second.get(5, TimeUnit.SECONDS));
+        } finally {
+            releaseFirst.countDown();
+            assertTrue(first.get(5, TimeUnit.SECONDS));
+            if (second != null) second.get(5, TimeUnit.SECONDS);
+        }
+        assertEquals(ContentStatusEnum.BANNED, contents.getById(1L).getStatus());
+        assertEquals(ContentStatusEnum.BANNED, contents.getById(2L).getStatus());
+        assertEquals(2, count("content_review_record")); assertEquals(2, count("content_publication_event"));
+        assertEquals(-2, jdbc.queryForObject("SELECT SUM(delta) FROM content_publication_event", Integer.class));
+    }
+
     @Test void audioBanGovernanceAlsoWorksForANonDynamicContentReference() throws Exception {
         dynamicAudio(AudioReviewStatus.BANNED); state(ContentReviewState.APPROVED);
         jdbc.update("UPDATE content SET type='video',status='published' WHERE id=1");

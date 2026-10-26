@@ -203,11 +203,12 @@ public class ReviewDecisionService {
         if (content == null || !Integer.valueOf(0).equals(content.getIsDelete())
                 || (content.getStatus() != ContentStatusEnum.PUBLISHED && content.getStatus() != ContentStatusEnum.REVIEW)) return false;
         if (!message.audioId().equals(content.getAudioId())) return false;
-        Audio audio = audios.selectOne(new LambdaQueryWrapper<Audio>().eq(Audio::getId, message.audioId()).last("FOR UPDATE"));
+        // 当前封禁为终态，读取结论即可，避免不同作品竞争同一音频的排他锁。
+        Audio audio = audios.selectById(message.audioId());
         if (audio == null || audio.getReviewStatus() != AudioReviewStatus.BANNED
                 || audio.getIndexVersion() < message.audioVersion()) return false;
         String reason = "关联音频已被封禁，audioId=" + audio.getId();
-        if (!transition(content.getId(), ContentStatusEnum.BANNED, reason, content.getStatus() == ContentStatusEnum.PUBLISHED)) return false;
+        if (!transitionLocked(content, ContentStatusEnum.BANNED, reason, content.getStatus() == ContentStatusEnum.PUBLISHED)) return false;
         records.insert(new ContentReviewRecord().setContentId(content.getId()).setPipelineId(row == null ? null : row.getPipelineId())
                 .setAttempt(0).setSource("AUDIO").setDecision("BAN").setReason(reason)
                 .setEvidenceJson(JsonUtil.toJson(message)).setCreateTime(LocalDateTime.now()));
@@ -235,9 +236,14 @@ public class ReviewDecisionService {
     }
 
     private boolean transition(Long id, ContentStatusEnum target, String reason, boolean publishedBan) {
-        var content = contents.getBaseMapper().selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, id).last("FOR UPDATE"));
+        Content content = contents.getBaseMapper().selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, id).last("FOR UPDATE"));
+        return transitionLocked(content, target, reason, publishedBan);
+    }
+
+    private boolean transitionLocked(Content content, ContentStatusEnum target, String reason, boolean publishedBan) {
         ContentStatusEnum expected = publishedBan ? ContentStatusEnum.PUBLISHED : ContentStatusEnum.REVIEW;
         if (content == null || Integer.valueOf(1).equals(content.getIsDelete()) || content.getStatus() != expected) return false;
+        Long id = content.getId();
         if (target == ContentStatusEnum.PUBLISHED && audioAccess.bannedForPublication(content)) return false;
         if (!contents.lambdaUpdate().eq(Content::getId, id).eq(Content::getStatus, expected)
                 .setSql("index_version = index_version + 1")
