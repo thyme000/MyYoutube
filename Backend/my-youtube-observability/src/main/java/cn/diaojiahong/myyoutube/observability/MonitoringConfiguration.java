@@ -35,6 +35,7 @@ public class MonitoringConfiguration {
                 Map.entry("transcode_media_upload_event_group", TOPIC_MEDIA_UPLOAD_EVENT),
                 Map.entry("video_content_understood", TOPIC_CONTENT_UNDERSTOOD),
                 Map.entry("video_review_result", TOPIC_REVIEW_RESULT),
+                Map.entry("video_audio_content_ban", TOPIC_AUDIO_CONTENT_BAN),
                 Map.entry("video_publication_count", TOPIC_PUBLICATION_EFFECT),
                 Map.entry("video_publication_search", TOPIC_PUBLICATION_EFFECT),
                 Map.entry("video_publication_notice", TOPIC_PUBLICATION_EFFECT));
