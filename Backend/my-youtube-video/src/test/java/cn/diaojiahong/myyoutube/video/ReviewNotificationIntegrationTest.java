@@ -8,6 +8,7 @@ import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.notification.mapper.UserNotificationMapper;
 import cn.diaojiahong.myyoutube.notification.service.impl.UserNotificationServiceImpl;
+import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
@@ -77,5 +78,13 @@ class ReviewNotificationIntegrationTest {
         var list = service.getNotificationList(new PageQuery()).getList();
         assertTrue(list.stream().anyMatch(n -> "原有系统提醒".equals(n.getContent())));
         assertTrue(list.stream().anyMatch(n -> "原有回复正文".equals(n.getContent())));
+    }
+    @Test void audioBanNotificationUsesFixedFeedbackEvenIfStoredTextContainsInternalDetails() {
+        String internal = "关联音频已被封禁，audioId=20，内部人工核验记录";
+        notice("SYSTEM_NOTICE", ReviewFeedback.AUDIO_BANNED_TITLE, internal, "CONTENT");
+        var result = service.getNotificationList(new PageQuery()).getList().get(0);
+        assertEquals(ReviewFeedback.audioBannedMessage(), result.getContent());
+        assertNull(result.getContentId());
+        assertEquals(internal, jdbc.queryForObject("SELECT content FROM user_notification", String.class));
     }
 }

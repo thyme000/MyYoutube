@@ -15,6 +15,15 @@ import cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus;
 import cn.diaojiahong.myyoutube.video.domain.enums.AudioProcessingStatus;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
 import cn.diaojiahong.myyoutube.content.service.AfterCommitNotifications;
+import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
+import cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage;
+import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
+import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
+import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
+import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
+import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import org.redisson.api.RedissonClient;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.CountDownLatch;
@@ -28,6 +37,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentServiceImpl;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewState;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
+import cn.diaojiahong.myyoutube.video.domain.po.ContentReviewRecord;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.video.service.*;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
@@ -127,6 +137,7 @@ class ReviewTransactionIntegrationTest {
     @Autowired AudioContentAccess audioAccess;
     @Autowired AudioMapper audios;
     @Autowired DynamicMapper dynamics;
+    @Autowired ContentReviewRecordMapper reviewRecords;
     @Autowired IContentService contents;
     @Autowired ContentMapper contentRows;
     @Autowired PublicationEffectsService effects;
@@ -474,14 +485,80 @@ class ReviewTransactionIntegrationTest {
         var events = new org.mybatis.spring.SqlSessionTemplate(contextFactory()).getMapper(ContentPublicationEventMapper.class);
         var effects = new PublicationEffectsService(events, mock(cn.diaojiahong.myyoutube.user.api.UserPort.class),
                 mock(cn.diaojiahong.myyoutube.search.api.ContentDocPort.class), mock(cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher.class),
-                notifications, mock(cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher.class), tx, mock(org.redisson.api.RedissonClient.class), mq);
+                notifications, mock(cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher.class), tx, mock(org.redisson.api.RedissonClient.class), mq, reviewRecords);
         Long eventId = jdbc.queryForObject("SELECT id FROM content_publication_event", Long.class);
         effects.apply(new cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage(eventId, "NOTICE"));
         verify(notifications).save(argThat(n -> ("PASS".equals(decision)
-                ? "您的内容已通过审核。" : "您的内容未通过审核，已限制展示。").equals(n.getContent())));
+                ? "您的内容已通过审核。" : "您的内容未通过审核，已限制展示。").equals(n.getContent())
+                && ("PASS".equals(decision) ? "内容审核通过" : "内容审核未通过").equals(n.getTitle())));
         assertEquals(internal, jdbc.queryForObject("SELECT reason FROM content_review_record", String.class));
         assertEquals(internal, jdbc.queryForObject("SELECT reason FROM content_publication_event", String.class));
         assertEquals(2L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void audioBanNoticeExplainsTheCauseAndRetriesWithoutDuplicateSuccessfulDelivery(boolean published) throws Exception {
+        dynamicAudio(AudioReviewStatus.BANNED);
+        state(published ? ContentReviewState.APPROVED : ContentReviewState.AUTO_RUNNING);
+        if (published) jdbc.update("UPDATE content SET status='published' WHERE id=1");
+        assertTrue(decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 3)));
+        assertEquals(Set.of(1L), reviewRecords.audioBannedContentIds(List.of(1L, 2L)));
+        var notifications = mock(IUserNotificationService.class);
+        when(notifications.save(any())).thenReturn(false, true);
+        var push = mock(PushFanoutPublisher.class);
+        var events = new org.mybatis.spring.SqlSessionTemplate(contextFactory()).getMapper(ContentPublicationEventMapper.class);
+        var service = new PublicationEffectsService(events, mock(UserPort.class), mock(ContentDocPort.class), mock(EsSyncPublisher.class),
+                notifications, push, tx, mock(RedissonClient.class), mq, reviewRecords);
+        var message = new PublicationEffectMessage(jdbc.queryForObject("SELECT id FROM content_publication_event", Long.class), "NOTICE");
+        assertThrows(IllegalStateException.class, () -> service.apply(message));
+        assertEquals(0, jdbc.queryForObject("SELECT notice_done FROM content_publication_event", Integer.class));
+        service.apply(message); service.apply(message);
+        var saved = ArgumentCaptor.forClass(UserNotification.class);
+        verify(notifications, times(2)).save(saved.capture());
+        for (var notice : saved.getAllValues()) {
+            assertEquals(ReviewFeedback.AUDIO_BANNED_TITLE, notice.getTitle());
+            assertEquals(ReviewFeedback.audioBannedMessage(), notice.getContent());
+            assertEquals(9L, notice.getReceiverId()); assertEquals(1L, notice.getRefId());
+            assertFalse(notice.getContent().contains("audioId"));
+        }
+        assertEquals(1, jdbc.queryForObject("SELECT notice_done FROM content_publication_event", Integer.class));
+        verify(push).pushSseSignal(eq(9L), anyString());
+        assertTrue(jdbc.queryForObject("SELECT reason FROM content_review_record", String.class).contains("audioId=20"));
+    }
+
+    @Test void audioBanCauseUsesLatestReviewTimeAndIdWithinTheRequestedBatch() {
+        String sql = "INSERT INTO content_review_record(id,content_id,attempt,source,decision,reason,create_time) VALUES(?,?,0,?,?,?,?)";
+        String earlier = "2026-10-26 10:00:00", later = "2026-10-26 10:01:00";
+        jdbc.update(sql, 101L, 1L, "AUDIO", "BAN", "旧音频封禁", earlier);
+        jdbc.update(sql, 100L, 1L, "MANUAL", "PASS", "后续通过", later);
+        jdbc.update(sql, 201L, 2L, "AUDIO", "BAN", "唯一结论", later);
+        jdbc.update(sql, 301L, 3L, "MANUAL", "BAN", "旧人工封禁", earlier);
+        jdbc.update(sql, 300L, 3L, "AUDIO", "BAN", "后续音频封禁", later);
+        jdbc.update(sql, 400L, 4L, "AUDIO", "BAN", "旧音频封禁", earlier);
+        jdbc.update(sql, 401L, 4L, "MANUAL", "BAN", "同秒后续人工封禁", earlier);
+        jdbc.update(sql, 500L, 5L, "MANUAL", "BAN", "旧人工封禁", earlier);
+        jdbc.update(sql, 501L, 5L, "AUDIO", "BAN", "同秒后续音频封禁", earlier);
+        assertEquals(Set.of(2L, 3L, 5L), reviewRecords.audioBannedContentIds(List.of(1L, 2L, 3L, 4L, 5L, 6L)));
+        assertEquals(Set.of(2L), reviewRecords.audioBannedContentIds(List.of(2L)));
+        assertTrue(reviewRecords.audioBannedContentIds(List.of()).isEmpty());
+    }
+
+    @Test void laterManualBanReplacesHistoricalAudioCauseForDelayedNotice() throws Exception {
+        dynamicAudio(AudioReviewStatus.BANNED); state(ContentReviewState.APPROVED);
+        jdbc.update("UPDATE content SET status='published' WHERE id=1");
+        assertTrue(decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 3)));
+        var previous = reviewRecords.selectList(null).get(0);
+        reviewRecords.insert(new ContentReviewRecord().setContentId(1L).setAttempt(0).setSource("MANUAL").setDecision("BAN")
+                .setReason("后续人工决定的内部备注").setCreateTime(previous.getCreateTime().plusSeconds(1)));
+        var notifications = mock(IUserNotificationService.class);
+        when(notifications.save(any())).thenReturn(true);
+        var events = new org.mybatis.spring.SqlSessionTemplate(contextFactory()).getMapper(ContentPublicationEventMapper.class);
+        var service = new PublicationEffectsService(events, mock(UserPort.class), mock(ContentDocPort.class), mock(EsSyncPublisher.class),
+                notifications, mock(PushFanoutPublisher.class), tx, mock(RedissonClient.class), mq, reviewRecords);
+        var message = new PublicationEffectMessage(jdbc.queryForObject("SELECT id FROM content_publication_event", Long.class), "NOTICE");
+        service.apply(message);
+        verify(notifications).save(argThat(n -> "内容审核未通过".equals(n.getTitle())
+                && "您的内容未通过审核，已限制展示。".equals(n.getContent())));
     }
 
     @Test void publicationBranchesProgressDespiteCountFailureAndNoticeIsExactlyOnce() {
@@ -499,7 +576,7 @@ class ReviewTransactionIntegrationTest {
         doThrow(new IllegalStateException("SSE down")).when(push).pushSseSignal(anyLong(),anyString());
         doThrow(new IllegalStateException("user down")).when(users).applyContentCountEvent(any());
         var service=new PublicationEffectsService(new org.mybatis.spring.SqlSessionTemplate(
-                contextFactory()).getMapper(ContentPublicationEventMapper.class),users,search,es,notifications,push,tx,redis,mq);
+                contextFactory()).getMapper(ContentPublicationEventMapper.class),users,search,es,notifications,push,tx,redis,mq,reviewRecords);
         assertThrows(IllegalStateException.class,()->service.apply(new cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage(50L,"COUNT")));
         doThrow(new IllegalStateException("vector task delivery failed")).doNothing().when(search).rebuildContent(1L);
         assertThrows(IllegalStateException.class, () -> service.apply(new cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage(50L,"SEARCH")));

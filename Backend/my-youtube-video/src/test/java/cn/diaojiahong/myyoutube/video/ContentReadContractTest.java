@@ -14,6 +14,7 @@ import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
+import cn.diaojiahong.myyoutube.video.mapper.ContentReviewRecordMapper;
 import cn.diaojiahong.myyoutube.transcode.api.TranscodePort;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
 import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
@@ -62,7 +63,7 @@ class ContentReadContractTest {
         when(storage.signGetUrl(anyString(),anyLong())).thenAnswer(call -> "signed/"+call.getArgument(0));
         var audios = mock(AudioContentAccess.class);
         var cards=new ContentFeedServiceImpl(mock(IContentService.class),mock(ContentLikeMapper.class),
-                mock(IUserFollowService.class),mock(UserPort.class),storage,mock(RecommendPort.class),registry,audios);
+                mock(IUserFollowService.class),mock(UserPort.class),storage,mock(RecommendPort.class),registry,audios,mock(ContentReviewRecordMapper.class));
         var service=new ContentReadService(new ContentAccessService(contents,audios),registry,cards,understanding,storage);
         var detail=service.detail(1L,9L);
         assertEquals("1",detail.getId());assertEquals("dynamic",detail.getType());assertEquals("动态图集简介",detail.getDescription());

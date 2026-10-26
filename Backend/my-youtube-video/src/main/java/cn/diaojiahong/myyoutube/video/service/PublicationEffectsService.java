@@ -14,6 +14,7 @@ import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.ContentCountEvent;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentPublicationEvent;
 import cn.diaojiahong.myyoutube.video.mapper.ContentPublicationEventMapper;
+import cn.diaojiahong.myyoutube.video.mapper.ContentReviewRecordMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ public class PublicationEffectsService {
     private final TransactionTemplate transaction;
     private final RedissonClient redisson;
     private final RocketMQTemplate mq;
+    private final ContentReviewRecordMapper reviewRecords;
 
     public void trigger(Long eventId) {
         for (String branch : List.of("COUNT", "SEARCH", "NOTICE")) {
@@ -117,9 +119,11 @@ public class PublicationEffectsService {
         boolean inserted = Boolean.TRUE.equals(transaction.execute(tx -> {
             var locked = events.selectOne(new LambdaQueryWrapper<ContentPublicationEvent>().eq(ContentPublicationEvent::getId, event.getId()).last("FOR UPDATE"));
             if (Boolean.TRUE.equals(locked.getNoticeDone())) return false;
+            boolean approved = "published".equals(event.getStatus());
+            boolean audioBanned = !approved && reviewRecords.audioBannedContentIds(List.of(event.getContentId())).contains(event.getContentId());
+            var feedback = ReviewFeedback.reviewNotice(approved, audioBanned);
             boolean saved = notifications.save(new UserNotification().setReceiverId(event.getAuthorId()).setType("SYSTEM_NOTICE").setRefType("CONTENT")
-                    .setRefId(event.getContentId()).setTitle("published".equals(event.getStatus()) ? "内容审核通过" : "内容审核未通过")
-                    .setContent(ReviewFeedback.message("内容", "published".equals(event.getStatus()))).setIsRead(0));
+                    .setRefId(event.getContentId()).setTitle(feedback.title()).setContent(feedback.content()).setIsRead(0));
             if (!saved) throw new IllegalStateException("审核通知落库失败");
             events.update(null, update(event).set(ContentPublicationEvent::getNoticeDone, true));
             return true;

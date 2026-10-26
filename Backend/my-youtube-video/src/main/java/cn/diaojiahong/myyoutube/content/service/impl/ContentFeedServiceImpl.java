@@ -16,6 +16,8 @@ import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentSortEnum;
+import cn.diaojiahong.myyoutube.video.mapper.ContentReviewRecordMapper;
+import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     private final RecommendPort recommendations;
     private final ContentTypeStrategyRegistry strategies;
     private final AudioContentAccess audioAccess;
+    private final ContentReviewRecordMapper reviewRecords;
 
     @Override public PageResult<ContentFeedVO> feed(Long userId, ContentPageQuery query) {
         return recommended(userId, null, query.mediaType(), query);
@@ -81,8 +84,14 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         return PageResult.of(total, (total + query.getPageSize() - 1) / query.getPageSize(), assembleList(viewer, rows, false));
     }
     private List<ContentFeedVO> assembleList(Long viewer, List<Content> candidates, boolean management) {
-        var blocked = audioAccess.blocked(candidates);
+        var blocked = new HashSet<>(audioAccess.blocked(candidates));
         var rows = management ? candidates : candidates.stream().filter(c -> !blocked.contains(c.getId())).toList();
+        if (management) {
+            var bannedIds = rows.stream().filter(c -> "banned".equals(c.getStatus())).map(Content::getId).toList();
+            if (!bannedIds.isEmpty()) {
+                blocked.addAll(reviewRecords.audioBannedContentIds(bannedIds));
+            }
+        }
         return assembleCards(viewer, rows, blocked);
     }
     /** 调用方已完成访问检查；blocked 只用于管理页保留受限记录，不授予媒体访问权限。 */
@@ -107,7 +116,11 @@ public class ContentFeedServiceImpl implements IContentFeedService {
             var vo = BeanUtil.copyProperties(ContentCards.summary(row, media.get(row.getId())), ContentFeedVO.class);
             vo.setAuthorNickname(names.get(row.getAuthorId()));
             vo.setAuthorAvatarUrl(storage.signGetUrl(avatars.get(row.getAuthorId()), SIGN_SECONDS));
-            if (blocked.contains(row.getId())) vo.setStatus("banned");
+            boolean audioRestricted = blocked.contains(row.getId());
+            if (audioRestricted) vo.setStatus("banned");
+            if ("banned".equals(vo.getStatus())) {
+                vo.setRestrictionReason(audioRestricted ? ReviewFeedback.audioBannedMessage() : ReviewFeedback.message("内容", false));
+            }
             boolean signMedia = !"banned".equals(vo.getStatus());
             vo.setCoverUrl(signMedia ? storage.signGetUrl(vo.getCoverUrl(), SIGN_SECONDS) : null);
             vo.setVideoUrl(signMedia ? storage.signGetUrl(vo.getVideoUrl(), SIGN_SECONDS) : null);

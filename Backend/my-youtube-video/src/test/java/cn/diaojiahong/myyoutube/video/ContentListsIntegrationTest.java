@@ -25,6 +25,8 @@ import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort.SummaryQuery;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.controller.InternalVideoController;
 import cn.diaojiahong.myyoutube.video.port.ContentSummaryPortImpl;
+import cn.diaojiahong.myyoutube.video.mapper.ContentReviewRecordMapper;
+import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
@@ -76,9 +78,10 @@ class ContentListsIntegrationTest {
     ContentSummaryPortImpl summaries;
     ContentFeedServiceImpl feeds;
     final AudioContentAccess audioAccess = mock(AudioContentAccess.class);
+    final ContentReviewRecordMapper reviewRecords = mock(ContentReviewRecordMapper.class);
 
     @BeforeEach void setup() {
-        reset(audioAccess);
+        reset(audioAccess, reviewRecords);
         UserContext.setUser("7"); jdbc = new JdbcTemplate(ds); jdbc.execute("DROP ALL OBJECTS");
         jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE content_collect(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,create_time TIMESTAMP)");
@@ -105,7 +108,7 @@ class ContentListsIntegrationTest {
         }).toList());
         summaries = new ContentSummaryPortImpl(contents,registry,audioAccess);
         feeds = new ContentFeedServiceImpl(contentService,likes,mock(IUserFollowService.class),mock(UserPort.class),
-                mock(S3StorageUtil.class),mock(RecommendPort.class),registry,audioAccess);
+                mock(S3StorageUtil.class),mock(RecommendPort.class),registry,audioAccess,reviewRecords);
     }
 
     @AfterEach void clear() { UserContext.removeUser(); }
@@ -120,7 +123,22 @@ class ContentListsIntegrationTest {
         assertEquals(3, mine.size());
         for (var card : mine) if (Set.of("2", "3").contains(card.getId())) {
             assertEquals("banned", card.getStatus()); assertNull(card.getCoverUrl()); assertNull(card.getVideoUrl());
+            assertEquals(ReviewFeedback.audioBannedMessage(), card.getRestrictionReason());
         }
+        verifyNoInteractions(reviewRecords);
+    }
+
+    @Test void storedAudioBanKeepsTheSameOwnerExplanationWhileManualBansStayGeneric() {
+        jdbc.update("UPDATE content SET status='banned' WHERE id=2");
+        when(reviewRecords.audioBannedContentIds(anyCollection())).thenReturn(Set.of(2L));
+        var mine = feeds.mine(7L, new ContentPageQuery()).getList();
+        var audio = mine.stream().filter(c -> "2".equals(c.getId())).findFirst().orElseThrow();
+        var manual = mine.stream().filter(c -> "6".equals(c.getId())).findFirst().orElseThrow();
+        assertEquals(ReviewFeedback.audioBannedMessage(), audio.getRestrictionReason());
+        assertEquals(ReviewFeedback.message("内容", false), manual.getRestrictionReason());
+        assertNull(audio.getCoverUrl()); assertNull(audio.getVideoUrl());
+        assertTrue(mine.stream().filter(c -> "published".equals(c.getStatus())).allMatch(c -> c.getRestrictionReason() == null));
+        verify(reviewRecords).audioBannedContentIds(argThat(ids -> ids.size() == 2 && ids.containsAll(Set.of(2L, 6L))));
     }
 
     @Test void summariesPreserveOrderAndDuplicatesAndReadCurrentPermissions() {

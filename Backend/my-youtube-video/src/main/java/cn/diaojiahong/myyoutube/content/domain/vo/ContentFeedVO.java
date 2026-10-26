@@ -9,4 +9,5 @@ import lombok.EqualsAndHashCode;
 public class ContentFeedVO extends ContentCardVO {
     private Boolean isLike;
     private Boolean isFollow;
+    private String restrictionReason;
 }
