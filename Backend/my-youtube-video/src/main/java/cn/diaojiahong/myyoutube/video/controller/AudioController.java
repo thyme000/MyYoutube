@@ -2,8 +2,13 @@ package cn.diaojiahong.myyoutube.video.controller;
 
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
+import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.video.domain.dto.AudioUploadDTO;
+import cn.diaojiahong.myyoutube.video.domain.dto.AudioContentQuery;
+import cn.diaojiahong.myyoutube.video.service.AudioContentService;
+import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioUploadVO;
 import cn.diaojiahong.myyoutube.video.service.AudioUploadService;
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioVO;
@@ -32,6 +37,7 @@ public class AudioController {
 
     private final IAudioService audioService;
     private final AudioUploadService uploads;
+    private final AudioContentService contents;
 
     @PostMapping("/uploads")
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -77,6 +83,13 @@ public class AudioController {
     @Operation(summary = "查询公开音频详情")
     public Result<AudioVO> detail(@PathVariable Long id) {
         return Result.success(audioService.detail(id));
+    }
+
+    @GetMapping("/{id}/contents")
+    @Operation(summary = "游标查询使用音频的公开内容，支持最新或最多点赞排序，不返回总数")
+    public Result<CursorPage<ContentFeedVO, String>> contents(@PathVariable Long id, @ModelAttribute AudioContentQuery query) {
+        String viewer = UserContext.getUserId();
+        return Result.success(contents.list(id, viewer == null ? null : Long.valueOf(viewer), query));
     }
 
     @GetMapping("/mine/search")

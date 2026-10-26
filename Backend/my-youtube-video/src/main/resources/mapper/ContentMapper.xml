@@ -1,6 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.diaojiahong.myyoutube.content.mapper.ContentMapper">
+    <select id="publicAudioContents" resultType="cn.diaojiahong.myyoutube.content.domain.po.Content">
+        <bind name="publicVisibility" value="@cn.diaojiahong.myyoutube.video.api.enums.ContentVisibilityEnum@PUBLIC.code"/>
+        <bind name="published" value="@cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum@PUBLISHED.code"/>
+        <bind name="ready" value="@cn.diaojiahong.myyoutube.video.domain.enums.AudioProcessingStatus@READY.code"/>
+        <bind name="approved" value="@cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus@APPROVED.code"/>
+        <bind name="mostLiked" value="sort == @cn.diaojiahong.myyoutube.video.domain.enums.ContentSortEnum@MOST_LIKED"/>
+        SELECT c.* FROM content c
+        JOIN audio a ON a.id = c.audio_id
+        WHERE c.audio_id = #{audioId}
+          AND a.is_delete = 0 AND a.visibility = #{publicVisibility}
+          AND a.processing_status = #{ready} AND a.review_status = #{approved}
+          AND c.is_delete = 0 AND c.status = #{published} AND c.visibility = #{publicVisibility}
+        <if test="cursor != null">
+            <choose>
+                <when test="mostLiked">
+                    AND (c.like_count, c.create_time, c.id) &lt; (#{cursor.likeCount}, #{cursor.createTime}, #{cursor.contentId})
+                </when>
+                <otherwise>
+                    AND (c.create_time, c.id) &lt; (#{cursor.createTime}, #{cursor.contentId})
+                </otherwise>
+            </choose>
+        </if>
+        ORDER BY <if test="mostLiked">c.like_count DESC,</if> c.create_time DESC, c.id DESC
+        LIMIT #{limit}
+    </select>
+
     <select id="pendingAudioBans" resultType="cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage" timeout="5">
         <bind name="banned" value="@cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus@BANNED.code"/>
         <bind name="published" value="@cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum@PUBLISHED.code"/>

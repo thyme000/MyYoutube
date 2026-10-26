@@ -20,6 +20,7 @@ import cn.diaojiahong.myyoutube.video.domain.dto.AudioUploadDTO;
 import cn.diaojiahong.myyoutube.common.media.AudioPreparationContracts;
 import cn.diaojiahong.myyoutube.video.service.AudioUploadService;
 import cn.diaojiahong.myyoutube.video.domain.enums.*;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioVO;
 import cn.diaojiahong.myyoutube.video.mapper.AudioMapper;
@@ -43,8 +44,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AudioServiceImpl implements IAudioService {
-    public static final String VISIBILITY_PUBLIC = "public";
-    public static final String VISIBILITY_PRIVATE = "private";
+    public static final String VISIBILITY_PUBLIC = ContentVisibilityEnum.PUBLIC.getCode();
+    public static final String VISIBILITY_PRIVATE = ContentVisibilityEnum.PRIVATE.getCode();
     private static final long SIGN_SECONDS = 1200;
     private final AudioMapper audioMapper;
     private final S3StorageUtil storageUtil;
@@ -132,9 +133,12 @@ public class AudioServiceImpl implements IAudioService {
         return new AudioPage(views(visible, owner != null), slice.hasMore());
     }
     @Override public AudioVO detail(Long id) {
-        var audio = audioMapper.selectById(id);
+        return views(List.of(getPublic(id)), false).get(0);
+    }
+    @Override public Audio getPublic(Long id) {
+        Audio audio = audioMapper.selectById(id);
         if (audio == null || !publiclyVisible(audio)) throw new BizException(ErrorCode.NOT_FOUND, "音频不存在或不可访问");
-        return views(List.of(audio), false).get(0);
+        return audio;
     }
     private boolean publiclyVisible(Audio audio) {
         return audio.getIsDelete() == 0 && audio.getProcessingStatus() == AudioProcessingStatus.READY

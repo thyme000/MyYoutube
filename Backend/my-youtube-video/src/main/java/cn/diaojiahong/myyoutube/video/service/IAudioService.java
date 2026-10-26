@@ -17,6 +17,7 @@ public interface IAudioService {
     AudioPage library(String keyword, PageQuery pageQuery);
     AudioPage searchMine(String keyword, PageQuery pageQuery);
     AudioVO detail(Long id);
+    Audio getPublic(Long id);
     void setVisibility(Long id, String visibility);
     void delete(Long id);
     /**

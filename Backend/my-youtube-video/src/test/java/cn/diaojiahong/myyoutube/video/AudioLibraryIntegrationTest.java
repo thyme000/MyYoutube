@@ -35,6 +35,7 @@ import cn.diaojiahong.myyoutube.video.controller.AudioController;
 import cn.diaojiahong.myyoutube.video.controller.InternalAudioDocumentController;
 import cn.diaojiahong.myyoutube.video.domain.dto.AudioUploadDTO;
 import cn.diaojiahong.myyoutube.video.service.AudioUploadService;
+import cn.diaojiahong.myyoutube.video.service.AudioContentService;
 import cn.diaojiahong.myyoutube.video.domain.enums.*;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
 import cn.diaojiahong.myyoutube.video.mapper.AudioMapper;
@@ -49,6 +50,7 @@ import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.test.web.servlet.MockMvc;
 
 import javax.sql.DataSource;
 import java.nio.file.*;
@@ -241,7 +243,7 @@ class AudioLibraryIntegrationTest {
         if (ended) jdbc.update("UPDATE audio SET processing_status='expired' WHERE id=?", id);
         else jdbc.update("UPDATE audio SET upload_deadline=? WHERE id=?", LocalDateTime.now().plusMinutes(5), id);
         assertEquals(ErrorCode.AUDIO_UPLOAD_EXPIRED, assertThrows(BizException.class, () -> uploads.start(dto)).getErrorCode());
-        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads)).setControllerAdvice(new GlobalExceptionHandler()).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads, mock(AudioContentService.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
         mvc.perform(post("/audios/uploads").contentType("application/json")
                         .content("{\"requestId\":\"restart\",\"audio\":{\"filename\":\"restart.wav\",\"bytes\":4096,\"contentType\":\"audio/wav\"}}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(40907));
@@ -599,7 +601,7 @@ class AudioLibraryIntegrationTest {
         assertEquals("signed/" + request(second).prefix() + "cover.jpg", result.getList().stream().filter(a -> a.getId().equals(Long.toString(second))).findFirst().orElseThrow().getCoverUrl());
     }
     @Test void httpAdmissionIsAcceptedAndClientDurationIsNotPersisted() throws Exception {
-        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads)).setControllerAdvice(new GlobalExceptionHandler()).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads, mock(AudioContentService.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
         mvc.perform(post("/audios/uploads").contentType("application/json").content("{\"requestId\":\"http\",\"audio\":{\"filename\":\"a.wav\",\"bytes\":4096,\"contentType\":\"audio/wav\"},\"objectKey\":\"uploads/audio/7/fake\",\"durationMs\":1}"))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.data.audioId").isString())
                 .andExpect(jsonPath("$.data.audio.url").value("signed-put"));
@@ -838,7 +840,7 @@ class AudioLibraryIntegrationTest {
         assertEquals("您的音频已通过审核。", service.getMine(id).getReviewReason());
         assertEquals("技术识别失败，人工完整试听及封面核验通过", rows.selectById(id).getReviewReason());
         when(search.search(any())).thenReturn(new AudioDiscoveryContracts.Slice(List.of(id), false));
-        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads)).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads, mock(AudioContentService.class))).build();
         mvc.perform(get("/audios/" + id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.reviewReason").doesNotExist())
                 .andExpect(jsonPath("$.data.errorMessage").doesNotExist())
@@ -857,7 +859,7 @@ class AudioLibraryIntegrationTest {
         var matching = rows.selectOne(new LambdaQueryWrapper<Audio>()
                 .eq(Audio::getId, id).eq(Audio::getAnalysisStatus, phase));
         assertEquals(phase, matching.getAnalysisStatus());
-        var mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads)).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads, mock(AudioContentService.class))).build();
         mvc.perform(get("/audios/mine/" + id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.analysisStatus").value(phase.getCode()));
     }
