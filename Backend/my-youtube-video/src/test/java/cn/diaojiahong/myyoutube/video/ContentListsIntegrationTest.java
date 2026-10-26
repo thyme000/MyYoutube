@@ -61,7 +61,7 @@ class ContentListsIntegrationTest {
         @Bean IContentService contents() { return new ContentServiceImpl(); }
         @Bean IContentCommentService comments() { return mock(IContentCommentService.class); }
         @Bean UserNotificationServiceImpl notifications(ContentMapper mapper, IContentCommentService comments) {
-            return new UserNotificationServiceImpl(new ContentAccessService(mapper),mock(UserPort.class),comments);
+            return new UserNotificationServiceImpl(new ContentAccessService(mapper,mock(AudioContentAccess.class)),mock(UserPort.class),comments);
         }
     }
     @Autowired DataSource ds;
@@ -75,8 +75,10 @@ class ContentListsIntegrationTest {
     JdbcTemplate jdbc;
     ContentSummaryPortImpl summaries;
     ContentFeedServiceImpl feeds;
+    final AudioContentAccess audioAccess = mock(AudioContentAccess.class);
 
     @BeforeEach void setup() {
+        reset(audioAccess);
         UserContext.setUser("7"); jdbc = new JdbcTemplate(ds); jdbc.execute("DROP ALL OBJECTS");
         jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE content_collect(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,create_time TIMESTAMP)");
@@ -101,12 +103,25 @@ class ContentListsIntegrationTest {
                             List.of(new DynamicMedia.Image("cover"+id,0,3000,0.5,0.5)),null,3000)))));
             return strategy;
         }).toList());
-        summaries = new ContentSummaryPortImpl(contents,registry);
+        summaries = new ContentSummaryPortImpl(contents,registry,audioAccess);
         feeds = new ContentFeedServiceImpl(contentService,likes,mock(IUserFollowService.class),mock(UserPort.class),
-                mock(S3StorageUtil.class),mock(RecommendPort.class),registry);
+                mock(S3StorageUtil.class),mock(RecommendPort.class),registry,audioAccess);
     }
 
     @AfterEach void clear() { UserContext.removeUser(); }
+
+    @Test void blockedAudioIsRemovedFromSummariesAndAuthorPagesButOwnerManagementKeepsRestrictedRecords() {
+        when(audioAccess.blocked(anyList())).thenReturn(Set.of(2L, 3L));
+        assertEquals(List.of(1L), summaries.listByIdsOrdered(new SummaryQuery(List.of("2", "1", "3"), 7L))
+                .stream().map(s -> s.getId()).toList());
+        var query = new ContentPageQuery(); query.setType("dynamic");
+        assertTrue(feeds.byAuthor(7L, 7L, query).getList().isEmpty());
+        var mine = feeds.mine(7L, query).getList();
+        assertEquals(3, mine.size());
+        for (var card : mine) if (Set.of("2", "3").contains(card.getId())) {
+            assertEquals("banned", card.getStatus()); assertNull(card.getCoverUrl()); assertNull(card.getVideoUrl());
+        }
+    }
 
     @Test void summariesPreserveOrderAndDuplicatesAndReadCurrentPermissions() {
         var ids = List.of("3","2","1","6","7","5","3");
@@ -150,7 +165,7 @@ class ContentListsIntegrationTest {
         var counter = mock(CounterBuffer.class);
         var internal = new InternalVideoController(mock(IContentTagService.class),contentService,
                 mock(cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper.class),likes,
-                new ContentAccessService(contents),counter,mock(IUserFollowService.class),
+                new ContentAccessService(contents,mock(AudioContentAccess.class)),counter,mock(IUserFollowService.class),
                 mock(NotificationPublisher.class),mock(IUserTagPreferenceService.class));
         assertEquals("dynamic",internal.forwardInfo(2L,9L).type());
         jdbc.update("UPDATE content SET visibility='private' WHERE id=2");
@@ -165,7 +180,7 @@ class ContentListsIntegrationTest {
     }
 
     @Test void inaccessibleContentCannotCreateCollectionOrHistoryRecords() {
-        var access = new ContentAccessService(contents);
+        var access = new ContentAccessService(contents,mock(AudioContentAccess.class));
         var counter = mock(CounterBuffer.class);
         var collections = new cn.diaojiahong.myyoutube.collect.service.ContentCollectServiceImpl(collects,summaries,access,
                 mock(UserPort.class),mock(IUserFollowService.class),mock(S3StorageUtil.class),counter,mock(NotificationPublisher.class));
@@ -181,7 +196,7 @@ class ContentListsIntegrationTest {
     }
 
     @Test void emptyPageAfterLastPageKeepsTheFilteredTotal() {
-        var access = new ContentAccessService(contents);
+        var access = new ContentAccessService(contents,mock(AudioContentAccess.class));
         var collections = new cn.diaojiahong.myyoutube.collect.service.ContentCollectServiceImpl(collects,summaries,access,
                 mock(UserPort.class),mock(IUserFollowService.class),mock(S3StorageUtil.class),mock(CounterBuffer.class),mock(NotificationPublisher.class));
         var query = new ContentPageQuery(); query.setType("dynamic"); query.setPageSize(2); query.setPageNo(3);

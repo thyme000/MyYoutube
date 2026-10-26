@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.content.support.ContentCards;
+import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -17,6 +18,7 @@ import java.util.stream.Collectors;
 public class ContentSummaryPortImpl implements ContentSummaryPort {
     private final ContentMapper contents;
     private final ContentTypeStrategyRegistry strategies;
+    private final AudioContentAccess audioAccess;
     @Override public List<ContentSummary> listByIdsOrdered(SummaryQuery query) {
         List<String> ids = query.ids();
         if (ids == null || ids.isEmpty()) return List.of();
@@ -24,8 +26,9 @@ public class ContentSummaryPortImpl implements ContentSummaryPort {
                 .eq(Content::getIsDelete, 0).eq(Content::getStatus, "published")
                 .and(q -> q.eq(Content::getVisibility, "public")
                         .or(query.viewerId() != null).eq(query.viewerId() != null, Content::getAuthorId, query.viewerId())));
+        var blocked = audioAccess.blocked(rows);
         var byId = new HashMap<Long, ContentSummary>();
-        for (var group : rows.stream().collect(Collectors.groupingBy(Content::getType)).entrySet()) {
+        for (var group : rows.stream().filter(c -> !blocked.contains(c.getId())).collect(Collectors.groupingBy(Content::getType)).entrySet()) {
             var media = strategies.get(group.getKey()).loadMedia(group.getValue().stream().map(Content::getId).toList());
             for (var row : group.getValue()) if (media.containsKey(row.getId())) byId.put(row.getId(), ContentCards.summary(row, media.get(row.getId())));
         }

@@ -15,9 +15,13 @@ import cn.diaojiahong.myyoutube.video.domain.po.*;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
+import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewState;
+import cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -39,6 +43,9 @@ public class ReviewDecisionService {
     private final PromptTemplates prompts;
     private final ContentObservation observation;
     private final cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings frameSettings;
+    private final AudioContentAccess audioAccess;
+    private final DynamicMapper dynamics;
+    private final AudioMapper audios;
 
     @Transactional
     @ObservedBusiness(BusinessOperation.MANUAL_REVIEW)
@@ -191,6 +198,28 @@ public class ReviewDecisionService {
         return changed;
     }
 
+    @Transactional
+    public boolean banByAudio(AudioContentBanMessage message) {
+        var row = lock(message.contentId());
+        var content = contents.getBaseMapper().selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, message.contentId()).last("FOR UPDATE"));
+        if (content == null || content.getType() != ContentTypeEnum.DYNAMIC || !Integer.valueOf(0).equals(content.getIsDelete())
+                || !("published".equals(content.getStatus()) || "review".equals(content.getStatus()))) return false;
+        var reference = dynamics.selectById(content.getId());
+        if (reference == null || !message.audioId().equals(reference.getAudioId())) return false;
+        var audio = audios.selectOne(new LambdaQueryWrapper<Audio>().eq(Audio::getId, message.audioId()).last("FOR UPDATE"));
+        if (audio == null || audio.getReviewStatus() != AudioReviewStatus.BANNED
+                || audio.getIndexVersion() < message.audioVersion()) return false;
+        String reason = "关联音频已被封禁，audioId=" + audio.getId();
+        if (!transition(content.getId(), ContentStatusEnum.BANNED, reason, "published".equals(content.getStatus()))) return false;
+        records.insert(new ContentReviewRecord().setContentId(content.getId()).setPipelineId(row == null ? null : row.getPipelineId())
+                .setAttempt(0).setSource("AUDIO").setDecision("BAN").setReason(reason)
+                .setEvidenceJson(JsonUtil.toJson(message)).setCreateTime(LocalDateTime.now()));
+        if (row != null) understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>().eq(ContentUnderstanding::getContentId, content.getId())
+                .set(ContentUnderstanding::getState, ContentReviewState.CANCELLED));
+        observation.record(row, "CONTENT_AUDIO_BANNED", content.getStatus(), "banned");
+        return true;
+    }
+
     /** 审核理由由模型或人工生成, 可能很长: 日志只留开头, 全文在审核记录表里 */
     private static String brief(String text) {
         if (text == null) return null;
@@ -212,6 +241,7 @@ public class ReviewDecisionService {
         var content = contents.getBaseMapper().selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, id).last("FOR UPDATE"));
         String expected = publishedBan ? "published" : "review";
         if (content == null || Integer.valueOf(1).equals(content.getIsDelete()) || !expected.equals(content.getStatus())) return false;
+        if (target == ContentStatusEnum.PUBLISHED && audioAccess.bannedForPublication(content)) return false;
         if (!contents.lambdaUpdate().eq(Content::getId, id).eq(Content::getStatus, expected)
                 .setSql("index_version = index_version + 1")
                 .set(Content::getStatus, target.getCode()).update()) return false;

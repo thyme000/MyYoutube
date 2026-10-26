@@ -8,6 +8,7 @@ import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewState;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import org.junit.jupiter.api.Test;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
@@ -73,7 +74,8 @@ class ReviewPolicyTest {
         var videos = mock(VideoMapper.class); var rows = mock(ContentUnderstandingMapper.class);
         var records = mock(ContentReviewRecordMapper.class); var events = mock(ContentPublicationEventMapper.class);
         when(rows.selectOne(any())).thenReturn(new ContentUnderstanding().setContentId(1L).setState(ContentReviewState.MANUAL_PENDING).setReviewAttempt(2));
-        var service = new ReviewDecisionService(rows, records, events, mock(IContentService.class), new ContentPipelineProperties(), mock(PublicationEffectsService.class), new PromptTemplates(), mock(cn.diaojiahong.myyoutube.video.service.ContentObservation.class), new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
+        var service = new ReviewDecisionService(rows, records, events, mock(IContentService.class), new ContentPipelineProperties(), mock(PublicationEffectsService.class), new PromptTemplates(), mock(cn.diaojiahong.myyoutube.video.service.ContentObservation.class), new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(),
+                mock(AudioContentAccess.class), mock(DynamicMapper.class), mock(AudioMapper.class));
         assertFalse(service.machine(1L, 1, ReviewVerdict.parse("{\"decision\":\"PASS\",\"riskScore\":0,\"confidence\":1,\"reason\":\"安全\",\"evidence\":[]}", "test")));
         verifyNoInteractions(videos, records, events);
     }

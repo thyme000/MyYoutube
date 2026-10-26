@@ -17,6 +17,7 @@ import cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -24,6 +25,18 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class SearchDocumentContractTest {
+    @Test
+    void rebuildOfAudioBlockedContentReturnsAVersionedTombstoneBeforeLoadingText() {
+        var contents = mock(IContentService.class); var access = mock(ContentAccessService.class);
+        var tags = mock(IContentTagService.class); var understanding = mock(ContentUnderstandingMapper.class);
+        var content = new Content().setId(1L).setIsDelete(0).setIndexVersion(3L);
+        when(contents.getById(1L)).thenReturn(content); when(access.hasBannedAudio(content)).thenReturn(true);
+        var controller = new InternalVideoController(tags, contents, understanding, mock(ContentLikeMapper.class), access,
+                mock(CounterBuffer.class), mock(IUserFollowService.class), mock(NotificationPublisher.class), mock(IUserTagPreferenceService.class));
+        var document = controller.searchDocument(1L);
+        assertTrue(document.isDeleted()); assertEquals(3L, document.getIndexVersion()); assertNull(document.getTitle());
+        verifyNoInteractions(tags, understanding);
+    }
     @ParameterizedTest
     @EnumSource(ContentTypeEnum.class)
     void searchDocumentIncludesStoredSummaryForBothMediaTypes(ContentTypeEnum type) {

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 @Service
@@ -31,7 +32,9 @@ public class ContentReadService {
         var content = access.readable(id, viewer);
         var media = strategies.get(content.getType()).loadMedia(List.of(id)).get(id);
         if (media == null) throw new BizException(ErrorCode.NOT_FOUND, "媒体不存在");
-        var detail = BeanUtil.copyProperties(cards.assemble(viewer, List.of(content)).get(0), ContentDetailVO.class);
+        var visible = cards.assembleCards(viewer, List.of(content), Set.of());
+        if (visible.isEmpty()) throw new BizException(ErrorCode.NOT_FOUND, "内容不存在或不可访问");
+        var detail = BeanUtil.copyProperties(visible.get(0), ContentDetailVO.class);
         detail.setMedia(signedMedia(media));
         var row = understanding.get(id);
         if (row != null) {

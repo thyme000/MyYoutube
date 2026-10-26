@@ -53,7 +53,7 @@ class ContentAccessIntegrationTest {
         @Bean DataSourceTransactionManager transactionManager(DataSource ds) { return new DataSourceTransactionManager(ds); }
         @Bean TransactionTemplate transaction(DataSourceTransactionManager manager) { return spy(new TransactionTemplate(manager)); }
         @Bean IContentService contents() { return new ContentServiceImpl(); }
-        @Bean ContentAccessService access(ContentMapper mapper) { return new ContentAccessService(mapper); }
+        @Bean ContentAccessService access(ContentMapper mapper) { return new ContentAccessService(mapper, mock(AudioContentAccess.class)); }
         @Bean PublicationEffectsService effects() { return mock(PublicationEffectsService.class); }
         @Bean ContentSettingsService settings(ContentAccessService access, ContentMapper mapper, ContentPublicationEventMapper events, PublicationEffectsService effects) {
             return new ContentSettingsService(access,mapper,events,effects);

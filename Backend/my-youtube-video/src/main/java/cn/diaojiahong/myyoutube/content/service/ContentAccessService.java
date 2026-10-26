@@ -13,6 +13,7 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class ContentAccessService {
     private final ContentMapper contents;
+    private final AudioContentAccess audioAccess;
 
     public Content readable(Long id, Long viewer) {
         return requireReadable(contents.selectById(id), viewer);
@@ -31,7 +32,11 @@ public class ContentAccessService {
                 || !"published".equals(content.getStatus())
                 || !("public".equals(content.getVisibility()) || Objects.equals(content.getAuthorId(), viewer)))
             throw new BizException(ErrorCode.NOT_FOUND, "内容不存在或不可访问");
+        if (hasBannedAudio(content)) throw new BizException(ErrorCode.NOT_FOUND, "内容不存在或不可访问");
         return content;
+    }
+    public boolean hasBannedAudio(Content content) {
+        return audioAccess.blocked(java.util.List.of(content)).contains(content.getId());
     }
     public Content requireOwner(Content content, Long viewer) {
         if (content == null || !Integer.valueOf(0).equals(content.getIsDelete())

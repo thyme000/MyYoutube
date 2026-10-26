@@ -7,6 +7,24 @@ import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
+import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
+import cn.diaojiahong.myyoutube.common.constants.MqConstants;
+import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
+import cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus;
+import cn.diaojiahong.myyoutube.video.domain.enums.AudioProcessingStatus;
+import cn.diaojiahong.myyoutube.video.domain.po.Audio;
+import cn.diaojiahong.myyoutube.content.service.AfterCommitNotifications;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
+import org.apache.rocketmq.client.producer.SendCallback;
+import org.mockito.ArgumentCaptor;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentServiceImpl;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewState;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
@@ -83,9 +101,14 @@ class ReviewTransactionIntegrationTest {
         }
         @Bean cn.diaojiahong.myyoutube.video.service.ContentObservation observation(ContentUnderstandingMapper rows, cn.diaojiahong.myyoutube.common.observability.PipelineEvents events) { return new cn.diaojiahong.myyoutube.video.service.ContentObservation(rows, events); }
         @Bean PromptTemplates prompts() { return new PromptTemplates(); }
+        @Bean AudioContentAccess audioAccess(DynamicMapper dynamics, AudioMapper audios, RocketMQTemplate mq) {
+            return new AudioContentAccess(dynamics, audios, new AfterCommitNotifications(mq, new SimpleMeterRegistry()));
+        }
         @Bean ReviewDecisionService decisions(VideoMapper videos, ContentUnderstandingMapper understanding,
-                ContentReviewRecordMapper records, ContentPublicationEventMapper events, IContentService contents, ContentPipelineProperties properties, PublicationEffectsService effects, PromptTemplates prompts, cn.diaojiahong.myyoutube.video.service.ContentObservation observation) {
-            return new ReviewDecisionService(understanding, records, events, contents, properties, effects, prompts, observation, frameSettings());
+                ContentReviewRecordMapper records, ContentPublicationEventMapper events, IContentService contents, ContentPipelineProperties properties, PublicationEffectsService effects, PromptTemplates prompts, cn.diaojiahong.myyoutube.video.service.ContentObservation observation,
+                AudioContentAccess audioAccess, DynamicMapper dynamics, AudioMapper audios) {
+            return new ReviewDecisionService(understanding, records, events, contents, properties, effects, prompts, observation, frameSettings(),
+                    audioAccess, dynamics, audios);
         }
     }
     @Autowired PromptTemplates prompts;
@@ -101,16 +124,23 @@ class ReviewTransactionIntegrationTest {
     @Autowired TransactionTemplate tx;
     @Autowired TagResultMapper tags;
     @Autowired RocketMQTemplate mq;
+    @Autowired AudioContentAccess audioAccess;
+    @Autowired AudioMapper audios;
+    @Autowired DynamicMapper dynamics;
+    @Autowired IContentService contents;
+    @Autowired ContentMapper contentRows;
+    @Autowired PublicationEffectsService effects;
     JdbcTemplate jdbc;
     @BeforeEach void schema() throws Exception {
-        reset(tasks, artifacts, tags, mq); observations.getRecording().setEnabled(false);
+        reset(tasks, artifacts, tags, mq, effects); observations.getRecording().setEnabled(false);
         policy.setAutoReview(true);
         policy.setReviewVisionEnabled(true);
         frameSettings.replace("interval-seconds: 5\nmax-frames: 10\nmin-success-percent: 80\ncover-max-candidates: 8\nocr-batch-size: 2\nreview-batch-size: 4");
         jdbc = new JdbcTemplate(dataSource);
         ContentTestDatabase.outbox(jdbc);
-        for (String table : new String[]{"content_review_record", "content_publication_event", "content_understanding", "video", "content"}) jdbc.execute("DROP TABLE IF EXISTS " + table);
+        for (String table : new String[]{"content_review_record", "content_publication_event", "content_understanding", "video", "dynamic", "content"}) jdbc.execute("DROP TABLE IF EXISTS " + table);
         jdbc.execute("CREATE TABLE video(id BIGINT PRIMARY KEY,object_key VARCHAR(512),duration_ms BIGINT)");
+        jdbc.execute("CREATE TABLE dynamic(id BIGINT PRIMARY KEY,audio_id BIGINT,media_json TEXT)");
         jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
         new ResourceDatabasePopulator(new ClassPathResource("pipeline-schema.sql")).execute(dataSource);
         jdbc.update("INSERT INTO video VALUES(1,'processed.mp4',1000)");
@@ -124,6 +154,134 @@ class ReviewTransactionIntegrationTest {
         return ReviewVerdict.parse("{\"decision\":\"" + decision + "\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"上下文安全\",\"evidence\":[]}", "vision-test");
     }
     int count(String table) { return jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class); }
+
+    void dynamicAudio(AudioReviewStatus status) throws Exception {
+        ContentTestDatabase.drop(jdbc, "audio", "dynamic");
+        var schema = Files.readString(Path.of("../../resources/schema.sql"));
+        int start = schema.indexOf("CREATE TABLE IF NOT EXISTS `audio`");
+        var sql = schema.substring(start, schema.indexOf(';', start) + 1);
+        if (!Boolean.getBoolean("content.integration")) sql = sql.replace(" CHARACTER SET ascii COLLATE ascii_bin", "").replace(" ENGINE=InnoDB", "");
+        jdbc.execute(sql);
+        jdbc.execute("CREATE TABLE dynamic(id BIGINT PRIMARY KEY,audio_id BIGINT,media_json TEXT)");
+        jdbc.update("INSERT INTO dynamic VALUES(1,20,'{}')");
+        jdbc.update("UPDATE content SET type='dynamic' WHERE id=1");
+        audios.insert(new Audio().setId(20L).setUploaderId(9L).setTitle("音频").setRequestId("test").setRequestFingerprint("a".repeat(64))
+                .setSourceObjectKey("uploads/audio/9/test.wav").setObjectKey("media-prepared/9/20/audio-source")
+                .setUploadSize(100L).setUploadContentType("audio/wav").setUploadDeadline(LocalDateTime.now().plusMinutes(40))
+                .setProcessingStatus(AudioProcessingStatus.READY).setReviewStatus(status).setIndexVersion(3L));
+    }
+
+    @Test void bannedAudioIsRefusedBeforeTheAsynchronousBanAndRepeatedDeliveryChangesStateOnce() throws Exception {
+        observations.getRecording().setEnabled(true);
+        dynamicAudio(AudioReviewStatus.BANNED); state(ContentReviewState.APPROVED);
+        jdbc.update("UPDATE content SET status='published' WHERE id=1");
+        var access = new ContentAccessService(contentRows, audioAccess);
+        assertThrows(BizException.class, () -> access.readable(1L, 9L));
+        assertEquals("published", contents.getById(1L).getStatus());
+        var message = ArgumentCaptor.forClass(AudioContentBanMessage.class);
+        verify(mq).asyncSend(eq(MqConstants.TOPIC_AUDIO_CONTENT_BAN), message.capture(), any(SendCallback.class));
+        assertTrue(decisions.banByAudio(message.getValue())); assertFalse(decisions.banByAudio(message.getValue()));
+        assertEquals("banned", contents.getById(1L).getStatus()); assertEquals(2L, contents.getById(1L).getIndexVersion());
+        assertEquals(1, count("content_review_record")); assertEquals(1, count("content_publication_event"));
+        assertEquals(-1, jdbc.queryForObject("SELECT delta FROM content_publication_event", Integer.class));
+        assertEquals("AUDIO", jdbc.queryForObject("SELECT source FROM content_review_record", String.class));
+        assertEquals(ContentReviewState.CANCELLED, understanding.selectById(1L).getState());
+        verify(effects, times(1)).trigger(anyLong());
+        assertEquals(1, count("pipeline_event_outbox"));
+        assertTrue(jdbc.queryForObject("SELECT payload FROM pipeline_event_outbox", String.class).contains("CONTENT_AUDIO_BANNED"));
+    }
+
+    @Test void concurrentAudioBanMessagesProduceOneAuditAndOneCountChange() throws Exception {
+        dynamicAudio(AudioReviewStatus.BANNED); state(ContentReviewState.APPROVED);
+        jdbc.update("UPDATE content SET status='published' WHERE id=1");
+        var message = new AudioContentBanMessage(1L, 20L, 3);
+        var a = CompletableFuture.supplyAsync(() -> decisions.banByAudio(message));
+        var b = CompletableFuture.supplyAsync(() -> decisions.banByAudio(message));
+        assertNotEquals(a.get(5, TimeUnit.SECONDS), b.get(5, TimeUnit.SECONDS));
+        assertEquals(1, count("content_review_record")); assertEquals(1, count("content_publication_event"));
+    }
+
+    @Test void pendingContentIsCancelledWithoutDecrementingCountsAndLateReviewCannotPublishIt() throws Exception {
+        dynamicAudio(AudioReviewStatus.BANNED); state(ContentReviewState.AUTO_RUNNING);
+        assertTrue(decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 3)));
+        assertEquals(0, jdbc.queryForObject("SELECT delta FROM content_publication_event", Integer.class));
+        assertFalse(decisions.machine(1L, 1, verdict("PASS")));
+        assertThrows(BizException.class, () -> decisions.manual(1L, true, "通过", 7L));
+        assertEquals("banned", contents.getById(1L).getStatus()); assertEquals(1, count("content_review_record"));
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void lateApprovalIsRefusedEvenBeforeTheLazyBanHasRun(boolean manual) throws Exception {
+        dynamicAudio(AudioReviewStatus.BANNED); state(manual ? ContentReviewState.MANUAL_PENDING : ContentReviewState.AUTO_RUNNING);
+        assertFalse(manual ? decisions.manual(1L, true, "通过", 7L) : decisions.machine(1L, 1, verdict("PASS")));
+        assertEquals("review", contents.getById(1L).getStatus()); assertEquals(0, count("content_publication_event"));
+        verify(mq).asyncSend(eq(MqConstants.TOPIC_AUDIO_CONTENT_BAN), any(AudioContentBanMessage.class), any(SendCallback.class));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"private", "deleted"})
+    void historicalAudioGrantSurvivesPrivacyAndOrdinaryDeletion(String change) throws Exception {
+        dynamicAudio(AudioReviewStatus.APPROVED); state(ContentReviewState.AUTO_RUNNING);
+        jdbc.update(change.equals("private") ? "UPDATE audio SET visibility='private'" : "UPDATE audio SET is_delete=1");
+        assertTrue(decisions.machine(1L, 1, verdict("PASS")));
+        assertNotNull(new ContentAccessService(contentRows, audioAccess).readable(1L, 7L));
+        verify(mq, never()).asyncSend(eq(MqConstants.TOPIC_AUDIO_CONTENT_BAN), any(AudioContentBanMessage.class), any(SendCallback.class));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"not-banned", "deleted", "banned", "wrong-reference", "future-version"})
+    void lazyBanRechecksCurrentGovernanceAndPreservesOtherDecisions(String situation) throws Exception {
+        dynamicAudio(situation.equals("not-banned") ? AudioReviewStatus.APPROVED : AudioReviewStatus.BANNED);
+        state(ContentReviewState.APPROVED); jdbc.update("UPDATE content SET status='published' WHERE id=1");
+        if (situation.equals("deleted")) jdbc.update("UPDATE content SET is_delete=1");
+        if (situation.equals("banned")) jdbc.update("UPDATE content SET status='banned'");
+        if (situation.equals("wrong-reference")) jdbc.update("UPDATE dynamic SET audio_id=21");
+        assertFalse(decisions.banByAudio(new AudioContentBanMessage(1L, 20L, situation.equals("future-version") ? 4 : 3)));
+        assertEquals(0, count("content_review_record")); assertEquals(0, count("content_publication_event"));
+    }
+
+    @Test void privateBannedAudioStillCascadesAndRecoveryQueryExcludesCompletedContents() throws Exception {
+        dynamicAudio(AudioReviewStatus.BANNED); state(ContentReviewState.APPROVED);
+        jdbc.update("UPDATE content SET status='published' WHERE id=1");
+        jdbc.update("UPDATE audio SET visibility='private'");
+        assertEquals(List.of(new AudioContentBanMessage(1L, 20L, 3)), dynamics.pendingAudioBans(0, 1));
+        assertTrue(dynamics.pendingAudioBans(1, 1).isEmpty());
+        assertTrue(decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 3)));
+        assertTrue(dynamics.pendingAudioBans(0, 1).isEmpty());
+        assertEquals("banned", contents.getById(1L).getStatus());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"review", "published", "deleted", "banned", "not-banned", "video"})
+    void recoveryOnlySelectsUnfinishedDynamicBans(String situation) throws Exception {
+        dynamicAudio(situation.equals("not-banned") ? AudioReviewStatus.APPROVED : AudioReviewStatus.BANNED);
+        if (situation.equals("published") || situation.equals("banned")) jdbc.update("UPDATE content SET status=?", situation);
+        if (situation.equals("deleted")) jdbc.update("UPDATE content SET is_delete=1");
+        if (situation.equals("video")) jdbc.update("UPDATE content SET type='video'");
+        assertEquals(situation.equals("review") || situation.equals("published") ? 1 : 0, dynamics.pendingAudioBans(0, 200).size());
+    }
+
+    @Test void auditFailureRollsBackTheLazyBanAndPublicationEffects() throws Exception {
+        dynamicAudio(AudioReviewStatus.BANNED); state(ContentReviewState.APPROVED);
+        jdbc.update("UPDATE content SET status='published' WHERE id=1");
+        jdbc.execute("ALTER TABLE content_review_record ADD CONSTRAINT reject_audio CHECK(source <> 'AUDIO')");
+        assertThrows(RuntimeException.class, () -> decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 3)));
+        assertEquals("published", contents.getById(1L).getStatus()); assertEquals(1L, contents.getById(1L).getIndexVersion());
+        assertEquals(ContentReviewState.APPROVED, understanding.selectById(1L).getState());
+        assertEquals(0, count("content_publication_event")); verifyNoInteractions(effects);
+    }
+
+    @Test void approvalWaitsForAudioGovernanceAndChecksTheCommittedBan() throws Exception {
+        dynamicAudio(AudioReviewStatus.APPROVED); state(ContentReviewState.AUTO_RUNNING);
+        var entered = new CountDownLatch(1); var pending = new AtomicReference<CompletableFuture<Boolean>>();
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject("SELECT id FROM audio WHERE id=20 FOR UPDATE", Long.class);
+            pending.set(CompletableFuture.supplyAsync(() -> { entered.countDown(); return decisions.machine(1L, 1, verdict("PASS")); }));
+            try { assertTrue(entered.await(5, TimeUnit.SECONDS)); }
+            catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AssertionError(error); }
+            assertThrows(TimeoutException.class, () -> pending.get().get(200, TimeUnit.MILLISECONDS));
+            jdbc.update("UPDATE audio SET review_status='banned',index_version=4 WHERE id=20");
+        });
+        assertFalse(pending.get().get(5, TimeUnit.SECONDS));
+        assertEquals("review", contents.getById(1L).getStatus()); assertEquals(0, count("content_publication_event"));
+    }
     @Test void reviewResultKeepsExecutedTemplateVersionAfterHotUpdate() throws Exception {
         state(ContentReviewState.AUTO_PENDING);
         var spec = decisions.begin(100L, 1);

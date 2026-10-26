@@ -34,6 +34,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     private final S3StorageUtil storage;
     private final RecommendPort recommendations;
     private final ContentTypeStrategyRegistry strategies;
+    private final AudioContentAccess audioAccess;
 
     @Override public PageResult<ContentFeedVO> feed(Long userId, ContentPageQuery query) {
         return recommended(userId, null, query.mediaType(), query);
@@ -48,26 +49,26 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         else if (sort == ContentSortEnum.MOST_SHARED) filter.orderByDesc(Content::getShareCount);
         else if (sort == ContentSortEnum.MOST_PLAYED) filter.orderByDesc(Content::getPlayCount);
         else filter.orderByDesc(Content::getCreateTime);
-        return page(userId, filter, query);
+        return page(userId, filter, query, false);
     }
     @Override public PageResult<ContentFeedVO> mine(Long userId, ContentPageQuery query) {
         var type = query.mediaType();
-        return page(userId, new LambdaQueryWrapper<Content>().eq(type != null, Content::getType, type).eq(Content::getIsDelete, 0).eq(Content::getAuthorId, userId).orderByDesc(Content::getCreateTime), query);
+        return page(userId, new LambdaQueryWrapper<Content>().eq(type != null, Content::getType, type).eq(Content::getIsDelete, 0).eq(Content::getAuthorId, userId).orderByDesc(Content::getCreateTime), query, true);
     }
     @Override public PageResult<ContentFeedVO> byAuthor(Long viewer, Long author, ContentPageQuery query) {
         var type = query.mediaType();
         return page(viewer, published().eq(type != null, Content::getType, type).eq(Content::getAuthorId, author)
-                .eq(!author.equals(viewer), Content::getVisibility, "public").orderByDesc(Content::getCreateTime), query);
+                .eq(!author.equals(viewer), Content::getVisibility, "public").orderByDesc(Content::getCreateTime), query, false);
     }
     @Override public PageResult<ContentFeedVO> followFeed(Long userId, ContentPageQuery query) {
         var type = query.mediaType();
         var ids = follows.getFollowIds(userId);
         if (ids.isEmpty()) return PageResult.of(0, 0, List.of());
-        return page(userId, published().eq(type != null, Content::getType, type).in(Content::getAuthorId, ids).eq(Content::getVisibility, "public").orderByDesc(Content::getCreateTime), query);
+        return page(userId, published().eq(type != null, Content::getType, type).in(Content::getAuthorId, ids).eq(Content::getVisibility, "public").orderByDesc(Content::getCreateTime), query, false);
     }
-    private PageResult<ContentFeedVO> page(Long viewer, LambdaQueryWrapper<Content> filter, ContentPageQuery query) {
+    private PageResult<ContentFeedVO> page(Long viewer, LambdaQueryWrapper<Content> filter, ContentPageQuery query, boolean management) {
         var page = contents.page(query.toPage(), filter);
-        return PageResult.of(page.getTotal(), page.getPages(), assemble(viewer, page.getRecords()));
+        return PageResult.of(page.getTotal(), page.getPages(), assembleList(viewer, page.getRecords(), management));
     }
     private PageResult<ContentFeedVO> recommended(Long viewer, String category, ContentTypeEnum type, ContentPageQuery query) {
         var ids = recommendations.recommend(new RecommendPort.RecommendQuery(viewer, type == null ? null : type.getCode(), category, query.getPageNo(), query.getPageSize()));
@@ -77,9 +78,15 @@ public class ContentFeedServiceImpl implements IContentFeedService {
                 .stream().collect(Collectors.toMap(Content::getId, c -> c));
         var rows = ids.stream().map(byId::get).filter(Objects::nonNull).toList();
         long total = (long) (query.getPageNo() - 1) * query.getPageSize() + ids.size() + (ids.size() == query.getPageSize() ? 1 : 0);
-        return PageResult.of(total, (total + query.getPageSize() - 1) / query.getPageSize(), assemble(viewer, rows));
+        return PageResult.of(total, (total + query.getPageSize() - 1) / query.getPageSize(), assembleList(viewer, rows, false));
     }
-    public List<ContentFeedVO> assemble(Long viewer, List<Content> rows) {
+    private List<ContentFeedVO> assembleList(Long viewer, List<Content> candidates, boolean management) {
+        var blocked = audioAccess.blocked(candidates);
+        var rows = management ? candidates : candidates.stream().filter(c -> !blocked.contains(c.getId())).toList();
+        return assembleCards(viewer, rows, blocked);
+    }
+    /** 调用方已完成访问检查；blocked 只用于管理页保留受限记录，不授予媒体访问权限。 */
+    public List<ContentFeedVO> assembleCards(Long viewer, List<Content> rows, Set<Long> blocked) {
         if (rows.isEmpty()) return List.of();
         var authorIds = rows.stream().map(Content::getAuthorId).distinct().toList();
         var authors = users.listByIds(authorIds);
@@ -100,8 +107,10 @@ public class ContentFeedServiceImpl implements IContentFeedService {
             var vo = BeanUtil.copyProperties(ContentCards.summary(row, media.get(row.getId())), ContentFeedVO.class);
             vo.setAuthorNickname(names.get(row.getAuthorId()));
             vo.setAuthorAvatarUrl(storage.signGetUrl(avatars.get(row.getAuthorId()), SIGN_SECONDS));
-            vo.setCoverUrl(storage.signGetUrl(vo.getCoverUrl(), SIGN_SECONDS));
-            vo.setVideoUrl(storage.signGetUrl(vo.getVideoUrl(), SIGN_SECONDS));
+            if (blocked.contains(row.getId())) vo.setStatus("banned");
+            boolean signMedia = !"banned".equals(vo.getStatus());
+            vo.setCoverUrl(signMedia ? storage.signGetUrl(vo.getCoverUrl(), SIGN_SECONDS) : null);
+            vo.setVideoUrl(signMedia ? storage.signGetUrl(vo.getVideoUrl(), SIGN_SECONDS) : null);
             vo.setIsLike(liked.contains(row.getId())); vo.setIsFollow(Boolean.TRUE.equals(followMap.get(row.getAuthorId())));
             result.add(vo);
         }

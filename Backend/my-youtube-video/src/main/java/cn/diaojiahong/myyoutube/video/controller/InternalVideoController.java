@@ -55,7 +55,7 @@ public class InternalVideoController {
     public ContentDocMessage searchDocument(@PathVariable Long contentId) {
         var content = contentService.getById(contentId);
         if (content == null) return null;
-        if (Integer.valueOf(1).equals(content.getIsDelete()))
+        if (Integer.valueOf(1).equals(content.getIsDelete()) || access.hasBannedAudio(content))
             return ContentDocMessage.builder().contentId(contentId)
                     .indexVersion(content.getIndexVersion()).deleted(true).build();
         var tagIds = contentTags.lambdaQuery().eq(cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag::getContentId, contentId)

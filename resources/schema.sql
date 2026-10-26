@@ -324,6 +324,7 @@ CREATE TABLE IF NOT EXISTS `audio` (
     UNIQUE KEY `uk_audio_cover_upload` (`source_cover_object_key`),
     KEY `idx_audio_upload` (`processing_status`, `upload_after`, `id`),
     KEY `idx_audio_processing` (`processing_status`, `review_status`, `is_delete`, `preparation_after`, `id`),
+    KEY `idx_audio_review_status` (`review_status`, `id`),
     KEY `idx_audio_index` (`index_after`, `id`),
     KEY `idx_audio_index_pending` (`index_pending_since`, `id`),
     KEY `idx_uploader` (`uploader_id`, `create_time`),
