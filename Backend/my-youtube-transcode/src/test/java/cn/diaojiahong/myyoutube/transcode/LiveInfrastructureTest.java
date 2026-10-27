@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import com.alibaba.nacos.api.NacosFactory;
 import com.alibaba.nacos.api.naming.NamingService;
 import com.sun.net.httpserver.HttpServer;
@@ -92,7 +94,7 @@ class LiveInfrastructureTest {
             var environment=new org.springframework.mock.env.MockEnvironment().withProperty("spring.application.name","live-"+suffix)
                     .withProperty("rocketmq.name-server",IsolatedDownloadSupport.NAMESERVER).withProperty("media.monitor.dlq-groups",group);
             var monitoring=new cn.diaojiahong.myyoutube.common.monitoring.DeadLetterMetrics(environment,registry);
-            try { monitoring.sample(); assertEquals(1,registry.get("mq.dlq.retained").tag("group",group).gauge().value()); }
+            try { monitoring.sample(); assertEquals(1,registry.get(MetricNames.MQ_DLQ_RETAINED).tag("group",group).gauge().value()); }
             finally { monitoring.close(); }
             System.out.println("LIVE RocketMQ: executions="+calls.get()+", retained DLQ=true, group="+group);
         } finally { consumer.shutdown(); probe.shutdown(); producer.shutdown(); }

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.schedule;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import cn.diaojiahong.myyoutube.transcode.mapper.MediaTaskMapper;
 import io.micrometer.core.instrument.*;
@@ -28,10 +30,10 @@ public class PipelineMetrics {
         this.tasks = tasks; this.jdbc = jdbc; this.metrics = metrics;
         this.oldestEnabled = oldestEnabled;
         health = new SampleHealth(metrics, Clock.systemUTC(), "tasks");
-        Gauge.builder("media.pipeline.inactive.lowerbound", this, m -> !m.oldestEnabled || m.stock == null ? Double.NaN : m.inactive).register(metrics);
-        Gauge.builder("media.pipeline.inactive.capped", this, m -> !m.oldestEnabled || m.stock == null ? Double.NaN : m.candidatesCapped ? 1 : 0).register(metrics);
-        Gauge.builder("media.ready.oldest.seconds", this, m -> m.age(m.oldestReady)).register(metrics);
-        Gauge.builder("media.result.delivery.oldest.seconds", this, m -> m.age(m.oldestDelivery)).register(metrics);
+        Gauge.builder(MetricNames.MEDIA_PIPELINE_INACTIVE_LOWERBOUND, this, m -> !m.oldestEnabled || m.stock == null ? Double.NaN : m.inactive).register(metrics);
+        Gauge.builder(MetricNames.MEDIA_PIPELINE_INACTIVE_CAPPED, this, m -> !m.oldestEnabled || m.stock == null ? Double.NaN : m.candidatesCapped ? 1 : 0).register(metrics);
+        Gauge.builder(MetricNames.MEDIA_READY_OLDEST_SECONDS, this, m -> m.age(m.oldestReady)).register(metrics);
+        Gauge.builder(MetricNames.MEDIA_RESULT_DELIVERY_OLDEST_SECONDS, this, m -> m.age(m.oldestDelivery)).register(metrics);
     }
     private double age(Instant oldest) {
         return !oldestEnabled || stock == null ? Double.NaN : oldest == null ? 0 : Math.max(0, Duration.between(oldest, Instant.now()).toMillis() / 1000d);
@@ -49,7 +51,7 @@ public class PipelineMetrics {
                 candidates = Objects.requireNonNull(jdbc.queryForObject("SELECT COUNT(*) FROM (SELECT id FROM media_pipeline WHERE status='PROCESSING' ORDER BY id LIMIT 2001) candidates", Long.class));
                 stalled = Objects.requireNonNull(jdbc.queryForObject("SELECT COUNT(*) FROM (SELECT id FROM media_pipeline WHERE status='PROCESSING' ORDER BY id LIMIT 2000) candidates WHERE NOT EXISTS (SELECT 1 FROM media_task t WHERE t.pipeline_id=candidates.id AND t.phase='CONTENT' AND t.status IN ('READY','RUNNING','RETRY_WAIT'))", Long.class));
             }
-            for (var key : fresh.keySet()) if (registered.add(key)) Gauge.builder("media.tasks", this,
+            for (var key : fresh.keySet()) if (registered.add(key)) Gauge.builder(MetricNames.MEDIA_TASKS, this,
                     m -> m.stock == null ? Double.NaN : m.stock.getOrDefault(key, 0L))
                     .tags("phase", key.get(0), "type", key.get(1), "status", key.get(2)).register(metrics);
             oldestReady = ready; oldestDelivery = delivery; inactive = stalled; candidatesCapped = candidates > 2000; stock = Map.copyOf(fresh); health.success();

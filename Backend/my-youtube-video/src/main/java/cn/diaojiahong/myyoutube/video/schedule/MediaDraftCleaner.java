@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.schedule;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
@@ -52,7 +54,7 @@ public class MediaDraftCleaner {
             try {
                 repairUpload(draft);
             } catch (Exception e) {
-                metrics.counter("myyoutube.maintenance.deferred", "stage", "draft_cleanup").increment();
+                metrics.counter(MetricNames.MAINTENANCE_DEFERRED, "stage", "draft_cleanup").increment();
                 log.warn("草稿治理失败: draftId={}", draft.getId(), e);
             }
         }
@@ -64,7 +66,7 @@ public class MediaDraftCleaner {
             log.warn("上传事件缺失, 已补发上传事件 draftId={}", draft.getId());
             rocketMQTemplate.syncSend(MqConstants.TOPIC_MEDIA_UPLOAD_EVENT, MediaUploadEventMessage.builder()
                     .draftId(draft.getId()).userId(draft.getUserId()).objectKey(draft.getObjectKey()).build());
-            metrics.counter("myyoutube.upload.event.repairs").increment();
+            metrics.counter(MetricNames.UPLOAD_EVENT_REPAIRS).increment();
         }
     }
 }

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.*;
@@ -19,16 +21,16 @@ class NotificationBusinessMetricsTest {
         publisher.publish(notice);
         verify(store, times(3)).save(notice);
         verifyNoInteractions(push);
-        assertEquals(1, registry.get("myyoutube.notification.delivery.failures").tag("stage", "store").counter().count());
-        assertNull(registry.find("myyoutube.notification.delivery.successes").counter());
+        assertEquals(1, registry.get(MetricNames.NOTIFICATION_DELIVERY_FAILURES).tag("stage", "store").counter().count());
+        assertNull(registry.find(MetricNames.NOTIFICATION_DELIVERY_SUCCESSES).counter());
     }
     @Test void signalFailureDoesNotEraseDurableStoreSuccessOrRetryStore() {
         when(store.save(notice)).thenReturn(true);
         doThrow(new IllegalStateException()).when(push).pushSseSignal(1L, NotificationPublisher.NOTIFY_DIRTY_SIGNAL);
         publisher.publish(notice);
         verify(store).save(notice);
-        assertEquals(1, registry.get("myyoutube.notification.delivery.successes").tag("stage", "store").counter().count());
-        assertEquals(1, registry.get("myyoutube.notification.delivery.failures").tag("stage", "signal").counter().count());
-        assertNull(registry.find("myyoutube.notification.delivery.successes").tag("stage", "signal").counter());
+        assertEquals(1, registry.get(MetricNames.NOTIFICATION_DELIVERY_SUCCESSES).tag("stage", "store").counter().count());
+        assertEquals(1, registry.get(MetricNames.NOTIFICATION_DELIVERY_FAILURES).tag("stage", "signal").counter().count());
+        assertNull(registry.find(MetricNames.NOTIFICATION_DELIVERY_SUCCESSES).tag("stage", "signal").counter());
     }
 }

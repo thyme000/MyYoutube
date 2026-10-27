@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.schedule;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort.Batch;
@@ -23,10 +25,10 @@ public class RetryBatchMetrics {
             @Value("${my-youtube.observability.monitoring.enabled:false}") boolean enabled) {
         this.batches=batches; this.enabled=enabled;
         health=new SampleHealth(metrics,java.time.Clock.systemUTC(),"retry-batches",() -> enabled);
-        Gauge.builder("media.retry.batch.active",this,m -> m.active()).register(metrics);
-        Gauge.builder("media.retry.batch.age.seconds",this,m -> m.age()).register(metrics);
+        Gauge.builder(MetricNames.MEDIA_RETRY_BATCH_ACTIVE,this,m -> m.active()).register(metrics);
+        Gauge.builder(MetricNames.MEDIA_RETRY_BATCH_AGE_SECONDS,this,m -> m.age()).register(metrics);
         for (var state : MediaRetryItemState.values())
-            Gauge.builder("media.retry.items",this,m -> m.count(state)).tag("state",state.getCode()).register(metrics);
+            Gauge.builder(MetricNames.MEDIA_RETRY_ITEMS,this,m -> m.count(state)).tag("state",state.getCode()).register(metrics);
     }
     private double active() { return !sampled ? Double.NaN : current==null ? 0 : 1; }
     private double age() {

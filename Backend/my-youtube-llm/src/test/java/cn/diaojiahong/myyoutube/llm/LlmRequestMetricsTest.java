@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.llm;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.llm.controller.InternalLlmController;
 import cn.diaojiahong.myyoutube.llm.embedding.EmbeddingOrchestrator;
@@ -95,10 +97,10 @@ class LlmRequestMetricsTest {
     }
 
     private long completed(String operation, String outcome) {
-        return registry.get("llm.request.duration").tags("operation", operation, "outcome", outcome).timer().count();
+        return registry.get(MetricNames.LLM_REQUEST_DURATION).tags("operation", operation, "outcome", outcome).timer().count();
     }
 
     private double active(String operation) {
-        return registry.get("llm.requests.active").tag("operation", operation).gauge().value();
+        return registry.get(MetricNames.LLM_REQUESTS_ACTIVE).tag("operation", operation).gauge().value();
     }
 }

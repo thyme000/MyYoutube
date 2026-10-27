@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.schedule;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import io.micrometer.core.instrument.*;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,17 +32,17 @@ public class BusinessBacklogMetrics {
         this.jdbc = jdbc; this.enabled = enabled;
         health = new SampleHealth(registry, Clock.systemUTC(), "business_backlog", () -> enabled);
         for (String state : DRAFT_STATES) {
-            Gauge.builder("myyoutube.business.drafts.lowerbound", this, m -> m.snapshot == null ? Double.NaN : m.snapshot.drafts().get(state))
+            Gauge.builder(MetricNames.BUSINESS_DRAFTS_LOWERBOUND, this, m -> m.snapshot == null ? Double.NaN : m.snapshot.drafts().get(state))
                     .tag("status", state).register(registry);
-            Gauge.builder("myyoutube.business.drafts.capped", this, m -> m.snapshot == null ? Double.NaN : m.snapshot.drafts().get(state) > LIMIT ? 1 : 0)
+            Gauge.builder(MetricNames.BUSINESS_DRAFTS_CAPPED, this, m -> m.snapshot == null ? Double.NaN : m.snapshot.drafts().get(state) > LIMIT ? 1 : 0)
                     .tag("status", state).register(registry);
         }
         for (String branch : BRANCHES) {
-            Gauge.builder("myyoutube.business.publication.pending.lowerbound", this, m -> m.snapshot == null ? Double.NaN : m.snapshot.pending().get(branch))
+            Gauge.builder(MetricNames.BUSINESS_PUBLICATION_PENDING_LOWERBOUND, this, m -> m.snapshot == null ? Double.NaN : m.snapshot.pending().get(branch))
                     .tag("branch", branch).register(registry);
-            Gauge.builder("myyoutube.business.publication.oldest.seconds", this, m -> m.age(branch)).tag("branch", branch).register(registry);
+            Gauge.builder(MetricNames.BUSINESS_PUBLICATION_OLDEST_SECONDS, this, m -> m.age(branch)).tag("branch", branch).register(registry);
         }
-        Gauge.builder("myyoutube.business.publication.capped", this, m -> m.snapshot == null ? Double.NaN : m.snapshot.capped() ? 1 : 0).register(registry);
+        Gauge.builder(MetricNames.BUSINESS_PUBLICATION_CAPPED, this, m -> m.snapshot == null ? Double.NaN : m.snapshot.capped() ? 1 : 0).register(registry);
     }
 
     @Scheduled(fixedDelayString = "${my-youtube.observability.monitoring.interval-ms:30000}", initialDelay = 30000)

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
@@ -130,7 +132,7 @@ public class ContentUnderstandingService {
         });
         if (receivedAt != null) {
             long readyElapsedMs = Math.max(0, receivedAt - manifest.input().submittedAt());
-            metrics.timer("media.pipeline.ready.duration").record(readyElapsedMs, TimeUnit.MILLISECONDS);
+            metrics.timer(MetricNames.MEDIA_PIPELINE_READY_DURATION).record(readyElapsedMs, TimeUnit.MILLISECONDS);
             log.info("Pipeline artifacts stored contentId={} pipelineId={} review={} readyElapsedMs={}",
                     manifest.contentId(), manifest.pipelineId(), properties.isAutoReview() ? "AUTO" : "MANUAL", readyElapsedMs);
         } else {

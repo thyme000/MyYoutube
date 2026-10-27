@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.observability;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import org.apache.rocketmq.common.message.MessageExt;
 import org.apache.rocketmq.client.consumer.listener.*;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -28,17 +30,17 @@ final class BatchConsumer implements MessageListenerConcurrently {
                 catch (IngestFailure failure) {
                     if (!failure.permanent()) throw failure;
                     pending.save(body, failure.reason());
-                    metrics.counter("pipeline.ingest.dlq.classified", "reason", failure.reason().name()).increment();
+                    metrics.counter(MetricNames.PIPELINE_INGEST_DLQ_CLASSIFIED, "reason", failure.reason().name()).increment();
                     log.error("Pipeline batch requires DLQ transfer reason={}", failure.reason());
                 }
             }
             dlq.transfer(message);
             pending.remove(body);
-            metrics.counter("pipeline.ingest.dlq.transfers", "result", "confirmed").increment();
+            metrics.counter(MetricNames.PIPELINE_INGEST_DLQ_TRANSFERS, "result", "confirmed").increment();
             return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
-            metrics.counter("pipeline.ingest.batches", "result", "retry").increment();
+            metrics.counter(MetricNames.PIPELINE_INGEST_BATCHES, "result", "retry").increment();
             log.warn("Pipeline batch unacknowledged errorType={}", failure.getClass().getSimpleName());
             return ConsumeConcurrentlyStatus.RECONSUME_LATER;
         }

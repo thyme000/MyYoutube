@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.preparation;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
@@ -45,7 +47,7 @@ public class PreparationReclaimer {
             cursor = page.get(page.size() - 1).getId();
             for (var candidate : page) try { inspect(candidate, now); }
             catch (Exception e) {
-                metrics.counter("myyoutube.maintenance.deferred", "stage", "preparation_reclaim").increment();
+                metrics.counter(MetricNames.MAINTENANCE_DEFERRED, "stage", "preparation_reclaim").increment();
                 log.warn("Preparation reclamation deferred preparationId={}", candidate.getId(), e);
             }
         }

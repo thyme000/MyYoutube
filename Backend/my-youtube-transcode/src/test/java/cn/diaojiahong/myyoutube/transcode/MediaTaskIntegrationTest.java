@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import com.sun.net.httpserver.HttpServer;
@@ -197,7 +199,7 @@ class MediaTaskIntegrationTest {
         assertEquals(MediaTaskStatus.RUNNING, node("ASR").getStatus());
         tasks.completeAndAdvance(winner, result("ASR"), null);
         assertEquals(MediaTaskStatus.SUCCESS, node("ASR").getStatus());
-        assertEquals(1, metrics.get("media.node.wait").tag("type","ASR").timer().count());
+        assertEquals(1, metrics.get(MetricNames.MEDIA_NODE_WAIT).tag("type","ASR").timer().count());
     }
     @Test void terminalBranchCannotForceManualWhileOtherBranchesCanProgress() {
         observations.getRecording().setEnabled(true);
@@ -467,7 +469,7 @@ class MediaTaskIntegrationTest {
         jdbc.update("UPDATE media_pipeline SET notify_after=? WHERE id=100", past(1));
         tasks.recoverCompletions();
         verify(dispatcher,times(2)).completed(any());
-        assertEquals(1, metrics.get("media.pipeline.duration").timer().count());
+        assertEquals(1, metrics.get(MetricNames.MEDIA_PIPELINE_DURATION).timer().count());
     }
     @Test void reviewRetriesDoNotChangeCompletedArtifactPipeline() {
         tasks.start(input()); complete(); tasks.startReview(100L); tasks.startReview(100L);
@@ -584,7 +586,7 @@ class MediaTaskIntegrationTest {
         jdbc.update("UPDATE media_task SET dispatch_after=? WHERE status='READY'", past(1));
         tasks.recover(); verify(dispatcher,times(6)).dispatch(any());
         var candidate=node("ASR"); assertNotNull(claim(candidate)); assertNull(claim(candidate));
-        assertEquals(1,metrics.get("media.claim.skipped").tag("phase","CONTENT").counter().count());
+        assertEquals(1,metrics.get(MetricNames.MEDIA_CLAIM_SKIPPED).tag("phase","CONTENT").counter().count());
         System.out.println("Lost dispatch recovery: READY messages=3 original+3 recovered; duplicate claims=1; duplicate executions=0");
     }
     @Test void unexplainedPendingAndUnknownStatusAreOrchestrationErrors() {

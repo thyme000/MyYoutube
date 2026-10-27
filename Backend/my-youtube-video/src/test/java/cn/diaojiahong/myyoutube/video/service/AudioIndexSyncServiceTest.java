@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.common.mq.MqSendUnconfirmedException;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
@@ -105,7 +107,7 @@ class AudioIndexSyncServiceTest {
     }
 
     private double failures(String scope) {
-        return registry.get("myyoutube.audio.index.delivery.failures").tag("scope", scope).counter().count();
+        return registry.get(MetricNames.AUDIO_INDEX_DELIVERY_FAILURES).tag("scope", scope).counter().count();
     }
     private static Audio audio(long id) {
         var audio = new Audio(); audio.setId(id); audio.setIndexVersion(1L);

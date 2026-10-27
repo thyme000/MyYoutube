@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.observability;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import io.micrometer.core.instrument.*;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
@@ -26,9 +28,9 @@ public final class MqMetrics {
         for (String group : groups.keySet()) for (String kind : List.of("normal", "retry")) {
             String key = group + ":" + kind;
             health.put(key, new SampleHealth(registry, clock, "mq", "group", group, "kind", kind));
-            Gauge.builder("mq.consumer.pending", this, m -> m.snapshot.containsKey(key) ? m.snapshot.get(key).pending() : Double.NaN)
+            Gauge.builder(MetricNames.MQ_CONSUMER_PENDING, this, m -> m.snapshot.containsKey(key) ? m.snapshot.get(key).pending() : Double.NaN)
                     .tags("group", group, "kind", kind).register(registry);
-            Gauge.builder("mq.consumer.oldest.seconds", this, m -> m.snapshot.containsKey(key) ? m.snapshot.get(key).oldestSeconds() : Double.NaN)
+            Gauge.builder(MetricNames.MQ_CONSUMER_OLDEST_SECONDS, this, m -> m.snapshot.containsKey(key) ? m.snapshot.get(key).oldestSeconds() : Double.NaN)
                     .tags("group", group, "kind", kind).register(registry);
         }
     }

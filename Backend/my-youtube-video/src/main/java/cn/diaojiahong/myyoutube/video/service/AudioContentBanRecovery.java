@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.video.config.AudioCascadeProperties;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
@@ -57,7 +59,7 @@ public class AudioContentBanRecovery {
     }
 
     private void failed(Long contentId, String scope, Exception error) {
-        metrics.counter("audio.cascade.recovery.failed", "scope", scope).increment();
+        metrics.counter(MetricNames.AUDIO_CASCADE_RECOVERY_FAILED, "scope", scope).increment();
         log.warn("Audio cascade recovery deferred contentId={} scope={} reason={}", contentId, scope, error.getClass().getSimpleName());
     }
 }

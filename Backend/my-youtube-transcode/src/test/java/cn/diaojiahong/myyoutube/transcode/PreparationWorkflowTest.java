@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.*;
@@ -280,7 +282,7 @@ class PreparationWorkflowTest {
         assertEquals(manifest, registry.view(101L).manifest());
         assertNotNull(PreparedMedia.freeze(new Request(101L, 1L, 0, 9L,
                 new ContentMedia("video", new VideoMedia("upload/video", 0), null), null), manifest));
-        assertEquals(1, samplingMetrics.get("media.video.sampling.attempts").tag("outcome", "TOLERATED").counter().count());
+        assertEquals(1, samplingMetrics.get(MetricNames.MEDIA_VIDEO_SAMPLING_ATTEMPTS).tag("outcome", "TOLERATED").counter().count());
         verify(storage, times(8)).upload(any(), anyString());
     }
 
@@ -298,7 +300,7 @@ class PreparationWorkflowTest {
         assertEquals(List.of(0, 1, 3, 4, 6, 8, 9, 5), decoded);
         assertEquals(List.of(0, 1, 3, 4, 5, 6, 8, 9), PreparedMedia.videoFrames(manifest).stream().map(Item::index).toList());
         verify(storage, times(8)).upload(any(), anyString());
-        assertEquals(1, samplingMetrics.get("media.video.sampling.attempts").tag("outcome", "INSUFFICIENT_FRAMES").counter().count());
+        assertEquals(1, samplingMetrics.get(MetricNames.MEDIA_VIDEO_SAMPLING_ATTEMPTS).tag("outcome", "INSUFFICIENT_FRAMES").counter().count());
         assertEquals(2, registry.view(101L).attempt());
     }
 
@@ -314,7 +316,7 @@ class PreparationWorkflowTest {
         assertEquals(9, manifest.videoFrameCount());
         assertEquals(2, decoded.get(decoded.size() - 1));
         verify(storage, times(9)).upload(any(), anyString());
-        assertEquals(1, samplingMetrics.get("media.video.sampling.attempts").tag("outcome", "COVERAGE_GAP").counter().count());
+        assertEquals(1, samplingMetrics.get(MetricNames.MEDIA_VIDEO_SAMPLING_ATTEMPTS).tag("outcome", "COVERAGE_GAP").counter().count());
     }
 
     @Test void successRatioChangesPreparationFingerprintEvenWhenTargetIsUnchanged() {

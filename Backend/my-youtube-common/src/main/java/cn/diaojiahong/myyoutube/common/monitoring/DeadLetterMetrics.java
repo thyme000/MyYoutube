@@ -27,7 +27,7 @@ public class DeadLetterMetrics {
         health = new SampleHealth(metrics, java.time.Clock.systemUTC(), "dlq");
         for (String group : environment.getRequiredProperty("media.monitor.dlq-groups").split(",")) {
             var value=new AtomicLong(-1); retained.put(group.trim(),value);
-            Gauge.builder("mq.dlq.retained",value,v -> v.get() < 0 ? Double.NaN : v.get()).tag("group",group.trim()).register(metrics);
+            Gauge.builder(MetricNames.MQ_DLQ_RETAINED,value,v -> v.get() < 0 ? Double.NaN : v.get()).tag("group",group.trim()).register(metrics);
         }
     }
     @Scheduled(fixedDelayString="${media.monitor.interval-ms:30000}",initialDelayString="${media.monitor.interval-ms:30000}")
@@ -56,7 +56,7 @@ public class DeadLetterMetrics {
             health.success();
         } catch (Exception error) {
             health.failure();
-            metrics.counter("mq.dlq.probe.failures").increment(); log.warn("Dead letter metrics unavailable errorType={}",error.getClass().getSimpleName());
+            metrics.counter(MetricNames.MQ_DLQ_PROBE_FAILURES).increment(); log.warn("Dead letter metrics unavailable errorType={}",error.getClass().getSimpleName());
         }
     }
     private static boolean isTopicNotExist(MQClientException error) {

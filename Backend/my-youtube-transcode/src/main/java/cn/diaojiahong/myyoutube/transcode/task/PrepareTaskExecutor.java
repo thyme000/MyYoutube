@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.task;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.*;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts;
 import cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings;
@@ -113,7 +115,7 @@ public class PrepareTaskExecutor implements MediaTaskExecutor {
             var manifest = new Manifest(request.preparationId(), request.draftId(), request.mediaVersion(),
                     request.userId(), job.getParameterVersion(), result, duration, hasAudio, videoFrameCount, videoSampling);
             PreparedMedia.freeze(request, manifest);
-            if (videoSampling != null) metrics.counter("media.video.sampling.attempts", "outcome",
+            if (videoSampling != null) metrics.counter(MetricNames.MEDIA_VIDEO_SAMPLING_ATTEMPTS, "outcome",
                     videoFrameCount == videoSampling.targetCount() ? "FULL" : "TOLERATED").increment();
             log.info("Preparation completed preparationId={} draftId={} mediaVersion={} media={} items={} frames={} hasAudio={} durationMs={}"
                             + " preparedFrames={} reusedFrames={} preparedImages={} reusedImages={} elapsedMs={}",
@@ -122,7 +124,7 @@ public class PrepareTaskExecutor implements MediaTaskExecutor {
                     System.currentTimeMillis() - startedAt);
             return JsonUtil.toJson(manifest);
         } catch (VideoFrameSampling.Rejected error) {
-            metrics.counter("media.video.sampling.attempts", "outcome", error.reason()).increment();
+            metrics.counter(MetricNames.MEDIA_VIDEO_SAMPLING_ATTEMPTS, "outcome", error.reason()).increment();
             log.warn("Preparation video sampling rejected preparationId={} reason={} detail={}", request.preparationId(), error.reason(), error.getMessage());
             throw error;
         } finally {

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.handler;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.push.PushEnvelope;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
@@ -56,7 +58,7 @@ public class LocalPushDispatcher implements MessageListener {
         } catch (Exception e) {
             String kind = RedisConstants.PUSH_CHANNEL_WS.equals(channel) ? "ws"
                     : RedisConstants.PUSH_CHANNEL_SSE.equals(channel) ? "sse" : "other";
-            metrics.counter("myyoutube.push.delivery.failures", "channel", kind).increment();
+            metrics.counter(MetricNames.PUSH_DELIVERY_FAILURES, "channel", kind).increment();
             log.warn("推送事件处理失败, channel={} errorType={}", kind, e.getClass().getSimpleName());
         }
     }

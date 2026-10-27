@@ -65,12 +65,12 @@ public class BusinessMetrics {
         var tags = Tags.of("chain", operation.chain(), "operation", operation.name().toLowerCase(Locale.ROOT));
         var counters = new HashMap<String, Counter>();
         for (String outcome : OUTCOMES)
-            counters.put(outcome, registry.counter("myyoutube.business.operations", tags.and("outcome", outcome)));
-        var duration = Timer.builder("myyoutube.business.duration").tags(tags).publishPercentileHistogram()
+            counters.put(outcome, registry.counter(MetricNames.BUSINESS_OPERATIONS, tags.and("outcome", outcome)));
+        var duration = Timer.builder(MetricNames.BUSINESS_DURATION).tags(tags).publishPercentileHistogram()
                 .minimumExpectedValue(Duration.ofMillis(1)).maximumExpectedValue(Duration.ofMinutes(2)).register(registry);
         var active = new AtomicInteger();
-        Gauge.builder("myyoutube.business.inflight", active, AtomicInteger::get).tags(tags).register(registry);
-        Gauge.builder("myyoutube.business.operation.enabled", () -> 1).tags(tags).register(registry);
+        Gauge.builder(MetricNames.BUSINESS_INFLIGHT, active, AtomicInteger::get).tags(tags).register(registry);
+        Gauge.builder(MetricNames.BUSINESS_OPERATION_ENABLED, () -> 1).tags(tags).register(registry);
         return new Meters(duration, Map.copyOf(counters), active);
     }
 

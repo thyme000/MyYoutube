@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.notification.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -31,19 +33,19 @@ public class NotificationPublisher {
                 break;
             } catch (Exception e) {
                 if (attempt >= 2) {
-                    metrics.counter("myyoutube.notification.delivery.failures", "stage", "store").increment();
+                    metrics.counter(MetricNames.NOTIFICATION_DELIVERY_FAILURES, "stage", "store").increment();
                     log.warn("通知落库失败(降级不影响主流程, 前端拉模式兜底), receiver={}, type={}, attempts={}",
                             notification.getReceiverId(), notification.getType(), attempt + 1, e);
                     return;
                 }
             }
         }
-        metrics.counter("myyoutube.notification.delivery.successes", "stage", "store").increment();
+        metrics.counter(MetricNames.NOTIFICATION_DELIVERY_SUCCESSES, "stage", "store").increment();
         try {
             pushFanoutPublisher.pushSseSignal(notification.getReceiverId(), NOTIFY_DIRTY_SIGNAL);
-            metrics.counter("myyoutube.notification.delivery.successes", "stage", "signal").increment();
+            metrics.counter(MetricNames.NOTIFICATION_DELIVERY_SUCCESSES, "stage", "signal").increment();
         } catch (Exception e) {
-            metrics.counter("myyoutube.notification.delivery.failures", "stage", "signal").increment();
+            metrics.counter(MetricNames.NOTIFICATION_DELIVERY_FAILURES, "stage", "signal").increment();
             log.warn("通知门铃发送失败(前端拉模式兜底), receiver={}", notification.getReceiverId(), e);
         }
     }

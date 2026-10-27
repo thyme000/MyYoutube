@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.schedule;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.video.domain.po.*;
@@ -26,10 +28,10 @@ public class ReviewMetrics {
         this.rows = rows; this.events = events; this.jdbc = jdbc;
         this.oldestEnabled = oldestEnabled;
         health = new SampleHealth(metrics, Clock.systemUTC(), "review");
-        Gauge.builder("media.review.queue", this, m -> m.stock == null ? Double.NaN : m.stock.automatic()).tag("mode", "automatic").register(metrics);
-        Gauge.builder("media.review.queue", this, m -> m.stock == null ? Double.NaN : m.stock.manual()).tag("mode", "manual").register(metrics);
-        Gauge.builder("media.publication.pending", this, m -> m.stock == null ? Double.NaN : m.stock.pending()).register(metrics);
-        Gauge.builder("media.publication.oldest.seconds", this, m -> !m.oldestEnabled || m.stock == null ? Double.NaN : m.stock.oldest() == null ? 0
+        Gauge.builder(MetricNames.MEDIA_REVIEW_QUEUE, this, m -> m.stock == null ? Double.NaN : m.stock.automatic()).tag("mode", "automatic").register(metrics);
+        Gauge.builder(MetricNames.MEDIA_REVIEW_QUEUE, this, m -> m.stock == null ? Double.NaN : m.stock.manual()).tag("mode", "manual").register(metrics);
+        Gauge.builder(MetricNames.MEDIA_PUBLICATION_PENDING, this, m -> m.stock == null ? Double.NaN : m.stock.pending()).register(metrics);
+        Gauge.builder(MetricNames.MEDIA_PUBLICATION_OLDEST_SECONDS, this, m -> !m.oldestEnabled || m.stock == null ? Double.NaN : m.stock.oldest() == null ? 0
                 : Math.max(0, Duration.between(m.stock.oldest(), Instant.now()).toMillis() / 1000d)).register(metrics);
     }
     @Scheduled(fixedDelay=30000, initialDelay=30000)

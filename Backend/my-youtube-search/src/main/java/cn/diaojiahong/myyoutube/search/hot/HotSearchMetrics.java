@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import io.micrometer.core.instrument.*;
 import org.springframework.stereotype.Component;
 
@@ -29,7 +31,7 @@ public class HotSearchMetrics {
             for (var operation : Operation.values()) {
                 Timer[] results = new Timer[2];
                 for (int i = 0; i < results.length; i++) {
-                    results[i] = Timer.builder("myyoutube.hot.search.duration")
+                    results[i] = Timer.builder(MetricNames.HOT_SEARCH_DURATION)
                             .tags("operation", label(operation), "outcome", i == 0 ? "success" : "failure")
                             .serviceLevelObjectives(Duration.ofMillis(50), Duration.ofSeconds(1), Duration.ofSeconds(10),
                                     Duration.ofSeconds(30), Duration.ofMinutes(2)).register(registry);
@@ -40,9 +42,9 @@ public class HotSearchMetrics {
             for (var result : EventResult.values()) events(result, 0);
             for (var kind : ReadKind.values()) for (var result : ReadResult.values()) read(kind, result, 0);
             for (var operation : new Operation[]{Operation.EMBEDDING, Operation.GROUPING}) modelItems(operation, 0, 0);
-            Gauge.builder("myyoutube.hot.search.last.publish.seconds", this, value -> value.lastPublish).register(registry);
-            Gauge.builder("myyoutube.hot.search.displayed", this, value -> value.displayed).register(registry);
-            Gauge.builder("myyoutube.hot.search.active.groups", this, value -> value.activeGroups).register(registry);
+            Gauge.builder(MetricNames.HOT_SEARCH_LAST_PUBLISH_SECONDS, this, value -> value.lastPublish).register(registry);
+            Gauge.builder(MetricNames.HOT_SEARCH_DISPLAYED, this, value -> value.displayed).register(registry);
+            Gauge.builder(MetricNames.HOT_SEARCH_ACTIVE_GROUPS, this, value -> value.activeGroups).register(registry);
         });
     }
 
@@ -70,23 +72,23 @@ public class HotSearchMetrics {
     public void record(RecordResult result) { record(result, 1); }
 
     private void record(RecordResult result, int count) {
-        quietly(() -> registry.counter("myyoutube.hot.search.records", "outcome", label(result)).increment(count));
+        quietly(() -> registry.counter(MetricNames.HOT_SEARCH_RECORDS, "outcome", label(result)).increment(count));
     }
 
     public void events(EventResult result, int count) {
-        quietly(() -> registry.counter("myyoutube.hot.search.history.events", "outcome", label(result)).increment(count));
+        quietly(() -> registry.counter(MetricNames.HOT_SEARCH_HISTORY_EVENTS, "outcome", label(result)).increment(count));
     }
 
     public void read(ReadKind kind, ReadResult result) { read(kind, result, 1); }
 
     private void read(ReadKind kind, ReadResult result, int count) {
-        quietly(() -> registry.counter("myyoutube.hot.search.cache.reads", "kind", label(kind), "outcome", label(result)).increment(count));
+        quietly(() -> registry.counter(MetricNames.HOT_SEARCH_CACHE_READS, "kind", label(kind), "outcome", label(result)).increment(count));
     }
 
     public void modelItems(Operation operation, int requested, int accepted) {
         quietly(() -> {
-            registry.counter("myyoutube.hot.search.model.items", "operation", label(operation), "outcome", "accepted").increment(accepted);
-            registry.counter("myyoutube.hot.search.model.items", "operation", label(operation), "outcome", "unassigned").increment(Math.max(0, requested - accepted));
+            registry.counter(MetricNames.HOT_SEARCH_MODEL_ITEMS, "operation", label(operation), "outcome", "accepted").increment(accepted);
+            registry.counter(MetricNames.HOT_SEARCH_MODEL_ITEMS, "operation", label(operation), "outcome", "unassigned").increment(Math.max(0, requested - accepted));
         });
     }
 

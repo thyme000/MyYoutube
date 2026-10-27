@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
@@ -137,9 +139,9 @@ public class DraftPublicationService {
                     .orderByAsc(MediaDraft::getId).last("LIMIT " + properties.getBatchSize()));
             for (var draft : due) claimAndAdvance(draft);
         } catch (RuntimeException error) {
-            metrics.counter("publication.scan.failed").increment();
+            metrics.counter(MetricNames.PUBLICATION_SCAN_FAILED).increment();
             throw error;
-        } finally { sample.stop(metrics.timer("publication.scan.duration")); }
+        } finally { sample.stop(metrics.timer(MetricNames.PUBLICATION_SCAN_DURATION)); }
     }
 
     public void consume(DraftPublicationMessage message) {
@@ -155,7 +157,7 @@ public class DraftPublicationService {
         if (draft.getSubmissionAfter() == null || draft.getSubmissionAfter().isAfter(due)) return;
         var lease = due.plusSeconds(properties.getLeaseSeconds());
         if (rows.update(null, claimed(draft).set(MediaDraft::getSubmissionAfter, lease)) == 0) {
-            metrics.counter("publication.claim.missed").increment();
+            metrics.counter(MetricNames.PUBLICATION_CLAIM_MISSED).increment();
             return;
         }
         draft.setSubmissionAfter(lease);
@@ -180,7 +182,7 @@ public class DraftPublicationService {
                     .set(MediaDraft::getSubmissionState, terminal ? DraftSubmissionState.FAILED : DraftSubmissionState.PENDING)
                     .set(MediaDraft::getSubmissionAfter, terminal ? null : now().plusSeconds(properties.getRetryBackoffSeconds().get(attempts - 1)))
                     .set(terminal, MediaDraft::getSubmissionDeadline, null).set(MediaDraft::getSubmissionError, reason));
-            if (terminal && changed > 0) metrics.counter("publication.failed.total", "reason", "error").increment();
+            if (terminal && changed > 0) metrics.counter(MetricNames.PUBLICATION_FAILED_TOTAL, "reason", "error").increment();
             log.warn("Draft publication failed draftId={} attempt={} terminal={} errorType={}",
                     draft.getId(), attempts, terminal, error.getClass().getSimpleName());
         }
@@ -224,7 +226,7 @@ public class DraftPublicationService {
         int changed = observation.update(draft.getId(), claimed(draft).set(MediaDraft::getSubmissionState, DraftSubmissionState.FAILED)
                 .set(MediaDraft::getSubmissionError, message).set(MediaDraft::getSubmissionAfter, null)
                 .set(MediaDraft::getSubmissionDeadline, null));
-        if (changed > 0) metrics.counter("publication.failed.total", "reason", reason).increment();
+        if (changed > 0) metrics.counter(MetricNames.PUBLICATION_FAILED_TOTAL, "reason", reason).increment();
     }
 
     private LambdaUpdateWrapper<MediaDraft> claimed(MediaDraft draft) {

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.recommend.service.impl;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
@@ -112,7 +114,7 @@ public class RecommendServiceImpl implements IRecommendService {
                 cfAlgorithm = candidates.getAlgorithm();
                 cfRoute = filterCfCandidates(candidates.getContentIds(), userId, type, category, excludeIds);
             } catch (Exception e) {
-                metrics.counter("myyoutube.recommend.fallbacks", "strategy", "cf").increment();
+                metrics.counter(MetricNames.RECOMMEND_FALLBACKS, "strategy", "cf").increment();
                 log.warn("CF 召回失败, 本轮退回 tag+热度两路 userId={}", userId, e);
             }
         }

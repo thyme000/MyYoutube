@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.common.mq.MqSendUnconfirmedException;
 import cn.diaojiahong.myyoutube.video.domain.po.Audio;
@@ -35,7 +37,7 @@ public class AudioIndexSyncService {
     AudioIndexSyncService(AudioMapper rows, EsSyncPublisher publisher, MeterRegistry metrics, LongSupplier ticker) {
         this.rows = rows; this.publisher = publisher; this.metrics = metrics; this.ticker = ticker;
         for (String scope : List.of("record", "mq_unavailable", "scan", "claim"))
-            metrics.counter("myyoutube.audio.index.delivery.failures", "scope", scope);
+            metrics.counter(MetricNames.AUDIO_INDEX_DELIVERY_FAILURES, "scope", scope);
     }
 
     @Scheduled(fixedDelayString = "${my-youtube.audio-index.scan-interval-ms:5000}", initialDelayString = "${my-youtube.audio-index.scan-interval-ms:5000}")
@@ -63,7 +65,7 @@ public class AudioIndexSyncService {
     }
 
     private void failed(Long id, String scope, Exception error) {
-        metrics.counter("myyoutube.audio.index.delivery.failures", "scope", scope).increment();
+        metrics.counter(MetricNames.AUDIO_INDEX_DELIVERY_FAILURES, "scope", scope).increment();
         log.warn("Audio index sync deferred audioId={} scope={} reason={}", id, scope, error.getClass().getSimpleName());
     }
 

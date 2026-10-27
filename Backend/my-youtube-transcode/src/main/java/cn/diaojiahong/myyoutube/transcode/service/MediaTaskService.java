@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.media.AudioAnalysisContracts;
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
@@ -244,7 +246,7 @@ public class MediaTaskService {
             if (row == null || !Objects.equals(row.getPipelineId(), message.getPipelineId())
                     || !Objects.equals(row.getPhase(), message.getPhase()) || !MediaTaskStatus.READY.equals(row.getStatus())
                     || !Objects.equals(row.getAttempt(), message.getAttempt())) {
-                metrics.counter("media.claim.skipped", "phase", row == null ? "UNKNOWN" : row.getPhase()).increment();
+                metrics.counter(MetricNames.MEDIA_CLAIM_SKIPPED, "phase", row == null ? "UNKNOWN" : row.getPhase()).increment();
                 log.debug("Task claim skipped taskId={} reason={} messageAttempt={}", message.getTaskId(), skipReason(row, message), message.getAttempt());
                 return null;
             }
@@ -277,7 +279,7 @@ public class MediaTaskService {
             if (retryBatches != null) retryBatches.taskChanged(row.getRetryBatchId());
             var input = input(row, pipeline);
             eventJournal.task(row, MediaTaskStatus.READY, row.getTaskType() + "_STARTED", input, null);
-            afterCommit(() -> metrics.timer("media.node.wait", "type", row.getTaskType())
+            afterCommit(() -> metrics.timer(MetricNames.MEDIA_NODE_WAIT, "type", row.getTaskType())
                     .record(Math.max(0, Duration.between(row.getReadyAt(), now).toMillis()), TimeUnit.MILLISECONDS));
             afterCommit(() -> log.info("Task claimed taskId={} pipelineId={} batchId={} type={} attempt={}",
                     row.getId(),row.getPipelineId(),row.getRetryBatchId(),row.getTaskType(),row.getAttempt()));
@@ -366,7 +368,7 @@ public class MediaTaskService {
             afterCommit(() -> {
                 log.warn("Task stopped for manual retry taskId={} pipelineId={} batchId={} attempt={} resource={} reason={}",
                         row.getId(), row.getPipelineId(), row.getRetryBatchId(), row.getAttempt(), unavailable.resource(), unavailable.code());
-                metrics.counter("media.model.terminal", "type", row.getTaskType(), "reason", unavailable.code()).increment();
+                metrics.counter(MetricNames.MEDIA_MODEL_TERMINAL, "type", row.getTaskType(), "reason", unavailable.code()).increment();
             });
             return;
         }
@@ -383,7 +385,7 @@ public class MediaTaskService {
         save(row);
         afterCommit(() -> log.info("Task deferred taskId={} pipelineId={} batchId={} attempt={} resource={} reason={} retryAt={} deadline={}",
                 row.getId(), row.getPipelineId(), row.getRetryBatchId(), row.getAttempt(), unavailable.resource(), unavailable.code(), row.getNextRetryAt(), row.getUnavailableDeadline()));
-        afterCommit(() -> metrics.counter("media.model.deferred", "type", row.getTaskType(), "reason", unavailable.code()).increment());
+        afterCommit(() -> metrics.counter(MetricNames.MEDIA_MODEL_DEFERRED, "type", row.getTaskType(), "reason", unavailable.code()).increment());
     }
     private void unavailableExpired(MediaTask row, Input input) {
         MediaTaskStatus from = row.getStatus();
@@ -392,7 +394,7 @@ public class MediaTaskService {
                 .setCompletionAck(false).setUpdateTime(LocalDateTime.now(ZoneOffset.UTC));
         eventJournal.task(row, from, row.getTaskType() + "_FAILED", input, "MODEL_UNAVAILABLE_TIMEOUT");
         save(row);
-        afterCommit(() -> metrics.counter("media.model.unavailable.exhausted", "type", row.getTaskType()).increment());
+        afterCommit(() -> metrics.counter(MetricNames.MEDIA_MODEL_UNAVAILABLE_EXHAUSTED, "type", row.getTaskType()).increment());
         log.error("Model unavailable deadline exceeded taskType={} taskId={} attempt={}", row.getTaskType(), row.getId(), row.getAttempt());
     }
     private void advance(Pipeline pipeline, List<MediaTask> nodes) {
@@ -427,7 +429,7 @@ public class MediaTaskService {
         PipelineStatus status;
         try { status = PipelineState.derive(nodes); }
         catch (IllegalStateException e) {
-            metrics.counter("media.pipeline.graph.errors").increment();
+            metrics.counter(MetricNames.MEDIA_PIPELINE_GRAPH_ERRORS).increment();
             log.error("Pipeline dependency anomaly pipelineId={}", pipeline.getId(), e);
             pipelines.update(null,new LambdaUpdateWrapper<Pipeline>().eq(Pipeline::getId,pipeline.getId()).set(Pipeline::getStatus,PipelineStatus.PROCESSING)); return;
         }
@@ -443,7 +445,7 @@ public class MediaTaskService {
             pipeline.setCompletedAt(now).setManifestJson(JsonUtil.toJson(manifest)).setNotifyAfter(now.plusMinutes(5));
             afterCommit(() -> {
                 long elapsedMs = Math.max(0, manifest.completedAt() - input.submittedAt());
-                metrics.timer("media.pipeline.duration").record(elapsedMs, TimeUnit.MILLISECONDS);
+                metrics.timer(MetricNames.MEDIA_PIPELINE_DURATION).record(elapsedMs, TimeUnit.MILLISECONDS);
                 log.info("Pipeline completed pipelineId={} contentId={} media={} nodes={} elapsedMs={}",
                         pipeline.getId(), pipeline.getContentId(), input.media().type(), nodes.size(), elapsedMs);
                 dispatcher.completed(manifest);
@@ -683,7 +685,7 @@ public class MediaTaskService {
                     if (!"CONTENT".equals(row.getPhase())) notifyResult(row);
                     continue;
                 }
-                metrics.timer("media.node.retry.wait", "type", row.getTaskType()).record(Math.max(0, Duration.between(row.getUpdateTime(), now).toMillis()), TimeUnit.MILLISECONDS);
+                metrics.timer(MetricNames.MEDIA_NODE_RETRY_WAIT, "type", row.getTaskType()).record(Math.max(0, Duration.between(row.getUpdateTime(), now).toMillis()), TimeUnit.MILLISECONDS);
                 ready(row, dependencies(row), input);
                 changedBatches.add(row.getRetryBatchId());
             } else if (MediaTaskStatus.READY.equals(row.getStatus()) && !row.getDispatchAfter().isAfter(now)) {
@@ -718,7 +720,7 @@ public class MediaTaskService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
                 try { action.run(); }
-                catch (Exception e) { metrics.counter("media.delivery.failures").increment(); log.error("Post-commit delivery deferred to recovery", e); }
+                catch (Exception e) { metrics.counter(MetricNames.MEDIA_DELIVERY_FAILURES).increment(); log.error("Post-commit delivery deferred to recovery", e); }
             }
         });
     }

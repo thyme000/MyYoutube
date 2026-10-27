@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.video.schedule.BusinessBacklogMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
@@ -23,9 +25,9 @@ class BusinessBacklogMetricsTest {
         jdbc.update("INSERT INTO content_publication_event VALUES(1,FALSE,FALSE,TRUE,FALSE,FALSE,DATEADD('SECOND',-600,CURRENT_TIMESTAMP)),(2,FALSE,TRUE,FALSE,TRUE,TRUE,CURRENT_TIMESTAMP),(3,TRUE,TRUE,TRUE,TRUE,TRUE,CURRENT_TIMESTAMP)");
         sampler.sample();
         for (String branch : java.util.List.of("count", "search", "notice", "audio_count")) assertEquals(1, pending(branch));
-        double age = registry.get("myyoutube.business.publication.oldest.seconds").tag("branch", "count").gauge().value();
+        double age = registry.get(MetricNames.BUSINESS_PUBLICATION_OLDEST_SECONDS).tag("branch", "count").gauge().value();
         assertTrue(age >= 599 && age < 605);
-        assertEquals(1, registry.get("myyoutube.business.drafts.lowerbound").tag("status", "READY").gauge().value());
+        assertEquals(1, registry.get(MetricNames.BUSINESS_DRAFTS_LOWERBOUND).tag("status", "READY").gauge().value());
     }
     @Test void partialFailureRetainsWholeSnapshotAndMarksUnhealthy() {
         jdbc.update("INSERT INTO content_publication_event VALUES(1,FALSE,FALSE,TRUE,TRUE,TRUE,CURRENT_TIMESTAMP)");
@@ -34,31 +36,31 @@ class BusinessBacklogMetricsTest {
         jdbc.execute("DROP TABLE content_publication_event");
         sampler.sample();
         assertEquals(1, pending("count"));
-        assertEquals(0, registry.get("myyoutube.business.drafts.lowerbound").tag("status", "READY").gauge().value());
-        assertEquals(0, registry.get("pipeline.metrics.sample.success").gauge().value());
+        assertEquals(0, registry.get(MetricNames.BUSINESS_DRAFTS_LOWERBOUND).tag("status", "READY").gauge().value());
+        assertEquals(0, registry.get(MetricNames.PIPELINE_METRICS_SAMPLE_SUCCESS).gauge().value());
     }
     @Test void noSampleAndDisabledAreUnknownRatherThanZero() {
         assertTrue(Double.isNaN(pending("count")));
         var disabled = new SimpleMeterRegistry();
         new BusinessBacklogMetrics(jdbc, disabled, false).sample();
-        assertEquals(0, disabled.get("pipeline.metrics.sample.enabled").gauge().value());
-        assertTrue(Double.isNaN(disabled.get("myyoutube.business.publication.pending.lowerbound").tag("branch", "count").gauge().value()));
+        assertEquals(0, disabled.get(MetricNames.PIPELINE_METRICS_SAMPLE_ENABLED).gauge().value());
+        assertTrue(Double.isNaN(disabled.get(MetricNames.BUSINESS_PUBLICATION_PENDING_LOWERBOUND).tag("branch", "count").gauge().value()));
     }
     @Test void cappedBranchMissingFromSampleIsUnknownAndCountsAreBounded() {
         jdbc.execute("INSERT INTO content_publication_event SELECT X,FALSE,FALSE,TRUE,TRUE,TRUE,DATEADD('SECOND',X,CURRENT_TIMESTAMP) FROM SYSTEM_RANGE(1,2001)");
         jdbc.execute("INSERT INTO media_draft SELECT X,'FAILED' FROM SYSTEM_RANGE(1,2100)");
         sampler.sample();
         assertEquals(2000, pending("count"));
-        assertEquals(1, registry.get("myyoutube.business.publication.capped").gauge().value());
-        assertTrue(Double.isNaN(registry.get("myyoutube.business.publication.oldest.seconds").tag("branch", "search").gauge().value()));
-        assertEquals(2001, registry.get("myyoutube.business.drafts.lowerbound").tag("status", "FAILED").gauge().value());
-        assertEquals(1, registry.get("myyoutube.business.drafts.capped").tag("status", "FAILED").gauge().value());
+        assertEquals(1, registry.get(MetricNames.BUSINESS_PUBLICATION_CAPPED).gauge().value());
+        assertTrue(Double.isNaN(registry.get(MetricNames.BUSINESS_PUBLICATION_OLDEST_SECONDS).tag("branch", "search").gauge().value()));
+        assertEquals(2001, registry.get(MetricNames.BUSINESS_DRAFTS_LOWERBOUND).tag("status", "FAILED").gauge().value());
+        assertEquals(1, registry.get(MetricNames.BUSINESS_DRAFTS_CAPPED).tag("status", "FAILED").gauge().value());
     }
     @Test void scrapeReadsCachedValuesWithoutDatabaseQueries() {
         sampler.sample();
         jdbc.execute("DROP ALL OBJECTS");
         assertEquals(0, pending("count"));
-        assertEquals(1, registry.get("pipeline.metrics.sample.success").gauge().value());
+        assertEquals(1, registry.get(MetricNames.PIPELINE_METRICS_SAMPLE_SUCCESS).gauge().value());
     }
-    double pending(String branch) { return registry.get("myyoutube.business.publication.pending.lowerbound").tag("branch", branch).gauge().value(); }
+    double pending(String branch) { return registry.get(MetricNames.BUSINESS_PUBLICATION_PENDING_LOWERBOUND).tag("branch", branch).gauge().value(); }
 }

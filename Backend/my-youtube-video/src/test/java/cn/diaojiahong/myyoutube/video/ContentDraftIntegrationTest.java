@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import java.time.Instant;
 
@@ -1198,11 +1200,11 @@ class ContentDraftIntegrationTest {
         var id = readyPublicationVideo(); var version = rows.selectById(id).getRevision();
         service.request(id, 9L, version);
         service.consume(new DraftPublicationMessage(id, version));
-        double before = registry.find("myyoutube.business.operations").tag("operation", "submit_content")
+        double before = registry.find(MetricNames.BUSINESS_OPERATIONS).tag("operation", "submit_content")
                 .counters().stream().mapToDouble(io.micrometer.core.instrument.Counter::count).sum();
         assertEquals(1, before);
         for (int i = 0; i < 3; i++) assertEquals("submitted", service.request(id, 9L, version).submissionState());
-        assertEquals(before, registry.find("myyoutube.business.operations").tag("operation", "submit_content")
+        assertEquals(before, registry.find(MetricNames.BUSINESS_OPERATIONS).tag("operation", "submit_content")
                 .counters().stream().mapToDouble(io.micrometer.core.instrument.Counter::count).sum());
     }
 
@@ -1292,7 +1294,7 @@ class ContentDraftIntegrationTest {
         assertEquals(DraftSubmissionState.FAILED, failed.getSubmissionState()); assertEquals(4, failed.getSubmissionAttempts());
         assertNull(failed.getSubmissionAfter()); assertNull(failed.getSubmissionDeadline());
         assertFalse(failed.getSubmissionError().contains("secret"));
-        assertEquals(1, metrics.get("publication.failed.total").tag("reason", "error").counter().count());
+        assertEquals(1, metrics.get(MetricNames.PUBLICATION_FAILED_TOTAL).tag("reason", "error").counter().count());
         verify(understanding, times(4)).enroll(any(), any());
     }
 
@@ -1325,7 +1327,7 @@ class ContentDraftIntegrationTest {
                 any(org.apache.rocketmq.client.producer.SendCallback.class));
         var id = readyPublicationVideo(); var version = rows.selectById(id).getRevision();
         assertEquals("pending", publications.request(id, 9L, version).submissionState());
-        assertEquals(1, metrics.get("publication.notification.failed").counter().count());
+        assertEquals(1, metrics.get(MetricNames.PUBLICATION_NOTIFICATION_FAILED).counter().count());
         publications.scan();
         var completed = rows.selectById(id);
         assertEquals(MediaDraftStatusEnum.SUBMITTED, completed.getStatus());
@@ -1377,7 +1379,7 @@ class ContentDraftIntegrationTest {
         }).when(mq).asyncSend(anyString(), any(Object.class), any(org.apache.rocketmq.client.producer.SendCallback.class));
         var id = readyPublicationVideo(); publications.request(id, 9L, rows.selectById(id).getRevision());
         assertEquals(DraftSubmissionState.PENDING, rows.selectById(id).getSubmissionState());
-        assertEquals(1, metrics.get("publication.notification.failed").counter().count());
+        assertEquals(1, metrics.get(MetricNames.PUBLICATION_NOTIFICATION_FAILED).counter().count());
         publications.scan(); assertEquals(MediaDraftStatusEnum.SUBMITTED, rows.selectById(id).getStatus());
     }
 
@@ -1390,7 +1392,7 @@ class ContentDraftIntegrationTest {
         assertNull(failed.getSubmissionAfter()); assertNull(failed.getSubmissionDeadline());
         verifyNoInteractions(understanding);
         publications.scan();
-        assertEquals(1, metrics.get("publication.failed.total").tag("reason", "deadline").counter().count());
+        assertEquals(1, metrics.get(MetricNames.PUBLICATION_FAILED_TOTAL).tag("reason", "deadline").counter().count());
         publications.retry(id, 9L, version);
         assertTrue(rows.selectById(id).getSubmissionDeadline().isAfter(java.time.LocalDateTime.now().plusMinutes(29)));
         publications.scan(); assertEquals(MediaDraftStatusEnum.SUBMITTED, rows.selectById(id).getStatus());
@@ -1405,9 +1407,9 @@ class ContentDraftIntegrationTest {
         publications.scan(); verifyNoInteractions(understanding);
         properties.setBatchSize(1); publications.expireDeadlines();
         assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM media_draft WHERE submission_state='failed' AND submission_after IS NULL AND submission_deadline IS NULL", Integer.class));
-        assertEquals(2, metrics.get("publication.failed.total").tag("reason", "deadline").counter().count());
+        assertEquals(2, metrics.get(MetricNames.PUBLICATION_FAILED_TOTAL).tag("reason", "deadline").counter().count());
         publications.expireDeadlines();
-        assertEquals(2, metrics.get("publication.failed.total").tag("reason", "deadline").counter().count());
+        assertEquals(2, metrics.get(MetricNames.PUBLICATION_FAILED_TOTAL).tag("reason", "deadline").counter().count());
         verifyNoInteractions(understanding);
     }
 
@@ -1466,12 +1468,12 @@ class ContentDraftIntegrationTest {
         var service = new DraftPublicationService(competing, observation, publish, drafts, coordinator,
                 new ContentSubmissionRules("content-moderation/blocked.txt"), properties, notifications, metrics);
         service.scan();
-        assertEquals(1, metrics.get("publication.claim.missed").counter().count());
+        assertEquals(1, metrics.get(MetricNames.PUBLICATION_CLAIM_MISSED).counter().count());
         when(competing.selectList(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
                 .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("offline"));
         assertThrows(org.springframework.dao.DataAccessResourceFailureException.class, service::scan);
-        assertEquals(1, metrics.get("publication.scan.failed").counter().count());
-        assertEquals(2, metrics.get("publication.scan.duration").timer().count());
+        assertEquals(1, metrics.get(MetricNames.PUBLICATION_SCAN_FAILED).counter().count());
+        assertEquals(2, metrics.get(MetricNames.PUBLICATION_SCAN_DURATION).timer().count());
         verifyNoInteractions(understanding);
     }
 

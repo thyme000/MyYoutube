@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -57,12 +59,12 @@ class HotSearchAsyncTest {
         try {
             assertNull(service.cachedGroup("搜索", System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(100)));
             assertTrue(entered.await(1, TimeUnit.SECONDS));
-            assertEquals(1, registry.get("myyoutube.hot.search.cache.reads").tags("kind", "named", "outcome", "timeout").counter().count());
+            assertEquals(1, registry.get(MetricNames.HOT_SEARCH_CACHE_READS).tags("kind", "named", "outcome", "timeout").counter().count());
         } finally { release.countDown(); }
         executor.shutdown();
         assertDoesNotThrow(() -> service.record(1L, "搜索"));
         assertTrue(service.hot().isEmpty());
-        assertEquals(1, registry.get("myyoutube.hot.search.cache.reads").tags("kind", "hot", "outcome", "rejected").counter().count());
+        assertEquals(1, registry.get(MetricNames.HOT_SEARCH_CACHE_READS).tags("kind", "hot", "outcome", "rejected").counter().count());
     }
 
     @Test void collectionMetricsDistinguishFilteringCapacityRejectionAndRedisFailure() {
@@ -80,7 +82,7 @@ class HotSearchAsyncTest {
         assertDoesNotThrow(() -> service.record(1L, "正常搜索"));
 
         for (String outcome : new String[]{"accepted", "capacity", "failure", "filtered", "rejected"})
-            assertEquals(1, registry.get("myyoutube.hot.search.records").tag("outcome", outcome).counter().count(), outcome);
+            assertEquals(1, registry.get(MetricNames.HOT_SEARCH_RECORDS).tag("outcome", outcome).counter().count(), outcome);
         verify(store, times(3)).record(any());
         verifyNoInteractions(history);
     }

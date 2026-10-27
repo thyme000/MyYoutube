@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import cn.diaojiahong.myyoutube.common.observability.PipelineObservationProperties;
 import io.micrometer.core.instrument.Gauge;
@@ -29,14 +31,14 @@ public class HotSearchMetricsSampler {
         this.observation = observation;
         this.clock = clock;
         health = new SampleHealth(registry, clock, "hot_search", this::enabled);
-        Gauge.builder("myyoutube.hot.search.enabled", properties, p -> p.isEnabled() ? 1 : 0).register(registry);
-        Gauge.builder("myyoutube.hot.search.pending", this, value -> value.snapshot == null ? Double.NaN : value.snapshot.pending()).register(registry);
-        Gauge.builder("myyoutube.hot.search.pending.oldest.seconds", this, value -> value.oldestPending()).register(registry);
-        Gauge.builder("myyoutube.hot.search.snapshot.ttl.seconds", this, value -> value.snapshot == null ? Double.NaN : Math.max(0, value.snapshot.snapshotTtlMillis()) / 1000d).register(registry);
-        Gauge.builder("myyoutube.hot.search.summary.pending.days", this, value -> value.snapshot == null ? Double.NaN : value.snapshot.summaryDays()).register(registry);
-        Gauge.builder("myyoutube.hot.search.summary.oldest.seconds", this, value -> value.oldestSummary()).register(registry);
-        Gauge.builder("myyoutube.hot.search.archive.initialized", this, value -> value.snapshot == null ? Double.NaN : value.snapshot.closedThrough() == null ? 0 : 1).register(registry);
-        Gauge.builder("myyoutube.hot.search.archive.lag.days", this, value -> value.archiveLag()).register(registry);
+        Gauge.builder(MetricNames.HOT_SEARCH_ENABLED, properties, p -> p.isEnabled() ? 1 : 0).register(registry);
+        Gauge.builder(MetricNames.HOT_SEARCH_PENDING, this, value -> value.snapshot == null ? Double.NaN : value.snapshot.pending()).register(registry);
+        Gauge.builder(MetricNames.HOT_SEARCH_PENDING_OLDEST_SECONDS, this, value -> value.oldestPending()).register(registry);
+        Gauge.builder(MetricNames.HOT_SEARCH_SNAPSHOT_TTL_SECONDS, this, value -> value.snapshot == null ? Double.NaN : Math.max(0, value.snapshot.snapshotTtlMillis()) / 1000d).register(registry);
+        Gauge.builder(MetricNames.HOT_SEARCH_SUMMARY_PENDING_DAYS, this, value -> value.snapshot == null ? Double.NaN : value.snapshot.summaryDays()).register(registry);
+        Gauge.builder(MetricNames.HOT_SEARCH_SUMMARY_OLDEST_SECONDS, this, value -> value.oldestSummary()).register(registry);
+        Gauge.builder(MetricNames.HOT_SEARCH_ARCHIVE_INITIALIZED, this, value -> value.snapshot == null ? Double.NaN : value.snapshot.closedThrough() == null ? 0 : 1).register(registry);
+        Gauge.builder(MetricNames.HOT_SEARCH_ARCHIVE_LAG_DAYS, this, value -> value.archiveLag()).register(registry);
     }
 
     private boolean enabled() { return properties.isEnabled() && observation.getMonitoring().isEnabled(); }

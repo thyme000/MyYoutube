@@ -43,7 +43,7 @@ class DeadLetterMetricsTest {
         probe.sample();
 
         assertEquals(0, retained("transcode_draft_worker"));
-        assertNull(registry.find("mq.dlq.probe.failures").counter());
+        assertNull(registry.find(MetricNames.MQ_DLQ_PROBE_FAILURES).counter());
         verify(consumer, times(2)).fetchSubscribeMessageQueues("%DLQ%transcode_content_worker");
     }
 
@@ -63,7 +63,7 @@ class DeadLetterMetricsTest {
         probe.sample();
 
         assertEquals(5, retained("transcode_draft_worker"));
-        assertEquals(1, registry.get("mq.dlq.probe.failures").counter().count());
+        assertEquals(1, registry.get(MetricNames.MQ_DLQ_PROBE_FAILURES).counter().count());
     }
 
     @Test
@@ -85,10 +85,10 @@ class DeadLetterMetricsTest {
         probe.sample();
 
         assertEquals(9, retained("transcode_draft_worker"));
-        assertNull(registry.find("mq.dlq.probe.failures").counter());
+        assertNull(registry.find(MetricNames.MQ_DLQ_PROBE_FAILURES).counter());
     }
 
     private double retained(String group) {
-        return registry.get("mq.dlq.retained").tag("group", group).gauge().value();
+        return registry.get(MetricNames.MQ_DLQ_RETAINED).tag("group", group).gauge().value();
     }
 }

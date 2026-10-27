@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.observability;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.observability.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -69,7 +71,7 @@ public final class ElasticEventStore {
         long start = System.nanoTime();
         Response response;
         try { response = request("POST", "/_bulk", bulk.toString(), "application/x-ndjson"); }
-        finally { metrics.timer("pipeline.ingest.bulk.duration").record(System.nanoTime() - start, java.util.concurrent.TimeUnit.NANOSECONDS); }
+        finally { metrics.timer(MetricNames.PIPELINE_INGEST_BULK_DURATION).record(System.nanoTime() - start, java.util.concurrent.TimeUnit.NANOSECONDS); }
         if (response.status() == 400 || response.status() == 413) throw failure(MAPPING);
         if (response.status() != 200) throw failure(UNAVAILABLE);
         JsonNode items = response.body().path("items");
@@ -91,7 +93,7 @@ public final class ElasticEventStore {
         if (permanentError) throw failure(MAPPING);
         if (!duplicates.isEmpty()) verifyDuplicates(duplicates);
         if (transientError) throw failure(UNAVAILABLE);
-        metrics.counter("pipeline.ingest.batches", "result", "success").increment();
+        metrics.counter(MetricNames.PIPELINE_INGEST_BATCHES, "result", "success").increment();
     }
 
     private Document document(PipelineEvent event) {
@@ -111,7 +113,7 @@ public final class ElasticEventStore {
         Response response = request("POST", "/_mget", query.toString(), "application/json");
         JsonNode docs = response.body().path("docs");
         if (response.status() != 200 || !docs.isArray() || docs.size() != documents.size()) {
-            metrics.counter("pipeline.ingest.duplicates", "result", "unknown").increment();
+            metrics.counter(MetricNames.PIPELINE_INGEST_DUPLICATES, "result", "unknown").increment();
             throw failure(UNAVAILABLE);
         }
         boolean unknown = false;
@@ -140,7 +142,7 @@ public final class ElasticEventStore {
             } catch (IllegalArgumentException e) { conflict = true; }
         }
         String result = conflict ? "conflict" : unknown ? "unknown" : "same";
-        metrics.counter("pipeline.ingest.duplicates", "result", result).increment(documents.size());
+        metrics.counter(MetricNames.PIPELINE_INGEST_DUPLICATES, "result", result).increment(documents.size());
         if (conflict) throw failure(CONFLICT);
         if (unknown) throw failure(UNAVAILABLE);
     }
@@ -164,7 +166,7 @@ public final class ElasticEventStore {
     private static Instant dayStart(Instant timestamp) { return timestamp.atZone(ZoneOffset.UTC).toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant(); }
     private void checkAge(Instant day) { if (!clock.instant().isBefore(day.plus(Duration.ofDays(8)))) throw failure(EXPIRED_BUCKET); }
     private IngestFailure failure(IngestFailure.Reason reason) {
-        metrics.counter("pipeline.ingest.failures", "reason", reason.name()).increment();
+        metrics.counter(MetricNames.PIPELINE_INGEST_FAILURES, "reason", reason.name()).increment();
         return new IngestFailure(reason);
     }
     private void required(String method, String path, String body) {

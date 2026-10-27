@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.llm;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -21,10 +23,10 @@ public class LlmRequestMetrics {
     public LlmRequestMetrics(MeterRegistry registry) {
         this.registry = registry;
         active.forEach((operation, count) -> {
-            Gauge.builder("llm.requests.active", count, AtomicInteger::get)
+            Gauge.builder(MetricNames.LLM_REQUESTS_ACTIVE, count, AtomicInteger::get)
                     .tag("operation", operation).register(registry);
             for (String outcome : new String[]{"success", "error", "timeout"}) {
-                Timer.builder("llm.request.duration").tags("operation", operation, "outcome", outcome)
+                Timer.builder(MetricNames.LLM_REQUEST_DURATION).tags("operation", operation, "outcome", outcome)
                         .register(registry);
             }
         });
@@ -44,7 +46,7 @@ public class LlmRequestMetrics {
             throw failure;
         } finally {
             count.decrementAndGet();
-            sample.stop(registry.timer("llm.request.duration", "operation", operation, "outcome", outcome));
+            sample.stop(registry.timer(MetricNames.LLM_REQUEST_DURATION, "operation", operation, "outcome", outcome));
         }
     }
 

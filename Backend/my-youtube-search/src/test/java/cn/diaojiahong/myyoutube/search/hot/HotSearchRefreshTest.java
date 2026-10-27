@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
 import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
@@ -92,8 +94,8 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         verify(store).publish(groups.subList(0, limit).stream().map(HotSearchGroup::name).toList());
-        assertEquals(12, registry.get("myyoutube.hot.search.active.groups").gauge().value());
-        assertEquals(limit, registry.get("myyoutube.hot.search.displayed").gauge().value());
+        assertEquals(12, registry.get(MetricNames.HOT_SEARCH_ACTIVE_GROUPS).gauge().value());
+        assertEquals(limit, registry.get(MetricNames.HOT_SEARCH_DISPLAYED).gauge().value());
     }
 
     @Test void closedDatesMoveToTheFixedOpenDateWhileKeepingTheOriginalEventTime() {
@@ -150,9 +152,9 @@ class HotSearchRefreshTest {
         service.refresh();
 
         assertEquals(List.of(event), pending);
-        assertEquals(1, registry.get("myyoutube.hot.search.duration").tags("operation", "history_write", "outcome", "failure").timer().count());
-        assertEquals(0, registry.get("myyoutube.hot.search.history.events").tag("outcome", "committed").counter().count());
-        assertEquals(1, registry.get("myyoutube.hot.search.history.events").tag("outcome", "deferred").counter().count());
+        assertEquals(1, registry.get(MetricNames.HOT_SEARCH_DURATION).tags("operation", "history_write", "outcome", "failure").timer().count());
+        assertEquals(0, registry.get(MetricNames.HOT_SEARCH_HISTORY_EVENTS).tag("outcome", "committed").counter().count());
+        assertEquals(1, registry.get(MetricNames.HOT_SEARCH_HISTORY_EVENTS).tag("outcome", "deferred").counter().count());
         assertEquals(group.id(), assignments.get(event).groupId());
         verify(store).publish(List.of(group.name()));
         verify(store, never()).remove(argThat((Collection<HotSearchStore.Event> batch) -> batch.contains(event)));
@@ -179,10 +181,10 @@ class HotSearchRefreshTest {
         service(model).refresh();
 
         assertEquals(List.of(event), pending);
-        assertEquals(1, registry.get("myyoutube.hot.search.history.events").tag("outcome", "committed").counter().count());
-        assertEquals(0, registry.get("myyoutube.hot.search.history.events").tag("outcome", "acknowledged").counter().count());
-        assertEquals(1, registry.get("myyoutube.hot.search.duration").tags("operation", "history_ack", "outcome", "failure").timer().count());
-        assertEquals(1, registry.get("myyoutube.hot.search.duration").tags("operation", "history_write", "outcome", "success").timer().count());
+        assertEquals(1, registry.get(MetricNames.HOT_SEARCH_HISTORY_EVENTS).tag("outcome", "committed").counter().count());
+        assertEquals(0, registry.get(MetricNames.HOT_SEARCH_HISTORY_EVENTS).tag("outcome", "acknowledged").counter().count());
+        assertEquals(1, registry.get(MetricNames.HOT_SEARCH_DURATION).tags("operation", "history_ack", "outcome", "failure").timer().count());
+        assertEquals(1, registry.get(MetricNames.HOT_SEARCH_DURATION).tags("operation", "history_write", "outcome", "success").timer().count());
     }
 
     @Test void allResolvedKeywordsAreWrittenAsOneBoundedBatchBeforeInputsAreRemoved() {

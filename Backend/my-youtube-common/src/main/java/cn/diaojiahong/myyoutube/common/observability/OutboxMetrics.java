@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.common.observability;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import io.micrometer.core.instrument.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,13 +22,13 @@ public final class OutboxMetrics {
     public OutboxMetrics(JdbcTemplate jdbc, PipelineObservationProperties properties, Clock clock, MeterRegistry registry) {
         this.jdbc = jdbc; this.properties = properties; this.clock = clock;
         health = new SampleHealth(registry, clock, "outbox", () -> properties.getMonitoring().isEnabled());
-        Gauge.builder("pipeline.outbox.monitoring.enabled", properties, p -> p.getMonitoring().isEnabled() ? 1 : 0).register(registry);
+        Gauge.builder(MetricNames.PIPELINE_OUTBOX_MONITORING_ENABLED, properties, p -> p.getMonitoring().isEnabled() ? 1 : 0).register(registry);
         for (String status : List.of("PENDING", "SENDING", "QUARANTINED")) {
-            Gauge.builder("pipeline.outbox.backlog", this, m -> m.snapshot.containsKey(status) ? m.snapshot.get(status).count() : Double.NaN)
+            Gauge.builder(MetricNames.PIPELINE_OUTBOX_BACKLOG, this, m -> m.snapshot.containsKey(status) ? m.snapshot.get(status).count() : Double.NaN)
                     .tag("status", status).register(registry);
-            Gauge.builder("pipeline.outbox.backlog.capped", this, m -> m.snapshot.containsKey(status)
+            Gauge.builder(MetricNames.PIPELINE_OUTBOX_BACKLOG_CAPPED, this, m -> m.snapshot.containsKey(status)
                     ? (m.snapshot.get(status).capped() ? 1 : 0) : Double.NaN).tag("status", status).register(registry);
-            if (!status.equals("QUARANTINED")) Gauge.builder("pipeline.outbox.oldest.seconds", this, m -> {
+            if (!status.equals("QUARANTINED")) Gauge.builder(MetricNames.PIPELINE_OUTBOX_OLDEST_SECONDS, this, m -> {
                 Stock stock = m.snapshot.get(status);
                 return stock == null ? Double.NaN : stock.oldest() == null ? 0 : Math.max(0, Duration.between(stock.oldest(), clock.instant()).toMillis() / 1000d);
             }).tag("status", status).register(registry);

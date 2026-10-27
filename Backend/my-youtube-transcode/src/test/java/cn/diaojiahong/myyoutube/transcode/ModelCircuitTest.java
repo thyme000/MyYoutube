@@ -1,4 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode;
+
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 import cn.diaojiahong.myyoutube.common.resilience.ModelCallGuard;
 import io.micrometer.core.instrument.*;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -24,7 +26,7 @@ class ModelCircuitTest {
         Thread.sleep(30100);
         assertEquals("recovered",guard.call("ASR",()->"recovered"));
         assertEquals("closed",guard.call("ASR",()->"closed"));
-        assertEquals(1,metrics.get("model.calls.blocked").tag("resource","ASR").counter().count());
+        assertEquals(1,metrics.get(MetricNames.MODEL_CALLS_BLOCKED).tag("resource","ASR").counter().count());
         guard.close();
     }
 }

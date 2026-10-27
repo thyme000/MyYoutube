@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.llm;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
 import cn.diaojiahong.myyoutube.llm.embedding.EmbeddingProvider;
@@ -114,8 +116,8 @@ class QueryEmbeddingTest {
                 .contentType("application/json").content("{\"text\":\"q\",\"deadlineEpochMillis\":123}"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.version").value("test:1"));
-        assertEquals(0, registry.get("llm.requests.active").tag("operation", "query-embedding").gauge().value());
-        assertEquals(1, registry.get("llm.request.duration").tags("operation", "query-embedding", "outcome", "success").timer().count());
+        assertEquals(0, registry.get(MetricNames.LLM_REQUESTS_ACTIVE).tag("operation", "query-embedding").gauge().value());
+        assertEquals(1, registry.get(MetricNames.LLM_REQUEST_DURATION).tags("operation", "query-embedding", "outcome", "success").timer().count());
     }
 
     static QueryEmbeddingPort.Query query() { return new QueryEmbeddingPort.Query("query", System.currentTimeMillis() + 2000); }

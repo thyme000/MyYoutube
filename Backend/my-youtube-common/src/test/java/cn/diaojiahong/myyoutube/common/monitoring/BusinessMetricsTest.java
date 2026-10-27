@@ -32,7 +32,7 @@ class BusinessMetricsTest {
         assertSame(error, assertThrows(BizException.class, () -> proxy.login(error)));
         assertEquals(1, count("login", "business_error"));
         assertEquals(0, count("login", "success"));
-        assertEquals(0, registry.get("myyoutube.business.inflight").tag("operation", "login").gauge().value());
+        assertEquals(0, registry.get(MetricNames.BUSINESS_INFLIGHT).tag("operation", "login").gauge().value());
         assertSame(error, assertThrows(BizException.class, () -> proxy.login(error)));
         assertEquals(2, count("login", "business_error"));
     }
@@ -52,16 +52,16 @@ class BusinessMetricsTest {
         new TransactionTemplate(manager).executeWithoutResult(tx -> {
             proxy.search();
             assertEquals(0, count("search_content", "empty"));
-            assertEquals(1, registry.get("myyoutube.business.inflight").gauge().value());
+            assertEquals(1, registry.get(MetricNames.BUSINESS_INFLIGHT).gauge().value());
             tx.setRollbackOnly();
         });
         assertEquals(1, count("search_content", "failure"));
-        assertEquals(0, registry.get("myyoutube.business.inflight").gauge().value());
+        assertEquals(0, registry.get(MetricNames.BUSINESS_INFLIGHT).gauge().value());
     }
     @Test void joinedTransactionRecordsSuccessOnlyAfterCommit() {
         new TransactionTemplate(new TestTransactionManager()).executeWithoutResult(tx -> proxy.search());
         assertEquals(1, count("search_content", "empty"));
-        assertEquals(1, registry.get("myyoutube.business.duration").timer().count());
+        assertEquals(1, registry.get(MetricNames.BUSINESS_DURATION).timer().count());
     }
     @Test void springAdvisorOrderIncludesCommitFailure() {
         try (var context = new AnnotationConfigApplicationContext(Config.class)) {
@@ -69,8 +69,8 @@ class BusinessMetricsTest {
             manager.failCommit = true;
             assertThrows(IllegalStateException.class, () -> context.getBean(Operations.class).committed());
             var meters = context.getBean(SimpleMeterRegistry.class);
-            assertEquals(1, meters.get("myyoutube.business.operations").tag("operation", "register").tag("outcome", "failure").counter().count());
-            assertEquals(0, meters.get("myyoutube.business.operations").tag("operation", "register").tag("outcome", "success").counter().count());
+            assertEquals(1, meters.get(MetricNames.BUSINESS_OPERATIONS).tag("operation", "register").tag("outcome", "failure").counter().count());
+            assertEquals(0, meters.get(MetricNames.BUSINESS_OPERATIONS).tag("operation", "register").tag("outcome", "success").counter().count());
         }
     }
     @Test void labelsNeverContainArgumentsOrExceptionMessages() {
@@ -83,13 +83,13 @@ class BusinessMetricsTest {
     @Test void startupExposesObservedOperationsBeforeAnyTraffic() {
         try (var context = new AnnotationConfigApplicationContext(Config.class)) {
             var meters = context.getBean(SimpleMeterRegistry.class);
-            assertEquals(1, meters.get("myyoutube.business.operation.enabled").tag("operation", "register").gauge().value());
-            assertEquals(0, meters.get("myyoutube.business.operations").tag("operation", "register").tag("outcome", "success").counter().count());
-            assertNull(meters.find("myyoutube.business.operation.enabled").tag("operation", "send_message").gauge());
+            assertEquals(1, meters.get(MetricNames.BUSINESS_OPERATION_ENABLED).tag("operation", "register").gauge().value());
+            assertEquals(0, meters.get(MetricNames.BUSINESS_OPERATIONS).tag("operation", "register").tag("outcome", "success").counter().count());
+            assertNull(meters.find(MetricNames.BUSINESS_OPERATION_ENABLED).tag("operation", "send_message").gauge());
         }
     }
     double count(String operation, String outcome) {
-        return registry.get("myyoutube.business.operations").tag("operation", operation).tag("outcome", outcome).counter().count();
+        return registry.get(MetricNames.BUSINESS_OPERATIONS).tag("operation", operation).tag("outcome", outcome).counter().count();
     }
     public static class Operations {
         @ObservedBusiness(BusinessOperation.SEARCH_CONTENT)

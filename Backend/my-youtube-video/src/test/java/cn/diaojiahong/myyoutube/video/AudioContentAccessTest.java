@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
@@ -31,7 +33,7 @@ class AudioContentAccessTest {
         doThrow(new IllegalStateException("MQ unavailable")).when(mq).asyncSend(anyString(), any(AudioContentBanMessage.class), any(SendCallback.class));
         assertEquals(Set.of(1L, 2L), access.blocked(List.of(one, two, one)));
         verify(audios).selectBatchIds(List.of(20L));
-        assertEquals(2, metrics.counter("audio.cascade.notification.failed").count());
+        assertEquals(2, metrics.counter(MetricNames.AUDIO_CASCADE_NOTIFICATION_FAILED).count());
     }
 
     @Test void privateAndSoftDeletedAudioDoNotInvalidateHistoricalReferences() {

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -102,7 +104,7 @@ public class RecallPipeline {
         }
         catch (Exception error) {
             if (error instanceof InterruptedException) Thread.currentThread().interrupt();
-            metrics.counter("myyoutube.search.recall.failures", "strategy", strategy.getClass().getSimpleName()).increment();
+            metrics.counter(MetricNames.SEARCH_RECALL_FAILURES, "strategy", strategy.getClass().getSimpleName()).increment();
             log.warn("{} 召回失败, 该路降级: {}", strategy.getClass().getSimpleName(), error.getMessage());
             return List.of();
         }

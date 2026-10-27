@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.schedule;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -26,9 +28,9 @@ public class AudioIndexMetrics {
             @Value("${my-youtube.observability.monitoring.enabled:false}") boolean enabled) {
         this.jdbc = jdbc; this.enabled = enabled;
         health = new SampleHealth(registry, Clock.systemUTC(), "audio_index", () -> enabled);
-        Gauge.builder("myyoutube.audio.index.pending.lowerbound", this, m -> m.snapshot == null ? Double.NaN : m.snapshot.pending()).register(registry);
-        Gauge.builder("myyoutube.audio.index.pending.capped", this, m -> m.snapshot == null ? Double.NaN : m.snapshot.capped() ? 1 : 0).register(registry);
-        Gauge.builder("myyoutube.audio.index.oldest.seconds", this, AudioIndexMetrics::oldestAge).register(registry);
+        Gauge.builder(MetricNames.AUDIO_INDEX_PENDING_LOWERBOUND, this, m -> m.snapshot == null ? Double.NaN : m.snapshot.pending()).register(registry);
+        Gauge.builder(MetricNames.AUDIO_INDEX_PENDING_CAPPED, this, m -> m.snapshot == null ? Double.NaN : m.snapshot.capped() ? 1 : 0).register(registry);
+        Gauge.builder(MetricNames.AUDIO_INDEX_OLDEST_SECONDS, this, AudioIndexMetrics::oldestAge).register(registry);
     }
 
     private double oldestAge() {

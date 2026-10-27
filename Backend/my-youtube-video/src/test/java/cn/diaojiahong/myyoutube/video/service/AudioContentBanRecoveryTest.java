@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import cn.diaojiahong.myyoutube.video.config.AudioCascadeProperties;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
@@ -40,7 +42,7 @@ class AudioContentBanRecoveryTest {
         recovery.recover();
         verify(rows, times(2)).pendingAudioBans(0, 2);
         verify(decisions, times(2)).banByAudio(first);
-        assertEquals(2, metrics.counter("audio.cascade.recovery.failed", "scope", "record").count());
+        assertEquals(2, metrics.counter(MetricNames.AUDIO_CASCADE_RECOVERY_FAILED, "scope", "record").count());
         verify(lock, times(3)).unlock();
     }
 
@@ -66,6 +68,6 @@ class AudioContentBanRecoveryTest {
         recovery.recover(); recovery.recover();
         verify(rows, times(2)).pendingAudioBans(0, 2);
         verify(lock, times(2)).unlock();
-        assertEquals(2, metrics.counter("audio.cascade.recovery.failed", "scope", "scan").count());
+        assertEquals(2, metrics.counter(MetricNames.AUDIO_CASCADE_RECOVERY_FAILED, "scope", "scan").count());
     }
 }

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.observability;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.micrometer.core.instrument.*;
@@ -21,9 +23,9 @@ public final class FilebeatMetrics {
     public FilebeatMetrics(MonitorProperties monitor, IngestProperties ingest, MeterRegistry metrics, Clock clock) {
         stats = monitor.getFilebeat().resolve("/stats"); es = ingest.getElasticsearch().resolve("/logs-myyoutube-*/_search");
         this.clock = clock; health = new SampleHealth(metrics, clock, "logs");
-        Gauge.builder("pipeline.logs.pending", this, m -> m.snapshot == null ? Double.NaN : m.snapshot.active()).register(metrics);
-        Gauge.builder("pipeline.logs.delivery.seconds", this, m -> m.snapshot == null ? Double.NaN : m.snapshot.deliverySeconds()).register(metrics);
-        Gauge.builder("pipeline.logs.stalled.seconds", this, m -> m.snapshot == null ? Double.NaN : m.snapshot.active() == 0 ? 0
+        Gauge.builder(MetricNames.PIPELINE_LOGS_PENDING, this, m -> m.snapshot == null ? Double.NaN : m.snapshot.active()).register(metrics);
+        Gauge.builder(MetricNames.PIPELINE_LOGS_DELIVERY_SECONDS, this, m -> m.snapshot == null ? Double.NaN : m.snapshot.deliverySeconds()).register(metrics);
+        Gauge.builder(MetricNames.PIPELINE_LOGS_STALLED_SECONDS, this, m -> m.snapshot == null ? Double.NaN : m.snapshot.active() == 0 ? 0
                 : Math.max(0, (clock.millis() - m.snapshot.ackChangedAt()) / 1000d)).register(metrics);
     }
     @Scheduled(fixedDelayString="${my-youtube.monitor.interval-ms:30000}", initialDelayString="${my-youtube.monitor.interval-ms:30000}")

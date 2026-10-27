@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.video.schedule.ReviewMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -17,7 +19,7 @@ class ReviewMetricsTest {
         var rows = mock(ContentUnderstandingMapper.class); var events = mock(ContentPublicationEventMapper.class);
         when(rows.selectCount(any())).thenReturn(0L); when(events.selectCount(any())).thenReturn(1L);
         var registry = new SimpleMeterRegistry(); var sampler = new ReviewMetrics(rows,events,jdbc,registry,true);
-        sampler.sample(); double age = registry.get("media.publication.oldest.seconds").gauge().value();
+        sampler.sample(); double age = registry.get(MetricNames.MEDIA_PUBLICATION_OLDEST_SECONDS).gauge().value();
         assertTrue(age >= 659 && age < 665, "Publication age=" + age);
     }
     @Test void partialQueryFailurePreservesCompletePreviousSnapshot() {
@@ -26,10 +28,10 @@ class ReviewMetricsTest {
         var sampler = new ReviewMetrics(rows, events, jdbc, registry, false);
         when(rows.selectCount(any())).thenReturn(2L,3L,0L,0L); when(events.selectCount(any())).thenReturn(4L).thenThrow(new IllegalStateException());
         sampler.sample(); sampler.sample();
-        assertEquals(2, registry.get("media.review.queue").tag("mode","automatic").gauge().value());
-        assertEquals(3, registry.get("media.review.queue").tag("mode","manual").gauge().value());
-        assertEquals(4, registry.get("media.publication.pending").gauge().value());
-        assertEquals(0, registry.get("pipeline.metrics.sample.success").gauge().value());
+        assertEquals(2, registry.get(MetricNames.MEDIA_REVIEW_QUEUE).tag("mode","automatic").gauge().value());
+        assertEquals(3, registry.get(MetricNames.MEDIA_REVIEW_QUEUE).tag("mode","manual").gauge().value());
+        assertEquals(4, registry.get(MetricNames.MEDIA_PUBLICATION_PENDING).gauge().value());
+        assertEquals(0, registry.get(MetricNames.PIPELINE_METRICS_SAMPLE_SUCCESS).gauge().value());
         verifyNoInteractions(jdbc);
     }
 }

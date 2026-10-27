@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
@@ -121,7 +123,7 @@ public class RetryBatchStore {
                 event(row, MediaRetryBatchStatus.RUNNING, state, "RETRY_BATCH_COMPLETED");
                 batches.updateById(row);
                 afterCommit(() -> {
-                    if (metrics != null) metrics.counter("media.retry.batch.completed", "state", state.getCode()).increment();
+                    if (metrics != null) metrics.counter(MetricNames.MEDIA_RETRY_BATCH_COMPLETED, "state", state.getCode()).increment();
                     log.info("Retry batch completed batchId={} state={}", id, state);
                 });
             }
