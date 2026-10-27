@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage;
+import cn.diaojiahong.myyoutube.common.mq.message.PublicationBranch;
 import cn.diaojiahong.myyoutube.video.service.PublicationEffectsService;
 import lombok.RequiredArgsConstructor;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -12,7 +13,7 @@ import org.springframework.stereotype.Component;
 public class CountPublicationListener implements RocketMQListener<PublicationEffectMessage> {
     private final PublicationEffectsService effects;
     @Override public void onMessage(PublicationEffectMessage message) {
-        if (!"COUNT".equals(message.branch())) throw new IllegalArgumentException("Publication branch mismatch");
+        if (message.branch() != PublicationBranch.COUNT) throw new IllegalArgumentException("Publication branch mismatch");
         effects.apply(message);
     }
 }

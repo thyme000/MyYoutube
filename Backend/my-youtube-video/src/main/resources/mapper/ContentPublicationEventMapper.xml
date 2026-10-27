@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.video.mapper.ContentPublicationEventMapper">
+    <select id="pendingAudioCounts" resultType="cn.diaojiahong.myyoutube.video.domain.po.ContentPublicationEvent">
+        SELECT * FROM content_publication_event
+        WHERE audio_id = #{audioId} AND audio_count_done = 0
+        ORDER BY id LIMIT #{limit} FOR UPDATE
+    </select>
+    <update id="finishAudioCounts">
+        UPDATE content_publication_event
+        SET audio_count_done = 1
+        WHERE audio_count_done = 0 AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+    <update id="completeIfReady">
+        UPDATE content_publication_event
+        SET completed = 1
+        WHERE completed = 0
+          AND user_count_done = 1 AND search_done = 1 AND notice_done = 1 AND audio_count_done = 1
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+</mapper>

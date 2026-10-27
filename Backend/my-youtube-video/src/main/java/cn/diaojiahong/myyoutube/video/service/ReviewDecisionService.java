@@ -11,6 +11,7 @@ import cn.diaojiahong.myyoutube.common.media.PipelineContracts.*;
 import org.springframework.transaction.support.*;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.*;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
@@ -249,7 +250,9 @@ public class ReviewDecisionService {
                 .setSql("index_version = index_version + 1")
                 .set(Content::getStatus, target).update()) return false;
         int delta = publishedBan ? -1 : target == ContentStatusEnum.PUBLISHED ? 1 : 0;
+        int audioDelta = content.getAudioId() != null && ContentVisibilityEnum.PUBLIC.getCode().equals(content.getVisibility()) ? delta : 0;
         var event = new ContentPublicationEvent().setContentId(id).setAuthorId(content.getAuthorId()).setStatus(target)
+                .setAudioId(content.getAudioId()).setAudioDelta(audioDelta).setAudioCountDone(audioDelta == 0)
                 .setDelta(delta).setReason(reason).setUserCountDone(false).setSearchDone(false).setNoticeDone(false).setCompleted(false);
         events.insert(event);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

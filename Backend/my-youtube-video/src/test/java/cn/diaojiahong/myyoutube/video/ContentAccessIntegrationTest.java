@@ -179,4 +179,23 @@ class ContentAccessIntegrationTest {
         assertThrows(BizException.class, () -> access.readable(1L,7L));
         assertEquals(-1,jdbc.queryForObject("SELECT delta FROM content_publication_event",Integer.class));
     }
+
+    @Test void audioCountTracksVisibilityChangesWithoutChangingAuthorCounts() {
+        jdbc.update("UPDATE content SET audio_id=20 WHERE id=1");
+        settings.update(1L, 7L, new ContentSettingsService.Settings("private", 1));
+        settings.update(1L, 7L, new ContentSettingsService.Settings("private", 0));
+        settings.update(1L, 7L, new ContentSettingsService.Settings("public", 1));
+        settings.delete(1L, 7L);
+        assertEquals(java.util.List.of(-1, 1, -1), jdbc.queryForList("SELECT audio_delta FROM content_publication_event ORDER BY id", Integer.class));
+        assertEquals(java.util.List.of(0, 0, -1), jdbc.queryForList("SELECT delta FROM content_publication_event ORDER BY id", Integer.class));
+        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event WHERE audio_id=20 AND audio_count_done=0", Integer.class));
+    }
+
+    @Test void deletingPrivateContentDoesNotDecrementAudioCountTwice() {
+        jdbc.update("UPDATE content SET audio_id=20 WHERE id=1");
+        settings.update(1L, 7L, new ContentSettingsService.Settings("private", 1));
+        settings.delete(1L, 7L);
+        assertEquals(java.util.List.of(-1, 0), jdbc.queryForList("SELECT audio_delta FROM content_publication_event ORDER BY id", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event WHERE audio_count_done=0", Integer.class));
+    }
 }

@@ -18,6 +18,9 @@ public class ContentPublicationEvent {
     private Long authorId;
     private ContentStatusEnum status;
     private Integer delta;
+    private Long audioId;
+    private Integer audioDelta;
+    private Boolean audioCountDone;
     private String reason;
     private Boolean userCountDone;
     private Boolean searchDone;

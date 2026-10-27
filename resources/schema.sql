@@ -312,6 +312,7 @@ CREATE TABLE IF NOT EXISTS `audio` (
     `transcript_key`          VARCHAR(512)  DEFAULT NULL,
     `machine_result_json`     MEDIUMTEXT,
     `review_reason`           VARCHAR(4000) DEFAULT NULL,
+    `usage_count`             BIGINT        NOT NULL DEFAULT 0 COMMENT '异步维护的公开关联内容数，仅管理员可见',
     `index_version`           BIGINT        NOT NULL DEFAULT 1,
     `indexed_version`         BIGINT        NOT NULL DEFAULT 0,
     `index_after`             DATETIME      DEFAULT CURRENT_TIMESTAMP,
@@ -550,6 +551,9 @@ CREATE TABLE IF NOT EXISTS content_publication_event (
     author_id BIGINT NOT NULL,
     status VARCHAR(16) NOT NULL,
     delta INT NOT NULL,
+    audio_id BIGINT DEFAULT NULL,
+    audio_delta INT NOT NULL DEFAULT 0,
+    audio_count_done TINYINT NOT NULL DEFAULT 1,
     reason TEXT,
     user_count_done TINYINT NOT NULL DEFAULT 0,
     search_done TINYINT NOT NULL DEFAULT 0,
@@ -558,7 +562,8 @@ CREATE TABLE IF NOT EXISTS content_publication_event (
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_publication_metrics_age (completed, create_time, id),
     KEY idx_publication_pending (completed, id),
-    KEY idx_author_count(author_id, user_count_done, id)
+    KEY idx_author_count(author_id, user_count_done, id),
+    KEY idx_audio_count(audio_id, audio_count_done, id)
 ) ENGINE=InnoDB;
 USE user_db;
 CREATE TABLE IF NOT EXISTS user_counter_event (

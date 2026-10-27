@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage;
+import cn.diaojiahong.myyoutube.common.mq.message.PublicationBranch;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.*;
@@ -41,9 +42,13 @@ public class PublicationEffectsService {
     private final RedissonClient redisson;
     private final RocketMQTemplate mq;
     private final ContentReviewRecordMapper reviewRecords;
+    private final AudioUsageCountService audioCounts;
 
     public void trigger(Long eventId) {
-        for (String branch : List.of("COUNT", "SEARCH", "NOTICE")) {
+        ContentPublicationEvent event = events.selectById(eventId);
+        if (event == null || Boolean.TRUE.equals(event.getCompleted())) return;
+        for (PublicationBranch branch : PublicationBranch.values()) {
+            if (branch == PublicationBranch.AUDIO_COUNT && Boolean.TRUE.equals(event.getAudioCountDone())) continue;
             try { mq.syncSend(MqConstants.TOPIC_PUBLICATION_EFFECT + ":" + branch, new PublicationEffectMessage(eventId, branch)); }
             catch (Exception e) { log.error("Publication branch deferred eventId={} branch={}", eventId, branch, e); }
         }
@@ -58,13 +63,14 @@ public class PublicationEffectsService {
             if (page.isEmpty()) return;
             cursor = page.get(page.size()-1).getId();
             for (var event : page) {
-                if (!Boolean.TRUE.equals(event.getUserCountDone())) send(event.getId(), "COUNT");
-                if (!Boolean.TRUE.equals(event.getSearchDone())) send(event.getId(), "SEARCH");
-                if (!Boolean.TRUE.equals(event.getNoticeDone())) send(event.getId(), "NOTICE");
+                if (!Boolean.TRUE.equals(event.getUserCountDone())) send(event.getId(), PublicationBranch.COUNT);
+                if (!Boolean.TRUE.equals(event.getSearchDone())) send(event.getId(), PublicationBranch.SEARCH);
+                if (!Boolean.TRUE.equals(event.getNoticeDone())) send(event.getId(), PublicationBranch.NOTICE);
+                if (!Boolean.TRUE.equals(event.getAudioCountDone())) send(event.getId(), PublicationBranch.AUDIO_COUNT);
             }
         }
     }
-    private void send(Long id, String branch) {
+    private void send(Long id, PublicationBranch branch) {
         try { mq.syncSend(MqConstants.TOPIC_PUBLICATION_EFFECT + ":" + branch, new PublicationEffectMessage(id, branch)); }
         catch (Exception e) { log.error("Publication recovery send failed eventId={} branch={}", id, branch, e); }
     }
@@ -76,18 +82,19 @@ public class PublicationEffectsService {
             return;
         }
         switch (message.branch()) {
-            case "COUNT" -> count(event);
-            case "SEARCH" -> {
+            case COUNT -> count(event);
+            case SEARCH -> {
                 if (!Boolean.TRUE.equals(event.getSearchDone())) {
                     search.rebuildContent(event.getContentId());
                     events.update(null, update(event).set(ContentPublicationEvent::getSearchDone, true));
                 }
             }
-            case "NOTICE" -> notice(event);
-            default -> throw new IllegalArgumentException("Unknown publication branch");
+            case NOTICE -> notice(event);
+            case AUDIO_COUNT -> {
+                if (!Boolean.TRUE.equals(event.getAudioCountDone())) audioCounts.apply(event.getAudioId());
+            }
         }
-        int completed = events.update(null, update(event).eq(ContentPublicationEvent::getUserCountDone, true).eq(ContentPublicationEvent::getSearchDone, true)
-                .eq(ContentPublicationEvent::getNoticeDone, true).set(ContentPublicationEvent::getCompleted, true));
+        int completed = events.completeIfReady(List.of(event.getId()));
         if (completed > 0) {
             log.info("Publication effects completed eventId={} contentId={} authorId={} status={} delta={}",
                     event.getId(), event.getContentId(), event.getAuthorId(), event.getStatus().getCode(), event.getDelta());
