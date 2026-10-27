@@ -6,11 +6,11 @@ import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
-import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoByTagPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoPageQuery;
@@ -32,6 +32,7 @@ import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
 import cn.diaojiahong.myyoutube.search.recall.RecallPipeline;
 import cn.diaojiahong.myyoutube.search.recall.SearchContext;
 import cn.diaojiahong.myyoutube.search.recall.SearchContentSummaryClient;
+import cn.diaojiahong.myyoutube.search.recall.TagSearchPage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -60,6 +61,7 @@ public class SearchServiceImpl implements ISearchService {
     private final HotSearchService hotSearchService;
     private final ElasticsearchClient elasticsearchClient;
     private final RecallPipeline recallPipeline;
+    private final TagSearchPage tagSearchPage;
     private static final int STORAGE_EXPIRE_SECONDS = 3600 * 10;
 
     @Override
@@ -233,42 +235,12 @@ public class SearchServiceImpl implements ISearchService {
 
     @Override
     @ObservedBusiness(BusinessOperation.SEARCH_TAG)
-    public PageResult<SearchVideoVO> searchByTag(SearchVideoByTagPageQuery pageQuery) {
+    public CursorPage<SearchVideoVO, String> searchByTag(SearchVideoByTagPageQuery pageQuery) {
         Long userId = getUserId();
-        String tagName = pageQuery.getTagName() == null ? "" : pageQuery.getTagName().trim();
-        // 构造ES查询
-        NativeQuery query;
-        Pageable pageable = PageRequest.of(pageQuery.getPageNo() - 1, pageQuery.getPageSize());
-        // 查询用户的关注列表
-        FunctionBoost boost = getFunction(userId);
-
-        query = NativeQuery.builder()
-                .withQuery(q -> q.functionScore(fs -> fs
-                        .query(inner -> inner.bool(b -> {
-                                    b.must(m -> m.term(t -> t.field("status").value("published")));
-                                    b.must(m -> m.term(t -> t.field("visibility").value("public")));
-                                    if (!tagName.isEmpty()) {
-                                        b.must(m -> m.multiMatch(mm -> mm
-                                                .query(tagName)
-                                                .fields("title^2", "tagNames^6", "description^1")
-                                                .fuzziness("AUTO")
-                                                .minimumShouldMatch("60%")
-                                        ));
-                                    }
-                                    return b;
-                                }
-                        )) // 按播放量,获赞数和被关注用户的视频综合排列
-                        .functions(boost.functions())
-                        .scoreMode(FunctionScoreMode.Sum)
-                        .boostMode(FunctionBoostMode.Sum)
-                ))
-                .withSort(Sort.by(Sort.Order.desc("_score"), Sort.Order.desc("createTime")))
-                .withPageable(pageable)
-                .build();
-
-        // 3. 执行查询
-        PageResult<SearchVideoVO> result = getSearchPageResult(query, pageQuery.getPageNo(), pageQuery.getPageSize(), boost.followIds());
-        return result;
+        pageQuery.validate();
+        SearchContext ctx = SearchContext.forTag(pageQuery, userId, followPort.getFollowIds(userId));
+        CursorPage<ContentSummary, String> page = tagSearchPage.search(ctx, pageQuery.getCursor(), pageQuery.getPageSize());
+        return new CursorPage<>(buildPageResult(page.items(), page.items().size(), pageQuery.getPageSize(), ctx.getFollowIds()).getList(), page.nextCursor());
     }
 
     @Override
@@ -326,46 +298,6 @@ public class SearchServiceImpl implements ISearchService {
         }
         Map<Long, Boolean> likedMap = contentInternalPort.likedMap(userId, new HashSet<>(videoIds));
         return likedMap.entrySet().stream().filter(Map.Entry::getValue).map(Map.Entry::getKey).toList();
-    }
-
-    private PageResult<SearchVideoVO> getSearchPageResult(NativeQuery query, int pageNo, int pageSize, List<Long> followIds) {
-        SearchHits<ContentDoc> hits = elasticsearchOperations.search(query, ContentDoc.class);
-        List<String> orderedIds = hits.getSearchHits().stream()
-                .map(hit -> hit.getContent().getId().toString()).toList();
-        return buildPageResult(contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(orderedIds, null)),
-                hits.getTotalHits(), pageSize, followIds);
-    }
-
-    /** 一次 getFollowIds 同时喂 ES 打分函数与 isFollow 回填, 避免同一请求查两次关注列表 */
-    private record FunctionBoost(List<FunctionScore> functions, List<Long> followIds) {
-    }
-
-    private FunctionBoost getFunction(Long userId) {
-        // 查询用户的关注列表
-        List<Long> followIds = followPort.getFollowIds(userId);
-        List<FunctionScore> followFunctions = followIds.stream().map(fid -> FunctionScore.of(f -> f
-                .filter(fq -> fq.term(t -> t.field("authorId").value(fid)))
-                // 提高被关注作者的视频权重
-                .weight(5.0)
-        )).toList();
-        List<FunctionScore> allFunctions = new java.util.ArrayList<>(followFunctions);
-        // 用 field_value_factor 把 playCount 转成分数
-        allFunctions.add(FunctionScore.of(f -> f
-                .fieldValueFactor(fvf -> fvf
-                        .field("playCount")
-                        .modifier(co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier.Log1p)
-                        .missing(0.0)  // playCount 不存在时当 0
-                )
-        ));
-        // 用 field_value_factor 把 likeCount 转成分数
-        allFunctions.add(FunctionScore.of(f -> f
-                .fieldValueFactor(fvf -> fvf
-                        .field("likeCount")
-                        .modifier(co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier.Log1p)
-                        .missing(0.0)  // likeCount 不存在时当 0
-                )
-        ));
-        return new FunctionBoost(allFunctions, followIds);
     }
 
     private Long getUserId() {

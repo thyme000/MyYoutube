@@ -5,6 +5,8 @@ import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.domain.dto.*;
 import cn.diaojiahong.myyoutube.search.recall.RecallPipeline;
 import cn.diaojiahong.myyoutube.search.recall.SearchContentSummaryClient;
+import cn.diaojiahong.myyoutube.search.recall.TagSearchPage;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 
 import cn.diaojiahong.myyoutube.search.service.impl.SearchServiceImpl;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
@@ -33,10 +35,11 @@ class ContentSearchAccessTest {
     final ElasticsearchClient client = mock(ElasticsearchClient.class);
     final ElasticsearchOperations operations = mock(ElasticsearchOperations.class);
     final RecallPipeline recall = mock(RecallPipeline.class);
+    final TagSearchPage tags = mock(TagSearchPage.class);
     final FollowPort follows = mock(FollowPort.class);
     final cn.diaojiahong.myyoutube.search.hot.HotSearchService hot = mock(cn.diaojiahong.myyoutube.search.hot.HotSearchService.class);
     final SearchServiceImpl search = new SearchServiceImpl(operations,follows,mock(ContentInternalPort.class),
-            summaries,mock(UserPort.class),mock(S3StorageUtil.class),hot,client,recall);
+            summaries,mock(UserPort.class),mock(S3StorageUtil.class),hot,client,recall,tags);
 
     @BeforeEach void user() {
         UserContext.setUser("7");
@@ -151,20 +154,15 @@ class ContentSearchAccessTest {
         }
     }
 
-    @Test void tagResultsDoNotApplyPageOffsetToAnAlreadyPaginatedEsResponse() {
-        SearchHits<ContentDoc> hits = mock(SearchHits.class);
-        SearchHit<ContentDoc> hit = mock(SearchHit.class);
-        var doc = new ContentDoc(); doc.setId(12L);
-        when(hit.getContent()).thenReturn(doc); when(hits.getSearchHits()).thenReturn(List.of(hit));
-        when(hits.getTotalHits()).thenReturn(11L);
-        when(operations.search(any(NativeQuery.class),eq(ContentDoc.class))).thenReturn(hits);
-        when(summaries.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(List.of("12"),null)))
-                .thenReturn(List.of(summary(12)));
-        var query = new SearchVideoByTagPageQuery(); query.setPageNo(2); query.setPageSize(10);
+    @Test void tagResultsUseCursorPage() {
+        when(tags.search(any(), isNull(), eq(10))).thenReturn(new CursorPage<>(List.of(summary(12)), "next"));
+        var query = new SearchVideoByTagPageQuery(); query.setPageSize(10);
         var result = search.searchByTag(query);
-        assertEquals(11,result.getTotal()); assertEquals(List.of("12"),result.getList().stream().map(s -> s.getId()).toList());
-        assertEquals(Boolean.FALSE, result.getList().get(0).getIsFollow());
+        assertEquals("next", result.nextCursor());
+        assertEquals(List.of("12"), result.items().stream().map(s -> s.getId()).toList());
+        assertEquals(Boolean.FALSE, result.items().get(0).getIsFollow());
         verifyNoInteractions(hot);
+        verify(operations, never()).search(any(NativeQuery.class), eq(ContentDoc.class));
     }
 
     @Test void pagesBeyondTheBoundedPoolReturnEmptyWithoutOverflowingTheOffset() {

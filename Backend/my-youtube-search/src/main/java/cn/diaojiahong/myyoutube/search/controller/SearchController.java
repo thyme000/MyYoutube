@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.search.controller;
 
 import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoByTagPageQuery;
@@ -63,9 +64,9 @@ public class SearchController {
      * @param pageQuery
      * @return
      */
-    @Operation(summary = "用户点击标签,根据标签进行视频搜索")
+    @Operation(summary = "根据标签搜索内容", description = "游标分页，过滤不可见内容，预算用尽时可能返回短页")
     @GetMapping("/tag")
-    public Result<PageResult<SearchVideoVO>> searchByTag(@ModelAttribute SearchVideoByTagPageQuery pageQuery) {
+    public Result<CursorPage<SearchVideoVO, String>> searchByTag(@ModelAttribute SearchVideoByTagPageQuery pageQuery) {
         return Result.success(searchService.searchByTag(pageQuery));
     }
 

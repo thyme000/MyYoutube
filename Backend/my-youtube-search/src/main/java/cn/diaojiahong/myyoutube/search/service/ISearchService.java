@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.search.service;
 
 import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoByTagPageQuery;
@@ -17,7 +18,7 @@ public interface ISearchService {
 
     List<String> prompt(String keyword);
 
-    PageResult<SearchVideoVO> searchByTag(SearchVideoByTagPageQuery pageQuery);
+    CursorPage<SearchVideoVO, String> searchByTag(SearchVideoByTagPageQuery pageQuery);
 
     List<String> hot();
 }
