@@ -3,6 +3,13 @@ spring:
     import:
       - classpath:application-common.yml
       - optional:classpath:application-local.yml
+  cloud:
+    openfeign:
+      client:
+        config:
+          searchContentSummaryClient:
+            connectTimeout: 1000
+            readTimeout: 2000
   application:
     name: my-youtube-search-service
   datasource:
@@ -24,6 +31,14 @@ server:
 
 # 过渡期: user 服务已注册, 置空走 Nacos 负载均衡
 my-youtube:
+  async-timeouts:
+    resources:
+      keyword-recall:
+        executor: recallExecutor
+        timeout-millis: ${SEARCH_KEYWORD_WAIT_MILLIS:2000}
+      vector-recall:
+        executor: queryVectorExecutor
+        timeout-millis: ${SEARCH_VECTOR_WAIT_MILLIS:2000}
   db-name: search_db
   user-service:
     url: ${USER_SERVICE_URL:}
@@ -68,8 +83,11 @@ my-youtube:
         like: ${SEARCH_VECTOR_LIKE_WEIGHT:0.02}
         max-multiplier: ${SEARCH_VECTOR_MAX_MULTIPLIER:1.20}
     recall:
-      wait-millis: ${SEARCH_RECALL_WAIT_MILLIS:1000}
-      timeout-millis: ${SEARCH_RECALL_TIMEOUT_MILLIS:10000}
+      es-timeout-millis: ${SEARCH_ES_TIMEOUT_MILLIS:2000}
+      embedding-timeout-millis: ${SEARCH_EMBEDDING_TIMEOUT_MILLIS:10000}
+      refill-max-rounds: ${SEARCH_REFILL_MAX_ROUNDS:2}
+      refill-max-candidates: ${SEARCH_REFILL_MAX_CANDIDATES:500}
+      refill-batch-size: ${SEARCH_REFILL_BATCH_SIZE:50}
     vector:
       # 总开关, 关闭即回退纯关键词搜索
       enabled: true

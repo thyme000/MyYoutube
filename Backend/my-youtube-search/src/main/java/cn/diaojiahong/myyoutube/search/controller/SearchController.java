@@ -29,7 +29,7 @@ public class SearchController {
      * @param query
      * @return
      */
-    @Operation(summary = "用户搜索视频")
+    @Operation(summary = "用户搜索视频", description = "total/pages 统计本轮有界召回池中可展示的内容，不代表 ES 全量命中；补取达到预算时允许短页")
     @GetMapping("/video")
     public Result<PageResult<SearchVideoVO>> searchVideo(@ModelAttribute SearchVideoPageQuery query) {
         return Result.success(searchService.searchVideo(query));

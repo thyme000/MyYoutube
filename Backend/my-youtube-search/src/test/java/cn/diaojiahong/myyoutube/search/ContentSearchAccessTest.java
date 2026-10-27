@@ -4,6 +4,8 @@ import cn.diaojiahong.myyoutube.common.utils.*;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.domain.dto.*;
 import cn.diaojiahong.myyoutube.search.recall.RecallPipeline;
+import cn.diaojiahong.myyoutube.search.recall.SearchContentSummaryClient;
+
 import cn.diaojiahong.myyoutube.search.service.impl.SearchServiceImpl;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.*;
@@ -27,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ContentSearchAccessTest {
-    final ContentSummaryPort summaries = mock(ContentSummaryPort.class);
+    final SearchContentSummaryClient summaries = mock(SearchContentSummaryClient.class);
     final ElasticsearchClient client = mock(ElasticsearchClient.class);
     final ElasticsearchOperations operations = mock(ElasticsearchOperations.class);
     final RecallPipeline recall = mock(RecallPipeline.class);
@@ -36,7 +38,13 @@ class ContentSearchAccessTest {
     final SearchServiceImpl search = new SearchServiceImpl(operations,follows,mock(ContentInternalPort.class),
             summaries,mock(UserPort.class),mock(S3StorageUtil.class),hot,client,recall);
 
-    @BeforeEach void user() { UserContext.setUser("7"); }
+    @BeforeEach void user() {
+        UserContext.setUser("7");
+        when(recall.execute(any(), any())).thenAnswer(call -> {
+            Function<List<String>, List<String>> readable = call.getArgument(1);
+            return readable.apply(recall.execute(call.getArgument(0)));
+        });
+    }
     @AfterEach void clear() { UserContext.removeUser(); }
 
     ContentSummary summary(long id) {
@@ -157,6 +165,13 @@ class ContentSearchAccessTest {
         assertEquals(11,result.getTotal()); assertEquals(List.of("12"),result.getList().stream().map(s -> s.getId()).toList());
         assertEquals(Boolean.FALSE, result.getList().get(0).getIsFollow());
         verifyNoInteractions(hot);
+    }
+
+    @Test void pagesBeyondTheBoundedPoolReturnEmptyWithoutOverflowingTheOffset() {
+        when(recall.execute(any())).thenReturn(List.of("1"));
+        when(summaries.listByIdsOrdered(any())).thenReturn(List.of(summary(1)));
+        var keyword = new SearchVideoPageQuery(); keyword.setPageNo(Integer.MAX_VALUE); keyword.setPageSize(100);
+        assertTrue(search.searchVideo(keyword).getList().isEmpty());
     }
 
     @Test void stalePrivateContentCannotLeakThroughCompletionSuggestions() throws Exception {

@@ -6,12 +6,11 @@ import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
-import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
+import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoByTagPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoPageQuery;
@@ -28,11 +27,11 @@ import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import cn.hutool.core.bean.BeanUtil;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
-import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreMode;
+import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
 import cn.diaojiahong.myyoutube.search.recall.RecallPipeline;
 import cn.diaojiahong.myyoutube.search.recall.SearchContext;
-import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import cn.diaojiahong.myyoutube.search.recall.SearchContentSummaryClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -55,7 +54,7 @@ public class SearchServiceImpl implements ISearchService {
     private final ElasticsearchOperations elasticsearchOperations;
     private final FollowPort followPort;
     private final ContentInternalPort contentInternalPort;
-    private final ContentSummaryPort contentSummaryPort;
+    private final SearchContentSummaryClient contentSummaryPort;
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final HotSearchService hotSearchService;
@@ -66,21 +65,19 @@ public class SearchServiceImpl implements ISearchService {
     @Override
     @ObservedBusiness(BusinessOperation.SEARCH_CONTENT)
     public PageResult<SearchVideoVO> searchVideo(SearchVideoPageQuery pageQuery) {
+        pageQuery.validate();
         Long userId = getUserId();
         // 关注状态是响应必需数据，最新排序与任一单路返回也必须取得；失败交由接口报错。
         SearchContext ctx = SearchContext.of(pageQuery, userId, followPort.getFollowIds(userId));
-        List<String> fused = recallPipeline.execute(ctx);
-        // total 用融合结果真实长度: 召回以 recall-size 封顶, 深分页不可达就不虚报
-        var readable = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(fused, null));
-        int from = Math.min((pageQuery.getPageNo() - 1) * pageQuery.getPageSize(), readable.size());
-        var page = readable.subList(from, Math.min(from + pageQuery.getPageSize(), readable.size()));
+        List<ContentSummary> readable = readableCandidates(ctx);
+        int from = (int) Math.min((long) (pageQuery.getPageNo() - 1) * pageQuery.getPageSize(), readable.size());
+        List<ContentSummary> page = readable.subList(from, Math.min(from + pageQuery.getPageSize(), readable.size()));
         PageResult<SearchVideoVO> result = buildPageResult(page, readable.size(), pageQuery.getPageSize(), ctx.getFollowIds());
         if (pageQuery.getPageNo() == 1 && !result.getList().isEmpty()) {
             hotSearchService.record(userId, pageQuery.getKeyword());
         }
-        // 逐次检索, 只留召回量/可读量便于核对降级是否发生
-        log.debug("Search completed userId={} keyword={} sortByLatest={} recallHits={} readable={} pageNo={}",
-                userId, ctx.getKeyword(), pageQuery.isSortByLatest(), fused.size(), readable.size(), pageQuery.getPageNo());
+        log.debug("Search completed userId={} keyword={} sortByLatest={} readable={} pageNo={}",
+                userId, ctx.getKeyword(), pageQuery.isSortByLatest(), readable.size(), pageQuery.getPageNo());
         return result;
     }
 
@@ -279,12 +276,14 @@ public class SearchServiceImpl implements ISearchService {
         return hotSearchService.hot();
     }
 
-    private PageResult<SearchVideoVO> getSearchPageResult(NativeQuery query, int pageNo, int pageSize, List<Long> followIds) {
-        SearchHits<ContentDoc> hits = elasticsearchOperations.search(query, ContentDoc.class);
-        List<String> orderedIds = hits.getSearchHits().stream()
-                .map(hit -> hit.getContent().getId().toString()).toList();
-        return buildPageResult(contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(orderedIds, null)),
-                hits.getTotalHits(), pageSize, followIds);
+    private List<ContentSummary> readableCandidates(SearchContext ctx) {
+        Map<String, ContentSummary> hydrated = new HashMap<>();
+        List<String> ids = recallPipeline.execute(ctx, candidates -> {
+            List<ContentSummary> rows = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(candidates, null));
+            for (ContentSummary row : rows) hydrated.put(row.getId().toString(), row);
+            return rows.stream().map(row -> row.getId().toString()).toList();
+        });
+        return ids.stream().map(hydrated::get).toList();
     }
 
     private PageResult<SearchVideoVO> buildPageResult(List<ContentSummary> videos, long total,
@@ -327,6 +326,14 @@ public class SearchServiceImpl implements ISearchService {
         }
         Map<Long, Boolean> likedMap = contentInternalPort.likedMap(userId, new HashSet<>(videoIds));
         return likedMap.entrySet().stream().filter(Map.Entry::getValue).map(Map.Entry::getKey).toList();
+    }
+
+    private PageResult<SearchVideoVO> getSearchPageResult(NativeQuery query, int pageNo, int pageSize, List<Long> followIds) {
+        SearchHits<ContentDoc> hits = elasticsearchOperations.search(query, ContentDoc.class);
+        List<String> orderedIds = hits.getSearchHits().stream()
+                .map(hit -> hit.getContent().getId().toString()).toList();
+        return buildPageResult(contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(orderedIds, null)),
+                hits.getTotalHits(), pageSize, followIds);
     }
 
     /** 一次 getFollowIds 同时喂 ES 打分函数与 isFollow 回填, 避免同一请求查两次关注列表 */

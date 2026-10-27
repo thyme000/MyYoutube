@@ -1,9 +1,6 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
 import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
-import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.elasticsearch.core.SearchResponse;
-import co.elastic.clients.elasticsearch.core.search.Hit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -24,10 +21,9 @@ import java.util.Map;
 @Slf4j
 public class LatestFuser implements RecallFuser {
 
-    private static final String CONTENT_INDEX = "content";
     private static final DateTimeFormatter TEXT_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private final ElasticsearchClient elasticsearchClient;
+    private final RecallSearchClient searchClient;
 
     @Override
     public List<String> fuse(SearchContext ctx, List<List<String>> recalls) {
@@ -46,20 +42,17 @@ public class LatestFuser implements RecallFuser {
     /** 并集 id 回填 createTime: 一次 ids 查询, 失败退化为按 id 序, 不阻塞搜索 */
     private Map<String, Long> fetchCreateTime(List<String> ids) {
         try {
-            SearchResponse<Map> resp = elasticsearchClient.search(s -> s
-                    .index(CONTENT_INDEX)
-                    .size(ids.size())
-                    .query(q -> q.ids(v -> v.values(ids)))
-                    .source(sc -> sc.filter(f -> f.includes("createTime"))), Map.class);
             Map<String, Long> times = new HashMap<>();
-            for (Hit<Map> hit : resp.hits().hits()) {
-                Long time = parseTime(hit.source() == null ? null : hit.source().get("createTime"));
-                if (time != null) {
-                    times.put(hit.id(), time);
-                }
-            }
+            searchClient.createTimes(ids).forEach((id, value) -> {
+                Long time = parseTime(value);
+                if (time != null) times.put(id, time);
+            });
             return times;
         } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("最新排序已中断", e);
+            }
             log.warn("createTime 回填失败, 最新排序退化为 id 序: {}", e.getMessage());
             return Map.of();
         }

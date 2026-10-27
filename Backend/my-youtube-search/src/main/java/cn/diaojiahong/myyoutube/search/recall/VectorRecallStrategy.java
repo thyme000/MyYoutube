@@ -7,6 +7,8 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import cn.diaojiahong.myyoutube.common.concurrent.AsyncTimeout;
 
 /**
  * 向量语义召回路: kNN 只召回与查询向量同版本的已发布内容
@@ -21,14 +23,21 @@ public class VectorRecallStrategy implements RecallStrategy {
 
     @Override
     public boolean shouldRun(SearchContext ctx) {
-        return vectorProperties.isEnabled() && !ctx.getKeyword().isEmpty();
+        return !ctx.isTagSearch() && vectorProperties.isEnabled() && !ctx.getKeyword().isEmpty();
     }
 
     @Override
-    public String executorName() { return "queryVectorExecutor"; }
+    public List<String> recall(SearchContext ctx) throws Exception {
+        return queryVectorRecall.recall(ctx);
+    }
 
     @Override
-    public List<String> recall(SearchContext ctx, long deadlineNanos) throws Exception {
-        return queryVectorRecall.recall(ctx, deadlineNanos);
+    @AsyncTimeout("vector-recall")
+    public CompletableFuture<RecallBatch> firstBatch(SearchContext ctx) {
+        try {
+            return CompletableFuture.completedFuture(RecallBatch.exhausted(recall(ctx)));
+        } catch (Exception error) {
+            return CompletableFuture.failedFuture(error);
+        }
     }
 }

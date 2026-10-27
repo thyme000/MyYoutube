@@ -15,6 +15,7 @@ import java.util.List;
 public class ContentDoc {
 
     @Id
+    @Field(type = FieldType.Long)
     private Long id;
 
     @Field(type = FieldType.Long)

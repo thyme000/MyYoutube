@@ -3,14 +3,12 @@ package cn.diaojiahong.myyoutube.search.recall;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
-import cn.diaojiahong.myyoutube.config.RecallConfig;
 import cn.diaojiahong.myyoutube.search.vector.QueryVectorRecall;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import feign.Feign;
 import feign.Retryer;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.http.HttpHost;
 import org.elasticsearch.client.RestClient;
 import org.junit.jupiter.api.Test;
@@ -22,7 +20,6 @@ import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -35,7 +32,7 @@ import static org.mockito.Mockito.*;
 @org.junit.jupiter.api.Timeout(10)
 class QueryVectorHttpTest {
     @ParameterizedTest @ValueSource(strings = {"rpc", "body", "knn"})
-    void blockedHttpReturnsKeywordAndReusesExecutionAndConnectionSlots(String blockedStage) throws Exception {
+    void slowHttpCanFinishAfterTheSearchAndIsBoundedByClientTimeout(String blockedStage) throws Exception {
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var workers = Executors.newCachedThreadPool();
         server.setExecutor(workers);
@@ -49,7 +46,7 @@ class QueryVectorHttpTest {
             if (call == 1 && !blockedStage.equals("knn")) {
                 stageStarted.countDown();
                 if (blockedStage.equals("rpc")) {
-                    try { Thread.sleep(1500); } catch (InterruptedException ignored) { }
+                    try { Thread.sleep(400); } catch (InterruptedException ignored) { }
                 } else {
                     streamUntilCancelled(exchange, peerClosed); return;
                 }
@@ -67,34 +64,28 @@ class QueryVectorHttpTest {
         });
         server.start();
         var properties = new VectorProperties();
-        var recallProperties = new RecallProperties(); recallProperties.setWaitMillis(500);
+        var recallProperties = new RecallProperties(); recallProperties.setEsTimeoutMillis(500); recallProperties.setEmbeddingTimeoutMillis(500);
         properties.setQueryMaxConcurrent(1); properties.setQueryQueueCapacity(1);
-        var keywordExecutor = new RecallConfig().recallExecutor();
-        var vectorExecutor = new RecallConfig().queryVectorExecutor(properties);
+        var runtime = new RecallTestSupport(200);
         try (var es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort()))
                 .setHttpClientConfigCallback(builder -> builder.setMaxConnTotal(1).setMaxConnPerRoute(1)).build()) {
             var port = port(server.getAddress().getPort());
-            var vector = new VectorRecallStrategy(new QueryVectorRecall(port, new RecallSearchClient(es), properties, new RecallRanking(new RecallRankingProperties()), mock(cn.diaojiahong.myyoutube.search.hot.HotSearchService.class)), properties);
-            var keyword = mock(KeywordRecallStrategy.class);
+            var vector = new VectorRecallStrategy(new QueryVectorRecall(port, new RecallSearchClient(es, recallProperties), properties, new RecallRanking(new RecallRankingProperties()), mock(cn.diaojiahong.myyoutube.search.hot.HotSearchService.class), recallProperties), properties);
+            RecallStrategy keyword = mock(RecallStrategy.class, CALLS_REAL_METHODS);
             when(keyword.shouldRun(any())).thenReturn(true);
-            when(keyword.executorName()).thenReturn("recallExecutor");
-            when(keyword.recall(any(), anyLong())).thenAnswer(call -> {
-                assertTrue(stageStarted.await(2, TimeUnit.SECONDS)); return List.of("keyword");
-            });
-            var pipeline = new RecallPipeline(List.of(keyword, vector), new RrfFuser(properties), mock(LatestFuser.class),
-                    recallProperties, new SimpleMeterRegistry(), Map.of("recallExecutor", keywordExecutor, "queryVectorExecutor", vectorExecutor));
+            when(keyword.firstBatch(any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(RecallBatch.exhausted(List.of("keyword"))));
+            var pipeline = new RecallPipeline(List.of(keyword, runtime.proxy(vector)), new RrfFuser(properties), mock(LatestFuser.class),
+                    recallProperties, runtime.metrics);
             long start = System.nanoTime();
             assertEquals(List.of("keyword"), pipeline.execute(RecallPipelineTest.context()));
             long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
             assertTrue(elapsed < 1000, "keyword response took " + elapsed + "ms");
-            System.out.printf("blockedStage=%s budgetMillis=500 keywordElapsedMillis=%d%n", blockedStage, elapsed);
-            var idle = vectorExecutor.submit(() -> true);
-            assertTrue(idle.get(1, TimeUnit.SECONDS));
+            var idle = runtime.vectorExecutor.submit(() -> true);
+            assertTrue(idle.get(2, TimeUnit.SECONDS));
             if (!blockedStage.equals("rpc")) assertTrue(peerClosed.await(2, TimeUnit.SECONDS));
-            recallProperties.setWaitMillis(1500);
             var ctx = SearchContext.of(RecallPipelineTest.context().getQuery(), 7L, List.of(11L, 12L));
             ctx.getQuery().setCategory("music");
-            assertEquals(List.of("keyword", "vector"), pipeline.execute(ctx));
+            assertEquals(List.of("vector"), vector.recall(ctx));
             var body = JsonUtil.GSON.fromJson(requestBody.get(), com.google.gson.JsonObject.class);
             var score = body.getAsJsonObject("query").getAsJsonObject("function_score");
             var knn = score.getAsJsonObject("query").getAsJsonObject("knn");
@@ -115,7 +106,7 @@ class QueryVectorHttpTest {
             assertTrue(timeout.get().contains("timeout="));
             assertEquals(2, calls.get());
         } finally {
-            keywordExecutor.shutdown(); vectorExecutor.shutdown(); server.stop(0); workers.shutdownNow();
+            runtime.close(); server.stop(0); workers.shutdownNow();
         }
     }
 

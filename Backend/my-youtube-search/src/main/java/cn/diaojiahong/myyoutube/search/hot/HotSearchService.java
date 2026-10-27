@@ -83,6 +83,10 @@ public class HotSearchService {
                 .stream().filter(name -> filter.eligible(name) != null).limit(properties.getTopLimit()).toList();
     }
 
+    public HotSearchGroup cachedGroup(String text) {
+        return cachedGroup(text, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50));
+    }
+
     public HotSearchGroup cachedGroup(String text, long deadlineNanos) {
         if (!properties.isEnabled() || filter.eligible(text) == null) return null;
         return read(HotSearchMetrics.ReadKind.NAMED, () -> store.named(text), null, deadlineNanos);

@@ -2,114 +2,138 @@ package cn.diaojiahong.myyoutube.search.recall;
 
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 
+import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import feign.FeignException;
 import io.micrometer.core.instrument.MeterRegistry;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.stereotype.Service;
-
+import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CancellationException;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class RecallPipeline {
     private final List<RecallStrategy> strategies;
     private final RrfFuser rrfFuser;
     private final LatestFuser latestFuser;
     private final RecallProperties properties;
-    private final Map<String, ThreadPoolTaskExecutor> executors;
     private final MeterRegistry metrics;
 
-    public RecallPipeline(List<RecallStrategy> strategies, RrfFuser rrfFuser, LatestFuser latestFuser,
-                          RecallProperties properties, MeterRegistry metrics,
-                          Map<String, ThreadPoolTaskExecutor> executors) {
-        this.strategies = strategies;
-        this.rrfFuser = rrfFuser;
-        this.latestFuser = latestFuser;
-        this.properties = properties;
-        this.metrics = metrics;
-        this.executors = executors;
-    }
-
     public List<String> execute(SearchContext ctx) {
-        long waitDeadline = ctx.getStartedNanos() + TimeUnit.MILLISECONDS.toNanos(properties.getWaitMillis());
-        long deadline = ctx.getStartedNanos() + TimeUnit.MILLISECONDS.toNanos(properties.getTimeoutMillis());
+        return execute(ctx, ids -> ids);
+    }
+
+    public List<String> execute(SearchContext ctx, Function<List<String>, List<String>> readable) {
         List<RecallStrategy> active = strategies.stream().filter(strategy -> strategy.shouldRun(ctx)).toList();
-        BlockingQueue<FutureTask<RecallResult>> completed = new LinkedBlockingQueue<>();
-        List<RunningRecall> tasks = new ArrayList<>();
-        List<List<String>> recalls = new ArrayList<>(Collections.nCopies(active.size(), List.of()));
+        List<CompletableFuture<RecallResult>> pending = active.stream()
+                .map(strategy -> strategy.firstBatch(ctx).handle((batch, error) -> fallback(strategy, batch, error))).toList();
         try {
-            for (int i = 0; i < active.size(); i++) {
-                RecallStrategy strategy = active.get(i);
-                var executor = executors.get(strategy.executorName());
-                if (executor == null) throw new IllegalStateException("未配置召回执行器: " + strategy.executorName());
-                int index = i;
-                var task = new FutureTask<>(() -> new RecallResult(index, recallQuietly(strategy, ctx, deadline))) {
-                    @Override protected void done() { completed.add(this); }
-                };
-                tasks.add(new RunningRecall(executor, task));
-                try { executor.execute(task); }
-                catch (RejectedExecutionException error) {
-                    task.cancel(false);
-                    metrics.counter("myyoutube.search.recall.rejected", "strategy", strategy.getClass().getSimpleName()).increment();
-                }
-            }
-            boolean hasCandidates = false;
-            int pending = tasks.size();
-            while (pending > 0) {
-                var task = completed.poll();
-                if (task == null) {
-                    long now = System.nanoTime();
-                    if (now >= deadline || (now >= waitDeadline && hasCandidates)) break;
-                    long until = now < waitDeadline ? waitDeadline : deadline;
-                    task = completed.poll(until - now, TimeUnit.NANOSECONDS);
-                    if (task == null) continue;
-                }
-                pending--;
-                try {
-                    RecallResult result = task.get();
-                    recalls.set(result.index(), result.ids());
-                    hasCandidates |= !result.ids().isEmpty();
-                } catch (CancellationException ignored) { }
-            }
-        } catch (InterruptedException error) {
+            CompletableFuture.allOf(pending.toArray(CompletableFuture[]::new)).get();
+        } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("搜索等待已中断", error);
+            throw new IllegalStateException("搜索等待已中断", interrupted);
         } catch (ExecutionException error) {
-            throw new IllegalStateException("搜索召回失败", error.getCause());
-        } finally {
-            // 返回时取消不再需要的慢路；异常或中断退出时同样取消其余任务。
-            // 移除排队任务，避免请求结束后继续占用执行资源。
-            for (RunningRecall task : tasks) {
-                task.future().cancel(true);
-                task.executor().getThreadPoolExecutor().remove(task.future());
+            throw new CompletionException(unwrap(error));
+        }
+        List<RecallResult> results = pending.stream().map(CompletableFuture::join).toList();
+        // 单路可以降级，全部失败不能伪装成“没有搜索结果”。
+        if (!results.isEmpty() && results.stream().allMatch(result -> result.failure() != null))
+            throw new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "搜索暂时不可用，请稍后重试", results.get(0).failure());
+        return filterAndRefill(ctx, active, results.stream().map(RecallResult::batch).toList(), readable);
+    }
+
+    private RecallResult fallback(RecallStrategy strategy, RecallBatch batch, Throwable error) {
+        if (error == null) return new RecallResult(batch, null);
+        Throwable cause = unwrap(error);
+        if (!unavailable(cause)) throw new CompletionException(cause);
+        String name = AopUtils.getTargetClass(strategy).getSimpleName();
+        metrics.counter(MetricNames.SEARCH_RECALL_FAILURES, "strategy", name).increment();
+        log.warn("{} 召回降级 errorType={}", name, cause.getClass().getSimpleName());
+        return new RecallResult(RecallBatch.exhausted(List.of()), cause);
+    }
+
+    private List<String> filterAndRefill(SearchContext ctx, List<RecallStrategy> active, List<RecallBatch> batches,
+                                        Function<List<String>, List<String>> readable) {
+        List<String> initial = batches.stream().flatMap(batch -> batch.ids().stream()).distinct()
+                .limit(properties.getRefillMaxCandidates()).toList();
+        if (initial.isEmpty()) return List.of();
+
+        Set<String> checked = new LinkedHashSet<>(initial);
+        Set<String> visible = new HashSet<>(readable.apply(initial));
+        List<List<String>> recalls = refill(ctx, active, batches, readable, checked, visible);
+
+        // 保留各路原始排名参与融合，只展示已经回源确认可见的候选。
+        List<List<String>> checkedRecalls = recalls.stream()
+                .map(ids -> ids.stream().filter(checked::contains).distinct().toList()).toList();
+        List<String> ranked = ctx.isSortByLatest()
+                ? latestFuser.fuse(ctx, checkedRecalls) : rrfFuser.fuse(ctx, checkedRecalls);
+        return ranked.stream().filter(visible::contains).limit(initial.size()).toList();
+    }
+
+    private List<List<String>> refill(SearchContext ctx, List<RecallStrategy> active, List<RecallBatch> batches,
+                                      Function<List<String>, List<String>> readable, Set<String> checked, Set<String> visible) {
+        List<List<String>> recalls = new ArrayList<>();
+        for (RecallBatch batch : batches) recalls.add(new ArrayList<>(batch.ids()));
+
+        int target = checked.size();
+        int rounds = 0;
+        for (int route = 0; route < active.size() && visible.size() < target; route++) {
+            RecallBatch previous = batches.get(route);
+            while (visible.size() < target && previous.hasMore() && rounds < properties.getRefillMaxRounds()
+                    && checked.size() < properties.getRefillMaxCandidates()) {
+                int size = Math.min(properties.getRefillBatchSize(), properties.getRefillMaxCandidates() - checked.size());
+                try {
+                    RecallBatch next = active.get(route).nextBatch(ctx, previous, size);
+                    rounds++;
+                    metrics.counter(MetricNames.SEARCH_REFILL_ROUNDS).increment();
+                    previous = next;
+
+                    // 跨路重复仍参与排名计算，但同一个 ID 只回源检查一次。
+                    recalls.get(route).addAll(next.ids());
+                    List<String> unchecked = next.ids().stream().filter(checked::add).toList();
+                    if (!unchecked.isEmpty()) visible.addAll(readable.apply(unchecked));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("搜索补取已中断", interrupted);
+                } catch (Exception error) {
+                    Throwable cause = unwrap(error);
+                    if (!unavailable(cause)) throw new CompletionException(cause);
+
+                    metrics.counter(MetricNames.SEARCH_REFILL_FAILURES).increment();
+                    log.warn("Search refill stopped errorType={}", cause.getClass().getSimpleName());
+                    break;
+                }
             }
         }
-        return ctx.isSortByLatest() ? latestFuser.fuse(ctx, recalls) : rrfFuser.fuse(ctx, recalls);
+        return recalls;
     }
 
-    private List<String> recallQuietly(RecallStrategy strategy, SearchContext ctx, long deadline) {
-        try {
-            if (System.nanoTime() >= deadline) return List.of();
-            return strategy.recall(ctx, deadline);
-        }
-        catch (Exception error) {
-            if (error instanceof InterruptedException) Thread.currentThread().interrupt();
-            metrics.counter(MetricNames.SEARCH_RECALL_FAILURES, "strategy", strategy.getClass().getSimpleName()).increment();
-            log.warn("{} 召回失败, 该路降级: {}", strategy.getClass().getSimpleName(), error.getMessage());
-            return List.of();
-        }
+    private static Throwable unwrap(Throwable error) {
+        while ((error instanceof CompletionException || error instanceof ExecutionException) && error.getCause() != null)
+            error = error.getCause();
+        return error;
     }
 
-    private record RecallResult(int index, List<String> ids) {}
-    private record RunningRecall(ThreadPoolTaskExecutor executor, FutureTask<RecallResult> future) {}
+    private static boolean unavailable(Throwable error) {
+        return error instanceof TimeoutException || error instanceof RejectedExecutionException
+                || error instanceof IOException || error instanceof FeignException
+                || error instanceof DependencyException || error instanceof ModelUnavailable;
+    }
+
+    private record RecallResult(RecallBatch batch, Throwable failure) {}
 }

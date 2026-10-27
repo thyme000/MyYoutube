@@ -22,6 +22,16 @@ public class RecallRanking {
     public Query keyword(Query query, SearchContext ctx) { return apply(query, ctx, properties.getKeyword()); }
     public Query vector(Query query, SearchContext ctx) { return apply(query, ctx, properties.getVector()); }
 
+    public Query tag(Query query, SearchContext ctx) {
+        List<FunctionScore> functions = new ArrayList<>();
+        for (Long author : ctx.getFollowIds()) functions.add(FunctionScore.of(f -> f
+                .filter(q -> q.term(t -> t.field("authorId").value(author))).weight(5.0)));
+        functions.add(counter("playCount", 1.0));
+        functions.add(counter("likeCount", 1.0));
+        return Query.of(q -> q.functionScore(f -> f.query(query).functions(functions)
+                .scoreMode(FunctionScoreMode.Sum).boostMode(FunctionBoostMode.Sum)));
+    }
+
     private Query apply(Query query, SearchContext ctx, RecallRankingProperties.Weights weights) {
         if (ctx.isSortByLatest()) return query;
         List<FunctionScore> functions = new ArrayList<>();

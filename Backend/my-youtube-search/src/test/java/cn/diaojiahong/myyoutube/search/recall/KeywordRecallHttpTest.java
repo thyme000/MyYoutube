@@ -1,12 +1,11 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
-import cn.diaojiahong.myyoutube.config.RecallConfig;
 import cn.diaojiahong.myyoutube.search.vector.QueryVectorRecall;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
+import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoByTagPageQuery;
 import com.google.gson.JsonObject;
 import com.sun.net.httpserver.HttpServer;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.http.HttpHost;
 import org.elasticsearch.client.RestClient;
 import org.junit.jupiter.api.Test;
@@ -14,11 +13,11 @@ import org.junit.jupiter.api.Test;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,6 +25,44 @@ import static org.mockito.Mockito.*;
 
 @org.junit.jupiter.api.Timeout(10)
 class KeywordRecallHttpTest {
+    @Test void timedOutKeywordHttpCanFinishAfterTheVectorResultIsReturned() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        ExecutorService workers = Executors.newCachedThreadPool();
+        server.setExecutor(workers);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        server.createContext("/content/_search", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            entered.countDown();
+            try {
+                release.await();
+                QueryVectorHttpTest.send(exchange, "{\"hits\":{\"hits\":[{\"_id\":\"late-keyword\"}]}}");
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+            } finally { finished.countDown(); exchange.close(); }
+        });
+        server.start();
+        try (RecallTestSupport runtime = new RecallTestSupport(200);
+             RestClient es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
+            VectorProperties vectors = new VectorProperties();
+            RecallProperties settings = new RecallProperties();
+            KeywordRecallStrategy keyword = runtime.proxy(new KeywordRecallStrategy(new RecallSearchClient(es, settings),
+                    vectors, new RecallRanking(new RecallRankingProperties())));
+            QueryVectorRecall vectorQuery = mock(QueryVectorRecall.class);
+            when(vectorQuery.recall(any())).thenReturn(List.of("vector"));
+            RecallPipeline pipeline = new RecallPipeline(List.of(keyword, runtime.proxy(new VectorRecallStrategy(vectorQuery, vectors))),
+                    new RrfFuser(vectors), mock(LatestFuser.class), settings, runtime.metrics);
+            List<String> result = pipeline.execute(RecallPipelineTest.context());
+            assertTrue(entered.await(1, TimeUnit.SECONDS));
+            assertEquals(List.of("vector"), result);
+            assertEquals(1, finished.getCount());
+            release.countDown();
+            assertTrue(finished.await(1, TimeUnit.SECONDS));
+            assertEquals(List.of("vector"), result);
+        } finally { release.countDown(); server.stop(0); workers.shutdownNow(); }
+    }
+
     @Test void keywordKeepsFiltersBoostsSortAndCandidateDepth() throws Exception {
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var body = new AtomicReference<String>();
@@ -35,12 +72,12 @@ class KeywordRecallHttpTest {
         });
         server.start();
         try (var es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
-            var keyword = new KeywordRecallStrategy(new RecallSearchClient(es), new VectorProperties(), new RecallRanking(new RecallRankingProperties()));
+            var keyword = new KeywordRecallStrategy(new RecallSearchClient(es, new RecallProperties()), new VectorProperties(), new RecallRanking(new RecallRankingProperties()));
             var ctx = SearchContext.of(RecallPipelineTest.context().getQuery(), 7L, List.of(7L));
             ctx.getQuery().setCategory("music");
-            assertEquals(List.of("42"), keyword.recall(ctx, System.nanoTime() + TimeUnit.SECONDS.toNanos(2)));
+            assertEquals(List.of("42"), keyword.recall(ctx));
             var query = JsonUtil.GSON.fromJson(body.get(), JsonObject.class);
-            assertEquals(100, query.get("size").getAsInt());
+            assertEquals(101, query.get("size").getAsInt());
             assertFalse(query.get("_source").getAsBoolean());
             assertEquals("desc", query.getAsJsonArray("sort").get(0).getAsJsonObject().getAsJsonObject("_score").get("order").getAsString());
             assertEquals("desc", query.getAsJsonArray("sort").get(1).getAsJsonObject().getAsJsonObject("createTime").get("order").getAsString());
@@ -59,49 +96,57 @@ class KeywordRecallHttpTest {
             assertTrue(score.toString().contains("playCount"));
             assertTrue(score.toString().contains("likeCount"));
             ctx.getQuery().setSortByLatest(true);
-            keyword.recall(ctx, System.nanoTime() + TimeUnit.SECONDS.toNanos(2));
+            keyword.recall(ctx);
             var latest = JsonUtil.GSON.fromJson(body.get(), JsonObject.class);
             assertFalse(latest.getAsJsonObject("query").has("function_score"));
         } finally { server.stop(0); }
     }
 
-    @Test void blockedKeywordReturnsVectorAndReleasesSingleEsConnection() throws Exception {
+    @Test void lookaheadUsesTheLastConsumedSortValuesAndDoesNotSkipTheReservedHit() throws Exception {
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        var workers = Executors.newCachedThreadPool(); server.setExecutor(workers);
-        var calls = new AtomicInteger();
-        var entered = new CountDownLatch(1); var closed = new CountDownLatch(1);
+        List<JsonObject> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
         server.createContext("/content/_search", exchange -> {
-            exchange.getRequestBody().readAllBytes();
-            if (calls.incrementAndGet() == 1) {
-                entered.countDown(); QueryVectorHttpTest.streamUntilCancelled(exchange, closed);
-            } else {
-                QueryVectorHttpTest.send(exchange, "{\"hits\":{\"hits\":[{\"_id\":\"42\"}]}}");
-            }
+            requests.add(JsonUtil.GSON.fromJson(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8), JsonObject.class));
+            QueryVectorHttpTest.send(exchange, requests.size() == 1
+                    ? "{\"hits\":{\"hits\":[{\"_id\":\"9\",\"sort\":[1.0,100,9]},{\"_id\":\"9007199254740993\",\"sort\":[1.0,100,9007199254740993]},{\"_id\":\"7\",\"sort\":[1.0,100,7]}]}}"
+                    : "{\"hits\":{\"hits\":[{\"_id\":\"7\",\"sort\":[1.0,100,7]},{\"_id\":\"6\",\"sort\":[1.0,100,6]}]}}");
         });
         server.start();
-        var config = new RecallConfig(); var properties = new VectorProperties();
-        var recallProperties = new RecallProperties(); recallProperties.setWaitMillis(250);
-        var keywordExecutor = config.recallExecutor(); var vectorExecutor = config.queryVectorExecutor(properties);
-        try (var es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort()))
-                .setHttpClientConfigCallback(builder -> builder.setMaxConnTotal(1).setMaxConnPerRoute(1)).build()) {
-            var keyword = new KeywordRecallStrategy(new RecallSearchClient(es), properties, new RecallRanking(new RecallRankingProperties()));
-            var vectors = mock(QueryVectorRecall.class);
-            when(vectors.recall(any(), anyLong())).thenAnswer(call -> {
-                assertTrue(entered.await(1, TimeUnit.SECONDS)); return List.of("vector");
-            });
-            var pipeline = new RecallPipeline(List.of(keyword, new VectorRecallStrategy(vectors, properties)),
-                    new RrfFuser(properties), mock(LatestFuser.class), recallProperties, new SimpleMeterRegistry(),
-                    Map.of("recallExecutor", keywordExecutor, "queryVectorExecutor", vectorExecutor));
-            long start = System.nanoTime();
-            assertEquals(List.of("vector"), pipeline.execute(RecallPipelineTest.context()));
-            long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
-            assertTrue(elapsed < 1000, "keyword fallback took " + elapsed + "ms");
-            assertTrue(closed.await(2, TimeUnit.SECONDS));
-            var ctx = RecallPipelineTest.context();
-            assertEquals(List.of("42"), keyword.recall(ctx, System.nanoTime() + TimeUnit.SECONDS.toNanos(2)));
-            assertEquals(2, calls.get());
-        } finally {
-            keywordExecutor.shutdown(); vectorExecutor.shutdown(); server.stop(0); workers.shutdownNow();
-        }
+        var properties = new VectorProperties(); properties.setRecallSize(1);
+        try (RestClient client = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
+            var keyword = new KeywordRecallStrategy(new RecallSearchClient(client, new RecallProperties()), properties, new RecallRanking(new RecallRankingProperties()));
+            SearchContext context = RecallPipelineTest.context();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            RecallBatch first = keyword.firstBatch(context).join();
+            assertEquals(List.of("9", "9007199254740993"), first.ids()); assertTrue(first.hasMore());
+            RecallBatch next = keyword.nextBatch(context, first, 2);
+            assertEquals(List.of("7", "6"), next.ids()); assertFalse(next.hasMore());
+            assertEquals(9007199254740993L, requests.get(1).getAsJsonArray("search_after").get(2).getAsLong());
+            assertEquals(3, requests.get(0).get("size").getAsInt());
+            assertFalse(requests.get(0).has("search_after"));
+            assertTrue(requests.get(0).getAsJsonArray("sort").get(2).getAsJsonObject().has("id"));
+        } finally { server.stop(0); }
+    }
+
+    @Test void tagRecallKeepsItsQueryAndBoostsAndNeverEnablesVectorRecall() throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var body = new AtomicReference<JsonObject>();
+        server.createContext("/content/_search", exchange -> {
+            body.set(JsonUtil.GSON.fromJson(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8), JsonObject.class));
+            QueryVectorHttpTest.send(exchange, "{\"hits\":{\"hits\":[]}}");
+        });
+        server.start();
+        try (RestClient client = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
+            var query = new SearchVideoByTagPageQuery(); query.setTagName("camera");
+            SearchContext context = SearchContext.forTag(query, 7L, List.of(9L));
+            var properties = new VectorProperties();
+            var keyword = new KeywordRecallStrategy(new RecallSearchClient(client, new RecallProperties()), properties, new RecallRanking(new RecallRankingProperties()));
+            keyword.firstBatch(context).join();
+            JsonObject score = body.get().getAsJsonObject("query").getAsJsonObject("function_score");
+            assertEquals("sum", score.get("boost_mode").getAsString());
+            assertEquals(5.0, score.getAsJsonArray("functions").get(0).getAsJsonObject().get("weight").getAsDouble());
+            assertTrue(score.toString().contains("tagNames^6")); assertTrue(score.toString().contains("60%"));
+            assertFalse(new VectorRecallStrategy(mock(QueryVectorRecall.class), properties).shouldRun(context));
+        } finally { server.stop(0); }
     }
 }

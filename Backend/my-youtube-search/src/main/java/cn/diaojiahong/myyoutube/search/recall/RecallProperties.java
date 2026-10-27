@@ -9,13 +9,18 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "my-youtube.search.recall")
 public class RecallProperties {
-    private int waitMillis = 1000;
-    private int timeoutMillis = 10000;
+    private int esTimeoutMillis = 2000;
+    private int embeddingTimeoutMillis = 10000;
+    private int refillMaxRounds = 2;
+    private int refillMaxCandidates = 500;
+    private int refillBatchSize = 50;
 
     @PostConstruct
     void validate() {
-        if (waitMillis <= 0 || timeoutMillis < waitMillis) {
-            throw new IllegalStateException("召回等待窗口必须大于 0，硬超时不能小于等待窗口");
-        }
+        if (esTimeoutMillis <= 0 || embeddingTimeoutMillis <= 0)
+            throw new IllegalStateException("ES 和查询向量调用超时必须大于 0");
+        if (refillMaxRounds < 0 || refillMaxRounds > 5 || refillMaxCandidates < 1 || refillMaxCandidates > 1000
+                || refillBatchSize < 1 || refillBatchSize > refillMaxCandidates)
+            throw new IllegalStateException("搜索补取轮次、候选数、批次大小无效");
     }
 }

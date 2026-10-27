@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import static cn.diaojiahong.myyoutube.search.recall.RecallSearchClient.remainingMillis;
+import cn.diaojiahong.myyoutube.search.recall.RecallProperties;
 
 @Service
 @RequiredArgsConstructor
@@ -24,24 +24,24 @@ public class QueryVectorRecall {
     private final VectorProperties properties;
     private final RecallRanking ranking;
     private final HotSearchService hotSearch;
+    private final RecallProperties timeouts;
 
-    public List<String> recall(SearchContext ctx, long deadlineNanos) throws Exception {
-        var cached = hotSearch.cachedGroup(ctx.getKeyword(), deadlineNanos);
+    public List<String> recall(SearchContext ctx) throws Exception {
+        var cached = hotSearch.cachedGroup(ctx.getKeyword());
         ContentVectorService.QueryVector vector = null;
         if (cached != null && ctx.getKeyword().equals(cached.name())) {
             try {
-                long budget = Math.min(200, remainingMillis(deadlineNanos));
+                long budget = 200;
                 var info = embeddings.info(new Request.Options(budget, TimeUnit.MILLISECONDS, budget, TimeUnit.MILLISECONDS, true));
                 if (info != null && cached.valid(info.version(), info.dims())) {
                     vector = new ContentVectorService.QueryVector(cached.vector(), cached.version());
                 }
             } catch (Exception unavailable) {
-                remainingMillis(deadlineNanos);
+                if (Thread.currentThread().isInterrupted()) throw unavailable;
             }
         }
-        if (vector == null) vector = generate(ctx, deadlineNanos);
+        if (vector == null) vector = generate(ctx);
         if (vector == null) return List.of();
-        remainingMillis(deadlineNanos);
         ContentVectorService.QueryVector queryVector = vector;
         // 先扩展语义候选，再按业务加权取最终召回深度；加权不会影响 HNSW 候选遍历。
         int candidates = properties.getRecallSize() * 2;
@@ -50,14 +50,13 @@ public class QueryVectorRecall {
                 .filter(ContentVectorService.knnFilter(queryVector, ctx.getCategory()))));
         SearchRequest request = SearchRequest.of(s -> s.index("content").size(properties.getRecallSize())
                 .source(source -> source.fetch(false)).query(ranking.vector(knn, ctx)));
-        return searchClient.search(request, deadlineNanos);
+        return searchClient.search(request);
     }
 
-    private ContentVectorService.QueryVector generate(SearchContext ctx, long deadlineNanos) throws Exception {
-        long remaining = remainingMillis(deadlineNanos);
-        var response = embeddings.embed(new QueryEmbeddingPort.Query(ctx.getKeyword(), System.currentTimeMillis() + remaining),
-                new Request.Options(remaining, TimeUnit.MILLISECONDS, remaining, TimeUnit.MILLISECONDS, true));
-        remainingMillis(deadlineNanos);
+    private ContentVectorService.QueryVector generate(SearchContext ctx) throws Exception {
+        long timeout = timeouts.getEmbeddingTimeoutMillis();
+        var response = embeddings.embed(new QueryEmbeddingPort.Query(ctx.getKeyword(), System.currentTimeMillis() + timeout),
+                new Request.Options(1000, TimeUnit.MILLISECONDS, timeout, TimeUnit.MILLISECONDS, true));
         if (response == null || response.getUnavailableReason() != null || response.getItems() == null
                 || response.getItems().size() != 1 || response.getVersion() == null || response.getVersion().isBlank()) return null;
         var item = response.getItems().get(0);
