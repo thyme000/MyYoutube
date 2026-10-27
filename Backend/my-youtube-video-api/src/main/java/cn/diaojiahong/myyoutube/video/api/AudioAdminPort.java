@@ -17,6 +17,6 @@ public interface AudioAdminPort {
     @PostMapping("/{id}/decision") boolean decide(@PathVariable("id") Long id, @RequestBody Decision decision);
     record Item(String id, String title, String processingStatus, String reviewStatus, String analysisStatus) {}
     record Audit(String source, String decision, String reason, String payloadJson, Integer attempt, String actorId, LocalDateTime createTime) {}
-    record Detail(Item audio, String previewUrl, String coverUrl, Transcript transcript, String technicalError, List<Audit> records) {}
+    record Detail(Item audio, String previewUrl, String coverUrl, Transcript transcript, String technicalError, List<Audit> records, long usageCount) {}
     record Decision(String decision, String reason, Long actorId) {}
 }

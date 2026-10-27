@@ -51,7 +51,7 @@ public class InternalAdminAudioController implements AudioAdminPort {
                 .orderByAsc(AudioReviewRecord::getCreateTime).orderByAsc(AudioReviewRecord::getId));
         return new Detail(item(audio), preview, cover == null || cover.isBlank() ? null : storage.signGetUrl(cover, 600), transcript,
                 audio.getErrorMessage(), history.stream().map(r -> new Audit(r.getSource(), r.getDecision(), r.getReason(), r.getPayloadJson(),
-                r.getAttempt(), r.getActorId() == null ? null : r.getActorId().toString(), r.getCreateTime())).toList());
+                r.getAttempt(), r.getActorId() == null ? null : r.getActorId().toString(), r.getCreateTime())).toList(), audio.getUsageCount());
     }
     @Override public boolean decide(Long id, Decision decision) {
         return reviews.decide(id, decision.decision(), decision.reason(), decision.actorId());

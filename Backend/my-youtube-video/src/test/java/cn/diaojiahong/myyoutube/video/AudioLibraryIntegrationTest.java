@@ -807,15 +807,19 @@ class AudioLibraryIntegrationTest {
         var transcript = new ContentArtifacts.Transcript(List.of());
         when(artifacts.read(anyString(), eq(ContentArtifacts.Transcript.class))).thenReturn(transcript);
         var admin = new InternalAdminAudioController(rows, reviewRecords, reviews, storage, artifacts, users);
+        jdbc.update("UPDATE audio SET usage_count=17 WHERE id=?", id);
         assertEquals(1, admin.waiting(new PageQuery()).getTotal()); var detail = admin.detail(id);
+        assertEquals(17L, detail.usageCount());
         assertEquals("manual", detail.audio().analysisStatus());
         var mvc = MockMvcBuilders.standaloneSetup(admin).build();
         mvc.perform(get("/internal/admin/audios/" + id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.audio.analysisStatus").value("manual"))
+                .andExpect(jsonPath("$.usageCount").value(17))
                 .andExpect(jsonPath("$.audio.version").doesNotExist());
         assertEquals(transcript, detail.transcript()); assertEquals("signed/avatars/9.jpg", detail.coverUrl());
         assertNotNull(detail.previewUrl()); assertEquals("SKIPPED", detail.records().get(0).decision());
         assertFalse(JsonUtil.toJson(service.getMine(id)).contains("modelSkipped"));
+        assertFalse(JsonUtil.toJson(service.getMine(id)).contains("usageCount"));
         assertThrows(BizException.class, () -> reviews.decide(id, "PASS", "", 1L));
         assertThrows(BizException.class, () -> reviews.decide(id, null, "理由", 1L));
     }
@@ -839,15 +843,19 @@ class AudioLibraryIntegrationTest {
         assertEquals(AudioReviewStatus.APPROVED, rows.selectById(id).getReviewStatus());
         assertEquals("您的音频已通过审核。", service.getMine(id).getReviewReason());
         assertEquals("技术识别失败，人工完整试听及封面核验通过", rows.selectById(id).getReviewReason());
+        jdbc.update("UPDATE audio SET usage_count=23 WHERE id=?", id);
         when(search.search(any())).thenReturn(new AudioDiscoveryContracts.Slice(List.of(id), false));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads, mock(AudioContentService.class))).build();
         mvc.perform(get("/audios/" + id)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usageCount").doesNotExist())
                 .andExpect(jsonPath("$.data.reviewReason").doesNotExist())
                 .andExpect(jsonPath("$.data.errorMessage").doesNotExist())
                 .andExpect(jsonPath("$.data.analysisStatus").doesNotExist());
         mvc.perform(get("/audios/library")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.list[0].usageCount").doesNotExist())
                 .andExpect(jsonPath("$.data.list[0].reviewReason").doesNotExist());
         mvc.perform(get("/audios/mine/" + id)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usageCount").doesNotExist())
                 .andExpect(jsonPath("$.data.reviewReason").value("您的音频已通过审核。"));
     }
 
