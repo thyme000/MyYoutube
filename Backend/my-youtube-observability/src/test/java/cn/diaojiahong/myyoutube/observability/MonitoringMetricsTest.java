@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class MonitoringMetricsTest {
     @Test void defaultQueueTargetsCoverAllPipelineConsumerGroups() {
         var groups = MonitoringConfiguration.defaultGroups("custom-ingest");
-        assertEquals(13, groups.size());
+        assertEquals(14, groups.size());
         var registry = new SimpleMeterRegistry();
         var sampler = new MqMetrics(groups, (group, topic) -> new MqMetrics.Stock(1, 2), registry, Clock.systemUTC());
         sampler.sample();
@@ -20,6 +20,8 @@ class MonitoringMetricsTest {
             assertEquals(1, registry.get("mq.consumer.pending").tags("group", group, "kind", kind).gauge().value());
         assertEquals(cn.diaojiahong.myyoutube.common.constants.MqConstants.TOPIC_PUBLICATION_EFFECT,
                 groups.get("video_publication_notice"));
+        assertEquals(cn.diaojiahong.myyoutube.common.constants.MqConstants.TOPIC_PUBLICATION_EFFECT,
+                groups.get("video_publication_audio_count"));
         assertEquals(cn.diaojiahong.myyoutube.common.constants.MqConstants.TOPIC_AUDIO_CONTENT_BAN,
                 groups.get("video_audio_content_ban"));
     }

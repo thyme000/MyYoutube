@@ -14,21 +14,21 @@ class BusinessBacklogMetricsTest {
     @BeforeEach void setup() {
         jdbc = new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:" + java.util.UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", ""));
         jdbc.execute("CREATE TABLE media_draft(id BIGINT,status VARCHAR(32))");
-        jdbc.execute("CREATE TABLE content_publication_event(id BIGINT,completed BOOLEAN,user_count_done BOOLEAN,search_done BOOLEAN,notice_done BOOLEAN,create_time TIMESTAMP)");
+        jdbc.execute("CREATE TABLE content_publication_event(id BIGINT,completed BOOLEAN,user_count_done BOOLEAN,search_done BOOLEAN,notice_done BOOLEAN,audio_count_done BOOLEAN,create_time TIMESTAMP)");
         registry = new SimpleMeterRegistry();
         sampler = new BusinessBacklogMetrics(jdbc, registry, true);
     }
     @Test void branchesAreIndependentAndAgeUsesDatabaseClock() {
         jdbc.update("INSERT INTO media_draft VALUES(1,'PROCESSING'),(2,'READY')");
-        jdbc.update("INSERT INTO content_publication_event VALUES(1,FALSE,FALSE,TRUE,FALSE,DATEADD('SECOND',-600,CURRENT_TIMESTAMP)),(2,FALSE,TRUE,FALSE,TRUE,CURRENT_TIMESTAMP),(3,TRUE,TRUE,TRUE,TRUE,CURRENT_TIMESTAMP)");
+        jdbc.update("INSERT INTO content_publication_event VALUES(1,FALSE,FALSE,TRUE,FALSE,FALSE,DATEADD('SECOND',-600,CURRENT_TIMESTAMP)),(2,FALSE,TRUE,FALSE,TRUE,TRUE,CURRENT_TIMESTAMP),(3,TRUE,TRUE,TRUE,TRUE,TRUE,CURRENT_TIMESTAMP)");
         sampler.sample();
-        for (String branch : java.util.List.of("count", "search", "notice")) assertEquals(1, pending(branch));
+        for (String branch : java.util.List.of("count", "search", "notice", "audio_count")) assertEquals(1, pending(branch));
         double age = registry.get("myyoutube.business.publication.oldest.seconds").tag("branch", "count").gauge().value();
         assertTrue(age >= 599 && age < 605);
         assertEquals(1, registry.get("myyoutube.business.drafts.lowerbound").tag("status", "READY").gauge().value());
     }
     @Test void partialFailureRetainsWholeSnapshotAndMarksUnhealthy() {
-        jdbc.update("INSERT INTO content_publication_event VALUES(1,FALSE,FALSE,TRUE,TRUE,CURRENT_TIMESTAMP)");
+        jdbc.update("INSERT INTO content_publication_event VALUES(1,FALSE,FALSE,TRUE,TRUE,TRUE,CURRENT_TIMESTAMP)");
         sampler.sample();
         jdbc.update("INSERT INTO media_draft VALUES(1,'READY')");
         jdbc.execute("DROP TABLE content_publication_event");
@@ -45,7 +45,7 @@ class BusinessBacklogMetricsTest {
         assertTrue(Double.isNaN(disabled.get("myyoutube.business.publication.pending.lowerbound").tag("branch", "count").gauge().value()));
     }
     @Test void cappedBranchMissingFromSampleIsUnknownAndCountsAreBounded() {
-        jdbc.execute("INSERT INTO content_publication_event SELECT X,FALSE,FALSE,TRUE,TRUE,DATEADD('SECOND',X,CURRENT_TIMESTAMP) FROM SYSTEM_RANGE(1,2001)");
+        jdbc.execute("INSERT INTO content_publication_event SELECT X,FALSE,FALSE,TRUE,TRUE,TRUE,DATEADD('SECOND',X,CURRENT_TIMESTAMP) FROM SYSTEM_RANGE(1,2001)");
         jdbc.execute("INSERT INTO media_draft SELECT X,'FAILED' FROM SYSTEM_RANGE(1,2100)");
         sampler.sample();
         assertEquals(2000, pending("count"));

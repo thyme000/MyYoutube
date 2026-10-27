@@ -32,6 +32,6 @@ my-youtube.monitor:
   interval-ms: ${PIPELINE_METRICS_INTERVAL_MS:30000}
   logs-enabled: ${MONITOR_LOGS_ENABLED:true}
   filebeat: ${MONITOR_FILEBEAT:http://127.0.0.1:15066}
-media.monitor.dlq-groups: ${MONITOR_DLQ_GROUPS:${INGEST_GROUP:myyoutube-pipeline-ingest},transcode_draft_worker,transcode_content_worker,transcode_review_worker,transcode_content_submitted,transcode_review_requested,transcode_media_upload_event_group,video_content_understood,video_review_result,video_publication_count,video_publication_search,video_publication_notice,search_content_vector,video_audio_content_ban}
+media.monitor.dlq-groups: ${MONITOR_DLQ_GROUPS:${INGEST_GROUP:myyoutube-pipeline-ingest},transcode_draft_worker,transcode_content_worker,transcode_review_worker,transcode_content_submitted,transcode_review_requested,transcode_media_upload_event_group,video_content_understood,video_review_result,video_publication_count,video_publication_search,video_publication_notice,video_publication_audio_count,search_content_vector,video_audio_content_ban}
 rocketmq.name-server: ${INGEST_NAMESERVER:127.0.0.1:9876}
 management.metrics.distribution.percentiles-histogram.pipeline.ingest.bulk.duration: true
