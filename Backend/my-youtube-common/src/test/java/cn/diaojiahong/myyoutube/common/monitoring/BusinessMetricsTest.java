@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
@@ -26,6 +27,12 @@ class BusinessMetricsTest {
         proxy.search();
         assertEquals(1, count("search_content", "empty"));
         assertEquals(0, count("search_content", "failure"));
+    }
+    @Test void emptyCursorPagesUseTheSameEmptyOutcome() {
+        proxy.cursorSearch(List.of());
+        proxy.cursorSearch(List.of("content"));
+        assertEquals(1, count("search_content", "empty"));
+        assertEquals(1, count("search_content", "success"));
     }
     @Test void exceptionsKeepIdentityAndNeverBecomeSuccess() {
         var error = new BizException(ErrorCode.INVALID_ARGUMENT, "private input");
@@ -94,6 +101,8 @@ class BusinessMetricsTest {
     public static class Operations {
         @ObservedBusiness(BusinessOperation.SEARCH_CONTENT)
         public PageResult<String> search() { return PageResult.of(0, 0, List.of()); }
+        @ObservedBusiness(BusinessOperation.SEARCH_CONTENT)
+        public CursorPage<String, String> cursorSearch(List<String> items) { return new CursorPage<>(items, null); }
         @ObservedBusiness(BusinessOperation.LOGIN)
         public void login(RuntimeException error) { if (error != null) throw error; }
         @ObservedBusiness(BusinessOperation.MANUAL_REVIEW)

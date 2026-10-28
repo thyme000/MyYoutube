@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.common.monitoring;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import io.micrometer.core.instrument.*;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.*;
@@ -77,7 +78,9 @@ public class BusinessMetrics {
     private String outcome(BusinessOperation operation, Object result) {
         if (Boolean.FALSE.equals(result)) return "no_change";
         if (operation.resultList()) {
-            var list = result instanceof PageResult<?> page ? page.getList() : result instanceof Collection<?> values ? values : null;
+            Collection<?> list = result instanceof PageResult<?> page ? page.getList()
+                    : result instanceof CursorPage<?, ?> cursor ? cursor.items()
+                    : result instanceof Collection<?> values ? values : null;
             if (list != null && list.isEmpty()) return "empty";
         }
         return "success";
