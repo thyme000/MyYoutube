@@ -10,6 +10,8 @@ import lombok.Data;
 @Schema(description = "分页查询参数")
 public class PageQuery {
 
+    public static final int MAX_PAGE_SIZE = 100;
+
     @Schema(description = "页码，从 1 开始", defaultValue = "1", example = "1")
     private int pageNo = 1;
 
@@ -27,7 +29,13 @@ public class PageQuery {
     public void validate() { validate(pageNo, pageSize); }
 
     public static void validate(int pageNo, int pageSize) {
-        if (pageNo < 1 || pageSize < 1 || pageSize > 100)
-            throw new BizException(ErrorCode.INVALID_ARGUMENT, "分页参数无效，页码须为正数，每页条数为 1~100");
+        if (pageNo < 1)
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "分页参数无效，页码须为正数，每页条数为 1~" + MAX_PAGE_SIZE);
+        validatePageSize(pageSize);
+    }
+
+    public static void validatePageSize(int pageSize) {
+        if (pageSize < 1 || pageSize > MAX_PAGE_SIZE)
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "分页数量须为 1~" + MAX_PAGE_SIZE);
     }
 }
