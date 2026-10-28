@@ -3,7 +3,7 @@ package cn.diaojiahong.myyoutube.search.recall;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.search.vector.QueryVectorRecall;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
-import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoByTagPageQuery;
+import cn.diaojiahong.myyoutube.search.domain.dto.TagSearchCursorQuery;
 import com.google.gson.JsonObject;
 import com.sun.net.httpserver.HttpServer;
 import org.apache.http.HttpHost;
@@ -13,10 +13,10 @@ import org.junit.jupiter.api.Test;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -25,6 +25,31 @@ import static org.mockito.Mockito.*;
 
 @org.junit.jupiter.api.Timeout(10)
 class KeywordRecallHttpTest {
+    @Test void continuationExcludesFirstPageIdsAndLatestSortUsesOnlyTimeAndId() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicReference<JsonObject> request = new AtomicReference<>();
+        server.createContext("/content/_search", exchange -> {
+            request.set(JsonUtil.GSON.fromJson(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8), JsonObject.class));
+            QueryVectorHttpTest.send(exchange, "{\"hits\":{\"hits\":[]}}");
+        });
+        server.start();
+        try (RestClient es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
+            KeywordRecallStrategy keyword = new KeywordRecallStrategy(new RecallSearchClient(es, new RecallProperties()),
+                    new VectorProperties(), new RecallRanking(new RecallRankingProperties()));
+            SearchContext context = HybridRecallServiceTest.context();
+            keyword.load(context, List.of(), 10, Set.of("9007199254740993"));
+            assertTrue(request.get().get("query").toString().contains("9007199254740993"));
+            assertTrue(request.get().get("query").toString().contains("must_not"));
+            assertEquals(3, request.get().getAsJsonArray("sort").size());
+
+            context.getQuery().setSortByLatest(true);
+            keyword.load(context, List.of(), 10, Set.of());
+            assertEquals(2, request.get().getAsJsonArray("sort").size());
+            assertTrue(request.get().getAsJsonArray("sort").get(0).getAsJsonObject().has("createTime"));
+            assertTrue(request.get().getAsJsonArray("sort").get(1).getAsJsonObject().has("id"));
+        } finally { server.stop(0); }
+    }
+
     @Test void timedOutKeywordHttpCanFinishAfterTheVectorResultIsReturned() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         ExecutorService workers = Executors.newCachedThreadPool();
@@ -51,9 +76,9 @@ class KeywordRecallHttpTest {
                     vectors, new RecallRanking(new RecallRankingProperties())));
             QueryVectorRecall vectorQuery = mock(QueryVectorRecall.class);
             when(vectorQuery.recall(any())).thenReturn(List.of("vector"));
-            RecallPipeline pipeline = new RecallPipeline(List.of(keyword, runtime.proxy(new VectorRecallStrategy(vectorQuery, vectors))),
-                    new RrfFuser(vectors), mock(LatestFuser.class), settings, runtime.metrics);
-            List<String> result = pipeline.execute(RecallPipelineTest.context());
+            HybridRecallService hybrid = new HybridRecallService(List.of(keyword, runtime.proxy(new VectorRecallStrategy(vectorQuery, vectors))),
+                    new RrfFuser(vectors), settings, runtime.metrics);
+            List<String> result = hybrid.recall(HybridRecallServiceTest.context(), 500, ids -> ids).ids();
             assertTrue(entered.await(1, TimeUnit.SECONDS));
             assertEquals(List.of("vector"), result);
             assertEquals(1, finished.getCount());
@@ -73,9 +98,9 @@ class KeywordRecallHttpTest {
         server.start();
         try (var es = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
             var keyword = new KeywordRecallStrategy(new RecallSearchClient(es, new RecallProperties()), new VectorProperties(), new RecallRanking(new RecallRankingProperties()));
-            var ctx = SearchContext.of(RecallPipelineTest.context().getQuery(), 7L, List.of(7L));
+            var ctx = SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L, List.of(7L));
             ctx.getQuery().setCategory("music");
-            assertEquals(List.of("42"), keyword.recall(ctx));
+            assertEquals(List.of("42"), keyword.firstBatch(ctx).join().ids());
             var query = JsonUtil.GSON.fromJson(body.get(), JsonObject.class);
             assertEquals(101, query.get("size").getAsInt());
             assertFalse(query.get("_source").getAsBoolean());
@@ -96,7 +121,7 @@ class KeywordRecallHttpTest {
             assertTrue(score.toString().contains("playCount"));
             assertTrue(score.toString().contains("likeCount"));
             ctx.getQuery().setSortByLatest(true);
-            keyword.recall(ctx);
+            keyword.firstBatch(ctx).join().ids();
             var latest = JsonUtil.GSON.fromJson(body.get(), JsonObject.class);
             assertFalse(latest.getAsJsonObject("query").has("function_score"));
         } finally { server.stop(0); }
@@ -115,7 +140,7 @@ class KeywordRecallHttpTest {
         var properties = new VectorProperties(); properties.setRecallSize(1);
         try (RestClient client = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
             var keyword = new KeywordRecallStrategy(new RecallSearchClient(client, new RecallProperties()), properties, new RecallRanking(new RecallRankingProperties()));
-            SearchContext context = RecallPipelineTest.context();
+            SearchContext context = HybridRecallServiceTest.context();
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
             RecallBatch first = keyword.firstBatch(context).join();
             assertEquals(List.of("9", "9007199254740993"), first.ids()); assertTrue(first.hasMore());
@@ -137,7 +162,7 @@ class KeywordRecallHttpTest {
         });
         server.start();
         try (RestClient client = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
-            var query = new SearchVideoByTagPageQuery(); query.setTagName("camera");
+            var query = new TagSearchCursorQuery(); query.setTagName("camera");
             SearchContext context = SearchContext.forTag(query, 7L, List.of(9L));
             var properties = new VectorProperties();
             var keyword = new KeywordRecallStrategy(new RecallSearchClient(client, new RecallProperties()), properties, new RecallRanking(new RecallRankingProperties()));

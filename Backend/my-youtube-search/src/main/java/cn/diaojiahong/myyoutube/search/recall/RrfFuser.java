@@ -14,12 +14,11 @@ import java.util.Map;
  */
 @Component
 @RequiredArgsConstructor
-public class RrfFuser implements RecallFuser {
+public class RrfFuser {
 
     private final VectorProperties vectorProperties;
 
-    @Override
-    public List<String> fuse(SearchContext ctx, List<List<String>> recalls) {
+    public List<String> fuse(List<List<String>> recalls) {
         int k = Math.max(vectorProperties.getRrfK(), 1);
         Map<String, Double> scores = new HashMap<>();
         Map<String, Integer> firstSeen = new HashMap<>();

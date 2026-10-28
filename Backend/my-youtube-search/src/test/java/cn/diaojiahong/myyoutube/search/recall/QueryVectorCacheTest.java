@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.search.recall;
 
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
-import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoPageQuery;
+import cn.diaojiahong.myyoutube.search.domain.dto.ContentSearchCursorQuery;
 import cn.diaojiahong.myyoutube.search.hot.HotSearchGroup;
 import cn.diaojiahong.myyoutube.search.hot.HotSearchService;
 import cn.diaojiahong.myyoutube.search.vector.QueryVectorRecall;
@@ -26,7 +26,7 @@ class QueryVectorCacheTest {
             new RecallRanking(new RecallRankingProperties()), hot, new RecallProperties());
 
     SearchContext context(String text) {
-        var query = new SearchVideoPageQuery(); query.setKeyword(text); query.setCategory("video");
+        var query = new ContentSearchCursorQuery(); query.setKeyword(text); query.setCategory("video");
         return SearchContext.of(query, 7L, List.of());
     }
     long deadline() { return System.nanoTime() + TimeUnit.SECONDS.toNanos(2); }

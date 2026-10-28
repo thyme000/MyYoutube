@@ -24,21 +24,17 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 
+/** 综合搜索首批的多路召回、过滤补取和相关性融合。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class RecallPipeline {
+public class HybridRecallService {
     private final List<RecallStrategy> strategies;
     private final RrfFuser rrfFuser;
-    private final LatestFuser latestFuser;
     private final RecallProperties properties;
     private final MeterRegistry metrics;
 
-    public List<String> execute(SearchContext ctx) {
-        return execute(ctx, ids -> ids);
-    }
-
-    public List<String> execute(SearchContext ctx, Function<List<String>, List<String>> readable) {
+    public FirstPage recall(SearchContext ctx, int size, Function<List<String>, List<String>> readable) {
         List<RecallStrategy> active = strategies.stream().filter(strategy -> strategy.shouldRun(ctx)).toList();
         List<CompletableFuture<RecallResult>> pending = active.stream()
                 .map(strategy -> strategy.firstBatch(ctx).handle((batch, error) -> fallback(strategy, batch, error))).toList();
@@ -54,7 +50,13 @@ public class RecallPipeline {
         // 单路可以降级，全部失败不能伪装成“没有搜索结果”。
         if (!results.isEmpty() && results.stream().allMatch(result -> result.failure() != null))
             throw new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "搜索暂时不可用，请稍后重试", results.get(0).failure());
-        return filterAndRefill(ctx, active, results.stream().map(RecallResult::batch).toList(), readable);
+        List<RecallBatch> batches = new ArrayList<>(results.stream().map(RecallResult::batch).toList());
+        FirstPage page = filterAndRefill(ctx, active, batches, readable, size);
+        boolean retryKeyword = false;
+        for (int route = 0; route < active.size(); route++) {
+            if (active.get(route).supportsPaging() && results.get(route).failure() != null) retryKeyword = true;
+        }
+        return new FirstPage(page.ids(), page.hasMore() || retryKeyword);
     }
 
     private RecallResult fallback(RecallStrategy strategy, RecallBatch batch, Throwable error) {
@@ -67,30 +69,40 @@ public class RecallPipeline {
         return new RecallResult(RecallBatch.exhausted(List.of()), cause);
     }
 
-    private List<String> filterAndRefill(SearchContext ctx, List<RecallStrategy> active, List<RecallBatch> batches,
-                                        Function<List<String>, List<String>> readable) {
+    private FirstPage filterAndRefill(SearchContext ctx, List<RecallStrategy> active, List<RecallBatch> batches,
+                                     Function<List<String>, List<String>> readable, int size) {
         List<String> initial = batches.stream().flatMap(batch -> batch.ids().stream()).distinct()
                 .limit(properties.getRefillMaxCandidates()).toList();
-        if (initial.isEmpty()) return List.of();
+        if (initial.isEmpty()) return new FirstPage(List.of(), false);
 
         Set<String> checked = new LinkedHashSet<>(initial);
         Set<String> visible = new HashSet<>(readable.apply(initial));
-        List<List<String>> recalls = refill(ctx, active, batches, readable, checked, visible);
+        int target = Math.min(initial.size(), size);
+        List<List<String>> recalls = refill(ctx, active, batches, readable, checked, visible, target);
 
         // 保留各路原始排名参与融合，只展示已经回源确认可见的候选。
         List<List<String>> checkedRecalls = recalls.stream()
-                .map(ids -> ids.stream().filter(checked::contains).distinct().toList()).toList();
-        List<String> ranked = ctx.isSortByLatest()
-                ? latestFuser.fuse(ctx, checkedRecalls) : rrfFuser.fuse(ctx, checkedRecalls);
-        return ranked.stream().filter(visible::contains).limit(initial.size()).toList();
+            .map(ids -> ids.stream().filter(checked::contains).distinct().toList()).toList();
+        List<String> ranked = rrfFuser.fuse(checkedRecalls);
+        List<String> page = ranked.stream().filter(visible::contains).limit(target).toList();
+        Set<String> displayed = Set.copyOf(page);
+        boolean more = false;
+        for (int route = 0; route < active.size(); route++) {
+            if (!active.get(route).supportsPaging()) continue;
+            // 回源检查有数量上限，原始召回中仍可能留有未检查候选。
+            boolean unchecked = recalls.get(route).stream().anyMatch(id -> !checked.contains(id));
+            boolean undisplayed = recalls.get(route).stream().anyMatch(id -> visible.contains(id) && !displayed.contains(id));
+            more |= batches.get(route).hasMore() || unchecked || undisplayed;
+        }
+        return new FirstPage(page, more);
     }
 
     private List<List<String>> refill(SearchContext ctx, List<RecallStrategy> active, List<RecallBatch> batches,
-                                      Function<List<String>, List<String>> readable, Set<String> checked, Set<String> visible) {
+                                      Function<List<String>, List<String>> readable, Set<String> checked, Set<String> visible,
+                                      int target) {
         List<List<String>> recalls = new ArrayList<>();
         for (RecallBatch batch : batches) recalls.add(new ArrayList<>(batch.ids()));
 
-        int target = checked.size();
         int rounds = 0;
         for (int route = 0; route < active.size() && visible.size() < target; route++) {
             RecallBatch previous = batches.get(route);
@@ -107,6 +119,7 @@ public class RecallPipeline {
                     recalls.get(route).addAll(next.ids());
                     List<String> unchecked = next.ids().stream().filter(checked::add).toList();
                     if (!unchecked.isEmpty()) visible.addAll(readable.apply(unchecked));
+                    batches.set(route, next);
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     throw new IllegalStateException("搜索补取已中断", interrupted);
@@ -136,4 +149,7 @@ public class RecallPipeline {
     }
 
     private record RecallResult(RecallBatch batch, Throwable failure) {}
+
+    /** 后续只续查关键词，未展示的纯语义候选不构成下一页。 */
+    public record FirstPage(List<String> ids, boolean hasMore) {}
 }

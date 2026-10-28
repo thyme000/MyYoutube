@@ -4,8 +4,8 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
-import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoByTagPageQuery;
-import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoPageQuery;
+import cn.diaojiahong.myyoutube.search.domain.dto.TagSearchCursorQuery;
+import cn.diaojiahong.myyoutube.search.domain.dto.ContentSearchCursorQuery;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchUserVO;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
 import cn.diaojiahong.myyoutube.search.service.ISearchService;
@@ -30,9 +30,9 @@ public class SearchController {
      * @param query
      * @return
      */
-    @Operation(summary = "用户搜索视频", description = "total/pages 统计本轮有界召回池中可展示的内容，不代表 ES 全量命中；补取达到预算时允许短页")
+    @Operation(summary = "搜索内容", description = "综合首批返回上限为 max(pageSize, 配置首批数量)，后续仅关键词。默认配置下 pageSize=10 时首批最多 30 条、后续最多 10 条；最新排序始终最多 pageSize 条。过滤或补取限制可导致短页，返回 items/nextCursor，不返回总数")
     @GetMapping("/video")
-    public Result<PageResult<SearchVideoVO>> searchVideo(@ModelAttribute SearchVideoPageQuery query) {
+    public Result<CursorPage<SearchVideoVO, String>> searchVideo(@ModelAttribute ContentSearchCursorQuery query) {
         return Result.success(searchService.searchVideo(query));
     }
 
@@ -66,7 +66,7 @@ public class SearchController {
      */
     @Operation(summary = "根据标签搜索内容", description = "游标分页，过滤不可见内容，预算用尽时可能返回短页")
     @GetMapping("/tag")
-    public Result<CursorPage<SearchVideoVO, String>> searchByTag(@ModelAttribute SearchVideoByTagPageQuery pageQuery) {
+    public Result<CursorPage<SearchVideoVO, String>> searchByTag(@ModelAttribute TagSearchCursorQuery pageQuery) {
         return Result.success(searchService.searchByTag(pageQuery));
     }
 

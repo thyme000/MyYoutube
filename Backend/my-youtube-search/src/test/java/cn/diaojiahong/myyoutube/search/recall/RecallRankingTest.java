@@ -30,7 +30,7 @@ class RecallRankingTest {
     }
 
     @Test void oneFollowConditionCoversAnEntireSnapshotAndRoutesHaveIndependentCoefficients() {
-        var ctx = SearchContext.of(RecallPipelineTest.context().getQuery(), 7L,
+        var ctx = SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L,
                 java.util.stream.LongStream.rangeClosed(1, 205).boxed().toList());
         var keyword = ranking.keyword(relevance, ctx).functionScore();
         var vector = ranking.vector(relevance, ctx).functionScore();
@@ -44,14 +44,14 @@ class RecallRankingTest {
 
     @Test void disabledBusinessWeightsPreserveTheOriginalScore() {
         properties.setKeyword(new RecallRankingProperties.Weights(0, 0, 0, 1));
-        var score = ranking.keyword(relevance, RecallPipelineTest.context()).functionScore();
+        var score = ranking.keyword(relevance, HybridRecallServiceTest.context()).functionScore();
         assertEquals(1, score.functions().size());
         assertEquals(1, score.functions().get(0).weight());
         assertEquals(1, score.maxBoost());
     }
 
     @Test void latestSortSkipsBothBusinessScorers() {
-        var ctx = RecallPipelineTest.context(); ctx.getQuery().setSortByLatest(true);
+        var ctx = HybridRecallServiceTest.context(); ctx.getQuery().setSortByLatest(true);
         assertSame(relevance, ranking.keyword(relevance, ctx));
         assertSame(relevance, ranking.vector(relevance, ctx));
     }

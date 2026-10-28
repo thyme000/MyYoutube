@@ -20,8 +20,6 @@ import org.springframework.stereotype.Component;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.HashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -62,18 +60,16 @@ public class RecallSearchClient {
         return cursor;
     }
 
-    public Map<String, Object> createTimes(List<String> ids) throws Exception {
-        SearchRequest query = SearchRequest.of(s -> s.index("content").size(ids.size())
-                .query(q -> q.ids(v -> v.values(ids))).source(source -> source.filter(f -> f.includes("createTime"))));
-        Map<String, Object> times = new HashMap<>();
-        for (JsonElement hit : hits(query)) {
-            JsonObject row = hit.getAsJsonObject();
-            JsonObject source = row.getAsJsonObject("_source");
-            if (source == null || !source.has("createTime") || source.get("createTime").isJsonNull()) continue;
-            JsonElement value = source.get("createTime");
-            times.put(row.get("_id").getAsString(), value.getAsJsonPrimitive().isNumber() ? value.getAsLong() : value.getAsString());
+    public static JsonArray sortJson(List<FieldValue> values) {
+        JsonArray sort = new JsonArray();
+        for (FieldValue value : values) {
+            if (value.isLong()) sort.add(value.longValue());
+            else if (value.isDouble()) sort.add(value.doubleValue());
+            else if (value.isString()) sort.add(value.stringValue());
+            else if (value.isNull()) sort.add((String) null);
+            else throw new IllegalStateException("搜索排序值无效");
         }
-        return times;
+        return sort;
     }
 
     private JsonArray hits(SearchRequest search) throws Exception {

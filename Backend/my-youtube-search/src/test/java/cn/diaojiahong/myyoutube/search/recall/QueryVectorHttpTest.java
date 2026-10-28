@@ -74,18 +74,17 @@ class QueryVectorHttpTest {
             RecallStrategy keyword = mock(RecallStrategy.class, CALLS_REAL_METHODS);
             when(keyword.shouldRun(any())).thenReturn(true);
             when(keyword.firstBatch(any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(RecallBatch.exhausted(List.of("keyword"))));
-            var pipeline = new RecallPipeline(List.of(keyword, runtime.proxy(vector)), new RrfFuser(properties), mock(LatestFuser.class),
-                    recallProperties, runtime.metrics);
+            var hybrid = new HybridRecallService(List.of(keyword, runtime.proxy(vector)), new RrfFuser(properties),         recallProperties, runtime.metrics);
             long start = System.nanoTime();
-            assertEquals(List.of("keyword"), pipeline.execute(RecallPipelineTest.context()));
+            assertEquals(List.of("keyword"), hybrid.recall(HybridRecallServiceTest.context(), 500, ids -> ids).ids());
             long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
             assertTrue(elapsed < 1000, "keyword response took " + elapsed + "ms");
             var idle = runtime.vectorExecutor.submit(() -> true);
             assertTrue(idle.get(2, TimeUnit.SECONDS));
             if (!blockedStage.equals("rpc")) assertTrue(peerClosed.await(2, TimeUnit.SECONDS));
-            var ctx = SearchContext.of(RecallPipelineTest.context().getQuery(), 7L, List.of(11L, 12L));
+            var ctx = SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L, List.of(11L, 12L));
             ctx.getQuery().setCategory("music");
-            assertEquals(List.of("vector"), vector.recall(ctx));
+            assertEquals(List.of("vector"), vector.firstBatch(ctx).join().ids());
             var body = JsonUtil.GSON.fromJson(requestBody.get(), com.google.gson.JsonObject.class);
             var score = body.getAsJsonObject("query").getAsJsonObject("function_score");
             var knn = score.getAsJsonObject("query").getAsJsonObject("knn");

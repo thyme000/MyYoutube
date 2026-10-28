@@ -83,6 +83,7 @@ my-youtube:
         like: ${SEARCH_VECTOR_LIKE_WEIGHT:0.02}
         max-multiplier: ${SEARCH_VECTOR_MAX_MULTIPLIER:1.20}
     recall:
+      first-page-size: ${SEARCH_FIRST_PAGE_SIZE:30}
       es-timeout-millis: ${SEARCH_ES_TIMEOUT_MILLIS:2000}
       embedding-timeout-millis: ${SEARCH_EMBEDDING_TIMEOUT_MILLIS:10000}
       refill-max-rounds: ${SEARCH_REFILL_MAX_ROUNDS:2}

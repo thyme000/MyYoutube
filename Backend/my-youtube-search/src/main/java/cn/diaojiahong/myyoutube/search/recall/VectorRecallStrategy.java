@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import cn.diaojiahong.myyoutube.common.concurrent.AsyncTimeout;
 
@@ -23,19 +22,14 @@ public class VectorRecallStrategy implements RecallStrategy {
 
     @Override
     public boolean shouldRun(SearchContext ctx) {
-        return !ctx.isTagSearch() && vectorProperties.isEnabled() && !ctx.getKeyword().isEmpty();
-    }
-
-    @Override
-    public List<String> recall(SearchContext ctx) throws Exception {
-        return queryVectorRecall.recall(ctx);
+        return !ctx.isTagSearch() && !ctx.isSortByLatest() && vectorProperties.isEnabled() && !ctx.getKeyword().isEmpty();
     }
 
     @Override
     @AsyncTimeout("vector-recall")
     public CompletableFuture<RecallBatch> firstBatch(SearchContext ctx) {
         try {
-            return CompletableFuture.completedFuture(RecallBatch.exhausted(recall(ctx)));
+            return CompletableFuture.completedFuture(RecallBatch.exhausted(queryVectorRecall.recall(ctx)));
         } catch (Exception error) {
             return CompletableFuture.failedFuture(error);
         }

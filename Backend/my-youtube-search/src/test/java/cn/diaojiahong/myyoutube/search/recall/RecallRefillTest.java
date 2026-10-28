@@ -6,7 +6,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
@@ -21,19 +20,15 @@ class RecallRefillTest {
     final RecallProperties properties = new RecallProperties();
     final RecallStrategy keyword = mock(RecallStrategy.class);
     final RecallStrategy vector = mock(RecallStrategy.class);
-    final LatestFuser latest = mock(LatestFuser.class);
+    final RrfFuser fusion = spy(new RrfFuser(new VectorProperties()));
     final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
-    final RecallPipeline pipeline;
+    final HybridRecallService hybrid;
 
     RecallRefillTest() throws Exception {
         when(keyword.shouldRun(any())).thenReturn(true); when(vector.shouldRun(any())).thenReturn(true);
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(RecallBatch.exhausted(List.of())));
         when(vector.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(RecallBatch.exhausted(List.of())));
-        when(latest.fuse(any(), anyList())).thenAnswer(call -> {
-            List<List<String>> routes = call.getArgument(1);
-            return routes.stream().flatMap(List::stream).distinct().sorted(Comparator.reverseOrder()).toList();
-        });
-        pipeline = new RecallPipeline(List.of(keyword, vector), new RrfFuser(new VectorProperties()), latest,
+        hybrid = new HybridRecallService(List.of(keyword, vector), fusion,
                 properties, metrics);
     }
 
@@ -50,14 +45,27 @@ class RecallRefillTest {
     @Test void genuinelySmallExhaustedResultsDoNotIssueAnotherQuery() throws Exception {
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(RecallBatch.exhausted(List.of("1", "2"))));
         List<List<String>> calls = new ArrayList<>();
-        assertEquals(List.of("2"), pipeline.execute(RecallPipelineTest.context(), filter(Set.of("2"), calls)));
+        assertEquals(List.of("2"), hybrid.recall(HybridRecallServiceTest.context(), 500, filter(Set.of("2"), calls)).ids());
         verify(keyword, never()).nextBatch(any(), any(), anyInt());
         assertEquals(List.of(List.of("1", "2")), calls);
     }
 
+    @Test void uncheckedKeywordCandidatesStillRequireContinuationAfterTheCheckLimit() throws Exception {
+        properties.setRefillMaxCandidates(2);
+        properties.setRefillBatchSize(2);
+        when(keyword.supportsPaging()).thenReturn(true);
+        when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(RecallBatch.exhausted(List.of("1", "2", "3"))));
+
+        List<List<String>> calls = new ArrayList<>();
+        HybridRecallService.FirstPage page = hybrid.recall(HybridRecallServiceTest.context(), 2, filter(Set.of("1", "2", "3"), calls));
+        assertEquals(List.of("1", "2"), page.ids());
+        assertEquals(List.of(List.of("1", "2")), calls);
+        assertTrue(page.hasMore());
+    }
+
     @Test void readableInitialPoolDoesNotRefillEvenWhenMoreEsCandidatesExist() throws Exception {
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(more("1", "2")));
-        assertEquals(List.of("1", "2"), pipeline.execute(RecallPipelineTest.context()));
+        assertEquals(List.of("1", "2"), hybrid.recall(HybridRecallServiceTest.context(), 500, ids -> ids).ids());
         verify(keyword, never()).nextBatch(any(), any(), anyInt());
     }
 
@@ -66,7 +74,7 @@ class RecallRefillTest {
         when(vector.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(RecallBatch.exhausted(List.of("3", "4"))));
         when(keyword.nextBatch(any(), any(), anyInt())).thenReturn(RecallBatch.exhausted(List.of("3", "5", "6")));
         List<List<String>> calls = new ArrayList<>();
-        assertEquals(List.of("3", "4", "5", "6"), pipeline.execute(RecallPipelineTest.context(), filter(Set.of("3", "4", "5", "6"), calls)));
+        assertEquals(List.of("3", "4", "5", "6"), hybrid.recall(HybridRecallServiceTest.context(), 500, filter(Set.of("3", "4", "5", "6"), calls)).ids());
         assertEquals(List.of(List.of("1", "2", "3", "4"), List.of("5", "6")), calls);
         verify(vector, times(1)).firstBatch(any());
         verify(vector, never()).nextBatch(any(), any(), anyInt());
@@ -77,7 +85,7 @@ class RecallRefillTest {
         when(vector.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(RecallBatch.exhausted(List.of("5", "4"))));
         when(keyword.nextBatch(any(), any(), anyInt())).thenReturn(RecallBatch.exhausted(List.of("4", "6")));
         List<List<String>> calls = new ArrayList<>();
-        assertEquals(List.of("4", "5", "6"), pipeline.execute(RecallPipelineTest.context(), filter(Set.of("4", "5", "6"), calls)));
+        assertEquals(List.of("4", "5", "6"), hybrid.recall(HybridRecallServiceTest.context(), 500, filter(Set.of("4", "5", "6"), calls)).ids());
         assertEquals(List.of("6"), calls.get(1));
     }
 
@@ -85,7 +93,7 @@ class RecallRefillTest {
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(more("1", "2")));
         when(keyword.nextBatch(any(), any(), anyInt())).thenReturn(more("3"), more("4"), more("5"));
         List<List<String>> calls = new ArrayList<>();
-        assertTrue(pipeline.execute(RecallPipelineTest.context(), filter(Set.of(), calls)).isEmpty());
+        assertTrue(hybrid.recall(HybridRecallServiceTest.context(), 500, filter(Set.of(), calls)).ids().isEmpty());
         verify(keyword, times(2)).nextBatch(any(), any(), anyInt());
         assertEquals(3, calls.size());
     }
@@ -94,8 +102,7 @@ class RecallRefillTest {
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(more("1", "2")));
         when(keyword.nextBatch(any(), any(), anyInt())).thenReturn(more("3", "4"));
 
-        assertEquals(List.of("3", "4"), pipeline.execute(RecallPipelineTest.context(),
-                filter(Set.of("3", "4"), new ArrayList<>())));
+        assertEquals(List.of("3", "4"), hybrid.recall(HybridRecallServiceTest.context(), 500, filter(Set.of("3", "4"), new ArrayList<>())).ids());
         verify(keyword, times(1)).nextBatch(any(), any(), anyInt());
     }
 
@@ -103,42 +110,40 @@ class RecallRefillTest {
         properties.setRefillMaxCandidates(3);
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(more("1", "2")));
         when(keyword.nextBatch(any(), any(), eq(1))).thenReturn(more("3"));
-        assertEquals(List.of("2", "3"), pipeline.execute(RecallPipelineTest.context(), filter(Set.of("2", "3"), new ArrayList<>())));
+        assertEquals(List.of("2", "3"), hybrid.recall(HybridRecallServiceTest.context(), 500, filter(Set.of("2", "3"), new ArrayList<>())).ids());
         verify(keyword).nextBatch(any(), any(), eq(1));
     }
 
     @Test void refillFailureKeepsAlreadyVerifiedCandidates() throws Exception {
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(more("1", "2")));
         when(keyword.nextBatch(any(), any(), anyInt())).thenThrow(new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "ES unavailable", null));
-        assertEquals(List.of("1"), pipeline.execute(RecallPipelineTest.context(), filter(Set.of("1"), new ArrayList<>())));
+        assertEquals(List.of("1"), hybrid.recall(HybridRecallServiceTest.context(), 500, filter(Set.of("1"), new ArrayList<>())).ids());
     }
 
     @Test void hydrationFailureDuringRefillKeepsTheInitialVerifiedCandidates() throws Exception {
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(more("1", "2")));
         when(keyword.nextBatch(any(), any(), anyInt())).thenReturn(RecallBatch.exhausted(List.of("3")));
-        assertEquals(List.of("1"), pipeline.execute(RecallPipelineTest.context(), ids -> {
+        assertEquals(List.of("1"), hybrid.recall(HybridRecallServiceTest.context(), 500, ids -> {
             if (ids.contains("3")) throw new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "video unavailable", null);
             return List.of("1");
-        }));
+        }).ids());
     }
 
     @Test void initialHydrationFailureIsNotReportedAsNoResults() throws Exception {
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(more("1", "2")));
-        assertThrows(DependencyException.class, () -> pipeline.execute(RecallPipelineTest.context(), ids -> {
+        assertThrows(DependencyException.class, () -> hybrid.recall(HybridRecallServiceTest.context(), 500, ids -> {
             throw new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "video unavailable", null);
-        }));
+        }).ids());
     }
 
-    @Test void latestRefillDepthIsIndependentOfTheRequestedPageAndFusionRunsOnce() throws Exception {
+    @Test void mixedFusionRunsOnceAfterRefill() throws Exception {
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(more("9", "8")));
         when(vector.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(RecallBatch.exhausted(List.of("7"))));
         when(keyword.nextBatch(any(), any(), anyInt())).thenReturn(RecallBatch.exhausted(List.of("6", "5")));
-        SearchContext first = RecallPipelineTest.context(); first.getQuery().setSortByLatest(true);
-        List<String> initial = pipeline.execute(first, filter(Set.of("9", "7", "6", "5"), new ArrayList<>()));
-        SearchContext second = RecallPipelineTest.context(); second.getQuery().setSortByLatest(true); second.getQuery().setPageNo(2);
-        assertEquals(initial, pipeline.execute(second, filter(Set.of("9", "7", "6", "5"), new ArrayList<>())));
+        SearchContext first = HybridRecallServiceTest.context();
+        List<String> initial = hybrid.recall(first, 500, filter(Set.of("9", "7", "6", "5"), new ArrayList<>())).ids();
         assertEquals(List.of("9", "7", "6"), initial);
-        verify(latest, times(2)).fuse(any(), anyList());
+        verify(fusion, times(1)).fuse(anyList());
     }
 
 }

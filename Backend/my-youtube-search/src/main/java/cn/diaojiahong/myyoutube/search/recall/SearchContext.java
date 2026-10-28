@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
-import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoPageQuery;
-import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoByTagPageQuery;
+import cn.diaojiahong.myyoutube.search.domain.dto.ContentSearchCursorQuery;
+import cn.diaojiahong.myyoutube.search.domain.dto.TagSearchCursorQuery;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -15,22 +15,23 @@ import java.util.List;
 @RequiredArgsConstructor(access = lombok.AccessLevel.PRIVATE)
 public class SearchContext {
 
-    private final SearchVideoPageQuery query;
+    private final ContentSearchCursorQuery query;
     private final Long userId;
     private final String keyword;
 
     private final List<Long> followIds;
     private final boolean tagSearch;
 
-    public static SearchContext of(SearchVideoPageQuery query, Long userId, List<Long> followIds) {
+    public static SearchContext of(ContentSearchCursorQuery query, Long userId, List<Long> followIds) {
         String keyword = query.getKeyword() == null ? "" : query.getKeyword().trim();
         return new SearchContext(query, userId, keyword, List.copyOf(followIds), false);
     }
 
-    public static SearchContext forTag(SearchVideoByTagPageQuery source, Long userId, List<Long> followIds) {
-        var query = new SearchVideoPageQuery();
+    public static SearchContext forTag(TagSearchCursorQuery source, Long userId, List<Long> followIds) {
+        var query = new ContentSearchCursorQuery();
         query.setKeyword(source.getTagName());
         query.setPageSize(source.getPageSize());
+        query.setCursor(source.getCursor());
         String keyword = source.getTagName() == null ? "" : source.getTagName().trim();
         return new SearchContext(query, userId, keyword, List.copyOf(followIds), true);
     }

@@ -43,7 +43,8 @@ class RecallRefillPropertiesTest {
         List<Consumer<RecallProperties>> invalid = List.of(p -> p.setRefillMaxRounds(6), p -> p.setRefillMaxRounds(-1),
                 p -> p.setRefillMaxCandidates(0), p -> p.setRefillMaxCandidates(1001),
                 p -> p.setRefillBatchSize(0), p -> p.setRefillBatchSize(501),
-                p -> p.setEsTimeoutMillis(0), p -> p.setEmbeddingTimeoutMillis(0));
+                p -> p.setEsTimeoutMillis(0), p -> p.setEmbeddingTimeoutMillis(0),
+                p -> p.setFirstPageSize(0), p -> p.setFirstPageSize(101));
         for (Consumer<RecallProperties> change : invalid) {
             RecallProperties properties = new RecallProperties(); change.accept(properties);
             assertThrows(IllegalStateException.class, properties::validate);

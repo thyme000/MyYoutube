@@ -12,8 +12,8 @@ import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
-import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoByTagPageQuery;
-import cn.diaojiahong.myyoutube.search.domain.dto.SearchVideoPageQuery;
+import cn.diaojiahong.myyoutube.search.domain.dto.TagSearchCursorQuery;
+import cn.diaojiahong.myyoutube.search.domain.dto.ContentSearchCursorQuery;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchUserVO;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
 import cn.diaojiahong.myyoutube.search.service.ISearchService;
@@ -29,10 +29,9 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
-import cn.diaojiahong.myyoutube.search.recall.RecallPipeline;
+import cn.diaojiahong.myyoutube.search.recall.ContentSearchPage;
 import cn.diaojiahong.myyoutube.search.recall.SearchContext;
 import cn.diaojiahong.myyoutube.search.recall.SearchContentSummaryClient;
-import cn.diaojiahong.myyoutube.search.recall.TagSearchPage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -60,27 +59,23 @@ public class SearchServiceImpl implements ISearchService {
     private final S3StorageUtil storageUtil;
     private final HotSearchService hotSearchService;
     private final ElasticsearchClient elasticsearchClient;
-    private final RecallPipeline recallPipeline;
-    private final TagSearchPage tagSearchPage;
+    private final ContentSearchPage contentSearchPage;
     private static final int STORAGE_EXPIRE_SECONDS = 3600 * 10;
 
     @Override
     @ObservedBusiness(BusinessOperation.SEARCH_CONTENT)
-    public PageResult<SearchVideoVO> searchVideo(SearchVideoPageQuery pageQuery) {
-        pageQuery.validate();
+    public CursorPage<SearchVideoVO, String> searchVideo(ContentSearchCursorQuery query) {
+        query.validate();
         Long userId = getUserId();
-        // 关注状态是响应必需数据，最新排序与任一单路返回也必须取得；失败交由接口报错。
-        SearchContext ctx = SearchContext.of(pageQuery, userId, followPort.getFollowIds(userId));
-        List<ContentSummary> readable = readableCandidates(ctx);
-        int from = (int) Math.min((long) (pageQuery.getPageNo() - 1) * pageQuery.getPageSize(), readable.size());
-        List<ContentSummary> page = readable.subList(from, Math.min(from + pageQuery.getPageSize(), readable.size()));
-        PageResult<SearchVideoVO> result = buildPageResult(page, readable.size(), pageQuery.getPageSize(), ctx.getFollowIds());
-        if (pageQuery.getPageNo() == 1 && !result.getList().isEmpty()) {
-            hotSearchService.record(userId, pageQuery.getKeyword());
-        }
-        log.debug("Search completed userId={} keyword={} sortByLatest={} readable={} pageNo={}",
-                userId, ctx.getKeyword(), pageQuery.isSortByLatest(), readable.size(), pageQuery.getPageNo());
-        return result;
+        SearchContext context = SearchContext.of(query, userId, followPort.getFollowIds(userId));
+        CursorPage<ContentSummary, String> page = contentSearchPage.search(context);
+        List<SearchVideoVO> items = buildCards(page.items(), context.getFollowIds());
+
+        boolean first = query.getCursor() == null || query.getCursor().isBlank();
+        if (first && !items.isEmpty()) hotSearchService.record(userId, query.getKeyword());
+        log.debug("Search completed userId={} keyword={} latest={} count={} first={}",
+                userId, context.getKeyword(), query.isSortByLatest(), items.size(), first);
+        return new CursorPage<>(items, page.nextCursor());
     }
 
     @Override
@@ -235,12 +230,12 @@ public class SearchServiceImpl implements ISearchService {
 
     @Override
     @ObservedBusiness(BusinessOperation.SEARCH_TAG)
-    public CursorPage<SearchVideoVO, String> searchByTag(SearchVideoByTagPageQuery pageQuery) {
+    public CursorPage<SearchVideoVO, String> searchByTag(TagSearchCursorQuery pageQuery) {
         Long userId = getUserId();
         pageQuery.validate();
         SearchContext ctx = SearchContext.forTag(pageQuery, userId, followPort.getFollowIds(userId));
-        CursorPage<ContentSummary, String> page = tagSearchPage.search(ctx, pageQuery.getCursor(), pageQuery.getPageSize());
-        return new CursorPage<>(buildPageResult(page.items(), page.items().size(), pageQuery.getPageSize(), ctx.getFollowIds()).getList(), page.nextCursor());
+        CursorPage<ContentSummary, String> page = contentSearchPage.search(ctx);
+        return new CursorPage<>(buildCards(page.items(), ctx.getFollowIds()), page.nextCursor());
     }
 
     @Override
@@ -248,20 +243,8 @@ public class SearchServiceImpl implements ISearchService {
         return hotSearchService.hot();
     }
 
-    private List<ContentSummary> readableCandidates(SearchContext ctx) {
-        Map<String, ContentSummary> hydrated = new HashMap<>();
-        List<String> ids = recallPipeline.execute(ctx, candidates -> {
-            List<ContentSummary> rows = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(candidates, null));
-            for (ContentSummary row : rows) hydrated.put(row.getId().toString(), row);
-            return rows.stream().map(row -> row.getId().toString()).toList();
-        });
-        return ids.stream().map(hydrated::get).toList();
-    }
-
-    private PageResult<SearchVideoVO> buildPageResult(List<ContentSummary> videos, long total,
-                                                      int pageSize, List<Long> followIds) {
-        long pages = (total + pageSize - 1) / pageSize;
-        if (videos.isEmpty()) return PageResult.of(total, pages, List.of());
+    private List<SearchVideoVO> buildCards(List<ContentSummary> videos, List<Long> followIds) {
+        if (videos.isEmpty()) return List.of();
         List<SearchVideoVO> result = BeanUtil.copyToList(videos, SearchVideoVO.class);
         Set<Long> followedAuthors = new HashSet<>(followIds);
         result.forEach(vo -> vo.setIsFollow(followedAuthors.contains(vo.getAuthorId())));
@@ -270,7 +253,7 @@ public class SearchServiceImpl implements ISearchService {
         Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(authors);
         Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(authors);
         if (authorNicknames == null || authorAvatarUrls == null) {
-            return PageResult.of(0, 0, result);
+            return result;
         }
         result.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
@@ -289,7 +272,7 @@ public class SearchServiceImpl implements ISearchService {
                 vo.setIsLike(isLikes.getOrDefault(Long.valueOf(vo.getId()), false));
             });
         }
-        return PageResult.of(total, pages, result);
+        return result;
     }
 
     private List<Long> isLike(Long userId, List<Long> videoIds) {
