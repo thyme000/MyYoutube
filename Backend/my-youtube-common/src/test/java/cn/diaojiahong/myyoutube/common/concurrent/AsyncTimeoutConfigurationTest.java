@@ -1,15 +1,33 @@
 package cn.diaojiahong.myyoutube.common.concurrent;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.task.TaskSchedulingAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class AsyncTimeoutConfigurationTest {
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void failedStartupDoesNotCreateTheTimerDuringChildContextDestruction(CapturedOutput output) {
+        new ApplicationContextRunner()
+                .withUserConfiguration(FailingStartup.class, AsyncTimeoutConfiguration.class)
+                .run(context -> {
+                    assertThat(context.getStartupFailure()).hasRootCauseMessage("original startup failure");
+                    assertThat(output.getAll()).doesNotContain("BeanCreationNotAllowedException");
+                });
+    }
+
     @Test void timeoutSchedulerDoesNotReplaceBusinessSchedulingAndClosesWithTheContext() {
         ThreadPoolTaskScheduler[] timer = new ThreadPoolTaskScheduler[1];
         new ApplicationContextRunner()
@@ -28,4 +46,20 @@ class AsyncTimeoutConfigurationTest {
     @Configuration(proxyBeanMethods = false)
     @EnableScheduling
     static class Scheduling {}
+
+    @Configuration(proxyBeanMethods = false)
+    static class FailingStartup {
+        @Bean
+        GenericApplicationContext childContext(ApplicationContext parent) {
+            GenericApplicationContext child = new GenericApplicationContext();
+            child.setParent(parent);
+            child.refresh();
+            return child;
+        }
+
+        @Bean
+        Object brokenBean(GenericApplicationContext childContext) {
+            throw new IllegalStateException("original startup failure");
+        }
+    }
 }

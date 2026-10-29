@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(5)
 class AsyncTimeoutAspectTest {
     private final ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-    private final ThreadPoolTaskScheduler scheduler = new AsyncTimeoutConfiguration().asyncTimeoutScheduler();
+    private final ThreadPoolTaskScheduler scheduler = (ThreadPoolTaskScheduler) new AsyncTimeoutConfiguration().asyncTimeoutScheduler();
     private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
     private final AsyncTimeoutAspect aspect;
     private final Service service;

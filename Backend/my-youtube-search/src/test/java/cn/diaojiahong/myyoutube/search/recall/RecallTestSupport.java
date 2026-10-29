@@ -16,7 +16,7 @@ final class RecallTestSupport implements AutoCloseable {
     final ThreadPoolTaskExecutor vectorExecutor;
     final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
     final AsyncTimeoutAspect aspect;
-    final ThreadPoolTaskScheduler scheduler = new AsyncTimeoutConfiguration().asyncTimeoutScheduler();
+    final ThreadPoolTaskScheduler scheduler = (ThreadPoolTaskScheduler) new AsyncTimeoutConfiguration().asyncTimeoutScheduler();
 
     RecallTestSupport(int waitMillis) {
         scheduler.initialize();
