@@ -54,7 +54,7 @@ public class InternalAdminAudioController implements AudioAdminPort {
                 r.getAttempt(), r.getActorId() == null ? null : r.getActorId().toString(), r.getCreateTime())).toList(), audio.getUsageCount());
     }
     @Override public boolean decide(Long id, Decision decision) {
-        return reviews.decide(id, decision.decision(), decision.reason(), decision.actorId());
+        return reviews.decide(id, AudioReviewDecision.parse(decision.decision()), decision.reason(), decision.actorId());
     }
     private Item item(Audio a) {
         return new Item(a.getId().toString(), a.getTitle(), a.getProcessingStatus().getCode(), a.getReviewStatus().getCode(),

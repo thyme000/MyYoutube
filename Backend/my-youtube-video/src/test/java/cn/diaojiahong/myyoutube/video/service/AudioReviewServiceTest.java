@@ -36,7 +36,7 @@ class AudioReviewServiceTest {
                 .setObjectKey("media-prepared/9/1/audio-source").setProcessingDeadline(LocalDateTime.now().plusMinutes(1));
         when(rows.selectOne(any())).thenReturn(audio);
         if (operation.equals("FAIL")) service.fail(audio, "音频处理异常，请重试");
-        else if (operation.equals("MANUAL")) assertFalse(service.decide(1L, "PASS", "通过", 1L));
+        else if (operation.equals("MANUAL")) assertFalse(service.decide(1L, AudioReviewDecision.PASS, "通过", 1L));
         else {
             var request = new AudioAnalysisContracts.Request(1L, 9L, "音频", audio.getObjectKey(), 1234,
                     MediaTaskType.AUDIO_REVIEW, "audio-artifacts/9/1/asr/result.json");

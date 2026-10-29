@@ -11,6 +11,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.transaction.support.TransactionTemplate;
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -18,6 +21,7 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class AudioReviewService {
+    private static final int DECISION_TIMEOUT_SECONDS = 3;
     private final AudioMapper rows;
     private final AudioReviewRecordMapper records;
     private final TransactionTemplate transaction;
@@ -56,28 +60,41 @@ public class AudioReviewService {
             record(audio, "TECHNICAL", "ERROR", reason, null, audio.getAnalysisAttempt(), null);
         });
     }
-    public boolean decide(Long id, String decision, String reason, Long actor) {
-        if (actor == null || actor <= 0 || decision == null || reason == null || reason.isBlank() || reason.length() > 4000
-                || !java.util.Set.of("PASS", "REJECT", "BAN").contains(decision)) throw new BizException(ErrorCode.INVALID_ARGUMENT, "审核决定或理由无效");
-        return Boolean.TRUE.equals(transaction.execute(tx -> {
-            var audio = lock(id);
-            if (audio == null || audio.getIsDelete() != 0) throw new BizException(ErrorCode.NOT_FOUND, "音频不存在");
-            boolean ban = "BAN".equals(decision);
-            if (audio.getReviewStatus() == AudioReviewStatus.BANNED || !ban && (audio.getReviewStatus() != AudioReviewStatus.PENDING
-                    || audio.getProcessingStatus() != AudioProcessingStatus.READY
-                    || audio.getAnalysisStatus() != AudioAnalysisStatus.MANUAL && audio.getAnalysisStatus() != AudioAnalysisStatus.FAILED))
-                throw new BizException(ErrorCode.STATE_CONFLICT, "音频尚未进入人工审核或已有终审结论");
-            var status = ban ? AudioReviewStatus.BANNED : "PASS".equals(decision) ? AudioReviewStatus.APPROVED : AudioReviewStatus.REJECTED;
-            var update = AudioIndexChanges.bump(new LambdaUpdateWrapper<Audio>().eq(Audio::getId, id))
-                    .set(Audio::getReviewStatus, status).set(Audio::getReviewReason, reason.trim()).set(Audio::getErrorMessage, null).set(Audio::getPreparationAfter, null)
-                    .set(Audio::getProcessingDeadline, null).set(Audio::getPreparationRetry, false);
-            if (ban && (audio.getProcessingStatus() == AudioProcessingStatus.UPLOADING || audio.getProcessingStatus() == AudioProcessingStatus.EXPIRED))
-                update.set(Audio::getProcessingStatus, AudioProcessingStatus.EXPIRED)
-                        .set(Audio::getUploadAfter, audio.getUploadDeadline().plusHours(24));
-            if (rows.update(null, update) != 1) return false;
-            record(audio, "MANUAL", decision, reason.trim(), null, audio.getAnalysisAttempt(), actor);
-            return true;
-        }));
+    public boolean decide(Long id, AudioReviewDecision decision, String reason, Long actor) {
+        if (actor == null || actor <= 0 || decision == null || reason == null || reason.isBlank() || reason.length() > 4000)
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "审核决定或理由无效");
+        // 独立模板只限制人工决定的数据库事务，不改变后台识别所用模板或连接池会话参数。
+        var decisionTransaction = new TransactionTemplate(Objects.requireNonNull(transaction.getTransactionManager()), transaction);
+        decisionTransaction.setTimeout(DECISION_TIMEOUT_SECONDS);
+        try {
+            return Boolean.TRUE.equals(decisionTransaction.execute(tx -> decideLocked(id, decision, reason, actor)));
+        } catch (CannotAcquireLockException | QueryTimeoutException | TransactionTimedOutException busy) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "音频审核暂时繁忙，本次操作未完成，请稍后重试", busy);
+        }
+    }
+
+    private boolean decideLocked(Long id, AudioReviewDecision decision, String reason, Long actor) {
+        Audio audio = lock(id);
+        if (audio == null || audio.getIsDelete() != 0) throw new BizException(ErrorCode.NOT_FOUND, "音频不存在");
+        boolean ban = decision == AudioReviewDecision.BAN;
+        if (audio.getReviewStatus() == AudioReviewStatus.BANNED || !ban && (audio.getReviewStatus() != AudioReviewStatus.PENDING
+                || audio.getProcessingStatus() != AudioProcessingStatus.READY
+                || audio.getAnalysisStatus() != AudioAnalysisStatus.MANUAL && audio.getAnalysisStatus() != AudioAnalysisStatus.FAILED))
+            throw new BizException(ErrorCode.STATE_CONFLICT, "音频尚未进入人工审核或已有终审结论");
+        AudioReviewStatus status = switch (decision) {
+            case PASS -> AudioReviewStatus.APPROVED;
+            case REJECT -> AudioReviewStatus.REJECTED;
+            case BAN -> AudioReviewStatus.BANNED;
+        };
+        LambdaUpdateWrapper<Audio> update = AudioIndexChanges.bump(new LambdaUpdateWrapper<Audio>().eq(Audio::getId, id))
+                .set(Audio::getReviewStatus, status).set(Audio::getReviewReason, reason.trim()).set(Audio::getErrorMessage, null).set(Audio::getPreparationAfter, null)
+                .set(Audio::getProcessingDeadline, null).set(Audio::getPreparationRetry, false);
+        if (ban && (audio.getProcessingStatus() == AudioProcessingStatus.UPLOADING || audio.getProcessingStatus() == AudioProcessingStatus.EXPIRED))
+            update.set(Audio::getProcessingStatus, AudioProcessingStatus.EXPIRED)
+                    .set(Audio::getUploadAfter, audio.getUploadDeadline().plusHours(24));
+        if (rows.update(null, update) != 1) return false;
+        record(audio, "MANUAL", decision.name(), reason.trim(), null, audio.getAnalysisAttempt(), actor);
+        return true;
     }
     private Audio lock(Long id) { return rows.selectOne(new LambdaQueryWrapper<Audio>().eq(Audio::getId, id).last("FOR UPDATE")); }
     private boolean active(Audio current, Audio expected) {

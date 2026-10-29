@@ -44,6 +44,7 @@ import cn.diaojiahong.myyoutube.video.service.impl.AudioServiceImpl;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.*;
@@ -144,6 +145,8 @@ class AudioLibraryIntegrationTest {
         if (dto.getCover() != null) when(storage.inspectUpload(eq(rows.selectById(id).getSourceCoverObjectKey()), any()))
                 .thenReturn(new S3StorageUtil.UploadMetadata(dto.getCover().bytes(), dto.getCover().contentType()));
         uploads.complete(id);
+        // MySQL 的秒精度可能将当前时间舍入到下一秒，测试显式使待扫描记录到期。
+        due(id);
         return id;
     }
 
@@ -266,7 +269,7 @@ class AudioLibraryIntegrationTest {
         var dto = upload("banned-upload"); dto.setCover(new AudioUploadDTO.File("c.png", 1024, "image/png"));
         var issued = uploads.start(dto); long id = Long.parseLong(issued.audioId());
         jdbc.update("UPDATE audio SET processing_status=? WHERE id=?", phase.getCode(), id);
-        assertTrue(reviews.decide(id, "BAN", "封禁上传", 1L));
+        assertTrue(reviews.decide(id, AudioReviewDecision.BAN, "封禁上传", 1L));
         var banned = rows.selectById(id);
         assertEquals(AudioReviewStatus.BANNED, banned.getReviewStatus()); assertEquals(AudioProcessingStatus.EXPIRED, banned.getProcessingStatus());
         assertEquals(banned.getUploadDeadline().plusHours(24), banned.getUploadAfter());
@@ -289,7 +292,7 @@ class AudioLibraryIntegrationTest {
     void banDoesNotScheduleUploadCleanupForProcessingOrPreparedAudio(AudioProcessingStatus phase) {
         long id = publish();
         if (phase == AudioProcessingStatus.READY) approve(id);
-        assertTrue(reviews.decide(id, "BAN", "封禁音频", 1L));
+        assertTrue(reviews.decide(id, AudioReviewDecision.BAN, "封禁音频", 1L));
         assertEquals(phase, rows.selectById(id).getProcessingStatus());
         assertNull(rows.selectById(id).getUploadAfter());
         clearInvocations(storage); uploads.reconcile(); verifyNoInteractions(storage);
@@ -298,7 +301,7 @@ class AudioLibraryIntegrationTest {
     @Test void banDuringInspectionPreventsTheOldWorkerFromStartingProcessing() {
         long id = Long.parseLong(uploads.start(upload("ban-race")).audioId());
         when(storage.inspectUpload(anyString(), any())).thenAnswer(c -> {
-            assertTrue(reviews.decide(id, "BAN", "中止上传", 1L));
+            assertTrue(reviews.decide(id, AudioReviewDecision.BAN, "中止上传", 1L));
             return new S3StorageUtil.UploadMetadata(4096, "audio/wav");
         });
         uploads.complete(id);
@@ -537,13 +540,18 @@ class AudioLibraryIntegrationTest {
     }
     @Test void oldLeaseCannotWriteAfterAnotherReconcilerClaimsTheAudio() {
         long id = publish(); AudioPreparationResult result = prepared(id);
-        when(tasks.preparation(id)).thenAnswer(c -> { jdbc.update("UPDATE audio SET preparation_after=DATEADD('SECOND',30,preparation_after) WHERE id=?", id); return new View(id, MediaTaskStatus.SUCCESS, 1, 0, result, null, null); });
+        when(tasks.preparation(id)).thenAnswer(c -> {
+            LocalDateTime renewedLease = rows.selectById(id).getPreparationAfter().plusSeconds(30);
+            jdbc.update("UPDATE audio SET preparation_after=? WHERE id=?", renewedLease, id);
+            return new View(id, MediaTaskStatus.SUCCESS, 1, 0, result, null, null);
+        });
         coordinator.reconcile(); assertNull(rows.selectById(id).getObjectKey());
     }
     @Test void infrastructureOutageIsRetriedByReconciliationAndEventuallyTimesOut() {
         long id = publish(); when(tasks.preparation(id)).thenThrow(new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "unavailable", null));
         coordinator.reconcile(); assertEquals(AudioProcessingStatus.PROCESSING, rows.selectById(id).getProcessingStatus());
-        jdbc.update("UPDATE audio SET processing_deadline=DATEADD('MINUTE',-1,CURRENT_TIMESTAMP),preparation_after=DATEADD('MINUTE',-1,CURRENT_TIMESTAMP) WHERE id=?", id);
+        LocalDateTime expired = LocalDateTime.now().minusMinutes(1);
+        jdbc.update("UPDATE audio SET processing_deadline=?,preparation_after=? WHERE id=?", expired, expired, id);
         coordinator.reconcile(); assertEquals(AudioProcessingStatus.FAILED, rows.selectById(id).getProcessingStatus());
         assertEquals("音频处理超时，请重试", rows.selectById(id).getErrorMessage());
     }
@@ -551,6 +559,7 @@ class AudioLibraryIntegrationTest {
         long id = publish(); when(tasks.preparation(id)).thenReturn(new View(id, MediaTaskStatus.DEAD, 4, 3, null, "internal-url-secret", "TASK_EXECUTION_FAILED"));
         coordinator.reconcile(); assertEquals("音频处理失败，请重试", service.getMine(id).getErrorMessage());
         assertTrue(service.retry(id)); assertTrue(rows.selectById(id).getPreparationRetry());
+        due(id);
         when(tasks.retry(id)).thenReturn(true); when(tasks.preparation(id)).thenReturn(new View(id, MediaTaskStatus.SUCCESS, 5, 0, prepared(id), null, null));
         coordinator.reconcile(); assertEquals(AudioProcessingStatus.READY, rows.selectById(id).getProcessingStatus());
         assertEquals(5, rows.selectById(id).getPreparationAttempt()); assertFalse(rows.selectById(id).getPreparationRetry());
@@ -562,6 +571,7 @@ class AudioLibraryIntegrationTest {
                 InvalidMediaInputException.Reason.AUDIO_TOO_LONG.code()));
         coordinator.reconcile(); assertEquals("音频时长不能超过 10 分钟", service.getMine(id).getErrorMessage());
         assertTrue(service.retry(id));
+        due(id);
         when(tasks.retry(id)).thenReturn(false);
         coordinator.reconcile(); assertEquals(AudioProcessingStatus.FAILED, rows.selectById(id).getProcessingStatus());
         assertEquals("未能启动音频重试，请稍后重试", service.getMine(id).getErrorMessage());
@@ -576,6 +586,7 @@ class AudioLibraryIntegrationTest {
     @Test void successfulRetryDoesNotConsumeAStaleDeadView() {
         long id = publish(); when(tasks.preparation(id)).thenReturn(new View(id, MediaTaskStatus.DEAD, 4, 3, null, null, "TASK_EXECUTION_FAILED"));
         coordinator.reconcile(); assertTrue(service.retry(id)); when(tasks.retry(id)).thenReturn(true);
+        due(id);
         coordinator.reconcile(); assertEquals(AudioProcessingStatus.PROCESSING, rows.selectById(id).getProcessingStatus());
         assertFalse(rows.selectById(id).getPreparationRetry());
         jdbc.update("UPDATE audio SET preparation_after=? WHERE id=?", LocalDateTime.now().minusSeconds(1), id);
@@ -639,14 +650,14 @@ class AudioLibraryIntegrationTest {
         var a = rows.selectById(id); assertEquals(AudioAnalysisStatus.MANUAL, a.getAnalysisStatus()); assertEquals(AudioReviewStatus.PENDING, a.getReviewStatus());
         assertEquals(1, reviewRecords.selectCount(null)); assertThrows(BizException.class, () -> service.detail(id));
         jdbc.update("UPDATE audio SET visibility='private' WHERE id=?", id);
-        assertTrue(reviews.decide(id, "PASS", "完整试听与封面核对通过", 1L));
+        assertTrue(reviews.decide(id, AudioReviewDecision.PASS, "完整试听与封面核对通过", 1L));
         assertEquals("private", rows.selectById(id).getVisibility()); assertEquals(AudioReviewStatus.APPROVED, rows.selectById(id).getReviewStatus());
         assertThrows(BizException.class, () -> service.detail(id)); assertEquals(2, reviewRecords.selectCount(null));
-        assertThrows(BizException.class, () -> reviews.decide(id, "PASS", "重复", 1L));
+        assertThrows(BizException.class, () -> reviews.decide(id, AudioReviewDecision.PASS, "重复", 1L));
     }
     @Test void rejectCannotBeRecoveredByLateMachineResultOrUserRetry() {
         long id = preparedForAnalysis(); recognize(id); screen(id);
-        assertTrue(reviews.decide(id, "REJECT", "封面不通过", 1L));
+        assertTrue(reviews.decide(id, AudioReviewDecision.REJECT, "封面不通过", 1L));
         screen(id); assertEquals(AudioReviewStatus.REJECTED, rows.selectById(id).getReviewStatus()); assertFalse(service.retry(id));
         assertEquals(2, reviewRecords.selectCount(null));
     }
@@ -655,8 +666,8 @@ class AudioLibraryIntegrationTest {
         long id = manualReviewable();
         long before = rows.selectById(id).getIndexVersion();
         var ready = new CountDownLatch(2); var start = new CountDownLatch(1);
-        var pass = CompletableFuture.supplyAsync(() -> decideTogether(id, "PASS", ready, start));
-        var reject = CompletableFuture.supplyAsync(() -> decideTogether(id, "REJECT", ready, start));
+        var pass = CompletableFuture.supplyAsync(() -> decideTogether(id, AudioReviewDecision.PASS, ready, start));
+        var reject = CompletableFuture.supplyAsync(() -> decideTogether(id, AudioReviewDecision.REJECT, ready, start));
         try { assertTrue(ready.await(5, TimeUnit.SECONDS)); }
         finally { start.countDown(); }
         boolean approved = pass.get(5, TimeUnit.SECONDS); boolean rejected = reject.get(5, TimeUnit.SECONDS);
@@ -666,7 +677,7 @@ class AudioLibraryIntegrationTest {
         assertEquals(1, manualAuditCount(id));
     }
 
-    private boolean decideTogether(long id, String decision, CountDownLatch ready, CountDownLatch start) {
+    private boolean decideTogether(long id, AudioReviewDecision decision, CountDownLatch ready, CountDownLatch start) {
         ready.countDown();
         try { if (!start.await(5, TimeUnit.SECONDS)) throw new AssertionError("Review start timed out"); }
         catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AssertionError(error); }
@@ -674,8 +685,8 @@ class AudioLibraryIntegrationTest {
         catch (BizException conflict) { assertEquals(ErrorCode.STATE_CONFLICT, conflict.getErrorCode()); return false; }
     }
 
-    @ParameterizedTest @ValueSource(strings = {"PASS", "REJECT", "BAN"})
-    void reviewWaitingForRowLockChecksDeletionAfterAcquiringIt(String decision) throws Exception {
+    @ParameterizedTest @EnumSource(AudioReviewDecision.class)
+    void reviewWaitingForRowLockChecksDeletionAfterAcquiringIt(AudioReviewDecision decision) throws Exception {
         long id = manualReviewable();
         long before = rows.selectById(id).getIndexVersion();
         var entered = new CountDownLatch(1); var waiting = new AtomicReference<CompletableFuture<ErrorCode>>();
@@ -704,7 +715,7 @@ class AudioLibraryIntegrationTest {
         var transaction = new TransactionTemplate(new DataSourceTransactionManager(database));
         transaction.executeWithoutResult(tx -> {
             jdbc.queryForObject("SELECT id FROM audio WHERE id=? FOR UPDATE", Long.class, id);
-            waiting.set(CompletableFuture.supplyAsync(() -> { entered.countDown(); return reviews.decide(id, "BAN", "治理封禁", 1L); }));
+            waiting.set(CompletableFuture.supplyAsync(() -> { entered.countDown(); return reviews.decide(id, AudioReviewDecision.BAN, "治理封禁", 1L); }));
             try { assertTrue(entered.await(5, TimeUnit.SECONDS)); }
             catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AssertionError(error); }
             assertThrows(TimeoutException.class, () -> waiting.get().get(200, TimeUnit.MILLISECONDS));
@@ -714,8 +725,17 @@ class AudioLibraryIntegrationTest {
         assertEquals("private", rows.selectById(id).getVisibility());
         assertEquals(AudioReviewStatus.BANNED, rows.selectById(id).getReviewStatus());
         assertEquals(before + 2, rows.selectById(id).getIndexVersion()); assertEquals(1, manualAuditCount(id));
-        assertThrows(BizException.class, () -> reviews.decide(id, "BAN", "重复封禁", 1L));
+        assertThrows(BizException.class, () -> reviews.decide(id, AudioReviewDecision.BAN, "重复封禁", 1L));
         assertEquals(1, manualAuditCount(id));
+    }
+
+    @ParameterizedTest @CsvSource({"PASS,approved", "REJECT,rejected", "BAN,banned"})
+    void manualDecisionKeepsTheExistingStateAndAuditCodes(AudioReviewDecision decision, String status) {
+        long id = manualReviewable();
+        assertTrue(reviews.decide(id, decision, "人工核验", 1L));
+        assertEquals(status, rows.selectById(id).getReviewStatus().getCode());
+        assertEquals(decision.name(), jdbc.queryForObject(
+                "SELECT decision FROM audio_review_record WHERE audio_id=? AND source='MANUAL'", String.class, id));
     }
 
     private int manualAuditCount(long id) {
@@ -727,7 +747,7 @@ class AudioLibraryIntegrationTest {
         long id = manualReviewable();
         jdbc.update("UPDATE audio SET analysis_status=? WHERE id=?", phase.getCode(), id);
         long before = rows.selectById(id).getIndexVersion();
-        for (String decision : List.of("PASS", "REJECT")) {
+        for (AudioReviewDecision decision : List.of(AudioReviewDecision.PASS, AudioReviewDecision.REJECT)) {
             var error = assertThrows(BizException.class, () -> reviews.decide(id, decision, "人工核对", 1L));
             assertEquals(ErrorCode.STATE_CONFLICT, error.getErrorCode());
         }
@@ -740,7 +760,7 @@ class AudioLibraryIntegrationTest {
         coordinator.reconcile(); assertEquals(AudioAnalysisStatus.FAILED, rows.selectById(id).getAnalysisStatus());
         assertEquals(AudioProcessingStatus.READY, rows.selectById(id).getProcessingStatus()); assertEquals(1, reviewRecords.selectCount(null));
         assertFalse(service.getMine(id).getErrorMessage().contains("private-internal")); assertTrue(service.retry(id));
-        when(tasks.retryAnalysis(id, type)).thenReturn(true); coordinator.reconcile();
+        when(tasks.retryAnalysis(id, type)).thenReturn(true); due(id); coordinator.reconcile();
         assertEquals(AudioAnalysisStatus.RECOGNIZING, rows.selectById(id).getAnalysisStatus());
         verify(tasks, never()).retry(id);
     }
@@ -761,7 +781,7 @@ class AudioLibraryIntegrationTest {
     }
     @Test void bannedOrDeletedAudioCannotAcceptLateAnalysis() {
         long id = preparedForAnalysis();
-        assertTrue(reviews.decide(id, "BAN", "治理封禁", 1L));
+        assertTrue(reviews.decide(id, AudioReviewDecision.BAN, "治理封禁", 1L));
         recognize(id); assertEquals(AudioReviewStatus.BANNED, rows.selectById(id).getReviewStatus()); assertNull(rows.selectById(id).getTranscriptKey());
         assertThrows(BizException.class, () -> service.detail(id)); assertFalse(service.retry(id));
     }
@@ -789,8 +809,43 @@ class AudioLibraryIntegrationTest {
         when(broken.insert(any(AudioReviewRecord.class))).thenThrow(new IllegalStateException("db error"));
         var service = new AudioReviewService(rows, broken,
                 new TransactionTemplate(new DataSourceTransactionManager(database)));
-        assertThrows(IllegalStateException.class, () -> service.decide(id, "PASS", "通过", 1L));
+        assertThrows(IllegalStateException.class, () -> service.decide(id, AudioReviewDecision.PASS, "通过", 1L));
         assertEquals(AudioReviewStatus.PENDING, rows.selectById(id).getReviewStatus()); assertEquals(audio.getIndexVersion(), rows.selectById(id).getIndexVersion());
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    @EnabledIfSystemProperty(named = "content.integration", matches = "true")
+    void manualDecisionTimeoutRollsBackAndCanRetry(boolean blockAuditInsert) throws Exception {
+        long id = publish();
+        Audio before = rows.selectById(id);
+        long auditCount = manualAuditCount(id);
+        var waiting = new AtomicReference<CompletableFuture<BizException>>();
+        var blocker = new TransactionTemplate(new DataSourceTransactionManager(database));
+        try {
+            blocker.executeWithoutResult(status -> {
+                if (blockAuditInsert) jdbc.queryForList("SELECT id FROM audio_review_record FOR UPDATE");
+                else jdbc.queryForObject("SELECT id FROM audio WHERE id=? FOR SHARE", Long.class, id);
+                waiting.set(CompletableFuture.supplyAsync(() -> assertThrows(BizException.class,
+                        () -> reviews.decide(id, AudioReviewDecision.BAN, "治理封禁", 1L))));
+                try {
+                    BizException busy = waiting.get().get(8, TimeUnit.SECONDS);
+                    assertEquals(ErrorCode.STATE_CONFLICT, busy.getErrorCode());
+                    assertEquals("音频审核暂时繁忙，本次操作未完成，请稍后重试", busy.getMessage());
+                } catch (Exception failure) {
+                    throw new AssertionError("审核应在持锁事务释放前返回可重试错误", failure);
+                }
+            });
+        } finally {
+            if (waiting.get() != null) waiting.get().get(5, TimeUnit.SECONDS);
+        }
+        Audio after = rows.selectById(id);
+        assertEquals(before.getReviewStatus(), after.getReviewStatus());
+        assertEquals(before.getProcessingStatus(), after.getProcessingStatus());
+        assertEquals(before.getIndexVersion(), after.getIndexVersion());
+        assertEquals(auditCount, manualAuditCount(id));
+        assertTrue(reviews.decide(id, AudioReviewDecision.BAN, "治理封禁", 1L));
+        assertEquals(AudioReviewStatus.BANNED, rows.selectById(id).getReviewStatus());
+        assertEquals(auditCount + 1, manualAuditCount(id));
     }
 
     @Test void dirtyIndexStateSurvivesMqFailureAndRecoversOnNextDueScan() {
@@ -820,7 +875,7 @@ class AudioLibraryIntegrationTest {
         assertNotNull(detail.previewUrl()); assertEquals("SKIPPED", detail.records().get(0).decision());
         assertFalse(JsonUtil.toJson(service.getMine(id)).contains("modelSkipped"));
         assertFalse(JsonUtil.toJson(service.getMine(id)).contains("usageCount"));
-        assertThrows(BizException.class, () -> reviews.decide(id, "PASS", "", 1L));
+        assertThrows(BizException.class, () -> reviews.decide(id, AudioReviewDecision.PASS, "", 1L));
         assertThrows(BizException.class, () -> reviews.decide(id, null, "理由", 1L));
     }
     @Test void lateSuccessCannotReviveDeletedAudio() {
@@ -839,7 +894,7 @@ class AudioLibraryIntegrationTest {
         assertNull(rows.selectById(id).getTranscriptKey()); coordinator.reconcile();
         assertEquals(AudioAnalysisStatus.FAILED, rows.selectById(id).getAnalysisStatus());
         assertTrue(rows.selectById(id).getIndexVersion() > old.getIndexVersion());
-        assertTrue(reviews.decide(id, "PASS", "技术识别失败，人工完整试听及封面核验通过", 1L));
+        assertTrue(reviews.decide(id, AudioReviewDecision.PASS, "技术识别失败，人工完整试听及封面核验通过", 1L));
         assertEquals(AudioReviewStatus.APPROVED, rows.selectById(id).getReviewStatus());
         assertEquals("您的音频已通过审核。", service.getMine(id).getReviewReason());
         assertEquals("技术识别失败，人工完整试听及封面核验通过", rows.selectById(id).getReviewReason());
@@ -894,8 +949,8 @@ class AudioLibraryIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"REJECT", "BAN"})
-    void audioOwnerFeedbackIsFixedAndAdministratorKeepsOriginalRemarks(String decision) {
+    @EnumSource(value = AudioReviewDecision.class, names = {"REJECT", "BAN"})
+    void audioOwnerFeedbackIsFixedAndAdministratorKeepsOriginalRemarks(AudioReviewDecision decision) {
         long id = preparedForAnalysis(); recognize(id); screen(id);
         String internal = "内部判断及核对细节，不直接通知作者";
         reviews.decide(id, decision, internal, 1L);
