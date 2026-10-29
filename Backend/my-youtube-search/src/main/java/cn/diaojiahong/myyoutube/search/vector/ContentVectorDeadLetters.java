@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.search.vector;
 
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.page.CursorCodec;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.Reference;
@@ -20,7 +21,6 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -28,6 +28,7 @@ import java.util.UUID;
 @Component
 public class ContentVectorDeadLetters {
     private static final String TOPIC = "%DLQ%" + MqConstants.GROUP_CONTENT_VECTOR;
+    private static final CursorCodec<Reference> CURSOR = new CursorCodec<>(Reference.class, 2048, "无效游标");
     private final DefaultMQPullConsumer consumer;
     private final ObjectMapper mapper;
     private boolean started;
@@ -74,7 +75,7 @@ public class ContentVectorDeadLetters {
                     }
                     offset = result.getNextBeginOffset();
                     if (entries.size() >= size) {
-                        String next = offset < max || i + 1 < queues.size() ? encode(reference(queue, offset)) : null;
+                        String next = offset < max || i + 1 < queues.size() ? CURSOR.encode(reference(queue, offset)) : null;
                         return new Page(entries, next);
                     }
                 }
@@ -146,19 +147,9 @@ public class ContentVectorDeadLetters {
                 message.getStoreTimestamp(), message.getReconsumeTimes(), targetVersion, failureReason);
     }
 
-    private String encode(Reference reference) throws IOException {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(mapper.writeValueAsBytes(reference));
-    }
-
     private Reference decode(String cursor) {
-        if (cursor.isBlank() || cursor.length() > 2048) throw new BizException(ErrorCode.INVALID_ARGUMENT, "无效游标");
-        try {
-            Reference reference = mapper.readValue(Base64.getUrlDecoder().decode(cursor), Reference.class);
-            validate(reference);
-            return reference;
-        } catch (IOException | IllegalArgumentException error) {
-            throw new BizException(ErrorCode.INVALID_ARGUMENT, "无效游标", error);
-        }
+        if (cursor.isBlank()) throw new BizException(ErrorCode.INVALID_ARGUMENT, "无效游标");
+        return CURSOR.decode(cursor, this::validate);
     }
 
     private void validate(Reference reference) {

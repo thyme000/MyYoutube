@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.search.vector;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
+import cn.diaojiahong.myyoutube.common.page.CursorCodec;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.Reference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.rocketmq.client.consumer.DefaultMQPullConsumer;
@@ -64,6 +65,14 @@ class ContentVectorDeadLettersTest {
         when(consumer.minOffset(first)).thenReturn(5L); when(consumer.maxOffset(first)).thenReturn(10L);
         String cursor = Base64.getUrlEncoder().encodeToString(mapper.writeValueAsBytes(new Reference("a", 0, 4L)));
         assertThrows(BizException.class, () -> reader.query(cursor, 20));
+    }
+
+    @Test void sharedCodecStillRejectsBlankAndInvalidDeadLetterPositions() {
+        assertThrows(BizException.class, () -> reader.query(" ", 20));
+        CursorCodec<Reference> codec = new CursorCodec<>(Reference.class, 2048, "无效游标");
+        assertThrows(BizException.class, () -> reader.query(codec.encode(null), 20));
+        assertThrows(BizException.class, () -> reader.query(codec.encode(new Reference("a", -1, 0L)), 20));
+        verifyNoInteractions(consumer);
     }
 
     @Test void replayReadsOnlyTheRequestedOffsetInTheFixedDeadLetterTopic() throws Exception {

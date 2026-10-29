@@ -1,35 +1,27 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
-import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.common.page.CursorCodec;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import com.google.gson.JsonArray;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
 
 record TagSearchCursor(String tag, Long userId, JsonArray sort) {
+    private static final CursorCodec<TagSearchCursor> CODEC = new CursorCodec<>(
+            TagSearchCursor.class, 2048, "标签搜索游标无效，请重新搜索");
+
     static String encode(SearchContext context, List<FieldValue> values) {
         JsonArray sort = RecallSearchClient.sortJson(values);
-        String json = JsonUtil.toJson(new TagSearchCursor(context.getKeyword(), context.getUserId(), sort));
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8));
+        return CODEC.encode(new TagSearchCursor(context.getKeyword(), context.getUserId(), sort));
     }
 
     static List<FieldValue> decode(String value, SearchContext context) {
-        if (value == null || value.isBlank()) return List.of();
-        try {
-            if (value.length() > 2048) throw new IllegalArgumentException();
-            String json = new String(Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8);
-            TagSearchCursor cursor = JsonUtil.fromJson(json, TagSearchCursor.class);
-            if (cursor == null || !Objects.equals(cursor.tag(), context.getKeyword())
-                    || !Objects.equals(cursor.userId(), context.getUserId()) || cursor.sort() == null)
+        TagSearchCursor cursor = CODEC.decode(value, decoded -> {
+            if (!Objects.equals(decoded.tag(), context.getKeyword())
+                    || !Objects.equals(decoded.userId(), context.getUserId()) || decoded.sort() == null)
                 throw new IllegalArgumentException();
-            SearchSortValidation.validate(cursor.sort(), false);
-            return RecallSearchClient.sortValues(cursor.sort());
-        } catch (RuntimeException invalid) {
-            throw new BizException(ErrorCode.INVALID_ARGUMENT, "标签搜索游标无效，请重新搜索");
-        }
+            SearchSortValidation.validate(decoded.sort(), false);
+        });
+        return cursor == null ? List.of() : RecallSearchClient.sortValues(cursor.sort());
     }
 }
