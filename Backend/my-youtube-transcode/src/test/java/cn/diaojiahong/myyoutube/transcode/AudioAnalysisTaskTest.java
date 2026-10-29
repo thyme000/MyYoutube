@@ -10,11 +10,13 @@ import cn.diaojiahong.myyoutube.transcode.api.AsrPort;
 import cn.diaojiahong.myyoutube.transcode.task.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import java.nio.file.*;
 import java.util.*;
 import java.util.function.Supplier;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class AudioAnalysisTaskTest {
     final ContentArtifactStore artifacts = mock(ContentArtifactStore.class);
@@ -43,6 +45,21 @@ class AudioAnalysisTaskTest {
     AudioAnalysisContracts.ScreenResult screen(String text) {
         when(artifacts.read(anyString(), eq(ContentArtifacts.Transcript.class))).thenReturn(transcript(text));
         return JsonUtil.fromJson(review.execute(task(MediaTaskType.AUDIO_REVIEW)), AudioAnalysisContracts.ScreenResult.class);
+    }
+    @Test void defaultRulesLoadAtStartupAndApplyWithoutAnExternalFile() {
+        new ApplicationContextRunner().withUserConfiguration(AudioReviewTaskExecutor.class)
+                .withBean(ContentArtifactStore.class, () -> artifacts)
+                .withBean(LlmPort.class, () -> llm)
+                .withBean(ModelCallGuard.class, () -> guard)
+                .withBean(PromptTemplates.class, PromptTemplates::new)
+                .withBean(AudioAnalysisProperties.class, () -> properties)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    review = context.getBean(AudioReviewTaskExecutor.class);
+                    assertTrue(screen("赌博").localBlocked());
+                    assertFalse(screen("拒绝赌博").localBlocked());
+                    verifyNoInteractions(llm);
+                });
     }
     @Test void emptyAndPunctuationOnlyRecognitionSkipModelEvenWithLongTitle() {
         for (String text : List.of("", " ，。！？...", "abc", "你好")) {
