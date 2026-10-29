@@ -66,7 +66,7 @@ class AudioPreparationWorkflowTest {
         });
         doAnswer(c -> { Files.write(c.getArgument(1), new byte[10]); return null; }).when(storage).download(any(), any(), anyLong());
         when(reader.read(any())).thenReturn(new PreparedAudioReader.Probe(1234, "audio/wav"));
-        when(images.write(any(), any())).thenAnswer(c -> { Files.write(c.getArgument(1), new byte[4]); return new PreparedImageWriter.Result(100, 100, 80, 80, 1, 4); });
+        when(images.write(any(), any())).thenAnswer(c -> { Files.write(c.getArgument(1), new byte[4]); return new PreparedImageWriter.PreparedImageResult(100, 100, 80, 80, 1, 4); });
         doAnswer(c -> { String key = c.getArgument(1); objects.put(key, new PreparationStorage.Source(key, "out-v1", "cover", 4)); return null; }).when(storage).upload(any(), anyString());
     }
     MediaTaskMessage message() {
@@ -143,7 +143,7 @@ class AudioPreparationWorkflowTest {
         tasks.startAudioPreparation(request()); var claimed = tasks.claim(message()); executor.execute(claimed);
         objects.put(request().objectKey(), new PreparationStorage.Source(request().objectKey(), "v2", "replaced", 999));
         objects.put(request().coverObjectKey(), new PreparationStorage.Source(request().coverObjectKey(), "v2", "replaced", 999));
-        clearInvocations(storage); var result = JsonUtil.fromJson(executor.execute(claimed), Result.class);
+        clearInvocations(storage); var result = JsonUtil.fromJson(executor.execute(claimed), AudioPreparationResult.class);
         assertEquals(10, result.bytes()); verify(storage, never()).inspect(request().objectKey()); verify(storage, never()).inspect(request().coverObjectKey());
         verify(storage, never()).freeze(any(), anyString());
     }

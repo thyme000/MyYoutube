@@ -36,7 +36,7 @@ public class PreparedVideoReader {
         }
         public int sampleCount() { return VideoFrameSampling.count(videoDurationMs, availableFrames); }
     }
-    public record Frame(int index, long timeMs, Path path, PreparedImageWriter.Result image) {}
+    public record Frame(int index, long timeMs, Path path, PreparedImageWriter.PreparedImageResult image) {}
     @FunctionalInterface public interface FrameConsumer { void accept(Frame frame) throws Exception; }
 
     public Probe probe(String source, byte[] head) {

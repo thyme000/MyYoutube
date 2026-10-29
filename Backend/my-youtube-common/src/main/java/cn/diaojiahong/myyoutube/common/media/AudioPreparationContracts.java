@@ -22,7 +22,7 @@ public final class AudioPreparationContracts {
             throw new IllegalArgumentException("无权使用该上传文件");
     }
 
-    public record Result(Long audioId, Long userId, String objectKey, String coverObjectKey,
+    public record AudioPreparationResult(Long audioId, Long userId, String objectKey, String coverObjectKey,
                          long durationMs, long bytes, String mime, int coverWidth, int coverHeight) {
         public void validate(Request request) {
             request.validate();
@@ -38,5 +38,5 @@ public final class AudioPreparationContracts {
     }
 
     public record View(Long audioId, MediaTaskStatus status, int attempt, int retryCount,
-                       Result result, String errorMessage, String failureCode) {}
+                       AudioPreparationResult result, String errorMessage, String failureCode) {}
 }

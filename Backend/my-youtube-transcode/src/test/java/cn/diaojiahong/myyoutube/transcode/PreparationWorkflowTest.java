@@ -88,7 +88,7 @@ class PreparationWorkflowTest {
                 .when(storage).download(any(), any(), anyLong());
         when(images.write(any(), any())).thenAnswer(call -> {
             Files.write(call.getArgument(1), new byte[4]);
-            return new PreparedImageWriter.Result(100, 100, 80, 80, 1, 4);
+            return new PreparedImageWriter.PreparedImageResult(100, 100, 80, 80, 1, 4);
         });
         doAnswer(call -> {
             String key = call.getArgument(1);
@@ -142,7 +142,7 @@ class PreparationWorkflowTest {
         doAnswer(call -> {
             if (calls.incrementAndGet() == 2) throw new IllegalStateException("decoder unavailable");
             Files.write(call.getArgument(1), new byte[4]);
-            return new PreparedImageWriter.Result(100, 100, 80, 80, 1, 4);
+            return new PreparedImageWriter.PreparedImageResult(100, 100, 80, 80, 1, 4);
         }).when(images).write(any(), any());
         var error = assertThrows(IllegalStateException.class, () -> executor.execute(first));
         tasks.completeAndAdvance(first, null, error.getMessage());
@@ -230,7 +230,7 @@ class PreparationWorkflowTest {
                 if (i == 2 && failed.compareAndSet(false, true)) throw new IllegalStateException("frame unavailable");
                 decoded.add(i); Path frame = work.resolve("frame.jpg"); Files.write(frame, new byte[4]);
                 consumer.accept(new PreparedVideoReader.Frame(i, 10 + 100L * i, frame,
-                        new PreparedImageWriter.Result(320, 180, 320, 180, 1, 4)));
+                        new PreparedImageWriter.PreparedImageResult(320, 180, 320, 180, 1, 4)));
             }
             return null;
         }).when(videos).frames(anyString(), any(), any(), any(VideoFrameSampling.Plan.class), any(), any());
@@ -264,7 +264,7 @@ class PreparationWorkflowTest {
                 decoded.add(i);
                 Path frame = work.resolve("frame.jpg"); Files.write(frame, new byte[4]);
                 consumer.accept(new PreparedVideoReader.Frame(i, i * 5000L, frame,
-                        new PreparedImageWriter.Result(320, 180, 320, 180, 1, 4)));
+                        new PreparedImageWriter.PreparedImageResult(320, 180, 320, 180, 1, 4)));
             }
             return null;
         }).when(videos).frames(anyString(), any(), any(), any(VideoFrameSampling.Plan.class), any(), any());
@@ -372,7 +372,7 @@ class PreparationWorkflowTest {
             for (int i = 0; i < 10; i++) {
                 Path frame = work.resolve("frame.jpg"); Files.write(frame, new byte[4]);
                 consumer.accept(new PreparedVideoReader.Frame(i, i * 100L, frame,
-                        new PreparedImageWriter.Result(320, 180, 320, 180, 1, 4)));
+                        new PreparedImageWriter.PreparedImageResult(320, 180, 320, 180, 1, 4)));
             }
             return null;
         }).when(videos).frames(anyString(), any(), any(), any(VideoFrameSampling.Plan.class), any(), any());

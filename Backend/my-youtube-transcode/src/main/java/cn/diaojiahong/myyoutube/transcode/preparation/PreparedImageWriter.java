@@ -24,9 +24,9 @@ import java.nio.file.Path;
 public class PreparedImageWriter {
     private final MediaPreparationProperties properties;
 
-    public record Result(int sourceWidth, int sourceHeight, int width, int height, int orientation, long bytes) {}
+    public record PreparedImageResult(int sourceWidth, int sourceHeight, int width, int height, int orientation, long bytes) {}
 
-    public Result write(Path source, Path output) throws Exception {
+    public PreparedImageResult write(Path source, Path output) throws Exception {
         long started = System.nanoTime();
         if (source.equals(output)) throw new IllegalArgumentException("图片输入与输出路径相同");
         if (Files.size(source) <= 0 || Files.size(source) > properties.getSourceBytes())
@@ -79,7 +79,7 @@ public class PreparedImageWriter {
                 log.info("Media image prepared source={}x{} output={}x{} orientation={} bytes={} elapsedMs={}",
                         width, height, result.getWidth(), result.getHeight(), orientation, bytes,
                         (System.nanoTime() - started) / 1_000_000);
-                return new Result(width, height, result.getWidth(), result.getHeight(), orientation, bytes);
+                return new PreparedImageResult(width, height, result.getWidth(), result.getHeight(), orientation, bytes);
             } finally {
                 if (decoded != null) decoded.flush();
                 if (result != null) result.flush();

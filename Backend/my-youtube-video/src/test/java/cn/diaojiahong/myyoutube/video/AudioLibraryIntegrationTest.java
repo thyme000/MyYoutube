@@ -451,7 +451,7 @@ class AudioLibraryIntegrationTest {
         assertEquals(wallTime, rows.selectById(id).getCreateTime());
     }
     Request request(long id) { var row = rows.selectById(id); return new Request(id, 9L, row.getSourceObjectKey(), row.getSourceCoverObjectKey()); }
-    Result prepared(long id) { var r = request(id); return new Result(id, 9L, r.prefix() + "source", r.coverObjectKey() == null ? null : r.prefix() + "cover.jpg", 1234, 4096, "audio/wav", r.coverObjectKey() == null ? 0 : 40, r.coverObjectKey() == null ? 0 : 30); }
+    AudioPreparationResult prepared(long id) { var r = request(id); return new AudioPreparationResult(id, 9L, r.prefix() + "source", r.coverObjectKey() == null ? null : r.prefix() + "cover.jpg", 1234, 4096, "audio/wav", r.coverObjectKey() == null ? 0 : 40, r.coverObjectKey() == null ? 0 : 30); }
     void approve(long id) { jdbc.update("UPDATE audio SET processing_status='ready',review_status='approved',object_key=?,duration_ms=1234 WHERE id=?", request(id).prefix() + "source", id); }
 
     long manualReviewable() {
@@ -520,23 +520,23 @@ class AudioLibraryIntegrationTest {
     @Test void mismatchedPreparedResultCannotPublishAnotherUsersFile() {
         long id = publish();
         when(tasks.preparation(id)).thenReturn(new View(id, MediaTaskStatus.SUCCESS, 1, 0,
-                new Result(id, 7L, "media-prepared/7/1/audio-source", null, 1234, 4096, "audio/wav", 0, 0), null, null));
+                new AudioPreparationResult(id, 7L, "media-prepared/7/1/audio-source", null, 1234, 4096, "audio/wav", 0, 0), null, null));
         coordinator.reconcile(); assertEquals(AudioProcessingStatus.PROCESSING, rows.selectById(id).getProcessingStatus()); assertNull(rows.selectById(id).getObjectKey());
     }
     @Test void deletionWhileWorkerReturnsDoesNotRestoreTheAudio() {
-        long id = publish(); Result result = prepared(id);
+        long id = publish(); AudioPreparationResult result = prepared(id);
         when(tasks.preparation(id)).thenAnswer(c -> { service.delete(id); return new View(id, MediaTaskStatus.SUCCESS, 1, 0, result, null, null); });
         coordinator.reconcile(); assertEquals(1, rows.selectById(id).getIsDelete()); assertNull(rows.selectById(id).getObjectKey());
         assertThrows(BizException.class, () -> service.getMine(id));
     }
     @Test void manualReviewChangeWhileWorkerReturnsIsNotOverwritten() {
-        long id = publish(); Result result = prepared(id);
+        long id = publish(); AudioPreparationResult result = prepared(id);
         when(tasks.preparation(id)).thenAnswer(c -> { jdbc.update("UPDATE audio SET review_status='banned',visibility='private' WHERE id=?", id); return new View(id, MediaTaskStatus.SUCCESS, 1, 0, result, null, null); });
         coordinator.reconcile(); var row = rows.selectById(id);
         assertEquals(AudioReviewStatus.BANNED, row.getReviewStatus()); assertEquals("private", row.getVisibility()); assertNull(row.getObjectKey());
     }
     @Test void oldLeaseCannotWriteAfterAnotherReconcilerClaimsTheAudio() {
-        long id = publish(); Result result = prepared(id);
+        long id = publish(); AudioPreparationResult result = prepared(id);
         when(tasks.preparation(id)).thenAnswer(c -> { jdbc.update("UPDATE audio SET preparation_after=DATEADD('SECOND',30,preparation_after) WHERE id=?", id); return new View(id, MediaTaskStatus.SUCCESS, 1, 0, result, null, null); });
         coordinator.reconcile(); assertNull(rows.selectById(id).getObjectKey());
     }

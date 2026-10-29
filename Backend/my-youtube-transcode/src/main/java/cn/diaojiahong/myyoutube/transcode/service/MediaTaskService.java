@@ -80,7 +80,7 @@ public class MediaTaskService {
     public AudioPreparationContracts.View audioPreparationView(Long id) {
         var row = audioPreparation(id);
         return row == null ? null : new AudioPreparationContracts.View(id, row.getStatus(), row.getAttempt(), row.getRetryCount(),
-                row.getResultJson() == null ? null : JsonUtil.fromJson(row.getResultJson(), AudioPreparationContracts.Result.class),
+                row.getResultJson() == null ? null : JsonUtil.fromJson(row.getResultJson(), AudioPreparationContracts.AudioPreparationResult.class),
                 row.getErrorMessage(), row.getFailureCode());
     }
 

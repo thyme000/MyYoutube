@@ -55,7 +55,7 @@ public class AudioPrepareTaskExecutor implements MediaTaskExecutor {
                 }
                 width = checked.width(); height = checked.height();
             }
-            var result = new AudioPreparationContracts.Result(request.audioId(), request.userId(), frozen.key(), coverKey,
+            var result = new AudioPreparationContracts.AudioPreparationResult(request.audioId(), request.userId(), frozen.key(), coverKey,
                     probe.durationMs(), frozen.bytes(), probe.mime(), width, height);
             result.validate(request);
             return JsonUtil.toJson(result);

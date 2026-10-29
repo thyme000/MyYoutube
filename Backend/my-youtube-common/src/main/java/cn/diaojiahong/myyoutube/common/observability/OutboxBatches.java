@@ -7,10 +7,10 @@ public final class OutboxBatches {
     private static final String PREFIX = "{\"schemaVersion\":1,\"events\":[";
     private static final String SUFFIX = "]}";
     public record Batch(List<OutboxStore.Entry> entries, byte[] body) {}
-    public record Result(List<Batch> batches, List<OutboxStore.Entry> oversized) {}
+    public record OutboxBatchResult(List<Batch> batches, List<OutboxStore.Entry> oversized) {}
     private OutboxBatches() {}
 
-    public static Result split(List<OutboxStore.Entry> rows, int maxEvents, int maxBytes) {
+    public static OutboxBatchResult split(List<OutboxStore.Entry> rows, int maxEvents, int maxBytes) {
         if (maxEvents < 1 || maxBytes < 1) throw new IllegalArgumentException("Invalid batch limits");
         var batches = new ArrayList<Batch>();
         var oversized = new ArrayList<OutboxStore.Entry>();
@@ -26,7 +26,7 @@ public final class OutboxBatches {
             current.add(row);
         }
         if (!current.isEmpty()) batches.add(batch(current));
-        return new Result(List.copyOf(batches), List.copyOf(oversized));
+        return new OutboxBatchResult(List.copyOf(batches), List.copyOf(oversized));
     }
     private static Batch batch(List<OutboxStore.Entry> entries) {
         String json = PREFIX + String.join(",", entries.stream().map(OutboxStore.Entry::payload).toList()) + SUFFIX;
