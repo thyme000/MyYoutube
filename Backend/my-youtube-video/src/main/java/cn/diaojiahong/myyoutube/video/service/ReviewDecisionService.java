@@ -11,12 +11,12 @@ import cn.diaojiahong.myyoutube.common.media.PipelineContracts.*;
 import org.springframework.transaction.support.*;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
-import cn.diaojiahong.myyoutube.video.api.enums.ContentVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.*;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
+import cn.diaojiahong.myyoutube.content.service.ContentStatisticsService;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -45,6 +45,7 @@ public class ReviewDecisionService {
     private final cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings frameSettings;
     private final AudioContentAccess audioAccess;
     private final AudioMapper audios;
+    private final ContentStatisticsService statistics;
 
     @Transactional
     @ObservedBusiness(BusinessOperation.MANUAL_REVIEW)
@@ -249,11 +250,12 @@ public class ReviewDecisionService {
         if (!contents.lambdaUpdate().eq(Content::getId, id).eq(Content::getStatus, expected)
                 .setSql("index_version = index_version + 1")
                 .set(Content::getStatus, target).update()) return false;
-        int delta = publishedBan ? -1 : target == ContentStatusEnum.PUBLISHED ? 1 : 0;
-        int audioDelta = content.getAudioId() != null && ContentVisibilityEnum.PUBLIC.getCode().equals(content.getVisibility()) ? delta : 0;
+        statistics.transition(content, target);
+
+        boolean countAudio = target == ContentStatusEnum.PUBLISHED && content.getAudioId() != null;
         var event = new ContentPublicationEvent().setContentId(id).setAuthorId(content.getAuthorId()).setStatus(target)
-                .setAudioId(content.getAudioId()).setAudioDelta(audioDelta).setAudioCountDone(audioDelta == 0)
-                .setDelta(delta).setReason(reason).setUserCountDone(false).setSearchDone(false).setNoticeDone(false).setCompleted(false);
+                .setAudioId(content.getAudioId()).setAudioCountDone(!countAudio)
+                .setReason(reason).setSearchDone(false).setNoticeDone(false).setCompleted(false);
         events.insert(event);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() { effects.trigger(event.getId()); }

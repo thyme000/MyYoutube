@@ -18,8 +18,6 @@ public class UserVO {
     private Long fans;
     // 用户获得点赞数
     private Long likeCount;
-    // 用户视频数
-    private Long contentCount;
     // 用户背景图片url
     private String bgImage;
     // 用户关注数

@@ -10,9 +10,6 @@ import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.hutool.core.bean.BeanUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Collection;
 import java.util.List;
@@ -26,7 +23,6 @@ import java.util.stream.Collectors;
 public class UserPortAdapter implements UserPort {
 
     private final cn.diaojiahong.myyoutube.user.service.IUserService userService;
-    private final cn.diaojiahong.myyoutube.user.mapper.UserCounterEventMapper counterEvents;
     private final CounterBuffer counterBuffer;
     private final UserSummaryCache summaryCache;
 
@@ -45,21 +41,6 @@ public class UserPortAdapter implements UserPort {
         }
         return summaryCache.listByIds(ids, missIds -> userService.listByIds(missIds).stream()
                 .map(UserPortAdapter::toSummary).collect(Collectors.toList()));
-    }
-
-    @Override
-    @Transactional
-    public void applyContentCountEvent(cn.diaojiahong.myyoutube.user.api.dto.ContentCountEvent event) {
-        if (event.eventId() == null || event.eventId().isBlank() || event.userId() == null || Math.abs(event.delta()) != 1)
-            throw new IllegalArgumentException("非法作品计数事件");
-        if (counterEvents.record(event.eventId(), event.userId()) > 0) {
-            if (counterEvents.applyDelta(event.userId(), event.delta()) != 1)
-                throw new IllegalStateException("作品计数事件无法应用");
-        }
-        TransactionSynchronizationManager.registerSynchronization(
-                new TransactionSynchronization() {
-                    @Override public void afterCommit() { summaryCache.evict(event.userId()); }
-                });
     }
 
     @Override

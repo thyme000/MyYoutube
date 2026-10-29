@@ -17,6 +17,14 @@ public class AdminAudioController {
 
     public record Decision(String decision, String reason) {}
 
+    @GetMapping
+    public Result<PageResult<AudioAdminPort.Item>> page(@ModelAttribute PageQuery query) {
+        authorization.requireAdmin();
+        query.validate();
+
+        return Result.success(audios.page(query));
+    }
+
     @GetMapping("/waiting")
     public Result<PageResult<AudioAdminPort.Item>> waiting(@ModelAttribute PageQuery query) {
         authorization.requireAdmin();

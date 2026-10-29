@@ -25,6 +25,8 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.media.AudioPreparationContracts.*;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.video.api.AudioAdminPort;
 import cn.diaojiahong.myyoutube.common.utils.*;
 import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
 import cn.diaojiahong.myyoutube.transcode.api.AudioPreparationPort;
@@ -862,22 +864,59 @@ class AudioLibraryIntegrationTest {
         var transcript = new ContentArtifacts.Transcript(List.of());
         when(artifacts.read(anyString(), eq(ContentArtifacts.Transcript.class))).thenReturn(transcript);
         var admin = new InternalAdminAudioController(rows, reviewRecords, reviews, storage, artifacts, users);
-        jdbc.update("UPDATE audio SET usage_count=17 WHERE id=?", id);
+        jdbc.update("UPDATE audio SET historical_author_count=17 WHERE id=?", id);
         assertEquals(1, admin.waiting(new PageQuery()).getTotal()); var detail = admin.detail(id);
-        assertEquals(17L, detail.usageCount());
+        assertEquals(17L, detail.audio().historicalAuthorCount());
         assertEquals("manual", detail.audio().analysisStatus());
         var mvc = MockMvcBuilders.standaloneSetup(admin).build();
         mvc.perform(get("/internal/admin/audios/" + id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.audio.analysisStatus").value("manual"))
-                .andExpect(jsonPath("$.usageCount").value(17))
+                .andExpect(jsonPath("$.audio.historicalAuthorCount").value(17))
                 .andExpect(jsonPath("$.audio.version").doesNotExist());
         assertEquals(transcript, detail.transcript()); assertEquals("signed/avatars/9.jpg", detail.coverUrl());
         assertNotNull(detail.previewUrl()); assertEquals("SKIPPED", detail.records().get(0).decision());
         assertFalse(JsonUtil.toJson(service.getMine(id)).contains("modelSkipped"));
-        assertFalse(JsonUtil.toJson(service.getMine(id)).contains("usageCount"));
+        assertFalse(JsonUtil.toJson(service.getMine(id)).contains("historicalAuthorCount"));
         assertThrows(BizException.class, () -> reviews.decide(id, AudioReviewDecision.PASS, "", 1L));
         assertThrows(BizException.class, () -> reviews.decide(id, null, "理由", 1L));
     }
+    @Test void adminAudioPaginationIncludesAllStatesAndSortsEqualTimestampsById() {
+        List<AudioReviewStatus> statuses = List.of(AudioReviewStatus.PENDING, AudioReviewStatus.APPROVED,
+                AudioReviewStatus.REJECTED, AudioReviewStatus.BANNED, AudioReviewStatus.PENDING, AudioReviewStatus.PENDING);
+        List<Long> ids = new java.util.ArrayList<>();
+        LocalDateTime created = LocalDateTime.of(2026, 10, 29, 10, 0);
+        for (int index = 0; index < statuses.size(); index++) {
+            long id = Long.parseLong(uploads.start(upload("admin-page-" + index)).audioId());
+            ids.add(id);
+            jdbc.update("UPDATE audio SET processing_status=?, review_status=?, analysis_status=?, historical_author_count=?, create_time=?, is_delete=? WHERE id=?",
+                    index == 4 ? "uploading" : "ready", statuses.get(index).getCode(), index == 4 ? null : "manual",
+                    10 + index, created, index == 5 ? 1 : 0, id);
+        }
+        InternalAdminAudioController admin = new InternalAdminAudioController(rows, reviewRecords, reviews, storage,
+                mock(ContentArtifactStore.class), users);
+        PageQuery query = new PageQuery();
+        query.setPageSize(2);
+
+        PageResult<AudioAdminPort.Item> first = admin.page(query);
+        assertEquals(5, first.getTotal());
+        assertEquals(3, first.getPages());
+        assertEquals(List.of(ids.get(4).toString(), ids.get(3).toString()), first.getList().stream().map(item -> item.id()).toList());
+        assertEquals(14, first.getList().get(0).historicalAuthorCount());
+        assertEquals("banned", first.getList().get(1).reviewStatus());
+
+        query.setPageNo(2);
+        PageResult<AudioAdminPort.Item> second = admin.page(query);
+        assertEquals(List.of(ids.get(2).toString(), ids.get(1).toString()), second.getList().stream().map(item -> item.id()).toList());
+        assertEquals("rejected", second.getList().get(0).reviewStatus());
+        assertEquals("approved", second.getList().get(1).reviewStatus());
+
+        query.setPageNo(3);
+        assertEquals(List.of(ids.get(0).toString()), admin.page(query).getList().stream().map(item -> item.id()).toList());
+        query.setPageNo(4);
+        assertTrue(admin.page(query).getList().isEmpty());
+        assertEquals(1, admin.waiting(new PageQuery()).getTotal());
+    }
+
     @Test void lateSuccessCannotReviveDeletedAudio() {
         long id = preparedForAnalysis(); var old = rows.selectById(id); var request = analysisRequest(id, MediaTaskType.AUDIO_ASR);
         var result = new AudioAnalysisContracts.TranscriptResult(id, old.getObjectKey(), request.prefix() + "asr/1/out.json", 0);
@@ -898,19 +937,19 @@ class AudioLibraryIntegrationTest {
         assertEquals(AudioReviewStatus.APPROVED, rows.selectById(id).getReviewStatus());
         assertEquals("您的音频已通过审核。", service.getMine(id).getReviewReason());
         assertEquals("技术识别失败，人工完整试听及封面核验通过", rows.selectById(id).getReviewReason());
-        jdbc.update("UPDATE audio SET usage_count=23 WHERE id=?", id);
+        jdbc.update("UPDATE audio SET historical_author_count=23 WHERE id=?", id);
         when(search.search(any())).thenReturn(new AudioDiscoveryContracts.Slice(List.of(id), false));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new AudioController(service, uploads, mock(AudioContentService.class))).build();
         mvc.perform(get("/audios/" + id)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.usageCount").doesNotExist())
+                .andExpect(jsonPath("$.data.historicalAuthorCount").doesNotExist())
                 .andExpect(jsonPath("$.data.reviewReason").doesNotExist())
                 .andExpect(jsonPath("$.data.errorMessage").doesNotExist())
                 .andExpect(jsonPath("$.data.analysisStatus").doesNotExist());
         mvc.perform(get("/audios/library")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.list[0].usageCount").doesNotExist())
+                .andExpect(jsonPath("$.data.list[0].historicalAuthorCount").doesNotExist())
                 .andExpect(jsonPath("$.data.list[0].reviewReason").doesNotExist());
         mvc.perform(get("/audios/mine/" + id)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.usageCount").doesNotExist())
+                .andExpect(jsonPath("$.data.historicalAuthorCount").doesNotExist())
                 .andExpect(jsonPath("$.data.reviewReason").value("您的音频已通过审核。"));
     }
 

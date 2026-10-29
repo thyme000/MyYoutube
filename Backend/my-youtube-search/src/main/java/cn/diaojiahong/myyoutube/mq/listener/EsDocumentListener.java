@@ -86,14 +86,12 @@ public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> 
             doc.setNickname(user.getNickname());
             doc.setIntroduction(user.getIntroduction());
             doc.setLikeCount(user.getLikeCount());
-            doc.setContentCount(user.getContentCount());
             doc.setCreateTime(user.getCreateTime());
         }
         doc.setIdKeyword(user.getId().toString());
         doc.setNickname(user.getNickname());
         doc.setIntroduction(user.getIntroduction());
         doc.setLikeCount(user.getLikeCount());
-        doc.setContentCount(user.getContentCount());
         doc.setFans(user.getFans());
         doc.setSuggest(user.getNickname() == null ? new Completion() : new Completion(List.of(user.getNickname())));
         userDocRepository.save(doc);

@@ -1,8 +1,10 @@
 package cn.diaojiahong.myyoutube.content.service;
 
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
+import cn.diaojiahong.myyoutube.content.domain.dto.AuthorContentCursorQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
+import cn.diaojiahong.myyoutube.content.domain.vo.AuthorContentCursorVO;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentSortEnum;
 
 /**
@@ -26,10 +28,10 @@ public interface IContentFeedService {
     PageResult<ContentFeedVO> mine(Long userId, ContentPageQuery pageQuery);
 
     /**
-     * 按作者查内容(详情层侧栏): 视频与动态同列;
+     * 作者作品时间序游标列表: 视频与动态同列;
      * 他人视角仅公开已发布, 本人视角已发布全可见(含私密)
      */
-    PageResult<ContentFeedVO> byAuthor(Long viewerId, Long authorId, ContentPageQuery pageQuery);
+    AuthorContentCursorVO byAuthor(Long viewerId, Long authorId, AuthorContentCursorQuery query);
 
     /**
      * 关注流(关注页连播): 所有关注作者的内容, 视频与动态同池, 时间序

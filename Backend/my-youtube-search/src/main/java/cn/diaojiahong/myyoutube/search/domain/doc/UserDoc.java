@@ -28,9 +28,6 @@ public class UserDoc {
     @Field(type = FieldType.Long)
     private Long fans;
 
-    @Field(type = FieldType.Long)
-    private Long contentCount;
-
     @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
     private String introduction;
     

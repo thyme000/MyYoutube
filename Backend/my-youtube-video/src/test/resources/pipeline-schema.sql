@@ -46,17 +46,13 @@ CREATE TABLE IF NOT EXISTS content_publication_event (
     content_id BIGINT NOT NULL,
     author_id BIGINT NOT NULL,
     status VARCHAR(16) NOT NULL,
-    delta INT NOT NULL,
     audio_id BIGINT DEFAULT NULL,
-    audio_delta INT NOT NULL DEFAULT 0,
     audio_count_done TINYINT NOT NULL DEFAULT 1,
     reason TEXT,
-    user_count_done TINYINT NOT NULL DEFAULT 0,
     search_done TINYINT NOT NULL DEFAULT 0,
     notice_done TINYINT NOT NULL DEFAULT 0,
     completed TINYINT NOT NULL DEFAULT 0,
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_publication_pending (completed, id),
-    KEY idx_author_count(author_id, user_count_done, id),
     KEY idx_audio_count(audio_id, audio_count_done, id)
 );

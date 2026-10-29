@@ -22,35 +22,44 @@ public class ContentSettingsService {
     private final ContentMapper contents;
     private final ContentPublicationEventMapper events;
     private final PublicationEffectsService effects;
+    private final ContentStatisticsService statistics;
     public record Settings(String visibility, Integer allowComment) {}
 
     @Transactional
     public void update(Long id, Long viewer, Settings settings) {
-        if (settings == null || !("public".equals(settings.visibility()) || "private".equals(settings.visibility()))
+        ContentVisibilityEnum visibility = settings == null ? null : ContentVisibilityEnum.fromCode(settings.visibility());
+        if (visibility == null
                 || settings.allowComment() == null || settings.allowComment() < 0 || settings.allowComment() > 1)
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "可见性或评论设置无效");
-        var content = access.requireOwner(access.locked(id), viewer);
+        String target = visibility.getCode();
+
+        Content content = access.requireOwner(access.locked(id), viewer);
         if (content.getStatus() != ContentStatusEnum.PUBLISHED) throw new BizException(ErrorCode.STATE_CONFLICT, "仅可修改已发布内容");
+        boolean visibilityChanged = !target.equals(content.getVisibility());
+
         contents.update(null, new LambdaUpdateWrapper<Content>().eq(Content::getId, id)
-                .setSql(!content.getVisibility().equals(settings.visibility()), "index_version = index_version + 1")
-                .set(Content::getVisibility, settings.visibility()).set(Content::getAllowComment, settings.allowComment()));
-        if (!content.getVisibility().equals(settings.visibility()))
-            rebuild(content, 0, ContentVisibilityEnum.PUBLIC.getCode().equals(settings.visibility()) ? 1 : -1);
+                .setSql(visibilityChanged, "index_version = index_version + 1")
+                .set(Content::getVisibility, target).set(Content::getAllowComment, settings.allowComment()));
+
+        statistics.changeVisibility(content, visibility);
+        if (visibilityChanged)
+            rebuild(content);
     }
     @Transactional
     public void delete(Long id, Long viewer) {
-        var content = access.requireOwner(access.locked(id), viewer);
+        Content content = access.requireOwner(access.locked(id), viewer);
+
         contents.update(null, new LambdaUpdateWrapper<Content>().eq(Content::getId, id)
                 .setSql("index_version = index_version + 1").set(Content::getIsDelete, 1));
-        int authorCountDelta = content.getStatus() == ContentStatusEnum.PUBLISHED ? -1 : 0;
-        rebuild(content, authorCountDelta, ContentVisibilityEnum.PUBLIC.getCode().equals(content.getVisibility()) ? authorCountDelta : 0);
+
+        statistics.delete(content);
+        rebuild(content);
     }
-    private void rebuild(Content content, int authorCountDelta, int audioDelta) {
-        if (content.getAudioId() == null) audioDelta = 0;
+    private void rebuild(Content content) {
         var event = new ContentPublicationEvent().setContentId(content.getId()).setAuthorId(content.getAuthorId())
-                .setAudioId(content.getAudioId()).setAudioDelta(audioDelta).setAudioCountDone(audioDelta == 0)
-                .setStatus(content.getStatus()).setDelta(authorCountDelta).setReason("内容设置变更")
-                .setUserCountDone(authorCountDelta == 0).setSearchDone(false).setNoticeDone(true).setCompleted(false);
+                .setAudioId(content.getAudioId()).setAudioCountDone(true)
+                .setStatus(content.getStatus()).setReason("内容设置变更")
+                .setSearchDone(false).setNoticeDone(true).setCompleted(false);
         events.insert(event);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() { effects.trigger(event.getId()); }

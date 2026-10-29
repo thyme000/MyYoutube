@@ -40,7 +40,6 @@ public class UserSummaryCache {
     private static final String F_FANS = "fans";
     private static final String F_ATTENTION = "attentionCount";
     private static final String F_LIKE = "likeCount";
-    private static final String F_CONTENT = "contentCount";
     private static final String F_CREATE_TIME = "createTime";
 
     private final StringRedisTemplate redis;
@@ -143,7 +142,6 @@ public class UserSummaryCache {
         fields.put(F_FANS, String.valueOf(s.getFans() == null ? 0 : s.getFans()));
         fields.put(F_ATTENTION, String.valueOf(s.getAttentionCount() == null ? 0 : s.getAttentionCount()));
         fields.put(F_LIKE, String.valueOf(s.getLikeCount() == null ? 0 : s.getLikeCount()));
-        fields.put(F_CONTENT, String.valueOf(s.getContentCount() == null ? 0 : s.getContentCount()));
         fields.put(F_CREATE_TIME, s.getCreateTime() == null ? ""
                 : String.valueOf(BusinessTime.toInstant(s.getCreateTime()).toEpochMilli()));
         return fields;
@@ -159,7 +157,6 @@ public class UserSummaryCache {
         s.setFans(Long.valueOf(f.getOrDefault(F_FANS, "0")));
         s.setAttentionCount(Long.valueOf(f.getOrDefault(F_ATTENTION, "0")));
         s.setLikeCount(Long.valueOf(f.getOrDefault(F_LIKE, "0")));
-        s.setContentCount(Long.valueOf(f.getOrDefault(F_CONTENT, "0")));
         String createTime = f.get(F_CREATE_TIME);
         s.setCreateTime(createTime == null || createTime.isEmpty() ? null
                 : BusinessTime.fromInstant(Instant.ofEpochMilli(Long.parseLong(createTime))));

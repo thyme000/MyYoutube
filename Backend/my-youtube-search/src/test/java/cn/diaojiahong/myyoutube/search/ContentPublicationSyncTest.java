@@ -5,6 +5,8 @@ import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
 import cn.diaojiahong.myyoutube.search.port.ContentDocPortImpl;
 import cn.diaojiahong.myyoutube.search.service.ContentDocumentWriter;
+import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import cn.diaojiahong.myyoutube.search.vector.ContentVectorPublisher;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
@@ -112,6 +114,8 @@ class ContentPublicationSyncTest {
         var operations = mock(ElasticsearchOperations.class);
         var listener = new cn.diaojiahong.myyoutube.mq.listener.EsDocumentListener(users,userDocs,contents,operations);
         var author = new cn.diaojiahong.myyoutube.user.api.dto.UserSummary(); author.setId(7L); author.setNickname("新昵称");
+        author.setFans(8L);
+        author.setLikeCount(12L);
         when(users.getUser(7L)).thenReturn(author);
         var publicDoc = new ContentDoc(); publicDoc.setId(1L); publicDoc.setTitle("标题");
         publicDoc.setStatus("published"); publicDoc.setVisibility("public");
@@ -128,7 +132,11 @@ class ContentPublicationSyncTest {
             assertTrue(query.getScript().contains("ctx._source.visibility"));
         }
         verify(contents,never()).saveAll(any());
-        verify(userDocs).save(any());
+        ArgumentCaptor<UserDoc> savedUser = ArgumentCaptor.forClass(UserDoc.class);
+        verify(userDocs).save(savedUser.capture());
+        assertEquals(8L, savedUser.getValue().getFans());
+        assertEquals(12L, savedUser.getValue().getLikeCount());
+        assertFalse(new ObjectMapper().valueToTree(savedUser.getValue()).has("contentCount"));
     }
 
     @Test void staleWriteDoesNotPublishAnotherVectorTask() {

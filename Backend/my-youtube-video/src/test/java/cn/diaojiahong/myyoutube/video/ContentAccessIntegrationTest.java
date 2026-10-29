@@ -56,7 +56,7 @@ class ContentAccessIntegrationTest {
         @Bean ContentAccessService access(ContentMapper mapper) { return new ContentAccessService(mapper, mock(AudioContentAccess.class)); }
         @Bean PublicationEffectsService effects() { return mock(PublicationEffectsService.class); }
         @Bean ContentSettingsService settings(ContentAccessService access, ContentMapper mapper, ContentPublicationEventMapper events, PublicationEffectsService effects) {
-            return new ContentSettingsService(access,mapper,events,effects);
+            return new ContentSettingsService(access,mapper,events,effects,mock(ContentStatisticsService.class));
         }
         @Bean S3StorageUtil storage() { return mock(S3StorageUtil.class); }
         @Bean UserPort users() {
@@ -112,17 +112,33 @@ class ContentAccessIntegrationTest {
     @ParameterizedTest @ValueSource(strings = {"video", "dynamic"})
     void visibilityAndDeletionAdvanceIndexVersionButCommentSettingsDoNot(String type) {
         jdbc.update("UPDATE content SET type=? WHERE id=1", type);
+        settings.update(1L, 7L, new ContentSettingsService.Settings("public", 1));
+        assertEquals(1L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event", Integer.class));
+
         settings.update(1L, 7L, new ContentSettingsService.Settings("public", 0));
         assertEquals(1L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+        assertEquals(0, jdbc.queryForObject("SELECT allow_comment FROM content WHERE id=1", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event", Integer.class));
+
         settings.update(1L, 7L, new ContentSettingsService.Settings("private", 0));
         assertEquals(2L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+        assertEquals("private", jdbc.queryForObject("SELECT visibility FROM content WHERE id=1", String.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event", Integer.class));
+
         settings.update(1L, 7L, new ContentSettingsService.Settings("private", 1));
         assertEquals(2L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event", Integer.class));
+
         settings.update(1L, 7L, new ContentSettingsService.Settings("public", 1));
         assertEquals(3L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
+        assertEquals("public", jdbc.queryForObject("SELECT visibility FROM content WHERE id=1", String.class));
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event", Integer.class));
+
         settings.delete(1L, 7L);
         assertEquals(4L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
         assertEquals(1, jdbc.queryForObject("SELECT is_delete FROM content WHERE id=1", Integer.class));
+        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event", Integer.class));
     }
     CommentDTO comment(Long parent) { var dto=new CommentDTO();dto.setContentId(1L);dto.setContent("评论");dto.setParentId(parent);return dto; }
     @Test void closingCommentsPreservesExistingRowsAndBlocksBothNewCommentsAndReplies() {
@@ -158,7 +174,6 @@ class ContentAccessIntegrationTest {
         var query = new CommentListQuery(); query.setContentId(1L);
         assertThrows(BizException.class, () -> comments.getRootComments(query));
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event",Integer.class));
-        assertEquals(1,jdbc.queryForObject("SELECT user_count_done FROM content_publication_event",Integer.class));
         assertEquals(1,jdbc.queryForObject("SELECT notice_done FROM content_publication_event",Integer.class));
         assertEquals(0,jdbc.queryForObject("SELECT search_done FROM content_publication_event",Integer.class));
         assertThrows(BizException.class, () -> settings.update(1L,9L,new ContentSettingsService.Settings("public",1)));
@@ -177,25 +192,23 @@ class ContentAccessIntegrationTest {
         jdbc.update("UPDATE content SET status='review'");assertThrows(BizException.class, () -> access.readable(1L,7L));
         jdbc.update("UPDATE content SET status='published'");settings.delete(1L,7L);
         assertThrows(BizException.class, () -> access.readable(1L,7L));
-        assertEquals(-1,jdbc.queryForObject("SELECT delta FROM content_publication_event",Integer.class));
     }
 
-    @Test void audioCountTracksVisibilityChangesWithoutChangingAuthorCounts() {
+    @Test void visibilityChangesDoNotScheduleHistoricalAudioCounts() {
         jdbc.update("UPDATE content SET audio_id=20 WHERE id=1");
         settings.update(1L, 7L, new ContentSettingsService.Settings("private", 1));
         settings.update(1L, 7L, new ContentSettingsService.Settings("private", 0));
         settings.update(1L, 7L, new ContentSettingsService.Settings("public", 1));
         settings.delete(1L, 7L);
-        assertEquals(java.util.List.of(-1, 1, -1), jdbc.queryForList("SELECT audio_delta FROM content_publication_event ORDER BY id", Integer.class));
-        assertEquals(java.util.List.of(0, 0, -1), jdbc.queryForList("SELECT delta FROM content_publication_event ORDER BY id", Integer.class));
-        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event WHERE audio_id=20 AND audio_count_done=0", Integer.class));
+        assertEquals(java.util.List.of(1, 1, 1), jdbc.queryForList("SELECT audio_count_done FROM content_publication_event ORDER BY id", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event WHERE audio_id=20 AND audio_count_done=0", Integer.class));
     }
 
     @Test void deletingPrivateContentDoesNotDecrementAudioCountTwice() {
         jdbc.update("UPDATE content SET audio_id=20 WHERE id=1");
         settings.update(1L, 7L, new ContentSettingsService.Settings("private", 1));
         settings.delete(1L, 7L);
-        assertEquals(java.util.List.of(-1, 0), jdbc.queryForList("SELECT audio_delta FROM content_publication_event ORDER BY id", Integer.class));
-        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event WHERE audio_count_done=0", Integer.class));
+        assertEquals(java.util.List.of(1, 1), jdbc.queryForList("SELECT audio_count_done FROM content_publication_event ORDER BY id", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event WHERE audio_count_done=0", Integer.class));
     }
 }

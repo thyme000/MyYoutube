@@ -142,7 +142,6 @@ public class AuthServiceImpl implements IAuthService {
         user.setNickname(registerRequestDTO.getUsername());
         user.setCreateTime(BusinessTime.now());
         user.setFans(0L);
-        user.setContentCount(0L);
         user.setLikeCount(0L);
         user.setIntroduction("");
         try {

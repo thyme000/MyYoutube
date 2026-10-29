@@ -17,12 +17,9 @@ public class ContentPublicationEvent {
     @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.ser.std.ToStringSerializer.class)
     private Long authorId;
     private ContentStatusEnum status;
-    private Integer delta;
     private Long audioId;
-    private Integer audioDelta;
     private Boolean audioCountDone;
     private String reason;
-    private Boolean userCountDone;
     private Boolean searchDone;
     private Boolean noticeDone;
     private Boolean completed;

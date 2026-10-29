@@ -10,6 +10,7 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
+import cn.diaojiahong.myyoutube.content.service.AuthorContentPageService;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentFeedServiceImpl;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentServiceImpl;
@@ -113,7 +114,7 @@ class AudioContentIntegrationTest {
                 new AudioProcessingProperties(), mock(AudioSearchPort.class)));
         var strategies = new ContentTypeStrategyRegistry(List.of(new DynamicContentStrategy(dynamics, audioService), new VideoContentStrategy(videos)));
         var cards = new ContentFeedServiceImpl(contentService, likes, mock(IUserFollowService.class), users, storage,
-                mock(RecommendPort.class), strategies, access, mock(ContentReviewRecordMapper.class));
+                mock(RecommendPort.class), strategies, access, mock(ContentReviewRecordMapper.class), mock(AuthorContentPageService.class));
         service = new AudioContentService(audioService, contents, cards);
         UserContext.setUser("9");
         for (long id : List.of(20L, 30L)) audios.insert(new Audio().setId(id).setUploaderId(9L).setTitle("音频" + id)
@@ -261,7 +262,7 @@ class AudioContentIntegrationTest {
                 .andExpect(jsonPath("$.data.hasMore").doesNotExist()).andExpect(jsonPath("$.data.nextCursor").isString())
                 .andExpect(jsonPath("$.data.list").doesNotExist())
                 .andExpect(jsonPath("$.data.total").doesNotExist())
-                .andExpect(jsonPath("$.data.pages").doesNotExist()).andExpect(jsonPath("$.data.usageCount").doesNotExist());
+                .andExpect(jsonPath("$.data.pages").doesNotExist()).andExpect(jsonPath("$.data.historicalAuthorCount").doesNotExist());
         mvc.perform(get("/audios/20/contents").param("sort", "unknown")).andExpect(status().isBadRequest());
         mvc.perform(get("/audios/20/contents").param("pageSize", "101")).andExpect(status().isBadRequest());
         mvc.perform(get("/audios/20/contents").param("cursor", "invalid")).andExpect(status().isBadRequest());

@@ -9,7 +9,7 @@ CHAINS = {
     'identity': ('注册与登录', '注册、登录、凭证续签、登出、重置密码。成功表示服务方法正常返回，不代表用户索引已同步。'),
     'upload': ('上传与准备', '上传签名 → 对象上传 → PREPARE → 草稿 READY → 提交。签名成功不代表文件上传完成；草稿 SUBMITTED 不代表发布。'),
     'pipeline': ('内容加工', 'COVER ∥ ASR/OCR；ASR ∥ OCR → SUMMARY → TAG；全部加工节点成功才 COMPLETED。空 ASR/OCR 可合法成功，缺产物不可。'),
-    'publication': ('审核与发布', '加工产物落库 → 自动/人工审核 → 作者计数、内容文档、通知三个独立分支。审核拒绝是业务决定；方法正常返回不表示审核通过。'),
+    'publication': ('审核与发布', '加工产物落库 → 自动/人工审核 → 内容文档、审核通知、音频历史作者统计三个独立分支。审核拒绝是业务决定；方法正常返回不表示审核通过。'),
     'discovery': ('搜索与推荐', '查询 → 召回 → 融合 → 可读结果。空结果单独统计，可能来自深分页或正常无命中；降级可能与正常返回同时发生。'),
     'consumption': ('内容访问与播放记录', '详情、字幕、播放记录保存、下载申请。只反映后端返回；实际首帧、卡顿、完播及下载完成尚需客户端/异步结果数据。'),
     'interaction': ('点赞收藏评论与关注', '统计用户操作正常返回、业务异常、系统异常。幂等重放也算一次调用，异步计数/评论投影完成情况需结合 MQ 与日志。'),
@@ -83,7 +83,7 @@ def special(chain):
                 *health('tasks')]
     if chain == 'publication':
         return [panel('自动审核和人工审核待处理', 'max by(mode) ' + fresh('media_review_queue', 'review'), '{{mode}}'),
-                panel('发布三个分支待完成量（有界下限）', 'max by(branch) ' + fresh('myyoutube_business_publication_pending_lowerbound', 'business_backlog'), '{{branch}}', description='count=作者计数及用户文档同步投递；search=内容文档；notice=审核通知落库。采样前 2000 个未完成事件，同一事件可同时属于多个分支，不能相加作为内容数。'),
+                panel('发布三个分支待完成量（有界下限）', 'max by(branch) ' + fresh('myyoutube_business_publication_pending_lowerbound', 'business_backlog'), '{{branch}}', description='search=内容文档；notice=审核通知落库；audio_count=音频历史使用作者统计。采样前 2000 个未完成事件，同一事件可同时属于多个分支，不能相加作为内容数。'),
                 panel('发布各分支最老等待', 'max by(branch) ' + fresh('myyoutube_business_publication_oldest_seconds', 'business_backlog'), '{{branch}}', 's', '采用数据库时钟；截断且未见到某分支时返回未知。'),
                 panel('发布分支采样是否截断', 'max ' + fresh('myyoutube_business_publication_capped', 'business_backlog')),
                 *health('business_backlog'), *health('review')]

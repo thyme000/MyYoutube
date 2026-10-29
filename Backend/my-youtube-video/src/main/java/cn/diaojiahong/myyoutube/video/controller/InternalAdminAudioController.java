@@ -12,6 +12,7 @@ import cn.diaojiahong.myyoutube.video.domain.po.*;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.video.service.AudioReviewService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -26,6 +27,18 @@ public class InternalAdminAudioController implements AudioAdminPort {
     private final S3StorageUtil storage;
     private final ContentArtifactStore artifacts;
     private final UserPort users;
+
+    @Override
+    public PageResult<Item> page(PageQuery query) {
+        Page<Audio> page = rows.selectPage(query.toPage(), new LambdaQueryWrapper<Audio>()
+                .select(Audio::getId, Audio::getTitle, Audio::getProcessingStatus, Audio::getReviewStatus,
+                        Audio::getAnalysisStatus, Audio::getHistoricalAuthorCount)
+                .eq(Audio::getIsDelete, 0)
+                .orderByDesc(Audio::getCreateTime).orderByDesc(Audio::getId));
+
+        return PageResult.of(page.getTotal(), page.getPages(), page.getRecords().stream().map(this::item).toList());
+    }
+
     @Override public PageResult<Item> waiting(PageQuery query) {
         var page = rows.selectPage(query.toPage(), new LambdaQueryWrapper<Audio>().eq(Audio::getIsDelete, 0)
                 .eq(Audio::getReviewStatus, AudioReviewStatus.PENDING).eq(Audio::getProcessingStatus, AudioProcessingStatus.READY)
@@ -51,13 +64,13 @@ public class InternalAdminAudioController implements AudioAdminPort {
                 .orderByAsc(AudioReviewRecord::getCreateTime).orderByAsc(AudioReviewRecord::getId));
         return new Detail(item(audio), preview, cover == null || cover.isBlank() ? null : storage.signGetUrl(cover, 600), transcript,
                 audio.getErrorMessage(), history.stream().map(r -> new Audit(r.getSource(), r.getDecision(), r.getReason(), r.getPayloadJson(),
-                r.getAttempt(), r.getActorId() == null ? null : r.getActorId().toString(), r.getCreateTime())).toList(), audio.getUsageCount());
+                r.getAttempt(), r.getActorId() == null ? null : r.getActorId().toString(), r.getCreateTime())).toList());
     }
     @Override public boolean decide(Long id, Decision decision) {
         return reviews.decide(id, AudioReviewDecision.parse(decision.decision()), decision.reason(), decision.actorId());
     }
     private Item item(Audio a) {
         return new Item(a.getId().toString(), a.getTitle(), a.getProcessingStatus().getCode(), a.getReviewStatus().getCode(),
-                a.getAnalysisStatus() == null ? null : a.getAnalysisStatus().getCode());
+                a.getAnalysisStatus() == null ? null : a.getAnalysisStatus().getCode(), a.getHistoricalAuthorCount());
     }
 }

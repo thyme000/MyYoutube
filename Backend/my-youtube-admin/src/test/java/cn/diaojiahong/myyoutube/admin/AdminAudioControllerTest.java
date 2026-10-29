@@ -4,12 +4,14 @@ import cn.diaojiahong.myyoutube.admin.controller.AdminAudioController;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.api.AudioAdminPort;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import org.junit.jupiter.api.*;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.test.web.servlet.MockMvc;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -22,6 +24,7 @@ class AdminAudioControllerTest {
     @AfterEach void clear() { UserContext.removeUser(); }
     @Test void ordinaryUsersCannotListListenOrDecide() {
         UserContext.setUser("9");
+        assertThrows(BizException.class, () -> controller.page(new PageQuery()));
         assertThrows(BizException.class, () -> controller.waiting(new PageQuery()));
         assertThrows(BizException.class, () -> controller.detail(1L));
         assertThrows(BizException.class, () -> controller.decide(1L, new AdminAudioController.Decision("PASS", "通过")));
@@ -40,13 +43,35 @@ class AdminAudioControllerTest {
         verify(audios).decide(9L, new AudioAdminPort.Decision("BAN", "治理封禁", 1L));
     }
 
-    @Test void adminDetailReturnsTheStoredUsageCount() throws Exception {
+    @Test void adminDetailReturnsTheStoredHistoricalAuthorCount() throws Exception {
         UserContext.setUser("1");
         when(audios.detail(9L)).thenReturn(new AudioAdminPort.Detail(
-                new AudioAdminPort.Item("9", "音频", "ready", "approved", "manual"),
-                null, null, null, null, java.util.List.of(), 23L));
+                new AudioAdminPort.Item("9", "音频", "ready", "approved", "manual", 23L),
+                null, null, null, null, java.util.List.of()));
         var mvc = MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
-        mvc.perform(get("/admin/audios/9")).andExpect(status().isOk()).andExpect(jsonPath("$.data.usageCount").value(23));
+        mvc.perform(get("/admin/audios/9")).andExpect(status().isOk()).andExpect(jsonPath("$.data.audio.historicalAuthorCount").value(23));
+    }
+
+    @Test void adminCanPageAllAudiosWithStoredHistoricalCounts() throws Exception {
+        UserContext.setUser("1");
+        when(audios.page(any())).thenReturn(PageResult.of(11, 2,
+                java.util.List.of(new AudioAdminPort.Item("9007199254740993", "已通过音频", "ready", "approved", "manual", 23L))));
+        MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build()
+                .perform(get("/admin/audios").param("pageNo", "2").param("pageSize", "10"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(11))
+                .andExpect(jsonPath("$.data.pages").value(2))
+                .andExpect(jsonPath("$.data.list[0].id").value("9007199254740993"))
+                .andExpect(jsonPath("$.data.list[0].historicalAuthorCount").value(23));
+        verify(audios).page(argThat(query -> query.getPageNo() == 2 && query.getPageSize() == 10));
+    }
+
+    @Test void invalidAudioPaginationIsRejectedBeforeCallingThePort() throws Exception {
+        UserContext.setUser("1");
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+        mvc.perform(get("/admin/audios").param("pageNo", "0")).andExpect(status().isBadRequest());
+        mvc.perform(get("/admin/audios").param("pageSize", "101")).andExpect(status().isBadRequest());
+        verifyNoInteractions(audios);
     }
 
     @Test void busyReviewReturnsConflictAndAnExplicitRetryMessage() throws Exception {

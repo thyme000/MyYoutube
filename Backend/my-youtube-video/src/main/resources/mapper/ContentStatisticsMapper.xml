@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.content.mapper.ContentStatisticsMapper">
+    <!-- 零引用分组保留历史使用事实，跨类型和可见性按作者去重。 -->
+    <select id="historicalAuthorCount" resultType="long">
+        SELECT COUNT(DISTINCT author_id) FROM audio_author_usage WHERE audio_id = #{audioId}
+    </select>
+
+    <!-- 两个汇总在同一语句快照中读取，懒封禁同时扣减基数和受限引用后，展示数量保持一致。 -->
+    <select id="displayCount" resultType="long">
+        <bind name="banned" value="@cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus@BANNED.code"/>
+        SELECT
+            (SELECT COALESCE(SUM(s.published_count), 0) FROM author_content_stat s
+             WHERE s.author_id = #{authorId}
+             <if test="type != null">AND s.type = #{type.code}</if>
+             <if test="visibility != null">AND s.visibility = #{visibility.code}</if>)
+            -
+            (SELECT COALESCE(SUM(u.reference_count), 0) FROM audio_author_usage u
+             LEFT JOIN audio a ON a.id = u.audio_id
+             WHERE u.author_id = #{authorId} AND u.reference_count &gt; 0
+               AND (a.id IS NULL OR a.review_status = #{banned})
+             <if test="type != null">AND u.type = #{type.code}</if>
+             <if test="visibility != null">AND u.visibility = #{visibility.code}</if>)
+    </select>
+
+    <update id="changePublished">
+        <choose>
+            <when test="delta &gt; 0">
+                INSERT INTO author_content_stat (author_id, type, visibility, published_count)
+                VALUES (#{authorId}, #{type.code}, #{visibility.code}, #{delta})
+                ON DUPLICATE KEY UPDATE published_count = published_count + #{delta}
+            </when>
+            <otherwise>
+                UPDATE author_content_stat SET published_count = published_count + #{delta}
+                WHERE author_id = #{authorId} AND type = #{type.code} AND visibility = #{visibility.code}
+                  AND published_count &gt;= -#{delta}
+            </otherwise>
+        </choose>
+    </update>
+
+    <update id="changeReferences">
+        <choose>
+            <when test="delta &gt; 0">
+                INSERT INTO audio_author_usage (audio_id, author_id, type, visibility, reference_count)
+                VALUES (#{audioId}, #{authorId}, #{type.code}, #{visibility.code}, #{delta})
+                ON DUPLICATE KEY UPDATE reference_count = reference_count + #{delta}
+            </when>
+            <otherwise>
+                UPDATE audio_author_usage SET reference_count = reference_count + #{delta}
+                WHERE audio_id = #{audioId} AND author_id = #{authorId}
+                  AND type = #{type.code} AND visibility = #{visibility.code}
+                  AND reference_count &gt;= -#{delta}
+            </otherwise>
+        </choose>
+    </update>
+</mapper>

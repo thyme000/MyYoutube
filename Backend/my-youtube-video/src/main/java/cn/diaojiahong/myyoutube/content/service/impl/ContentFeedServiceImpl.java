@@ -2,9 +2,11 @@ package cn.diaojiahong.myyoutube.content.service.impl;
 
 import cn.diaojiahong.myyoutube.common.page.*;
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
+import cn.diaojiahong.myyoutube.content.domain.dto.AuthorContentCursorQuery;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
+import cn.diaojiahong.myyoutube.content.domain.vo.AuthorContentCursorVO;
 import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.content.support.ContentCards;
@@ -39,6 +41,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     private final ContentTypeStrategyRegistry strategies;
     private final AudioContentAccess audioAccess;
     private final ContentReviewRecordMapper reviewRecords;
+    private final AuthorContentPageService authorPages;
 
     @Override public PageResult<ContentFeedVO> feed(Long userId, ContentPageQuery query) {
         return recommended(userId, null, query.mediaType(), query);
@@ -59,10 +62,11 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         var type = query.mediaType();
         return page(userId, new LambdaQueryWrapper<Content>().eq(type != null, Content::getType, type).eq(Content::getIsDelete, 0).eq(Content::getAuthorId, userId).orderByDesc(Content::getCreateTime), query, true);
     }
-    @Override public PageResult<ContentFeedVO> byAuthor(Long viewer, Long author, ContentPageQuery query) {
-        var type = query.mediaType();
-        return page(viewer, published().eq(type != null, Content::getType, type).eq(Content::getAuthorId, author)
-                .eq(!author.equals(viewer), Content::getVisibility, "public").orderByDesc(Content::getCreateTime), query, false);
+    @Override public AuthorContentCursorVO byAuthor(Long viewer, Long author, AuthorContentCursorQuery query) {
+        AuthorContentPageService.AuthorContentCandidates result = authorPages.list(viewer, author, query);
+        CursorPage<Content, String> page = result.page();
+        List<ContentFeedVO> cards = assembleCards(viewer, page.items(), Set.of());
+        return new AuthorContentCursorVO(new CursorPage<>(cards, page.nextCursor()), result.displayCount());
     }
     @Override public PageResult<ContentFeedVO> followFeed(Long userId, ContentPageQuery query) {
         var type = query.mediaType();

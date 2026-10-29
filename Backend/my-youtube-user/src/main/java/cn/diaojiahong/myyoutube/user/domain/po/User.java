@@ -92,11 +92,6 @@ public class User implements Serializable {
      private Long attentionCount;
 
     /**
-     * 视频发布数量
-     */
-     private Long contentCount;
-
-    /**
      * 个人介绍
      */
     private String introduction;

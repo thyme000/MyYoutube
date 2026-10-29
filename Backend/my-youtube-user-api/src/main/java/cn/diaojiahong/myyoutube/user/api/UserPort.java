@@ -20,10 +20,6 @@ import java.util.List;
 @FeignClient(name = "my-youtube-user-service", contextId = "userPort", path = "/internal/user",
         url = "${my-youtube.user-service.url:}")
 public interface UserPort {
-    @org.springframework.web.bind.annotation.PostMapping("/counters/content-event")
-    void applyContentCountEvent(@org.springframework.web.bind.annotation.RequestBody cn.diaojiahong.myyoutube.user.api.dto.ContentCountEvent event);
-
-
     @GetMapping("/{id}")
     UserSummary getUser(@PathVariable("id") Long id);
 

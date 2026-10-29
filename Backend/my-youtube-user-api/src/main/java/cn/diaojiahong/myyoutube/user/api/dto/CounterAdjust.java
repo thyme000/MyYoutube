@@ -5,7 +5,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 用户计数调整项; field ∈ fans/attentionCount/likeCount/contentCount
+ * 用户计数调整项; field ∈ fans/attentionCount
  */
 @Data
 @NoArgsConstructor

@@ -33,7 +33,9 @@ public class AudioContentAccess {
             Audio audio = current.get(reference.getAudioId());
             if (audio == null || audio.getReviewStatus() == AudioReviewStatus.BANNED) {
                 blocked.add(reference.getId());
-                if (audio != null) notify(reference.getId(), audio);
+                if (audio != null) {
+                    notify(reference.getId(), audio);
+                }
             }
         }
         return blocked;
@@ -41,7 +43,8 @@ public class AudioContentAccess {
 
     public boolean bannedForPublication(Content content) {
         if (content.getAudioId() == null) return false;
-        Audio audio = audios.selectOne(new LambdaQueryWrapper<Audio>().eq(Audio::getId, content.getAudioId()).last("FOR UPDATE"));
+        // 多个作品可同时核验同一音频；封禁的排他写入仍需等待发布事务结束。
+        Audio audio = audios.selectOne(new LambdaQueryWrapper<Audio>().eq(Audio::getId, content.getAudioId()).last("FOR SHARE"));
         if (audio == null) return true;
         if (audio.getReviewStatus() != AudioReviewStatus.BANNED) return false;
         notify(content.getId(), audio);

@@ -17,6 +17,5 @@ public class UserSummary {
     private Long fans;
     private Long attentionCount;
     private Long likeCount;
-    private Long contentCount;
     private LocalDateTime createTime;
 }

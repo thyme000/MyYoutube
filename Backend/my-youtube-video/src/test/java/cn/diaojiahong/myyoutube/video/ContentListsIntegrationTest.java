@@ -6,7 +6,15 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.utils.*;
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
+import cn.diaojiahong.myyoutube.content.domain.dto.AuthorContentCursorQuery;
+import cn.diaojiahong.myyoutube.content.domain.dto.AuthorContentCursor;
+import com.google.gson.JsonObject;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.domain.vo.AuthorContentCursorVO;
+import cn.diaojiahong.myyoutube.content.controller.ContentController;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.content.mapper.ContentStatisticsMapper;
 import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.service.impl.*;
 import cn.diaojiahong.myyoutube.content.strategy.*;
@@ -26,6 +34,7 @@ import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.controller.InternalVideoController;
 import cn.diaojiahong.myyoutube.video.port.ContentSummaryPortImpl;
 import cn.diaojiahong.myyoutube.video.mapper.ContentReviewRecordMapper;
+import cn.diaojiahong.myyoutube.video.config.AuthorContentPageProperties;
 import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -40,13 +49,18 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import javax.sql.DataSource;
 import java.util.*;
+import java.time.LocalDateTime;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringJUnitConfig(ContentListsIntegrationTest.Config.class)
 class ContentListsIntegrationTest {
@@ -68,6 +82,7 @@ class ContentListsIntegrationTest {
     }
     @Autowired DataSource ds;
     @Autowired ContentMapper contents;
+    @Autowired ContentStatisticsMapper statistics;
     @Autowired IContentService contentService;
     @Autowired ContentCollectMapper collects;
     @Autowired UserViewHistoryMapper history;
@@ -79,11 +94,19 @@ class ContentListsIntegrationTest {
     ContentFeedServiceImpl feeds;
     final AudioContentAccess audioAccess = mock(AudioContentAccess.class);
     final ContentReviewRecordMapper reviewRecords = mock(ContentReviewRecordMapper.class);
+    AuthorContentPageProperties pageProperties;
+    IContentService pageStore;
 
     @BeforeEach void setup() {
         reset(audioAccess, reviewRecords);
+        pageProperties = new AuthorContentPageProperties();
+        pageProperties.setScanBudgetMs(5000);
+        pageStore = spy(contentService);
         UserContext.setUser("7"); jdbc = new JdbcTemplate(ds); jdbc.execute("DROP ALL OBJECTS");
         jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,audio_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
+        jdbc.execute("CREATE TABLE author_content_stat(author_id BIGINT,type VARCHAR(16),visibility VARCHAR(16),published_count BIGINT,PRIMARY KEY(author_id,type,visibility))");
+        jdbc.execute("CREATE TABLE audio_author_usage(audio_id BIGINT,author_id BIGINT,type VARCHAR(16),visibility VARCHAR(16),reference_count BIGINT,PRIMARY KEY(audio_id,author_id,type,visibility))");
+        jdbc.execute("CREATE TABLE audio(id BIGINT PRIMARY KEY,review_status VARCHAR(16))");
         jdbc.execute("CREATE TABLE content_collect(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,create_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE content_like(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,is_liked INT,create_time TIMESTAMP,update_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE user_view_history(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,view_time TIMESTAMP)");
@@ -97,6 +120,7 @@ class ContentListsIntegrationTest {
             jdbc.update("INSERT INTO content_like(user_id,content_id,is_liked,update_time) VALUES(7,?,1,CURRENT_TIMESTAMP)", id);
             jdbc.update("INSERT INTO user_view_history(user_id,content_id,view_time) VALUES(7,?,CURRENT_TIMESTAMP)", id);
         }
+        seedStatistics();
         var registry = new ContentTypeStrategyRegistry(Arrays.stream(ContentTypeEnum.values()).map(type -> {
             var strategy = mock(ContentTypeStrategy.class); when(strategy.type()).thenReturn(type);
             when(strategy.loadMedia(anyList())).thenAnswer(call -> call.<List<Long>>getArgument(0).stream()
@@ -108,7 +132,8 @@ class ContentListsIntegrationTest {
         }).toList());
         summaries = new ContentSummaryPortImpl(contents,registry,audioAccess);
         feeds = new ContentFeedServiceImpl(contentService,likes,mock(IUserFollowService.class),mock(UserPort.class),
-                mock(S3StorageUtil.class),mock(RecommendPort.class),registry,audioAccess,reviewRecords);
+                mock(S3StorageUtil.class),mock(RecommendPort.class),registry,audioAccess,reviewRecords,
+                new AuthorContentPageService(pageStore, audioAccess, statistics, pageProperties));
     }
 
     @AfterEach void clear() { UserContext.removeUser(); }
@@ -118,7 +143,7 @@ class ContentListsIntegrationTest {
         assertEquals(List.of(1L), summaries.listByIdsOrdered(new SummaryQuery(List.of("2", "1", "3"), 7L))
                 .stream().map(s -> s.getId()).toList());
         var query = new ContentPageQuery(); query.setType("dynamic");
-        assertTrue(feeds.byAuthor(7L, 7L, query).getList().isEmpty());
+        assertTrue(feeds.byAuthor(7L, 7L, authorQuery("dynamic", 10)).page().items().isEmpty());
         var mine = feeds.mine(7L, query).getList();
         assertEquals(3, mine.size());
         for (var card : mine) if (Set.of("2", "3").contains(card.getId())) {
@@ -170,13 +195,196 @@ class ContentListsIntegrationTest {
     @Test void mineAndAuthorPagesSupportMediaTypeAndKeepOwnerVisibilityRules() {
         var query = new ContentPageQuery(); query.setType("dynamic");
         assertEquals(3,feeds.mine(7L,query).getTotal());
-        assertEquals(2,feeds.byAuthor(7L,7L,query).getTotal());
-        assertEquals(1,feeds.byAuthor(9L,7L,query).getTotal());
-        query.setType("VIDEO"); assertEquals(1,feeds.byAuthor(9L,7L,query).getTotal());
-        assertEquals("video",query.getType());
+        assertEquals(2,feeds.byAuthor(7L,7L,authorQuery("dynamic", 10)).displayCount());
+        assertEquals(1,feeds.byAuthor(9L,7L,authorQuery(query.getType(), 10)).displayCount());
+        AuthorContentCursorQuery videoQuery = authorQuery("VIDEO", 10);
+        assertEquals(1, feeds.byAuthor(9L, 7L, videoQuery).displayCount());
+        assertEquals("video", videoQuery.getType());
         query.setType("note"); assertThrows(BizException.class, () -> feeds.mine(7L,query));
         query.setType(null); query.setPageSize(0); assertThrows(BizException.class, () -> feeds.mine(7L,query));
         query.setPageSize(100); query.setPageNo(Integer.MAX_VALUE); assertThrows(BizException.class, () -> feeds.mine(7L,query));
+    }
+
+    private AuthorContentCursorQuery authorQuery(int size) {
+        return authorQuery(null, size);
+    }
+
+    private AuthorContentCursorQuery authorQuery(String type, int size) {
+        AuthorContentCursorQuery query = new AuthorContentCursorQuery();
+        query.setType(type);
+        query.setPageSize(size);
+        return query;
+    }
+
+    private void seedStatistics() {
+        jdbc.update("DELETE FROM author_content_stat");
+        jdbc.update("DELETE FROM audio_author_usage");
+        jdbc.update("""
+                INSERT INTO author_content_stat
+                SELECT author_id,type,visibility,COUNT(*) FROM content
+                WHERE status='published' AND is_delete=0 GROUP BY author_id,type,visibility
+                """);
+        jdbc.update("""
+                INSERT INTO audio_author_usage
+                SELECT audio_id,author_id,type,visibility,COUNT(*) FROM content
+                WHERE status='published' AND is_delete=0 AND audio_id IS NOT NULL
+                GROUP BY audio_id,author_id,type,visibility
+                """);
+    }
+
+    private void authorWorks(int count, Set<Long> blocked) {
+        LocalDateTime time = LocalDateTime.of(2026, 10, 1, 0, 0);
+        for (long id = 101; id <= 100 + count; id++) {
+            jdbc.update("INSERT INTO audio(id,review_status) VALUES(?,?)", id + 10000, blocked.contains(id) ? "banned" : "approved");
+            jdbc.update("INSERT INTO content(id,type,author_id,audio_id,title,status,visibility,is_delete,create_time) VALUES(?,'dynamic',42,?,'作品','published','public',0,?)", id, id + 10000, time);
+        }
+        seedStatistics();
+        when(audioAccess.blocked(anyList())).thenAnswer(call -> call.<List<Content>>getArgument(0).stream()
+                .map(Content::getId).filter(blocked::contains).collect(Collectors.toSet()));
+    }
+
+    @Test void summaryCountDoesNotScanRemainingWorksAndListKeepsStableOrder() {
+        authorWorks(8, Set.of(108L, 104L));
+        AuthorContentCursorVO page = feeds.byAuthor(9L, 42L, authorQuery(2));
+        assertEquals(6, page.displayCount());
+        assertNotNull(page.page().nextCursor());
+        assertEquals(List.of("107", "106"), page.page().items().stream().map(card -> card.getId()).toList());
+        verify(pageStore, times(2)).list(any(Wrapper.class));
+        verify(pageStore, never()).count(any(Wrapper.class));
+        verify(audioAccess, times(2)).blocked(anyList());
+        assertEquals(8, jdbc.queryForObject("SELECT COUNT(*) FROM content WHERE author_id=42 AND status='published'", Integer.class));
+    }
+
+    @Test void authorEndpointReturnsCursorPageAndDisplayCountSeparately() throws Exception {
+        authorWorks(8, Set.of(108L, 104L));
+        ContentController controller = new ContentController(feeds, mock(ContentReadService.class), mock(ContentSettingsService.class),
+                mock(ContentDownloadService.class), mock(ContentPlaybackService.class));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        String response = mvc.perform(get("/contents/author/42").param("pageSize", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").doesNotExist())
+                .andExpect(jsonPath("$.data.pages").doesNotExist())
+                .andExpect(jsonPath("$.data.page.nextCursor").isString())
+                .andExpect(jsonPath("$.data.displayCount").value(6))
+                .andExpect(jsonPath("$.data.page.items[0].id").value("107"))
+                .andReturn().getResponse().getContentAsString();
+        String next = JsonUtil.fromJson(response, JsonObject.class).getAsJsonObject("data")
+                .getAsJsonObject("page").get("nextCursor").getAsString();
+        mvc.perform(get("/contents/author/42").param("pageSize", "2").param("cursor", next))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.displayCount").value(6))
+                .andExpect(jsonPath("$.data.page.items[0].id").value("105"));
+        verify(pageStore, never()).count(any(Wrapper.class));
+    }
+
+    @Test void summaryCountExcludesBannedReferencesEvenWhenFilteringIsRare() {
+        authorWorks(30, Set.of(130L));
+        assertEquals(29, feeds.byAuthor(9L, 42L, authorQuery(10)).displayCount());
+        verify(pageStore, times(2)).list(any(Wrapper.class));
+        verify(pageStore, never()).count(any(Wrapper.class));
+    }
+
+    @Test void countRemainsAccurateWhenPageRefillReachesItsLimit() {
+        authorWorks(50, Set.of(150L, 149L, 148L, 147L, 146L));
+        pageProperties.setScanLimit(10);
+        AuthorContentCursorVO page = feeds.byAuthor(9L, 42L, authorQuery(10));
+        assertEquals(45, page.displayCount());
+        assertEquals(5, page.page().items().size());
+        assertNotNull(page.page().nextCursor());
+        verify(pageStore, times(1)).list(any(Wrapper.class));
+    }
+
+    @Test void laterPagesDoNotTreatTheirRemainingCandidatesAsTheAuthorTotal() {
+        authorWorks(8, Set.of(108L, 104L));
+        AuthorContentCursorQuery query = authorQuery(2);
+        query.setCursor(feeds.byAuthor(9L, 42L, query).page().nextCursor());
+        clearInvocations(pageStore);
+        assertEquals(6, feeds.byAuthor(9L, 42L, query).displayCount());
+        verify(pageStore, never()).count(any(Wrapper.class));
+    }
+
+    @Test void allVisibleContentsCanBeTraversedWithTheWholeScopeCountOnEveryPage() {
+        authorWorks(8, Set.of(108L, 104L));
+        AuthorContentCursorQuery query = authorQuery(2);
+        AuthorContentCursorVO first = feeds.byAuthor(9L, 42L, query);
+        assertEquals(6, first.displayCount());
+        AuthorContentCursor cursor = AuthorContentCursor.decode(first.page().nextCursor(), 42, 9L, null);
+        assertEquals(106, cursor.contentId());
+
+        List<String> ids = new ArrayList<>(first.page().items().stream().map(card -> card.getId()).toList());
+        String next = first.page().nextCursor();
+        while (next != null) {
+            query.setCursor(next);
+            AuthorContentCursorVO page = feeds.byAuthor(9L, 42L, query);
+            assertEquals(6, page.displayCount());
+            ids.addAll(page.page().items().stream().map(card -> card.getId()).toList());
+            next = page.page().nextCursor();
+        }
+        assertEquals(List.of("107", "106", "105", "103", "102", "101"), ids);
+        verify(pageStore, never()).count(any(Wrapper.class));
+    }
+
+    @Test void aFullyFilteredBatchCanContinueAndAnExhaustedSmallResultNeedsNoRefill() {
+        authorWorks(8, Set.of(108L, 107L));
+        pageProperties.setScanLimit(2);
+        AuthorContentCursorQuery query = authorQuery(2);
+        AuthorContentCursorVO first = feeds.byAuthor(9L, 42L, query);
+        assertTrue(first.page().items().isEmpty());
+        assertNotNull(first.page().nextCursor());
+        assertEquals(6, first.displayCount());
+        query.setCursor(first.page().nextCursor());
+        assertEquals(List.of("106", "105"), feeds.byAuthor(9L, 42L, query).page().items().stream().map(card -> card.getId()).toList());
+
+        clearInvocations(pageStore);
+        query = authorQuery(10);
+        AuthorContentCursorVO exhausted = feeds.byAuthor(9L, 7L, query);
+        assertEquals(2, exhausted.displayCount());
+        assertNull(exhausted.page().nextCursor());
+        verify(pageStore, times(1)).list(any(Wrapper.class));
+    }
+
+    @Test void continuationRechecksCurrentVisibilityAndSurvivesRemovedCursorRows() {
+        authorWorks(8, Set.of());
+        AuthorContentCursorQuery query = authorQuery(2);
+        query.setCursor(feeds.byAuthor(9L, 42L, query).page().nextCursor());
+        jdbc.update("DELETE FROM content WHERE id=107");
+        jdbc.update("UPDATE content SET visibility='private' WHERE id=106");
+        jdbc.update("INSERT INTO content(id,type,author_id,title,status,visibility,is_delete,create_time) VALUES(109,'dynamic',42,'新作品','published','public',0,CURRENT_TIMESTAMP)");
+        seedStatistics();
+        AuthorContentCursorVO next = feeds.byAuthor(9L, 42L, query);
+        assertEquals(List.of("105", "104"), next.page().items().stream().map(card -> card.getId()).toList());
+        assertEquals(7, next.displayCount());
+    }
+
+    @Test void rejectsCursorsFromAnotherViewerAuthorOrTypeBeforeQuerying() {
+        authorWorks(8, Set.of());
+        AuthorContentCursorQuery query = authorQuery(2);
+        query.setCursor(feeds.byAuthor(42L, 42L, query).page().nextCursor());
+        clearInvocations(pageStore);
+        assertThrows(BizException.class, () -> feeds.byAuthor(9L, 42L, query));
+        assertThrows(BizException.class, () -> feeds.byAuthor(42L, 43L, query));
+        query.setType("dynamic");
+        assertThrows(BizException.class, () -> feeds.byAuthor(42L, 42L, query));
+        verifyNoInteractions(pageStore);
+    }
+
+    @Test void summaryPreservesOwnerVisibilityAndMediaTypeFilters() {
+        authorWorks(8, Set.of(108L, 104L));
+        jdbc.update("UPDATE content SET visibility='private' WHERE id IN (108,107)");
+        jdbc.update("UPDATE content SET type='video' WHERE id IN (106,105)");
+        jdbc.update("UPDATE content SET is_delete=1 WHERE id=103");
+        jdbc.update("UPDATE content SET status='review' WHERE id=102");
+        seedStatistics();
+        AuthorContentCursorQuery query = authorQuery(2);
+        query.setType("dynamic");
+        assertEquals(2, feeds.byAuthor(42L, 42L, query).displayCount());
+        assertEquals(1, feeds.byAuthor(9L, 42L, query).displayCount());
+    }
+
+    @Test void missingAudioReferencesAreAlsoExcludedFromTheSummaryCount() {
+        authorWorks(30, Set.of(130L, 129L, 128L, 127L, 126L));
+        jdbc.update("DELETE FROM audio WHERE review_status='banned'");
+        assertEquals(25, feeds.byAuthor(9L, 42L, authorQuery(10)).displayCount());
     }
 
     @Test void forwardingAndShareCounterRecheckCurrentStateWithAuthenticatedViewer() {

@@ -60,7 +60,7 @@ public class Audio implements Serializable {
     private String transcriptKey;
     private String machineResultJson;
     private String reviewReason;
-    private Long usageCount;
+    private Long historicalAuthorCount;
     private Long indexVersion;
     private Long indexedVersion;
     private LocalDateTime indexAfter;

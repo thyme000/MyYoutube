@@ -64,7 +64,7 @@ class ContentReadContractTest {
         when(storage.signGetUrl(anyString(),anyLong())).thenAnswer(call -> "signed/"+call.getArgument(0));
         var audios = mock(AudioContentAccess.class);
         var cards=new ContentFeedServiceImpl(mock(IContentService.class),mock(ContentLikeMapper.class),
-                mock(IUserFollowService.class),mock(UserPort.class),storage,mock(RecommendPort.class),registry,audios,mock(ContentReviewRecordMapper.class));
+                mock(IUserFollowService.class),mock(UserPort.class),storage,mock(RecommendPort.class),registry,audios,mock(ContentReviewRecordMapper.class),mock(AuthorContentPageService.class));
         var service=new ContentReadService(new ContentAccessService(contents,audios),registry,cards,understanding,storage);
         var detail=service.detail(1L,9L);
         assertEquals("1",detail.getId());assertEquals("dynamic",detail.getType());assertEquals("动态图集简介",detail.getDescription());

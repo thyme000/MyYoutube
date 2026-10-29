@@ -14,7 +14,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class MonitoringMetricsTest {
     @Test void defaultQueueTargetsCoverAllPipelineConsumerGroups() {
         var groups = MonitoringConfiguration.defaultGroups("custom-ingest");
-        assertEquals(14, groups.size());
+        assertEquals(13, groups.size());
+        assertFalse(groups.containsKey("video_publication_count"));
         var registry = new SimpleMeterRegistry();
         var sampler = new MqMetrics(groups, (group, topic) -> new MqMetrics.Stock(1, 2), registry, Clock.systemUTC());
         sampler.sample();

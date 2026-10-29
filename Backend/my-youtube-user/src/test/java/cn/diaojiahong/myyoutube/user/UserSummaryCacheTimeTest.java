@@ -37,6 +37,8 @@ class UserSummaryCacheTimeTest {
         var connection = mock(RedisConnection.class, RETURNS_DEEP_STUBS); callback.getValue().doInRedis(connection);
         ArgumentCaptor<Map<byte[], byte[]>> written = ArgumentCaptor.forClass(Map.class);
         verify(connection.hashCommands()).hMSet(any(byte[].class), written.capture());
+        assertTrue(written.getValue().keySet().stream()
+                .noneMatch(key -> "contentCount".equals(new String(key, StandardCharsets.UTF_8))));
         var epoch = written.getValue().entrySet().stream()
                 .filter(e -> new String(e.getKey(), StandardCharsets.UTF_8).equals("createTime"))
                 .map(e -> new String(e.getValue(), StandardCharsets.UTF_8)).findFirst().orElseThrow();

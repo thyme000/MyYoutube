@@ -47,6 +47,16 @@ class AudioContentAccessTest {
         verifyNoInteractions(audios, mq);
     }
 
+    @Test void missingAudioIsBlockedButOnlyConfirmedBansTriggerNotification() {
+        Content banned = new Content().setId(1L).setAudioId(20L);
+        Content missing = new Content().setId(2L).setAudioId(30L);
+        when(audios.selectBatchIds(anyList())).thenReturn(List.of(new Audio().setId(20L)
+                .setIndexVersion(1L).setReviewStatus(AudioReviewStatus.BANNED)));
+        assertEquals(Set.of(1L, 2L), access.blocked(List.of(banned, missing)));
+        verify(mq, times(1)).asyncSend(anyString(), any(AudioContentBanMessage.class), any(SendCallback.class));
+        verify(audios, times(1)).selectBatchIds(anyList());
+    }
+
     @Test void alreadyBannedManagementRecordsDoNotRepeatTheCascadeNotification() {
         assertTrue(access.blocked(List.of(new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setAudioId(20L).setStatus(ContentStatusEnum.BANNED))).isEmpty());
         verifyNoInteractions(audios, mq);

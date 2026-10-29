@@ -26,6 +26,9 @@ my-youtube:
     scan-interval-ms: 300000
     batch-size: 200
     round-budget-ms: 5000
+  author-content-page:
+    scan-limit: 500
+    scan-budget-ms: 200
   publication:
     scan-interval-ms: 2000
     batch-size: 100
@@ -100,4 +103,4 @@ sentinel:
     data-id: ${spring.application.name}-model-degrade.json
     group: SENTINEL_GROUP
 
-media.monitor.dlq-groups: video_content_understood,video_review_result,video_publication_count,video_publication_search,video_publication_notice,video_publication_audio_count,video_audio_content_ban
+media.monitor.dlq-groups: video_content_understood,video_review_result,video_publication_search,video_publication_notice,video_publication_audio_count,video_audio_content_ban
