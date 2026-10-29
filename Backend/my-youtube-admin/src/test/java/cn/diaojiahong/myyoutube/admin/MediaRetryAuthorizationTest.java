@@ -16,7 +16,7 @@ import java.util.List;
 class MediaRetryAuthorizationTest {
     @AfterEach void clear() { UserContext.removeUser(); }
     @Test void allRetryOperationsRequireAdmin() {
-        var port=mock(MediaRetryPort.class); var controller=new AdminMediaRetryController(port);
+        var port=mock(MediaRetryPort.class); var controller=new AdminMediaRetryController(port, AuthorizationFixture.authorization());
         var request=new MediaRetryPort.Request("one",List.of(2L));
         UserContext.setUser("2");
         assertThrows(BizException.class,() -> controller.create(request));
@@ -31,7 +31,7 @@ class MediaRetryAuthorizationTest {
         verify(port).create(request,1L);
     }
     @Test void httpQueryBindsOptionalFiltersAndCreationReturnsAccepted() throws Exception {
-        var port=mock(MediaRetryPort.class); var controller=new AdminMediaRetryController(port);
+        var port=mock(MediaRetryPort.class); var controller=new AdminMediaRetryController(port, AuthorizationFixture.authorization());
         var mvc=MockMvcBuilders.standaloneSetup(controller).build();
         UserContext.setUser("1");
         when(port.query(any())).thenReturn(new CursorPage<>(List.of(),null));

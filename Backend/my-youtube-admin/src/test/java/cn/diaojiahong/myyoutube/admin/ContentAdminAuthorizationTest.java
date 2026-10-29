@@ -13,7 +13,7 @@ class ContentAdminAuthorizationTest {
     @AfterEach void clear() { UserContext.removeUser(); }
     @Test void contentOperationsRequireAdminAndUseStringIdentity() {
         var port = mock(ContentAdminPort.class);
-        var controller = new AdminController(mock(IAdminService.class), port);
+        var controller = new AdminController(mock(IAdminService.class), port, AuthorizationFixture.authorization());
         assertThrows(BizException.class, () -> controller.content(1L));
         UserContext.setUser("2");
         assertThrows(BizException.class, () -> controller.media(1L));

@@ -28,7 +28,7 @@ class AdminServiceContractTest {
     final UserPort users = mock(UserPort.class);
     final ContentAdminPort content = mock(ContentAdminPort.class);
     final CommentAdminPort comments = mock(CommentAdminPort.class);
-    final AdminServiceImpl service = new AdminServiceImpl(users, content, comments, mock(S3StorageUtil.class));
+    final AdminServiceImpl service = new AdminServiceImpl(users, content, comments, mock(S3StorageUtil.class), AuthorizationFixture.authorization());
     @BeforeEach void identity() { UserContext.setUser("1"); }
     @AfterEach void clear() { UserContext.removeUser(); }
 
@@ -67,7 +67,7 @@ class AdminServiceContractTest {
 
     @Test void externalControllerWrapsTheDirectDtoExactlyOnce() throws Exception {
         when(content.media(any())).thenReturn(new ContentMediaVO("video", new ContentMediaVO.Video("url", 1000), null));
-        MockMvcBuilders.standaloneSetup(new AdminController(service, content))
+        MockMvcBuilders.standaloneSetup(new AdminController(service, content, AuthorizationFixture.authorization()))
                 .setControllerAdvice(new GlobalExceptionHandler()).build()
                 .perform(get("/admin/content/7/media"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))

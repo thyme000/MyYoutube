@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.user.domain.po;
 
+import cn.diaojiahong.myyoutube.user.api.enums.UserRole;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -42,6 +43,8 @@ public class User implements Serializable {
      * 用户密码（建议加密存储，如BCrypt加密后字符串）
      */
     private String password;
+
+    private UserRole role;
 
     /**
      * 用户头像URL地址，默认空字符串（无头像时用默认图）

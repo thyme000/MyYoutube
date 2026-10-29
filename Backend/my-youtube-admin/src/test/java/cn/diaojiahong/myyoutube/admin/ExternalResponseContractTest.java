@@ -37,8 +37,8 @@ class ExternalResponseContractTest {
     @BeforeEach void setup() {
         var builder = new Jackson2ObjectMapperBuilder();
         new JacksonConfig().jackson2ObjectMapperBuilderCustomizer().customize(builder);
-        mvc = MockMvcBuilders.standaloneSetup(new AdminMediaRetryController(retries),
-                        new AdminHotSearchHistoryController(history), new AdminContentVectorDeadLetterController(deadLetters))
+        mvc = MockMvcBuilders.standaloneSetup(new AdminMediaRetryController(retries, AuthorizationFixture.authorization()),
+                        new AdminHotSearchHistoryController(history, AuthorizationFixture.authorization()), new AdminContentVectorDeadLetterController(deadLetters, AuthorizationFixture.authorization()))
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(builder.build()))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         UserContext.setUser("1");

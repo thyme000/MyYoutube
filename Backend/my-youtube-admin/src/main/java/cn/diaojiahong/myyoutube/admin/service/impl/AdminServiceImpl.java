@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.admin.service.impl;
 
+import cn.diaojiahong.myyoutube.admin.security.AdminAuthorization;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.admin.domain.dto.AdminCommentReportPageQueryDTO;
@@ -37,12 +38,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AdminServiceImpl implements IAdminService {
 
-    private static final long ADMIN_USER_ID = 1L;
-
     private final UserPort userPort;
     private final ContentAdminPort contentAdminPort;
     private final CommentAdminPort commentAdminPort;
     private final S3StorageUtil storageUtil;
+    private final AdminAuthorization authorization;
 
     @Override
     public String pass(Long contentId, String reason) {
@@ -163,20 +163,10 @@ public class AdminServiceImpl implements IAdminService {
     }
 
     private void checkAdmin() {
-        if (!isAdmin(getUserId())) {
-            throw new BizException(ErrorCode.FORBIDDEN, "用户不是管理员");
-        }
-    }
-
-    private Boolean isAdmin(Long userId) {
-        return userId == ADMIN_USER_ID;
+        authorization.requireAdmin();
     }
 
     private Long getUserId() {
-        String userId = UserContext.getUserId();
-        if (userId == null || userId.isEmpty()) {
-            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
-        }
-        return Long.parseLong(userId);
+        return UserContext.requireUserId();
     }
 }

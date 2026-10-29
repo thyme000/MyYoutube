@@ -21,6 +21,7 @@ import cn.diaojiahong.myyoutube.security.JwtUtil;
 import cn.diaojiahong.myyoutube.auth.service.IAuthService;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
+import cn.diaojiahong.myyoutube.user.api.enums.UserRole;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import cn.hutool.core.bean.BeanUtil;
 import lombok.RequiredArgsConstructor;
@@ -136,6 +137,7 @@ public class AuthServiceImpl implements IAuthService {
 
         // 构建用户对象并加密密码
         User user = BeanUtil.toBean(registerRequestDTO, User.class);
+        user.setRole(UserRole.USER);
         user.setPassword(PasswordEncoder.encode(registerRequestDTO.getPassword()));
         user.setNickname(registerRequestDTO.getUsername());
         user.setCreateTime(BusinessTime.now());
@@ -176,8 +178,10 @@ public class AuthServiceImpl implements IAuthService {
 
 
         //校验通过,把新密码加密后更新数据库
-        user.setPassword(PasswordEncoder.encode(newPassword));
-        userService.updateById(user);
+        User changes = new User().setId(user.getId()).setPassword(PasswordEncoder.encode(newPassword));
+        if (!userService.updateById(changes)) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "用户状态已变化，请重试");
+        }
 
         // 作废该用户改密码前签发的所有 access/refresh
         // TTL 取 refresh 的 7d: 改密前签发的 token 最长活 7d, 过后 token-ver 本身也没有存在意义

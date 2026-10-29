@@ -1,9 +1,8 @@
 package cn.diaojiahong.myyoutube.admin.controller;
 
+import cn.diaojiahong.myyoutube.admin.security.AdminAuthorization;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.result.Result;
-import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.*;
 import lombok.RequiredArgsConstructor;
@@ -15,16 +14,18 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class AdminContentVectorDeadLetterController {
     private final ContentVectorDeadLetterPort port;
+    private final AdminAuthorization authorization;
 
     @GetMapping("/messages")
     public Result<Page> query(@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") Integer size) {
-        actor();
+        authorization.requireAdmin();
+
         return Result.success(port.query(cursor, size));
     }
 
     @PostMapping("/messages/replay")
     public ResponseEntity<Result<ReplayResult>> replay(@RequestBody Reference reference) {
-        ReplayResult result = port.replay(reference, actor());
+        ReplayResult result = port.replay(reference, authorization.requireAdmin());
         if (result.status() == ReplayStatus.ACCEPTED) return ResponseEntity.accepted().body(Result.success(result));
         if (result.status() == ReplayStatus.ALREADY_COMPLETED) return ResponseEntity.ok(Result.success(result));
         ErrorCode error = switch (result.status()) {
@@ -37,9 +38,5 @@ public class AdminContentVectorDeadLetterController {
         return ResponseEntity.status(error.getHttpStatus()).body(Result.fail(error, result.message(), result));
     }
 
-    private Long actor() {
-        if (!"1".equals(UserContext.getUserId())) throw new BizException(ErrorCode.FORBIDDEN, "需要管理员权限");
-        return 1L;
-    }
 
 }

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.admin.controller;
 
+import cn.diaojiahong.myyoutube.admin.security.AdminAuthorization;
 import cn.diaojiahong.myyoutube.admin.domain.dto.AdminCommentReportPageQueryDTO;
 import cn.diaojiahong.myyoutube.admin.domain.dto.AdminContentPageQueryDTO;
 import cn.diaojiahong.myyoutube.admin.domain.vo.AdminCommentReportVO;
@@ -22,25 +23,28 @@ public class AdminController {
 
     private final IAdminService adminService;
     private final cn.diaojiahong.myyoutube.video.api.ContentAdminPort contentAdminPort;
+    private final AdminAuthorization authorization;
     public record Decision(@jakarta.validation.constraints.NotBlank String reason) {}
 
-    private void requireAdmin() {
-        if (!"1".equals(cn.diaojiahong.myyoutube.common.utils.UserContext.getUserId()))
-            throw new cn.diaojiahong.myyoutube.common.exception.BizException(cn.diaojiahong.myyoutube.common.result.ErrorCode.FORBIDDEN, "需要管理员权限");
-    }
     @GetMapping("/content/{contentId}/media")
     public Result<cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO> media(@PathVariable Long contentId) {
-        requireAdmin(); return Result.success(contentAdminPort.media(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId)));
+        authorization.requireAdmin();
+
+        return Result.success(contentAdminPort.media(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId)));
     }
 
     @GetMapping("/content/{contentId}")
     public Result<java.util.Map<String, Object>> content(@PathVariable Long contentId) {
-        requireAdmin(); return Result.success(contentAdminPort.contentStatus(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId)));
+        authorization.requireAdmin();
+
+        return Result.success(contentAdminPort.contentStatus(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId)));
     }
     @GetMapping("/content/waiting")
     public Result<java.util.List<java.util.Map<String, Object>>> waiting(@RequestParam(defaultValue = "1") long pageNo,
                                                                        @RequestParam(defaultValue = "20") long pageSize) {
-        requireAdmin(); return Result.success(contentAdminPort.waitingContent(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.AdminContentQuery(null, null, null, pageNo, pageSize, null)));
+        authorization.requireAdmin();
+
+        return Result.success(contentAdminPort.waitingContent(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.AdminContentQuery(null, null, null, pageNo, pageSize, null)));
     }
 
 

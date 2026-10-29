@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.search.api;
 
 import cn.diaojiahong.myyoutube.common.feign.PropagateBusinessErrors;
+import cn.diaojiahong.myyoutube.common.feign.InternalTokenFeignConfiguration;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,7 +13,8 @@ import java.util.List;
 
 @PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT})
 @FeignClient(name = "my-youtube-search-service", contextId = "contentVectorDeadLetterPort",
-        path = "/internal/dead-letters/content-vectors", url = "${my-youtube.search-service.url:}")
+        path = "/internal/dead-letters/content-vectors", url = "${my-youtube.search-service.url:}",
+        configuration = InternalTokenFeignConfiguration.class)
 public interface ContentVectorDeadLetterPort {
     enum State { UNRECOVERED, RECOVERED, INELIGIBLE, UNKNOWN, INVALID_MESSAGE }
     enum ReplayStatus { ACCEPTED, ALREADY_COMPLETED, INELIGIBLE, DISABLED, NOT_FOUND,

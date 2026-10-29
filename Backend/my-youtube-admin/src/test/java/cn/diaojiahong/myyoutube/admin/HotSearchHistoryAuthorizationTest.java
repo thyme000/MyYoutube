@@ -25,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class HotSearchHistoryAuthorizationTest {
     final HotSearchHistoryPort port = mock(HotSearchHistoryPort.class);
-    final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminHotSearchHistoryController(port)).setControllerAdvice(new GlobalExceptionHandler(), new FeignExceptionHandler()).build();
+    final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminHotSearchHistoryController(port, AuthorizationFixture.authorization())).setControllerAdvice(new GlobalExceptionHandler(), new FeignExceptionHandler()).build();
     final String root = "/admin/hot-search/";
     final String date = "2026-10-20";
 
@@ -36,7 +36,7 @@ class HotSearchHistoryAuthorizationTest {
             UserContext.setUser(user);
             for (String route : List.of("dates", "groups", "keywords", "users", "events")) {
                 mvc.perform(get(root + route).param("date", date).param("groupId", "g").param("keywordId", "7"))
-                        .andExpect(status().isForbidden());
+                        .andExpect(status().is(user.isEmpty() ? 401 : 403));
             }
         }
         verifyNoInteractions(port);

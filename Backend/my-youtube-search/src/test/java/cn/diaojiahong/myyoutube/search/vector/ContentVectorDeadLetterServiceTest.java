@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.*;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -9,6 +10,9 @@ import co.elastic.clients.elasticsearch.core.MgetResponse;
 import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
 import co.elastic.clients.util.ObjectBuilder;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
@@ -98,9 +102,20 @@ class ContentVectorDeadLetterServiceTest {
         assertEquals(ReplayStatus.DELIVERY_UNCONFIRMED, service.replay(reference, 1L).status());
     }
 
-    @Test void invalidActorCannotReadOrReplay() {
-        assertThrows(BizException.class, () -> service.replay(reference, 2L));
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(longs = {0, -1})
+    void missingOrInvalidAuditActorCannotReplay(Long actorId) {
+        BizException error = assertThrows(BizException.class, () -> service.replay(reference, actorId));
+        assertEquals(ErrorCode.INVALID_ARGUMENT, error.getErrorCode());
         verifyNoInteractions(reader, client, publisher);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1, 2, 42})
+    void trustedInternalReplayAcceptsTheForwardedAuditActor(long actorId) {
+        assertEquals(ReplayStatus.NOT_FOUND, service.replay(reference, actorId).status());
+        verify(reader).find(reference);
     }
 
     @Test void emptyPageDoesNotReadEs() {

@@ -17,7 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class AdminAudioControllerTest {
     final AudioAdminPort audios = mock(AudioAdminPort.class);
-    final AdminAudioController controller = new AdminAudioController(audios);
+    final AdminAudioController controller = new AdminAudioController(audios, AuthorizationFixture.authorization());
     @AfterEach void clear() { UserContext.removeUser(); }
     @Test void ordinaryUsersCannotListListenOrDecide() {
         UserContext.setUser("9");

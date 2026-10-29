@@ -33,6 +33,17 @@ CREATE TABLE IF NOT EXISTS `user` (
     UNIQUE KEY `uk_email` (`email`)
 ) ENGINE=InnoDB COMMENT='用户';
 
+CREATE TABLE IF NOT EXISTS `user_role_change` (
+    `id` BIGINT NOT NULL PRIMARY KEY,
+    `actor_id` BIGINT NOT NULL,
+    `target_user_id` BIGINT NOT NULL,
+    `previous_role` VARCHAR(16) NOT NULL,
+    `new_role` VARCHAR(16) NOT NULL,
+    `create_time` DATETIME NOT NULL,
+    KEY `idx_role_change_target` (`target_user_id`, `create_time`, `id`),
+    KEY `idx_role_change_actor` (`actor_id`, `create_time`, `id`)
+) ENGINE=InnoDB COMMENT='用户角色变更记录';
+
 -- 初始用户, 密码明文: password (BCrypt)
 INSERT INTO `user` (`id`, `username`, `password`, `nickname`, `role`)
 VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'thyme', 'SUPER_ADMIN');

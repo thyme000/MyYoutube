@@ -45,7 +45,11 @@ public class ContentVectorDeadLetterService implements ContentVectorDeadLetterPo
 
     @Override
     public ReplayResult replay(Reference reference, Long actorId) {
-        if (!Long.valueOf(1).equals(actorId)) throw new BizException(ErrorCode.FORBIDDEN, "需要管理员权限");
+        // 管理员权限由 admin 入口校验，内部凭证由控制器校验；此处只保留操作者审计。
+        if (actorId == null || actorId <= 0) {
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "操作者 ID 无效");
+        }
+
         ContentVectorDeadLetters.Entry entry = deadLetters.find(reference);
         ReplayResult result;
         if (entry == null) result = new ReplayResult(ReplayStatus.NOT_FOUND, null, "死信不存在或已过期");

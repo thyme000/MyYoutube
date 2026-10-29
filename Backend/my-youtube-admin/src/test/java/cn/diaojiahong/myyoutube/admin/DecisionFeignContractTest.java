@@ -43,6 +43,7 @@ class DecisionFeignContractTest {
     final AtomicReference<Object> reply = new AtomicReference<>();
     final AtomicReference<JsonNode> input = new AtomicReference<>();
     final AtomicReference<String> path = new AtomicReference<>();
+    final AtomicReference<String> internalToken = new AtomicReference<>();
     final AtomicInteger calls = new AtomicInteger();
     ObjectMapper mapper;
     HttpServer server;
@@ -55,6 +56,7 @@ class DecisionFeignContractTest {
         server.createContext("/internal/", exchange -> {
             calls.incrementAndGet();
             path.set(exchange.getRequestURI().toString());
+            internalToken.set(exchange.getRequestHeaders().getFirst("X-Internal-Token"));
             input.set(mapper.readTree(exchange.getRequestBody()));
             byte[] body = mapper.writeValueAsBytes(reply.get());
             exchange.getResponseHeaders().set("Content-Type", "application/json");
@@ -72,13 +74,14 @@ class DecisionFeignContractTest {
         String url = "http://127.0.0.1:" + server.getAddress().getPort();
         return new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(FeignAutoConfiguration.class,
                         JacksonAutoConfiguration.class, HttpMessageConvertersAutoConfiguration.class))
-                .withPropertyValues("my-youtube.transcode-service.url=" + url, "my-youtube.search-service.url=" + url)
+                .withPropertyValues("my-youtube.transcode-service.url=" + url, "my-youtube.search-service.url=" + url,
+                        "my-youtube.internal-token=decision-test-token")
                 .withUserConfiguration(Clients.class);
     }
 
     MockMvc mvc(MediaRetryPort retries, ContentVectorDeadLetterPort deadLetters) {
-        return MockMvcBuilders.standaloneSetup(new AdminMediaRetryController(retries),
-                        new AdminContentVectorDeadLetterController(deadLetters))
+        return MockMvcBuilders.standaloneSetup(new AdminMediaRetryController(retries, AuthorizationFixture.authorization()),
+                        new AdminContentVectorDeadLetterController(deadLetters, AuthorizationFixture.authorization()))
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
                 .setControllerAdvice(new GlobalExceptionHandler(), new FeignExceptionHandler(), new UnexpectedExceptionHandler()).build();
     }
@@ -123,6 +126,7 @@ class DecisionFeignContractTest {
                     .andExpect(jsonPath("$.data.contentId").value(Long.toString(id)))
                     .andExpect(jsonPath("$.data.message").value("重放决策"));
             assertEquals("/internal/dead-letters/content-vectors/messages/replay?actorId=1", path.get());
+            assertEquals("decision-test-token", internalToken.get());
             assertEquals("fixture", input.get().path("brokerName").asText());
             assertEquals(0, input.get().path("queueId").asInt());
             assertEquals(id, input.get().path("offset").asLong());

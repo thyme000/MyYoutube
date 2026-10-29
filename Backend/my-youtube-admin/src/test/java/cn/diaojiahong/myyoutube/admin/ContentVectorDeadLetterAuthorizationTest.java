@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ContentVectorDeadLetterAuthorizationTest {
     private final ContentVectorDeadLetterPort port = mock(ContentVectorDeadLetterPort.class);
-    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminContentVectorDeadLetterController(port)).setControllerAdvice(new GlobalExceptionHandler(), new FeignExceptionHandler()).build();
+    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminContentVectorDeadLetterController(port, AuthorizationFixture.authorization())).setControllerAdvice(new GlobalExceptionHandler(), new FeignExceptionHandler()).build();
     private final String path = "/admin/dead-letters/content-vectors/messages";
     private final String reference = "{\"brokerName\":\"broker\",\"queueId\":0,\"offset\":5}";
 
@@ -33,8 +33,8 @@ class ContentVectorDeadLetterAuthorizationTest {
     @Test void anonymousAndNonAdminCannotAccessEitherEndpoint() throws Exception {
         for (String user : List.of("", "2")) {
             UserContext.setUser(user);
-            mvc.perform(get(path)).andExpect(status().isForbidden());
-            mvc.perform(post(path + "/replay").contentType("application/json").content(reference)).andExpect(status().isForbidden());
+            mvc.perform(get(path)).andExpect(status().is(user.isEmpty() ? 401 : 403));
+            mvc.perform(post(path + "/replay").contentType("application/json").content(reference)).andExpect(status().is(user.isEmpty() ? 401 : 403));
         }
         verifyNoInteractions(port);
     }
