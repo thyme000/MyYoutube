@@ -81,17 +81,14 @@ public class UserController {
     }
 
     /**
-     * 更新用户资料
-     * @param id
+     * 更新当前登录用户资料
      * @param userDTO
      * @return
      */
-    @Operation(summary = "用户修改资料")
-    @PutMapping("/{id}")
-    public Result<String> updateUser(@PathVariable Long id, @RequestBody UserDTO userDTO) {
-        return Result.success(userService.updateUser(id, userDTO));
+    @Operation(summary = "修改当前登录用户资料")
+    @PutMapping("/info")
+    public Result<String> updateCurrentUser(@RequestBody UserDTO userDTO) {
+        return Result.success(userService.updateCurrentUser(userDTO));
     }
-
-
 
 }

@@ -47,8 +47,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     private final S3StorageUtil storageUtil;
     private static final Long STORAGE_EXPIRE = 3600 * 24L;// 24小时过期时间
-    private final StringRedisTemplate redisTemplate;
-    private final RocketMQTemplate rocketMQTemplate;
     private final EsSyncPublisher esSyncPublisher;
     private final UserSummaryCache summaryCache;
 
@@ -106,22 +104,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
 
     @Override
-    public String updateUser(Long id, UserDTO userDTO) {
-        if (id == null) {
-            throw new BizException(ErrorCode.INVALID_ARGUMENT, "用户ID不能为空");
-        }
+    public String updateCurrentUser(UserDTO userDTO) {
+        Long id = getUserId();
         User user = getById(id);
         if (user == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "用户不存在");
         }
         String oldName = user.getNickname();
-        user.setNickname(userDTO.getNickname() == null || userDTO.getNickname().isEmpty() ?
-                oldName : userDTO.getNickname());
-        user.setIntroduction(userDTO.getIntroduction() == null || userDTO.getIntroduction().isEmpty() ?
-                user.getIntroduction() : userDTO.getIntroduction());
-        boolean success = updateById(user);
+        User changes = new User().setId(id)
+                .setNickname(userDTO.getNickname() == null || userDTO.getNickname().isEmpty() ?
+                        oldName : userDTO.getNickname())
+                .setIntroduction(userDTO.getIntroduction() == null || userDTO.getIntroduction().isEmpty() ?
+                        user.getIntroduction() : userDTO.getIntroduction());
+        boolean success = updateById(changes);
         if (!success) {
-            throw new BizException(ErrorCode.STATE_CONFLICT, "用户资料已变化，请刷新后重试");
+            throw new BizException(ErrorCode.NOT_FOUND, "用户不存在或已被删除");
         }
         summaryCache.evict(user.getId());
         // 同步 ES 文档: 发消息, 由 search 侧以 MySQL 为准重建

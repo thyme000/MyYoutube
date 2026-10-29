@@ -29,7 +29,7 @@ public interface IUserService extends IService<User> {
 
     String updateBgImage(MultipartFile bgImage);
 
-    String updateUser(Long id, UserDTO userDTO);
+    String updateCurrentUser(UserDTO userDTO);
 
     Map<Long, String> getAuthorNicknames(List<Long> ids);
 
