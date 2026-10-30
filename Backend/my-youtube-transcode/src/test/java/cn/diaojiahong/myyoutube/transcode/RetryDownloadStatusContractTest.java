@@ -43,7 +43,7 @@ class RetryDownloadStatusContractTest {
     @ParameterizedTest
     @EnumSource(TranscodeTaskStatus.class)
     void downloadStatusKeepsItsWireValue(TranscodeTaskStatus status) throws Exception {
-        var task = TranscodeTaskVO.builder().taskId(1L).status(status).build();
+        TranscodeTaskVO task = TranscodeTaskVO.builder().taskId(1L).status(status).build();
         String jackson = json.writeValueAsString(task);
         String gson = JsonUtil.toJson(task);
         assertEquals(status.getCode(), json.readTree(jackson).get("status").asText());

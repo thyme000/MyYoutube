@@ -3,6 +3,14 @@ package cn.diaojiahong.myyoutube.transcode.preparation;
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.metadata.exif.ExifIFD0Directory;
 import cn.diaojiahong.myyoutube.common.media.InvalidMediaInputException;
+import java.awt.Graphics2D;
+import java.io.InputStream;
+import java.util.Iterator;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageInputStream;
+import javax.imageio.stream.ImageOutputStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
@@ -24,7 +32,14 @@ import java.nio.file.Path;
 public class PreparedImageWriter {
     private final MediaPreparationProperties properties;
 
-    public record PreparedImageResult(int sourceWidth, int sourceHeight, int width, int height, int orientation, long bytes) {}
+    public record PreparedImageResult(
+            int sourceWidth,
+            int sourceHeight,
+            int width,
+            int height,
+            int orientation,
+            long bytes) {
+    }
 
     public PreparedImageResult write(Path source, Path output) throws Exception {
         long started = System.nanoTime();
@@ -32,54 +47,73 @@ public class PreparedImageWriter {
         if (Files.size(source) <= 0 || Files.size(source) > properties.getSourceBytes())
             throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
         String mime;
-        try (var input = Files.newInputStream(source)) {
+        try (InputStream input = Files.newInputStream(source)) {
             mime = new Tika().detect(input.readNBytes(65536));
         }
         if (!mime.startsWith("image/")) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
-        try (var input = ImageIO.createImageInputStream(source.toFile())) {
-            var readers = ImageIO.getImageReaders(input);
+        try (ImageInputStream input = ImageIO.createImageInputStream(source.toFile())) {
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
             if (!readers.hasNext()) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
-            var reader = readers.next();
+            ImageReader reader = readers.next();
             BufferedImage decoded = null;
             BufferedImage result = null;
             try {
                 reader.setInput(input, true, true);
                 int width, height;
-                try { width = reader.getWidth(0); height = reader.getHeight(0); }
-                catch (javax.imageio.IIOException e) { throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE, e); }
+                try {
+                    width = reader.getWidth(0);
+                    height = reader.getHeight(0);
+                } catch (javax.imageio.IIOException e) {
+                    throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE, e);
+                }
                 if (width <= 0 || height <= 0 || (long) width * height > properties.getSourcePixels()
                         || Math.max(width, height) > properties.getSourceLongEdge())
                     throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
                 int orientation = orientation(source);
                 int orientedWidth = orientation >= 5 ? height : width;
                 int orientedHeight = orientation >= 5 ? width : height;
-                var dimensions = dimensions(orientedWidth, orientedHeight);
-                var parameters = reader.getDefaultReadParam();
+                int[] dimensions = dimensions(orientedWidth, orientedHeight);
+                ImageReadParam parameters = reader.getDefaultReadParam();
                 if ("JPEG".equalsIgnoreCase(reader.getFormatName())) {
                     int sample = Math.max(1, Math.min(orientedWidth / dimensions[0], orientedHeight / dimensions[1]));
                     parameters.setSourceSubsampling(sample, sample, 0, 0);
                 }
-                try { decoded = reader.read(0, parameters); }
-                catch (javax.imageio.IIOException e) { throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE, e); }
+                try {
+                    decoded = reader.read(0, parameters);
+                } catch (javax.imageio.IIOException e) {
+                    throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE, e);
+                }
                 if (decoded == null) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
                 result = new BufferedImage(dimensions[0], dimensions[1], BufferedImage.TYPE_INT_RGB);
-                var graphics = result.createGraphics();
+                Graphics2D graphics = result.createGraphics();
                 try {
                     graphics.setColor(Color.WHITE);
                     graphics.fillRect(0, 0, result.getWidth(), result.getHeight());
-                    graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                    graphics.setRenderingHint(
+                            RenderingHints.KEY_INTERPOLATION,
+                            RenderingHints.VALUE_INTERPOLATION_BICUBIC);
                     int dw = decoded.getWidth(), dh = decoded.getHeight();
                     double ow = orientation >= 5 ? dh : dw, oh = orientation >= 5 ? dw : dh;
-                    var transform = AffineTransform.getScaleInstance(result.getWidth() / ow, result.getHeight() / oh);
+                    AffineTransform transform = AffineTransform.getScaleInstance(
+                            result.getWidth() / ow,
+                            result.getHeight() / oh);
                     transform.concatenate(orientationTransform(orientation, dw, dh));
                     graphics.drawImage(decoded, transform, null);
-                } finally { graphics.dispose(); }
+                } finally {
+                    graphics.dispose();
+                }
                 jpeg(result, output);
                 long bytes = Files.size(output);
                 log.info("Media image prepared source={}x{} output={}x{} orientation={} bytes={} elapsedMs={}",
                         width, height, result.getWidth(), result.getHeight(), orientation, bytes,
                         (System.nanoTime() - started) / 1_000_000);
-                return new PreparedImageResult(width, height, result.getWidth(), result.getHeight(), orientation, bytes);
+                return new PreparedImageResult(
+                        width,
+                        height,
+                        result.getWidth(),
+                        result.getHeight(),
+                        orientation,
+                        bytes);
             } finally {
                 if (decoded != null) decoded.flush();
                 if (result != null) result.flush();
@@ -96,11 +130,15 @@ public class PreparedImageWriter {
 
     private static int orientation(Path source) throws Exception {
         com.drew.metadata.Metadata metadata;
-        try { metadata = ImageMetadataReader.readMetadata(source.toFile()); }
-        catch (com.drew.imaging.ImageProcessingException e) { throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE, e); }
-        var exif = metadata.getFirstDirectoryOfType(ExifIFD0Directory.class);
+        try {
+            metadata = ImageMetadataReader.readMetadata(source.toFile());
+        } catch (com.drew.imaging.ImageProcessingException e) {
+            throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE, e);
+        }
+        ExifIFD0Directory exif = metadata.getFirstDirectoryOfType(ExifIFD0Directory.class);
         Integer value = exif == null ? null : exif.getInteger(ExifIFD0Directory.TAG_ORIENTATION);
-        if (value != null && (value < 1 || value > 8)) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
+        if (value != null
+                && (value < 1 || value > 8)) throw new InvalidMediaInputException(InvalidMediaInputException.Reason.INVALID_IMAGE);
         return value == null ? 1 : value;
     }
 
@@ -118,13 +156,15 @@ public class PreparedImageWriter {
     }
 
     private void jpeg(BufferedImage image, Path output) throws IOException {
-        var writer = ImageIO.getImageWritersByFormatName("JPEG").next();
-        try (var target = ImageIO.createImageOutputStream(output.toFile())) {
+        ImageWriter writer = ImageIO.getImageWritersByFormatName("JPEG").next();
+        try (ImageOutputStream target = ImageIO.createImageOutputStream(output.toFile())) {
             writer.setOutput(target);
-            var parameters = writer.getDefaultWriteParam();
+            ImageWriteParam parameters = writer.getDefaultWriteParam();
             parameters.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
             parameters.setCompressionQuality(properties.getJpegQuality());
             writer.write(null, new javax.imageio.IIOImage(image, null, null), parameters);
-        } finally { writer.dispose(); }
+        } finally {
+            writer.dispose();
+        }
     }
 }

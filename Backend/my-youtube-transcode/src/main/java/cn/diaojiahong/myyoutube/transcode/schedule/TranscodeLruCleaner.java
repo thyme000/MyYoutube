@@ -8,6 +8,7 @@ import cn.diaojiahong.myyoutube.transcode.mapper.TranscodeTaskMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -43,7 +44,7 @@ public class TranscodeLruCleaner {
                 return;
             }
             for (String taskKey : oldest) {
-                var lock = tasks.artifactLock(taskKey);
+                RLock lock = tasks.artifactLock(taskKey);
                 if (!lock.tryLock()) continue;
                 try {
                     redisTemplate.opsForZSet().remove(RedisConstants.TRANSCODE_LRU, taskKey);
@@ -56,7 +57,9 @@ public class TranscodeLruCleaner {
                         // 直接删行最干净: 下次提交查不到 DONE, 会重新转码
                         taskMapper.deleteById(task.getId());
                     }
-                } finally { lock.unlock(); }
+                } finally {
+                    lock.unlock();
+                }
             }
             log.info("成片缓存 LRU 清理完成, 本轮淘汰 {} 个 taskKey", oldest.size());
         } catch (Exception e) {

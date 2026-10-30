@@ -1,8 +1,11 @@
 package cn.diaojiahong.myyoutube.llm;
 
+import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpServer;
+import java.io.OutputStream;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,8 +23,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class LlmClientTest {
     private HttpServer server;
+
     private final LlmProperties properties = new LlmProperties();
+
     private final AtomicReference<JsonObject> requestBody = new AtomicReference<>();
+
     private final AtomicReference<String> authorization = new AtomicReference<>();
     private LlmClient client;
 
@@ -37,7 +43,7 @@ class LlmClientTest {
                     """.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, response.length);
-            try (var output = exchange.getResponseBody()) {
+            try (OutputStream output = exchange.getResponseBody()) {
                 output.write(response);
             }
         });
@@ -115,8 +121,17 @@ class LlmClientTest {
 
     @Test
     void structuredRequestKeeps1500BudgetAndReturnsFinishReasonAndUsage() {
-        var format = java.util.Map.<String,Object>of("type", "json_schema", "json_schema", java.util.Map.of("name", "summary"));
-        var result = client.chatDetailed(List.of(LlmClient.Message.text("user", "资料")), null, 0.1, 1500, format);
+        Map<String,Object> format = java.util.Map.<String,Object>of(
+                "type",
+                "json_schema",
+                "json_schema",
+                java.util.Map.of("name", "summary"));
+        LlmPort.ChatResponse result = client.chatDetailed(
+                List.of(LlmClient.Message.text("user", "资料")),
+                null,
+                0.1,
+                1500,
+                format);
         assertEquals(1500, requestBody.get().get("max_tokens").getAsInt());
         assertEquals("json_schema", requestBody.get().getAsJsonObject("response_format").get("type").getAsString());
         assertEquals("stop", result.getFinishReason());
@@ -138,7 +153,7 @@ class LlmClientTest {
             }
         });
         properties.setTimeoutSeconds(1);
-        var failure = assertThrows(IllegalStateException.class, this::chat);
+        IllegalStateException failure = assertThrows(IllegalStateException.class, this::chat);
         assertInstanceOf(HttpTimeoutException.class, failure.getCause());
     }
 

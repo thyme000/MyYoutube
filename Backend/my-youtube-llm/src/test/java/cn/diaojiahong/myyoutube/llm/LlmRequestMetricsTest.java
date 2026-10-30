@@ -19,9 +19,13 @@ import static org.mockito.Mockito.*;
 
 class LlmRequestMetricsTest {
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
     private final LlmRequestMetrics metrics = new LlmRequestMetrics(registry);
+
     private final LlmClient client = mock(LlmClient.class);
+
     private final LlmProperties properties = new LlmProperties();
+
     private final InternalLlmController controller = new InternalLlmController(properties, client,
             mock(EmbeddingOrchestrator.class), metrics);
 
@@ -61,7 +65,7 @@ class LlmRequestMetricsTest {
     @Test
     void embeddingRetryIsCountedOncePerLogicalRequest() {
         properties.getEmbedding().setDims(1);
-        var provider = mock(EmbeddingProvider.class);
+        EmbeddingProvider provider = mock(EmbeddingProvider.class);
         when(provider.embed(anyList())).thenThrow(new IllegalStateException("temporary"))
                 .thenReturn(List.of(new float[]{1}));
         var endpoint = new InternalLlmController(properties, client,
@@ -97,7 +101,10 @@ class LlmRequestMetricsTest {
     }
 
     private long completed(String operation, String outcome) {
-        return registry.get(MetricNames.LLM_REQUEST_DURATION).tags("operation", operation, "outcome", outcome).timer().count();
+        return registry.get(MetricNames.LLM_REQUEST_DURATION)
+                .tags("operation", operation, "outcome", outcome)
+                .timer()
+                .count();
     }
 
     private double active(String operation) {

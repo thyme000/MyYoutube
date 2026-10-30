@@ -28,7 +28,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) {
         Long userId = (Long) session.getAttributes().get("userId");
         if (userId == null) {
-            try { session.close(CloseStatus.NOT_ACCEPTABLE); } catch (Exception ignored) {}
+            try {
+                session.close(CloseStatus.NOT_ACCEPTABLE);
+            } catch (Exception ignored) {
+            }
             return;
         }
         USER_SESSIONS.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet()).add(session);
@@ -40,6 +43,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         if (userId == null) {
             return;
         }
+
         Set<WebSocketSession> set = USER_SESSIONS.get(userId);
         if (set != null) {
             set.remove(session);
@@ -55,9 +59,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         if (set == null) {
             return;
         }
+
         for (WebSocketSession s : set) {
             if (s.isOpen()) {
-                try { s.sendMessage(new TextMessage(json)); } catch (Exception ignored) {}
+                try {
+                    s.sendMessage(new TextMessage(json));
+                } catch (Exception ignored) {
+                }
             }
         }
     }

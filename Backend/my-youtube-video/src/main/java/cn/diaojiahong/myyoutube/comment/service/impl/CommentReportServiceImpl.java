@@ -25,7 +25,8 @@ import java.util.List;
  * @since 2026-04-14
  */
 @Service
-public class CommentReportServiceImpl extends ServiceImpl<CommentReportMapper, CommentReport> implements ICommentReportService {
+public class CommentReportServiceImpl extends ServiceImpl<CommentReportMapper,
+CommentReport> implements ICommentReportService {
 
     @Override
     @ObservedBusiness(BusinessOperation.REPORT_COMMENT)
@@ -35,6 +36,7 @@ public class CommentReportServiceImpl extends ServiceImpl<CommentReportMapper, C
 
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         // 判断这个评论是否已经处理过了
         List<CommentReport> list = lambdaQuery()
                 .eq(CommentReport::getCommentId, commentReportDTO.getCommentId())
@@ -44,6 +46,7 @@ public class CommentReportServiceImpl extends ServiceImpl<CommentReportMapper, C
 
             return;
         }
+
         // 判断用户是否已经举报过了
         CommentReport one = lambdaQuery().eq(CommentReport::getReporterUserId, Long.parseLong(userId))
                 .eq(CommentReport::getCommentId, commentReportDTO.getCommentId()).one();

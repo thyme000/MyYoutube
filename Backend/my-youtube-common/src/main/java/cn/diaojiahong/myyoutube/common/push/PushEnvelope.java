@@ -12,6 +12,7 @@ public class PushEnvelope {
     private Long userId;
     /** SSE 门铃信号: NOTIFY_DIRTY / CHAT_DIRTY */
     private String signal;
+
     /** WS 通道报文本体(原样下发前端) */
     private Object payload;
 }

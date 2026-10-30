@@ -20,6 +20,7 @@ public class ChatMessageDTO {
     // 消息体
     @NotNull(message = "content不能为空")
     private ChatContent content;
+
     // 幂等id(防重发)
     @NotBlank(message = "clientMsgId不能为空")
     private String clientMsgId;

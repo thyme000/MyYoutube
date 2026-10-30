@@ -31,7 +31,7 @@ public class PreparationRegistry {
     public void start(Request request) {
         validate(request);
         try { transaction.executeWithoutResult(tx -> {
-            var existing = preparations.selectById(request.preparationId());
+            MediaPreparation existing = preparations.selectById(request.preparationId());
             if (existing != null) {
                 if (!"ACTIVE".equals(existing.getLifecycle())) throw new IllegalStateException("Preparation is retired");
                 if (!request.equals(JsonUtil.fromJson(existing.getRequestJson(), Request.class)))
@@ -41,16 +41,24 @@ public class PreparationRegistry {
             preparations.insert(new MediaPreparation().setId(request.preparationId()).setDraftId(request.draftId())
                     .setMediaVersion(request.mediaVersion()).setUserId(request.userId())
                     .setRequestJson(JsonUtil.toJson(request)).setParameterVersion(parameterVersion()));
-            tasks.startPreparation(request.preparationId(), request.userId(), request.media(), request.coverObjectKey());
+            tasks.startPreparation(
+                    request.preparationId(),
+                    request.userId(),
+                    request.media(),
+                    request.coverObjectKey());
         }); } catch (org.springframework.dao.DuplicateKeyException e) {
-            var existing = preparations.selectById(request.preparationId());
-            if (existing == null || !request.equals(JsonUtil.fromJson(existing.getRequestJson(), Request.class))) throw e;
+            MediaPreparation existing = preparations.selectById(request.preparationId());
+            if (existing == null
+                    || !request.equals(JsonUtil.fromJson(existing.getRequestJson(), Request.class))) throw e;
         }
     }
 
     private static void validate(Request request) {
         if (request == null || request.preparationId() == null || request.preparationId() <= 0
-                || request.draftId() == null || request.draftId() <= 0 || request.userId() == null || request.userId() <= 0
+                || request.draftId() == null
+                || request.draftId() <= 0
+                || request.userId() == null
+                || request.userId() <= 0
                 || request.mediaVersion() < 0 || request.media() == null)
             throw new IllegalArgumentException("Incomplete preparation input");
         if (request.media().video() != null) MediaInputs.objectKey(request.media().video().objectKey());
@@ -74,19 +82,22 @@ public class PreparationRegistry {
                             properties.getLongEdge(), properties.getOutputPixels(), properties.getJpegQuality(),
                             properties.getSourceBytes(), properties.getVideoSourceBytes(), properties.getSourcePixels(),
                             properties.getSourceLongEdge()))).getBytes(StandardCharsets.UTF_8)));
-        } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     public View view(Long id) {
-        var preparation = get(id);
-        var row = taskRows.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, id)
+        MediaPreparation preparation = get(id);
+        MediaTask row = taskRows.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, id)
                 .eq(MediaTask::getPhase, "DRAFT").eq(MediaTask::getTaskType, "PREPARE"));
         if (row == null) throw new IllegalStateException("Missing preparation task");
         boolean parametersChanged = !Objects.equals(preparation.getParameterVersion(), parameterVersion());
         String error = MediaTaskStatus.DEAD.equals(row.getStatus()) && parametersChanged
                 ? PreparationContracts.PARAMETERS_CHANGED_MESSAGE : row.getErrorMessage();
         return new View(id, row.getStatus(), row.getAttempt(), row.getRetryCount(), error,
-                MediaTaskStatus.SUCCESS.equals(row.getStatus()) ? JsonUtil.fromJson(row.getResultJson(), Manifest.class) : null, parametersChanged);
+                MediaTaskStatus.SUCCESS.equals(row.getStatus()) ? JsonUtil.fromJson(row.getResultJson(), Manifest.class) : null,
+                parametersChanged);
     }
 
     public PreparationItem find(Long id, String role, int index) {
@@ -97,10 +108,14 @@ public class PreparationRegistry {
     public PreparationItem reserve(MediaTaskMessage task, String role, int index, String sourceJson) {
         return transaction.execute(tx -> {
             fence(task);
-            var current = find(task.getOwnerId(), role, index);
+            PreparationItem current = find(task.getOwnerId(), role, index);
             if (current != null) return current;
-            var row = new PreparationItem().setPreparationId(task.getOwnerId()).setRole(role).setItemIndex(index)
-                    .setObjectOwnerId(task.getOwnerId()).setObjectKey("media-prepared/" + task.getUserId() + "/" + task.getOwnerId() + "/"
+            PreparationItem row = new PreparationItem()
+                    .setPreparationId(task.getOwnerId())
+                    .setRole(role)
+                    .setItemIndex(index)
+                    .setObjectOwnerId(task.getOwnerId())
+                    .setObjectKey("media-prepared/" + task.getUserId() + "/" + task.getOwnerId() + "/"
                             + role.toLowerCase(Locale.ROOT) + "-" + index + "-" + UUID.randomUUID())
                     .setSourceJson(sourceJson).setStatus("ALLOCATED");
             items.insert(row);
@@ -109,8 +124,13 @@ public class PreparationRegistry {
     }
 
     public List<PreparationItem> reusableImages(MediaTaskMessage task, PreparationStorage.Source source) {
-        var job = get(task.getOwnerId());
-        return items.reusableImages(job.getDraftId(), job.getUserId(), job.getParameterVersion(), job.getId(), JsonUtil.toJson(source));
+        MediaPreparation job = get(task.getOwnerId());
+        return items.reusableImages(
+                job.getDraftId(),
+                job.getUserId(),
+                job.getParameterVersion(),
+                job.getId(),
+                JsonUtil.toJson(source));
     }
 
     public boolean shareImages(MediaTaskMessage task, int index, PreparationItem original, PreparationItem derived) {
@@ -119,19 +139,29 @@ public class PreparationRegistry {
             for (Long id : new TreeSet<>(List.of(original.getPreparationId(), task.getOwnerId())))
                 preparations.selectOne(new LambdaQueryWrapper<MediaPreparation>().eq(MediaPreparation::getId, id).last("FOR UPDATE"));
             fence(task);
-            var owner = get(original.getPreparationId());
-            var consumer = get(task.getOwnerId());
-            if (!Objects.equals(owner.getDraftId(), consumer.getDraftId()) || !Objects.equals(owner.getUserId(), consumer.getUserId())
+            MediaPreparation owner = get(original.getPreparationId());
+            MediaPreparation consumer = get(task.getOwnerId());
+            if (!Objects.equals(owner.getDraftId(), consumer.getDraftId())
+                    || !Objects.equals(owner.getUserId(), consumer.getUserId())
                     || !owner.getParameterVersion().equals(consumer.getParameterVersion())) return false;
-            var source = items.selectById(original.getId());
-            var output = items.selectById(derived.getId());
-            if (source == null || output == null || !"READY".equals(source.getStatus()) || !"READY".equals(output.getStatus())
-                    || !Objects.equals(source.getObjectOwnerId(), owner.getId()) || !Objects.equals(output.getObjectOwnerId(), owner.getId())
+            PreparationItem source = items.selectById(original.getId());
+            PreparationItem output = items.selectById(derived.getId());
+            if (source == null
+                    || output == null
+                    || !"READY".equals(source.getStatus())
+                    || !"READY".equals(output.getStatus())
+                    || !Objects.equals(source.getObjectOwnerId(), owner.getId())
+                    || !Objects.equals(output.getObjectOwnerId(), owner.getId())
                     || !Objects.equals(output.getPreparationId(), owner.getId()) || !"IMAGE".equals(source.getRole())
-                    || !"OCR_IMAGE".equals(output.getRole()) || !source.getItemIndex().equals(output.getItemIndex())) return false;
-            if (find(task.getOwnerId(), "IMAGE", index) != null || find(task.getOwnerId(), "OCR_IMAGE", index) != null) return false;
-            for (var row : List.of(source, output)) items.insert(new PreparationItem().setPreparationId(task.getOwnerId())
-                    .setObjectOwnerId(owner.getId()).setRole(row.getRole()).setItemIndex(index).setObjectKey(row.getObjectKey())
+                    || !"OCR_IMAGE".equals(output.getRole())
+                    || !source.getItemIndex().equals(output.getItemIndex())) return false;
+            if (find(task.getOwnerId(), "IMAGE", index) != null
+                    || find(task.getOwnerId(), "OCR_IMAGE", index) != null) return false;
+            for (PreparationItem row : List.of(source, output)) items.insert(new PreparationItem().setPreparationId(task.getOwnerId())
+                    .setObjectOwnerId(owner.getId())
+                    .setRole(row.getRole())
+                    .setItemIndex(index)
+                    .setObjectKey(row.getObjectKey())
                     .setSourceJson(row.getSourceJson()).setResultJson(row.getResultJson()).setStatus("READY"));
             return true;
         }));
@@ -140,7 +170,7 @@ public class PreparationRegistry {
     public PreparationItem planned(MediaTaskMessage task, PreparationItem row, String resultJson) {
         return transaction.execute(tx -> {
             fence(task);
-            var current = Objects.requireNonNull(items.selectById(row.getId()));
+            PreparationItem current = Objects.requireNonNull(items.selectById(row.getId()));
             if (!Objects.equals(current.getObjectOwnerId(), task.getOwnerId()))
                 throw new IllegalStateException("Shared preparation objects are immutable");
             if (current.getResultJson() == null) current.setResultJson(resultJson);
@@ -153,22 +183,24 @@ public class PreparationRegistry {
     public void confirmed(MediaTaskMessage task, PreparationItem row) {
         transaction.executeWithoutResult(tx -> {
             fence(task);
-            var current = Objects.requireNonNull(items.selectById(row.getId()));
+            PreparationItem current = Objects.requireNonNull(items.selectById(row.getId()));
             if (!Objects.equals(current.getObjectOwnerId(), task.getOwnerId()))
                 throw new IllegalStateException("Shared preparation objects are immutable");
             if (current.getResultJson() == null) throw new IllegalStateException("Missing planned object metadata");
-            current.setStatus("READY"); items.updateById(current);
+            current.setStatus("READY");
+            items.updateById(current);
         });
     }
 
     private void fence(MediaTaskMessage task) {
-        var preparation = preparations.selectOne(new LambdaQueryWrapper<MediaPreparation>()
+        MediaPreparation preparation = preparations.selectOne(new LambdaQueryWrapper<MediaPreparation>()
                 .eq(MediaPreparation::getId, task.getOwnerId()).last("FOR UPDATE"));
         if (preparation == null || !"ACTIVE".equals(preparation.getLifecycle()))
             throw new IllegalStateException("Preparation is retired or missing");
-        var row = taskRows.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getId, task.getTaskId()).last("FOR UPDATE"));
+        MediaTask row = taskRows.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getId, task.getTaskId()).last("FOR UPDATE"));
         if (row == null || !"DRAFT".equals(row.getPhase()) || !"PREPARE".equals(row.getTaskType())
-                || !Objects.equals(row.getOwnerId(), task.getOwnerId()) || !MediaTaskStatus.RUNNING.equals(row.getStatus())
+                || !Objects.equals(row.getOwnerId(), task.getOwnerId())
+                || !MediaTaskStatus.RUNNING.equals(row.getStatus())
                 || !Objects.equals(row.getAttempt(), task.getAttempt())) throw new IllegalStateException("Preparation lease lost");
     }
 }

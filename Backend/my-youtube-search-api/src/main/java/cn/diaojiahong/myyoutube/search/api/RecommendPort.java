@@ -27,6 +27,7 @@ public interface RecommendPort {
     @AllArgsConstructor
     class RecommendQuery {
         private Long userId;
+
         /** 内容类型: null/空=混合流, 非空=独立类型流(video/dynamic/note...) */
         private String type;
         private String category;

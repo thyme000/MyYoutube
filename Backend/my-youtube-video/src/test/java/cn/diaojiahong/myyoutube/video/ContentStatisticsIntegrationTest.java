@@ -71,28 +71,63 @@ class ContentStatisticsIntegrationTest {
     @Import({ContentStatisticsService.class, ContentSettingsService.class, ContentAccessService.class,
             ReviewDecisionService.class, ContentServiceImpl.class, AuthorContentPageService.class})
     static class Config {
-        @Bean DataSource dataSource() { return ContentTestDatabase.create("content-statistics"); }
-        @Bean SqlSessionFactory sqlSessionFactory(DataSource source) throws Exception {
+        @Bean
+        DataSource dataSource() {
+            return ContentTestDatabase.create("content-statistics");
+        }
+
+        @Bean
+        SqlSessionFactory sqlSessionFactory(DataSource source) throws Exception {
             var factory = new MybatisSqlSessionFactoryBean();
             factory.setDataSource(source);
             factory.setMapperLocations(new PathMatchingResourcePatternResolver().getResources("classpath:mapper/*.xml"));
             return ContentTestDatabase.sharedReads(factory.getObject());
         }
-        @Bean DataSourceTransactionManager transactionManager(DataSource source) {
+
+        @Bean
+        DataSourceTransactionManager transactionManager(DataSource source) {
             return new DataSourceTransactionManager(source);
         }
-        @Bean TransactionTemplate transaction(DataSourceTransactionManager manager) { return new TransactionTemplate(manager); }
-        @Bean PublicationEffectsService effects() { return mock(PublicationEffectsService.class); }
-        @Bean ContentObservation observation() { return mock(ContentObservation.class); }
-        @Bean ContentPipelineProperties properties() { return new ContentPipelineProperties(); }
-        @Bean PromptTemplates prompts() { return new PromptTemplates(); }
-        @Bean FrameProcessingSettings frames() { return new FrameProcessingSettings(); }
-        @Bean AuthorContentPageProperties pages() {
+
+        @Bean
+        TransactionTemplate transaction(DataSourceTransactionManager manager) {
+            return new TransactionTemplate(manager);
+        }
+
+        @Bean
+        PublicationEffectsService effects() {
+            return mock(PublicationEffectsService.class);
+        }
+
+        @Bean
+        ContentObservation observation() {
+            return mock(ContentObservation.class);
+        }
+
+        @Bean
+        ContentPipelineProperties properties() {
+            return new ContentPipelineProperties();
+        }
+
+        @Bean
+        PromptTemplates prompts() {
+            return new PromptTemplates();
+        }
+
+        @Bean
+        FrameProcessingSettings frames() {
+            return new FrameProcessingSettings();
+        }
+
+        @Bean
+        AuthorContentPageProperties pages() {
             var properties = new AuthorContentPageProperties();
             properties.setScanBudgetMs(5000);
             return properties;
         }
-        @Bean AudioContentAccess audioAccess(AudioMapper audios) {
+
+        @Bean
+        AudioContentAccess audioAccess(AudioMapper audios) {
             return new AudioContentAccess(audios, mock(AfterCommitNotifications.class));
         }
     }
@@ -111,7 +146,8 @@ class ContentStatisticsIntegrationTest {
     @Autowired TransactionTemplate transaction;
     JdbcTemplate jdbc;
 
-    @BeforeEach void setup() throws Exception {
+    @BeforeEach
+    void setup() throws Exception {
         reset(effects);
         jdbc = new JdbcTemplate(source);
         String schema = Files.readString(Path.of("../../resources/schema.sql"));
@@ -142,7 +178,9 @@ class ContentStatisticsIntegrationTest {
                 """, id, id + 1000);
     }
 
-    private void publish(long id) { assertTrue(decisions.manual(id, true, "核验通过", 99L)); }
+    private void publish(long id) {
+        assertTrue(decisions.manual(id, true, "核验通过", 99L));
+    }
 
     private long published(long author, String type, String visibility) {
         return jdbc.queryForObject("""
@@ -158,7 +196,8 @@ class ContentStatisticsIntegrationTest {
                 """, Long.class, author, type, visibility);
     }
 
-    @Test void summaryAndListUseTheSameAuthorTypeAndVisibilityScope() {
+    @Test
+    void summaryAndListUseTheSameAuthorTypeAndVisibilityScope() {
         pending(1, 7, "dynamic", "public", 20L);
         pending(2, 7, "dynamic", "public", null);
         pending(3, 7, "dynamic", "private", 20L);
@@ -200,7 +239,8 @@ class ContentStatisticsIntegrationTest {
         assertNull(result.page().nextCursor());
     }
 
-    @Test void lazyBansDoNotSubtractTheRestrictedContributionTwice() {
+    @Test
+    void lazyBansDoNotSubtractTheRestrictedContributionTwice() {
         pending(1, 7, "dynamic", "public", 20L);
         pending(2, 7, "dynamic", "public", 20L);
         pending(3, 7, "dynamic", "public", null);
@@ -222,7 +262,8 @@ class ContentStatisticsIntegrationTest {
         assertAuthorPage(null, 7, null, 1);
     }
 
-    @Test void privateAndSoftDeletedAudioRemainCountedButMissingAudioDoesNot() {
+    @Test
+    void privateAndSoftDeletedAudioRemainCountedButMissingAudioDoesNot() {
         pending(1, 7, "dynamic", "public", 20L);
         publish(1);
         jdbc.update("UPDATE audio SET visibility='private', is_delete=1 WHERE id=20");
@@ -231,7 +272,8 @@ class ContentStatisticsIntegrationTest {
         assertAuthorPage(null, 7, null, 0);
     }
 
-    @Test void visibilityAndDeletionUpdateTheDisplayedCountWithTheContent() {
+    @Test
+    void visibilityAndDeletionUpdateTheDisplayedCountWithTheContent() {
         pending(1, 7, "dynamic", "public", 20L);
         publish(1);
         assertAuthorPage(null, 7, null, 1);
@@ -242,7 +284,9 @@ class ContentStatisticsIntegrationTest {
         assertAuthorPage(7L, 7, null, 0);
     }
 
-    enum PageChange { PUBLISH, DELETE, VISIBILITY, AUDIO_BAN }
+    enum PageChange {
+        PUBLISH, DELETE, VISIBILITY, AUDIO_BAN
+    }
 
     @ParameterizedTest
     @EnumSource(PageChange.class)
@@ -275,7 +319,8 @@ class ContentStatisticsIntegrationTest {
         assertAuthorPage(9L, 7, null, change == PageChange.PUBLISH ? 2 : 0);
     }
 
-    @Test void publishedAuthorsRemainHistoricalUsersAfterAllTheirWorksAreRemoved() {
+    @Test
+    void publishedAuthorsRemainHistoricalUsersAfterAllTheirWorksAreRemoved() {
         var history = new AudioHistoricalAuthorCountService(events, audios, summary, transaction);
         pending(1, 7, "dynamic", "public", 20L);
         pending(2, 7, "video", "private", 20L);
@@ -296,7 +341,11 @@ class ContentStatisticsIntegrationTest {
         assertTrue(decisions.banByAudio(new AudioContentBanMessage(3L, 20L, 1L)));
         history.apply(20L);
         assertEquals(2L, audios.selectById(20L).getHistoricalAuthorCount());
-        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event WHERE audio_count_done=0", Long.class));
+        assertEquals(
+                0,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM content_publication_event WHERE audio_count_done=0",
+                        Long.class));
     }
 
     @Test @EnabledIfSystemProperty(named = "content.integration", matches = "true")
@@ -341,7 +390,8 @@ class ContentStatisticsIntegrationTest {
         assertEquals(1, references(7, type, visibility));
     }
 
-    @Test void contentWithoutAudioCountsButRejectedAndDeletedPendingContentLeaveNoHistory() {
+    @Test
+    void contentWithoutAudioCountsButRejectedAndDeletedPendingContentLeaveNoHistory() {
         pending(1, 7, "video", "public", null);
         pending(2, 7, "dynamic", "public", 20L);
         pending(3, 7, "dynamic", "private", 20L);
@@ -353,7 +403,8 @@ class ContentStatisticsIntegrationTest {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM author_content_stat", Long.class));
     }
 
-    @Test void visibilityMovesBothGroupsAndCommentChangeDoesNotChangeCounts() {
+    @Test
+    void visibilityMovesBothGroupsAndCommentChangeDoesNotChangeCounts() {
         pending(1, 7, "dynamic", "public", 20L);
         publish(1);
         settings.update(1L, 7L, new ContentSettingsService.Settings("private", 1));
@@ -369,9 +420,12 @@ class ContentStatisticsIntegrationTest {
         assertEquals(0, references(7, "dynamic", "private"));
     }
 
-    enum Removal { DELETE, MANUAL_BAN, AUDIO_BAN }
+    enum Removal {
+        DELETE, MANUAL_BAN, AUDIO_BAN
+    }
 
-    @Test void multipleWorksAccumulateAndHistoricalAuthorsDeduplicateAcrossGroups() {
+    @Test
+    void multipleWorksAccumulateAndHistoricalAuthorsDeduplicateAcrossGroups() {
         pending(1, 7, "dynamic", "public", 20L);
         pending(2, 7, "dynamic", "public", 20L);
         pending(3, 7, "video", "private", 20L);
@@ -389,11 +443,14 @@ class ContentStatisticsIntegrationTest {
         assertEquals(2, jdbc.queryForObject("SELECT COUNT(DISTINCT author_id) FROM audio_author_usage", Long.class));
     }
 
-    @Test void unauthorizedSettingsAndDeletionCannotChangeStatistics() {
+    @Test
+    void unauthorizedSettingsAndDeletionCannotChangeStatistics() {
         pending(1, 7, "dynamic", "public", 20L);
         publish(1);
         assertThrows(BizException.class, () -> settings.delete(1L, 8L));
-        assertThrows(BizException.class, () -> settings.update(1L, 8L, new ContentSettingsService.Settings("private", 1)));
+        assertThrows(
+                BizException.class,
+                () -> settings.update(1L, 8L, new ContentSettingsService.Settings("private", 1)));
         assertEquals(1, published(7, "dynamic", "public"));
         assertEquals(1, references(7, "dynamic", "public"));
         assertEquals(0, published(7, "dynamic", "private"));
@@ -424,7 +481,8 @@ class ContentStatisticsIntegrationTest {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(DISTINCT author_id) FROM audio_author_usage", Long.class));
     }
 
-    @Test void lazyBanOfPendingContentCreatesNoCountOrHistoricalUsage() {
+    @Test
+    void lazyBanOfPendingContentCreatesNoCountOrHistoricalUsage() {
         pending(1, 7, "dynamic", "public", 20L);
         jdbc.update("UPDATE audio SET review_status='banned' WHERE id=20");
         assertTrue(decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 1L)));
@@ -432,7 +490,8 @@ class ContentStatisticsIntegrationTest {
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM audio_author_usage", Long.class));
     }
 
-    @Test void failedTransactionRollsBackContentBothCountsAndEvent() {
+    @Test
+    void failedTransactionRollsBackContentBothCountsAndEvent() {
         pending(1, 7, "dynamic", "public", 20L);
         assertThrows(IllegalStateException.class, () -> transaction.executeWithoutResult(status -> {
             publish(1);
@@ -445,7 +504,8 @@ class ContentStatisticsIntegrationTest {
         verifyNoInteractions(effects);
     }
 
-    @Test void missingReferenceCounterRollsBackDeletionAndAuthorDecrement() {
+    @Test
+    void missingReferenceCounterRollsBackDeletionAndAuthorDecrement() {
         pending(1, 7, "dynamic", "public", 20L);
         publish(1);
         reset(effects);
@@ -457,11 +517,13 @@ class ContentStatisticsIntegrationTest {
         verifyNoInteractions(effects);
     }
 
-    @Test void statisticWritesRequireTheContentTransaction() {
+    @Test
+    void statisticWritesRequireTheContentTransaction() {
         assertThrows(IllegalTransactionStateException.class, () -> statistics.delete(new Content()));
     }
 
-    @Test void oppositeVisibilityChangesUseStableGroupLockOrder() throws Exception {
+    @Test
+    void oppositeVisibilityChangesUseStableGroupLockOrder() throws Exception {
         pending(1, 7, "dynamic", "public", 20L);
         pending(2, 7, "dynamic", "private", 20L);
         publish(1);
@@ -485,7 +547,8 @@ class ContentStatisticsIntegrationTest {
         }
     }
 
-    @Test void concurrentAuthorsPublishingOneAudioKeepSeparateContributions() throws Exception {
+    @Test
+    void concurrentAuthorsPublishingOneAudioKeepSeparateContributions() throws Exception {
         for (long id = 1; id <= 8; id++) pending(id, id, "dynamic", "public", 20L);
         var start = new CountDownLatch(1);
         List<CompletableFuture<Void>> publications = new ArrayList<>();

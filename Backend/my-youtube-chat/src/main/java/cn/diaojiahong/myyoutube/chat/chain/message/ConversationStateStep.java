@@ -27,6 +27,7 @@ public class ConversationStateStep extends MessageSendStep {
         if (userConversationDoc == null || Boolean.TRUE.equals(userConversationDoc.getDeleted())) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "不合法的会话状态");
         }
+
         ctx.setUserConversationDoc(userConversationDoc);
     }
 }

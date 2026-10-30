@@ -12,6 +12,7 @@ public class ChatMessageWithdrawDTO {
     // 发送人id
     @NotNull(message = "senderId不能为空")
     private Long senderId;
+
     // 幂等id(防重发)
     @NotBlank(message = "clientMsgId不能为空")
     private String clientMsgId;

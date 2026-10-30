@@ -22,7 +22,10 @@ public class VectorRecallStrategy implements RecallStrategy {
 
     @Override
     public boolean shouldRun(SearchContext ctx) {
-        return !ctx.isTagSearch() && !ctx.isSortByLatest() && vectorProperties.isEnabled() && !ctx.getKeyword().isEmpty();
+        return !ctx.isTagSearch()
+                && !ctx.isSortByLatest()
+                && vectorProperties.isEnabled()
+                && !ctx.getKeyword().isEmpty();
     }
 
     @Override

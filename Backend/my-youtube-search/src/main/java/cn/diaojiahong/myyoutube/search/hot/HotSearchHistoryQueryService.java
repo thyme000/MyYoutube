@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort;
 import cn.diaojiahong.myyoutube.search.mapper.HotSearchHistoryMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -34,9 +35,14 @@ public class HotSearchHistoryQueryService {
         List<String> names = new ArrayList<>();
         Long after = null;
         while (names.size() < limit) {
-            var rows = mapper.groups(day, after, properties.getMinUsers(), PUBLIC_BATCH_SIZE);
-            for (var group : rows) {
-                if (filter.eligible(group.groupName()) != null && !names.contains(group.groupName())) names.add(group.groupName());
+            List<HotSearchHistoryPort.Group> rows = mapper.groups(
+                    day,
+                    after,
+                    properties.getMinUsers(),
+                    PUBLIC_BATCH_SIZE);
+            for (HotSearchHistoryPort.Group group : rows) {
+                if (filter.eligible(group.groupName()) != null
+                        && !names.contains(group.groupName())) names.add(group.groupName());
                 if (names.size() == limit) break;
             }
             if (rows.size() < PUBLIC_BATCH_SIZE) break;
@@ -54,14 +60,20 @@ public class HotSearchHistoryQueryService {
     public CursorPage<Group, String> groups(String date, String cursor, Integer size) {
         LocalDate day = pastDate(date);
         int limit = pageSize(size);
-        return page(mapper.groups(day, positiveCursor(cursor), 0, limit + 1), limit, row -> Long.toString(row.rankNo()));
+        return page(
+                mapper.groups(day, positiveCursor(cursor), 0, limit + 1),
+                limit,
+                row -> Long.toString(row.rankNo()));
     }
 
     public CursorPage<Keyword, String> keywords(String date, String groupId, String cursor, Integer size) {
         LocalDate day = pastDate(date);
         requireGroup(groupId);
         int limit = pageSize(size);
-        return page(mapper.keywords(day, groupId, positiveCursor(cursor), limit + 1), limit, row -> Long.toString(row.keywordId()));
+        return page(
+                mapper.keywords(day, groupId, positiveCursor(cursor), limit + 1),
+                limit,
+                row -> Long.toString(row.keywordId()));
     }
 
     public CursorPage<User, String> users(String date, String groupId, Long keywordId, String cursor, Integer size) {
@@ -70,10 +82,19 @@ public class HotSearchHistoryQueryService {
         requirePositive(keywordId);
         int limit = pageSize(size);
         Long after = positiveCursor(cursor);
-        return page(mapper.users(day, groupId, keyword(day, groupId, keywordId), after, limit + 1), limit, row -> Long.toString(row.userId()));
+        return page(
+                mapper.users(day, groupId, keyword(day, groupId, keywordId), after, limit + 1),
+                limit,
+                row -> Long.toString(row.userId()));
     }
 
-    public CursorPage<Event, String> events(String date, String groupId, Long keywordId, Long userId, String cursor, Integer size) {
+    public CursorPage<Event, String> events(
+            String date,
+            String groupId,
+            Long keywordId,
+            Long userId,
+            String cursor,
+            Integer size) {
         LocalDate day = pastDate(date);
         requireGroup(groupId);
         requirePositive(keywordId);
@@ -98,7 +119,8 @@ public class HotSearchHistoryQueryService {
     private LocalDate pastDate(String value) {
         try {
             LocalDate date = LocalDate.parse(value == null ? "" : value);
-            if (date.getYear() < 1000 || !date.isBefore(today())) throw new BizException(ErrorCode.INVALID_ARGUMENT, "只能查询今天以前的历史日期");
+            if (date.getYear() < 1000
+                    || !date.isBefore(today())) throw new BizException(ErrorCode.INVALID_ARGUMENT, "只能查询今天以前的历史日期");
             return date;
         } catch (DateTimeParseException error) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "日期格式必须为 yyyy-MM-dd");
@@ -112,42 +134,49 @@ public class HotSearchHistoryQueryService {
     }
 
     private static void requireGroup(String groupId) {
-        if (groupId == null || groupId.isBlank() || groupId.length() > 64) throw new BizException(ErrorCode.INVALID_ARGUMENT, "分组 ID 无效");
+        if (groupId == null
+                || groupId.isBlank()
+                || groupId.length() > 64) throw new BizException(ErrorCode.INVALID_ARGUMENT, "分组 ID 无效");
     }
 
     private static void requirePositive(Long value) {
         if (value == null || value <= 0) throw new BizException(ErrorCode.INVALID_ARGUMENT, "记录或用户 ID 必须为正整数");
     }
 
-    private static boolean empty(String cursor) { return cursor == null || cursor.isBlank(); }
+    private static boolean empty(String cursor) {
+        return cursor == null || cursor.isBlank();
+    }
 
     private static Long positiveCursor(String cursor) {
         if (empty(cursor)) return null;
         try {
             long value = Long.parseLong(cursor);
             if (value > 0) return value;
-        } catch (NumberFormatException ignored) {}
+        } catch (NumberFormatException ignored) {
+        }
         throw new BizException(ErrorCode.INVALID_ARGUMENT, "分页游标无效");
     }
 
-    private record EventCursor(long at, long id) {}
+    private record EventCursor(long at, long id) {
+    }
 
     private static EventCursor eventCursor(String cursor) {
         if (empty(cursor)) return null;
         try {
-            var parts = cursor.split("\\.", -1);
+            String[] parts = cursor.split("\\.", -1);
             if (parts.length == 2) {
                 long at = Long.parseLong(parts[0]);
                 long id = Long.parseLong(parts[1]);
                 if (at >= 0 && id > 0) return new EventCursor(at, id);
             }
-        } catch (NumberFormatException ignored) {}
+        } catch (NumberFormatException ignored) {
+        }
         throw new BizException(ErrorCode.INVALID_ARGUMENT, "明细游标无效");
     }
 
     private static <T> CursorPage<T, String> page(List<T> rows, int size, Function<T, String> cursor) {
         boolean more = rows.size() > size;
-        var items = List.copyOf(rows.subList(0, Math.min(size, rows.size())));
+        List<T> items = List.copyOf(rows.subList(0, Math.min(size, rows.size())));
         return new CursorPage<>(items, more ? cursor.apply(items.get(items.size() - 1)) : null);
     }
 }

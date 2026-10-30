@@ -1,8 +1,10 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.util.Iterator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -41,8 +43,11 @@ public class LocalModelServices {
     private final Path root;
     private final Duration wait;
     private final Duration startupWait;
+
     private final Map<String, Process> launched = new java.util.concurrent.ConcurrentHashMap<>();
+
     private final Map<String, String> states = new java.util.concurrent.ConcurrentHashMap<>();
+
     private final java.util.concurrent.ExecutorService starters = java.util.concurrent.Executors.newFixedThreadPool(2, task -> {
         var thread = new Thread(task, "local-model-start");
         thread.setDaemon(true);
@@ -51,7 +56,9 @@ public class LocalModelServices {
     private volatile boolean armed;
     private volatile boolean closing;
     private boolean started;
+
     @Value("${my-youtube.local-model-services.asr-python:}") private String asrPython = "";
+
     @Value("${my-youtube.local-model-services.ocr-python:}") private String ocrPython = "";
 
     public LocalModelServices(ObjectMapper mapper,
@@ -69,8 +76,13 @@ public class LocalModelServices {
         this.startupWait = DurationStyle.detectAndParse(startupWait);
         if (this.startupWait.isNegative() || this.startupWait.isZero()) throw new IllegalArgumentException("startup-wait must be positive");
         Path candidate = null;
-        try { candidate = projectRoot.isBlank() ? findRoot(Path.of(System.getProperty("user.dir"))) : Path.of(projectRoot).toAbsolutePath().normalize(); }
-        catch (IOException | RuntimeException error) { log.warn("Local model project unavailable reason={}", error.toString()); }
+        try {
+            candidate = projectRoot.isBlank() ? findRoot(Path.of(System.getProperty("user.dir"))) : Path.of(projectRoot)
+                    .toAbsolutePath()
+                    .normalize();
+        } catch (IOException | RuntimeException error) {
+            log.warn("Local model project unavailable reason={}", error.toString());
+        }
         this.root = candidate;
     }
 
@@ -90,19 +102,29 @@ public class LocalModelServices {
             if (registeredProcess(service).isPresent()) {
                 log.info("Reusing local model service={}", service);
             } else {
-                var directory = root.resolve(service).toRealPath();
+                Path directory = root.resolve(service).toRealPath();
                 Files.createDirectories(directory.resolve(".runtime"));
                 String kind = service.substring(0, service.length() - 4);
-                var builder = new ProcessBuilder(pythonExecutable(directory, kind), "-m", "model_runtime.server",
-                        "--service", kind, "--directory", directory.toString(), "--managed").directory(directory.toFile())
+                ProcessBuilder builder = new ProcessBuilder(
+                        pythonExecutable(directory, kind),
+                        "-m",
+                        "model_runtime.server",
+                        "--service",
+                        kind,
+                        "--directory",
+                        directory.toString(),
+                        "--managed").directory(directory.toFile())
                         .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(
                                 directory.resolve(".runtime/transcode-launch.log").toFile()));
                 builder.environment().remove("SERVER_PORT");
                 builder.environment().remove("MODEL_LOG_DIRECTORY");
-                builder.environment().compute("PYTHONPATH", (k, inheritedPath) -> root + (inheritedPath == null ? "" : File.pathSeparator + inheritedPath));
+                builder.environment()
+                        .compute(
+                                "PYTHONPATH",
+                                (k, inheritedPath) -> root + (inheritedPath == null ? "" : File.pathSeparator + inheritedPath));
                 synchronized (this) {
                     if (closing) return;
-                    var process = launch(builder);
+                    Process process = launch(builder);
                     launched.put(service, process);
                     log.info("Started local model service={} pid={}", service, process.pid());
                 }
@@ -117,7 +139,9 @@ public class LocalModelServices {
         }
     }
 
-    public Map<String, String> startupStates() { return Map.copyOf(states); }
+    public Map<String, String> startupStates() {
+        return Map.copyOf(states);
+    }
 
     private String pythonExecutable(Path directory, String kind) throws IOException {
         String configured = kind.equals("asr") ? asrPython : ocrPython;
@@ -134,29 +158,38 @@ public class LocalModelServices {
     }
 
     private void awaitReady(String serviceName) throws Exception {
-        var http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build();
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build();
         long deadline = System.nanoTime() + startupWait.toNanos();
         var pending = new ArrayList<>(List.of(serviceName));
         while (!pending.isEmpty()) {
-            if (closing || Thread.currentThread().isInterrupted()) throw new InterruptedException("Model startup cancelled");
-            for (var iterator = pending.iterator(); iterator.hasNext();) {
+            if (closing
+                    || Thread.currentThread()
+                    .isInterrupted()) throw new InterruptedException("Model startup cancelled");
+            for (Iterator<String> iterator = pending.iterator(); iterator.hasNext();) {
                 String service = iterator.next();
-                var owned = launched.get(service);
-                if (owned != null && !owned.isAlive()) throw new IOException(service + " exited with code " + owned.exitValue());
-                var instance = registeredProcess(service);
+                Process owned = launched.get(service);
+                if (owned != null
+                        && !owned.isAlive()) throw new IOException(service + " exited with code " + owned.exitValue());
+                Optional<LocalModelServices.ServerProcess> instance = registeredProcess(service);
                 if (instance.isEmpty()) continue;
-                var process = instance.get();
-                if (owned != null && process.handle().pid() != owned.pid()) throw new IOException("Process record changed for " + service);
-                if (process.port() <= 0 || process.port() > 65535) throw new IOException("Missing or invalid port in record for " + service);
+                LocalModelServices.ServerProcess process = instance.get();
+                if (owned != null
+                        && process.handle().pid() != owned.pid()) throw new IOException("Process record changed for " + service);
+                if (process.port() <= 0
+                        || process.port() > 65535) throw new IOException("Missing or invalid port in record for " + service);
                 try {
-                    var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + process.port() + "/health"))
+                    HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + process.port() + "/health"))
                             .timeout(Duration.ofSeconds(1)).GET().build();
-                    var response = http.send(request, HttpResponse.BodyHandlers.ofString());
-                    var health = mapper.readTree(response.body());
+                    HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+                    JsonNode health = mapper.readTree(response.body());
                     if (response.statusCode() == 200 && health.path("ready").asBoolean(false)) {
                         if (health.path("pid").asLong(-1) != process.handle().pid())
                             throw new IllegalStateException("Health endpoint belongs to another process for " + service);
-                        log.info("Local model ready service={} pid={} port={}", service, process.handle().pid(), process.port());
+                        log.info(
+                                "Local model ready service={} pid={} port={}",
+                                service,
+                                process.handle().pid(),
+                                process.port());
                         iterator.remove();
                     }
                 } catch (IOException ignored) {
@@ -193,7 +226,7 @@ public class LocalModelServices {
         armed = false;
         var exits = new ArrayList<CompletableFuture<ProcessHandle>>();
         var ownedPids = new java.util.HashSet<Long>();
-        for (var process : launched.values()) {
+        for (Process process : launched.values()) {
             ownedPids.add(process.pid());
             if (!process.isAlive()) continue;
             try {
@@ -208,7 +241,7 @@ public class LocalModelServices {
         launched.clear();
         if (stopRegistered) for (String service : List.of("asr-svc", "ocr-svc")) {
             try {
-                var process = registeredProcess(service);
+                Optional<LocalModelServices.ServerProcess> process = registeredProcess(service);
                 if (process.isPresent() && !ownedPids.contains(process.get().handle().pid())) {
                     requestShutdown(process.get());
                     exits.add(process.get().handle().onExit());
@@ -219,7 +252,8 @@ public class LocalModelServices {
             }
         }
         try {
-            CompletableFuture.allOf(exits.toArray(CompletableFuture[]::new)).get(wait.toMillis(), TimeUnit.MILLISECONDS);
+            CompletableFuture.allOf(exits.toArray(CompletableFuture[]::new))
+                    .get(wait.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             log.warn("Interrupted while waiting for local model services to stop");
@@ -232,11 +266,12 @@ public class LocalModelServices {
 
     void requestShutdown(ServerProcess process) throws IOException, InterruptedException {
         if (process.controlPort() <= 0 || process.controlPort() > 65535 || process.controlToken() == null
-                || !process.controlToken().matches("[0-9a-f]{64}")) throw new IOException("Invalid local model control record");
-        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + process.controlPort() + "/shutdown"))
+                || !process.controlToken()
+                .matches("[0-9a-f]{64}")) throw new IOException("Invalid local model control record");
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + process.controlPort() + "/shutdown"))
                 .timeout(Duration.ofSeconds(2)).header("Authorization", "Bearer " + process.controlToken())
                 .POST(HttpRequest.BodyPublishers.noBody()).build();
-        var response = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build()
+        HttpResponse<Void> response = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build()
                 .send(request, HttpResponse.BodyHandlers.discarding());
         if (response.statusCode() != 202) throw new IOException("Local model shutdown rejected: " + response.statusCode());
         log.info("Requested reused local model shutdown pid={}", process.handle().pid());
@@ -249,7 +284,7 @@ public class LocalModelServices {
             return Optional.empty();
         }
         if (Files.size(file) > 4096) throw new IOException("Invalid local model process record: " + file);
-        var record = mapper.readValue(file.toFile(), ServerRecord.class);
+        LocalModelServices.ServerRecord record = mapper.readValue(file.toFile(), ServerRecord.class);
         if (!service.equals(record.service()) || record.directory() == null
                 || !directory.equals(Path.of(record.directory()).toRealPath())) return Optional.empty();
         if (record.controlPort() <= 0 || record.controlPort() > 65535 || record.controlToken() == null
@@ -257,17 +292,20 @@ public class LocalModelServices {
             log.warn("Local model record lacks cooperative control; restart service={}", service);
             return Optional.empty();
         }
-        var handle = process(record.pid());
+        Optional<ProcessHandle> handle = process(record.pid());
         if (handle.isEmpty() || !handle.get().isAlive()) return Optional.empty();
-        var info = handle.get().info();
-        var started = info.startInstant();
-        var arguments = Arrays.asList(info.arguments().orElse(new String[0]));
+        ProcessHandle.Info info = handle.get().info();
+        Optional<Instant> started = info.startInstant();
+        List<String> arguments = Arrays.asList(info.arguments().orElse(new String[0]));
         // A reused PID must never turn a stale record into permission to stop another process.
         Instant recorded = Instant.ofEpochMilli(record.recordedAt());
         if ((started.isPresent() && started.get().isAfter(recorded)) || recorded.isAfter(Instant.now())
                 || (!arguments.isEmpty() && (!option(arguments, "-m", "model_runtime.server")
                 || !option(arguments, "--service", service.substring(0, service.length() - 4))))) {
-            log.warn("Ignoring stale or mismatched local model process record service={} pid={}", service, record.pid());
+            log.warn(
+                    "Ignoring stale or mismatched local model process record service={} pid={}",
+                    service,
+                    record.pid());
             return Optional.empty();
         }
         return Optional.of(new ServerProcess(handle.get(), record.port(), record.controlPort(), record.controlToken()));
@@ -279,10 +317,18 @@ public class LocalModelServices {
                 && index >= 0 && value.equals(arguments.get(index + 1));
     }
 
-    Optional<ProcessHandle> process(long pid) { return ProcessHandle.of(pid); }
-    Process launch(ProcessBuilder builder) throws IOException { return builder.start(); }
+    Optional<ProcessHandle> process(long pid) {
+        return ProcessHandle.of(pid);
+    }
+
+    Process launch(ProcessBuilder builder) throws IOException {
+        return builder.start();
+    }
 
     private record ServerRecord(long pid, String service, String directory, long recordedAt, int port,
-                                int controlPort, String controlToken) {}
-    record ServerProcess(ProcessHandle handle, int port, int controlPort, String controlToken) {}
+                                int controlPort, String controlToken) {
+    }
+
+    record ServerProcess(ProcessHandle handle, int port, int controlPort, String controlToken) {
+    }
 }

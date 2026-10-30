@@ -13,7 +13,8 @@ public class AudioCascadeProperties {
     private int batchSize = 200;
     private int roundBudgetMs = 5000;
 
-    @PostConstruct public void validate() {
+    @PostConstruct
+    public void validate() {
         if (scanIntervalMs < 1000 || batchSize < 1 || batchSize > 1000 || roundBudgetMs < 1)
             throw new IllegalStateException("音频级联补扫配置无效");
     }

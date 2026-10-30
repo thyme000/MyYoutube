@@ -13,15 +13,24 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class VideoContentStrategy implements ContentTypeStrategy {
     private final VideoMapper videos;
-    @Override public ContentTypeEnum type() { return ContentTypeEnum.VIDEO; }
-    @Override public ContentMedia prepare(MediaDraft draft) {
+
+    @Override
+    public ContentTypeEnum type() {
+        return ContentTypeEnum.VIDEO;
+    }
+
+    @Override
+    public ContentMedia prepare(MediaDraft draft) {
         return PreparedDrafts.media(draft);
     }
 
-    @Override public void persist(Long id, ContentMedia media) {
+    @Override
+    public void persist(Long id, ContentMedia media) {
         videos.insert(new Video().setId(id).setObjectKey(media.video().objectKey()).setDurationMs(media.video().durationMs()));
     }
-    @Override public Map<Long, ContentMedia> loadMedia(Collection<Long> ids) {
+
+    @Override
+    public Map<Long, ContentMedia> loadMedia(Collection<Long> ids) {
         if (ids.isEmpty()) return Map.of();
         return videos.selectBatchIds(ids).stream().collect(Collectors.toMap(Video::getId,
                 v -> new ContentMedia("video", new VideoMedia(v.getObjectKey(), v.getDurationMs()), null)));

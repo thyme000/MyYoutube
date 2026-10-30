@@ -33,7 +33,9 @@ public class AdminHotSearchHistoryController {
     }
 
     @GetMapping("/keywords")
-    public Result<CursorPage<Keyword, String>> keywords(@RequestParam("date") String date, @RequestParam("groupId") String groupId,
+    public Result<CursorPage<Keyword, String>> keywords(
+            @RequestParam("date") String date,
+            @RequestParam("groupId") String groupId,
                                   @RequestParam(value = "cursor", required = false) String cursor,
                                   @RequestParam(value = "size", defaultValue = "20") Integer size) {
         authorization.requireAdmin();
@@ -42,7 +44,9 @@ public class AdminHotSearchHistoryController {
     }
 
     @GetMapping("/users")
-    public Result<CursorPage<User, String>> users(@RequestParam("date") String date, @RequestParam("groupId") String groupId,
+    public Result<CursorPage<User, String>> users(
+            @RequestParam("date") String date,
+            @RequestParam("groupId") String groupId,
                             @RequestParam("keywordId") Long keywordId,
                             @RequestParam(value = "cursor", required = false) String cursor,
                             @RequestParam(value = "size", defaultValue = "20") Integer size) {
@@ -52,7 +56,9 @@ public class AdminHotSearchHistoryController {
     }
 
     @GetMapping("/events")
-    public Result<CursorPage<Event, String>> events(@RequestParam("date") String date, @RequestParam("groupId") String groupId,
+    public Result<CursorPage<Event, String>> events(
+            @RequestParam("date") String date,
+            @RequestParam("groupId") String groupId,
                               @RequestParam("keywordId") Long keywordId,
                               @RequestParam(value = "userId", required = false) Long userId,
                               @RequestParam(value = "cursor", required = false) String cursor,

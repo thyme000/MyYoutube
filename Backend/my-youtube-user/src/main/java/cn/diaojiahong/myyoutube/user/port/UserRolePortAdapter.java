@@ -26,6 +26,7 @@ public class UserRolePortAdapter implements UserRolePort {
         if (user == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "用户不存在或已删除");
         }
+
         if (user.getRole() == null) {
             throw new IllegalStateException("用户角色未配置");
         }

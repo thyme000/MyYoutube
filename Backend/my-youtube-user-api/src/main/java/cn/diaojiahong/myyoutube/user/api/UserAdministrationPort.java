@@ -14,9 +14,14 @@ import org.springframework.web.bind.annotation.*;
 @PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT, ErrorCode.NOT_FOUND,
         ErrorCode.STATE_CONFLICT, ErrorCode.SUPER_ADMIN_REQUIRED})
 public interface UserAdministrationPort {
-    record Query(Long actorId, int pageNo, int pageSize) {}
-    record Administrator(Long userId, String username, String nickname, UserRole role) {}
-    record Change(Long userId, UserRole role, boolean changed) {}
+    record Query(Long actorId, int pageNo, int pageSize) {
+    }
+
+    record Administrator(Long userId, String username, String nickname, UserRole role) {
+    }
+
+    record Change(Long userId, UserRole role, boolean changed) {
+    }
 
     @PostMapping("/page")
     PageResult<Administrator> page(@RequestBody Query query);

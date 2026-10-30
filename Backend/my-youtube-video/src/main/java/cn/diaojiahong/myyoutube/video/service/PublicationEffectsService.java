@@ -47,32 +47,47 @@ public class PublicationEffectsService {
         if (event == null || Boolean.TRUE.equals(event.getCompleted())) return;
         for (PublicationBranch branch : PublicationBranch.values()) {
             if (branch == PublicationBranch.AUDIO_COUNT && Boolean.TRUE.equals(event.getAudioCountDone())) continue;
-            try { mq.syncSend(MqConstants.TOPIC_PUBLICATION_EFFECT + ":" + branch, new PublicationEffectMessage(eventId, branch)); }
-            catch (Exception e) { log.error("Publication branch deferred eventId={} branch={}", eventId, branch, e); }
+            try {
+                mq.syncSend(
+                        MqConstants.TOPIC_PUBLICATION_EFFECT + ":" + branch,
+                        new PublicationEffectMessage(eventId, branch));
+            } catch (Exception e) {
+                log.error("Publication branch deferred eventId={} branch={}", eventId, branch, e);
+            }
         }
     }
+
     @Scheduled(fixedDelay = 300000, initialDelay = 300000)
     @ObservedBusiness(BusinessOperation.RECOVER_PUBLICATION)
     public void recover() {
         long cursor = 0;
         while (true) {
-            var page = events.selectList(new LambdaQueryWrapper<ContentPublicationEvent>().gt(ContentPublicationEvent::getId, cursor)
-                    .eq(ContentPublicationEvent::getCompleted, false).orderByAsc(ContentPublicationEvent::getId).last("LIMIT 100"));
+            List<ContentPublicationEvent> page = events.selectList(new LambdaQueryWrapper<ContentPublicationEvent>().gt(
+                    ContentPublicationEvent::getId,
+                    cursor)
+                    .eq(ContentPublicationEvent::getCompleted, false)
+                    .orderByAsc(ContentPublicationEvent::getId)
+                    .last("LIMIT 100"));
             if (page.isEmpty()) return;
             cursor = page.get(page.size()-1).getId();
-            for (var event : page) {
+            for (ContentPublicationEvent event : page) {
                 if (!Boolean.TRUE.equals(event.getSearchDone())) send(event.getId(), PublicationBranch.SEARCH);
                 if (!Boolean.TRUE.equals(event.getNoticeDone())) send(event.getId(), PublicationBranch.NOTICE);
                 if (!Boolean.TRUE.equals(event.getAudioCountDone())) send(event.getId(), PublicationBranch.AUDIO_COUNT);
             }
         }
     }
+
     private void send(Long id, PublicationBranch branch) {
-        try { mq.syncSend(MqConstants.TOPIC_PUBLICATION_EFFECT + ":" + branch, new PublicationEffectMessage(id, branch)); }
-        catch (Exception e) { log.error("Publication recovery send failed eventId={} branch={}", id, branch, e); }
+        try {
+            mq.syncSend(MqConstants.TOPIC_PUBLICATION_EFFECT + ":" + branch, new PublicationEffectMessage(id, branch));
+        } catch (Exception e) {
+            log.error("Publication recovery send failed eventId={} branch={}", id, branch, e);
+        }
     }
+
     public void apply(PublicationEffectMessage message) {
-        var event = events.selectById(message.eventId());
+        ContentPublicationEvent event = events.selectById(message.eventId());
         if (event == null || Boolean.TRUE.equals(event.getCompleted())) {
             log.debug("Publication branch ignored eventId={} branch={} reason={}", message.eventId(), message.branch(),
                     event == null ? "EVENT_MISSING" : "ALREADY_COMPLETED");
@@ -95,13 +110,17 @@ public class PublicationEffectsService {
             log.info("Publication effects completed eventId={} contentId={} authorId={} status={}",
                     event.getId(), event.getContentId(), event.getAuthorId(), event.getStatus().getCode());
         } else {
-            log.debug("Publication branch applied, waiting for remaining branches eventId={} branch={}", event.getId(), message.branch());
+            log.debug(
+                    "Publication branch applied, waiting for remaining branches eventId={} branch={}",
+                    event.getId(),
+                    message.branch());
         }
     }
+
     private void notice(ContentPublicationEvent event) {
         if (Boolean.TRUE.equals(event.getNoticeDone())) return;
         boolean inserted = Boolean.TRUE.equals(transaction.execute(tx -> {
-            var locked = events.selectOne(new LambdaQueryWrapper<ContentPublicationEvent>().eq(ContentPublicationEvent::getId, event.getId()).last("FOR UPDATE"));
+            ContentPublicationEvent locked = events.selectOne(new LambdaQueryWrapper<ContentPublicationEvent>().eq(ContentPublicationEvent::getId, event.getId()).last("FOR UPDATE"));
             if (Boolean.TRUE.equals(locked.getNoticeDone())) return false;
             // 通过事件可能晚于删除或封禁到达；跳过过时通知，同时确认进度，避免补扫重复投递。
             if (obsoleteApproval(locked)) {
@@ -109,10 +128,15 @@ public class PublicationEffectsService {
                 return false;
             }
             boolean approved = event.getStatus() == ContentStatusEnum.PUBLISHED;
-            boolean audioBanned = !approved && reviewRecords.audioBannedContentIds(List.of(event.getContentId())).contains(event.getContentId());
-            var feedback = ReviewFeedback.reviewNotice(approved, audioBanned);
+            boolean audioBanned = !approved
+                    && reviewRecords.audioBannedContentIds(List.of(event.getContentId()))
+                            .contains(event.getContentId());
+            ReviewFeedback.ReviewNotice feedback = ReviewFeedback.reviewNotice(approved, audioBanned);
             boolean saved = notifications.save(new UserNotification().setReceiverId(event.getAuthorId()).setType("SYSTEM_NOTICE").setRefType("CONTENT")
-                    .setRefId(event.getContentId()).setTitle(feedback.title()).setContent(feedback.content()).setIsRead(0));
+                    .setRefId(event.getContentId())
+                    .setTitle(feedback.title())
+                    .setContent(feedback.content())
+                    .setIsRead(0));
             if (!saved) throw new IllegalStateException("审核通知落库失败");
             events.update(null, update(event).set(ContentPublicationEvent::getNoticeDone, true));
             return true;
@@ -120,10 +144,14 @@ public class PublicationEffectsService {
         if (inserted) {
             log.info("Publication notice stored eventId={} contentId={} receiverId={} status={}",
                     event.getId(), event.getContentId(), event.getAuthorId(), event.getStatus().getCode());
-            try { push.pushSseSignal(event.getAuthorId(), NotificationPublisher.NOTIFY_DIRTY_SIGNAL); }
-            catch (Exception e) { log.debug("SSE reminder failed after durable notification", e); }
+            try {
+                push.pushSseSignal(event.getAuthorId(), NotificationPublisher.NOTIFY_DIRTY_SIGNAL);
+            } catch (Exception e) {
+                log.debug("SSE reminder failed after durable notification", e);
+            }
         }
     }
+
     private boolean obsoleteApproval(ContentPublicationEvent event) {
         if (event.getStatus() != ContentStatusEnum.PUBLISHED) return false;
         Content content = contents.selectById(event.getContentId());

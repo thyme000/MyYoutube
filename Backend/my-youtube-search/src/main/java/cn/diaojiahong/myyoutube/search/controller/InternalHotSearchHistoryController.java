@@ -26,7 +26,9 @@ public class InternalHotSearchHistoryController {
     }
 
     @GetMapping("/keywords")
-    public CursorPage<Keyword, String> keywords(@RequestParam("date") String date, @RequestParam("groupId") String groupId,
+    public CursorPage<Keyword, String> keywords(
+            @RequestParam("date") String date,
+            @RequestParam("groupId") String groupId,
                                   @RequestParam(value = "cursor", required = false) String cursor,
                                   @RequestParam(value = "size", defaultValue = "20") Integer size) {
         return service.keywords(date, groupId, cursor, size);

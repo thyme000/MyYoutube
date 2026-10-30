@@ -17,9 +17,16 @@ import com.baomidou.mybatisplus.extension.service.IService;
 public interface IContentLikeService extends IService<ContentLike> {
 
     void likeContent(Long contentId);
+
     void cancelLikeContent(Long contentId);
+
     void dislikeContent(Long contentId);
+
     PageResult<LikedContentVO> getLikedContentList(Long userId, ContentPageQuery pageQuery);
+
     Boolean getLikeStatus(Long contentId);
+
     void likeComment(Long commentId);
-    void cancelLikeComment(Long commentId);}
+
+    void cancelLikeComment(Long commentId);
+    }

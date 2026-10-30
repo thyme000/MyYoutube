@@ -39,6 +39,7 @@ public class ChatMessageDoc extends BaseMongoEntity {
     private Boolean recalled;
     // 撤回时间
     private LocalDateTime recalledAt;
+
     // 撤回类型(1:群主撤回,2:成员撤回)
     private RecallTypeEnum recallType;
 }

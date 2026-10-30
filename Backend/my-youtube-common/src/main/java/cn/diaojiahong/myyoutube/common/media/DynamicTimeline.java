@@ -4,10 +4,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class DynamicTimeline {
-    private DynamicTimeline() {}
+    private DynamicTimeline() {
+    }
 
     public record Schedule(List<Long> startsMs, long exportDurationMs) {
-        public Schedule { startsMs = List.copyOf(startsMs); }
+        public Schedule {
+            startsMs = List.copyOf(startsMs);
+        }
     }
 
     public static Schedule schedule(List<Long> durationsMs, long fadeMs) {

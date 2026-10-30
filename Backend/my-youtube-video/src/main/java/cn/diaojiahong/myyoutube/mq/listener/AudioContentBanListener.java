@@ -15,5 +15,9 @@ import org.springframework.stereotype.Component;
         consumeFromWhere = ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET, maxReconsumeTimes = 3)
 public class AudioContentBanListener implements RocketMQListener<AudioContentBanMessage> {
     private final ReviewDecisionService decisions;
-    @Override public void onMessage(AudioContentBanMessage message) { decisions.banByAudio(message); }
+
+    @Override
+    public void onMessage(AudioContentBanMessage message) {
+        decisions.banByAudio(message);
+    }
 }

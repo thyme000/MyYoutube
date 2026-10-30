@@ -17,8 +17,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class TextRuleMatcherTest {
     @TempDir Path directory;
 
-    @Test void normalizesBothRulesAndInputWithoutRewritingInput() throws Exception {
-        var matcher = load("# comment\n\nexact: Ｃ＋＋  教程\nphrase: 猫\u200b  咪\nphrase: a.b\nphrase: 𠮷猫\n");
+    @Test
+    void normalizesBothRulesAndInputWithoutRewritingInput() throws Exception {
+        TextRuleMatcher matcher = load("# comment\n\nexact: Ｃ＋＋  教程\nphrase: 猫\u200b  咪\nphrase: a.b\nphrase: 𠮷猫\n");
         assertTrue(matcher.matches("c++   教程"));
         assertFalse(matcher.matches("更多 C++ 教程"));
         assertTrue(matcher.matches("可爱猫   咪视频"));
@@ -28,13 +29,14 @@ class TextRuleMatcherTest {
         assertFalse(matcher.matches(null));
     }
 
-    @Test void handlesFailureLinksSuffixOutputsAndLargeSharedPrefixes() throws Exception {
+    @Test
+    void handlesFailureLinksSuffixOutputsAndLargeSharedPrefixes() throws Exception {
         var random = new Random(42);
         var phrases = new LinkedHashSet<String>();
         phrases.addAll(java.util.List.of("abcde", "bc", "bce", "abx", "aby", "aab"));
         for (int i = 0; i < 300; i++) phrases.add("abc" + letters(random, 6));
-        var matcher = load("phrase:" + String.join("\nphrase:", phrases));
-        var entries = phrases.toArray(String[]::new);
+        TextRuleMatcher matcher = load("phrase:" + String.join("\nphrase:", phrases));
+        String[] entries = phrases.toArray(String[]::new);
         for (int i = 0; i < 1000; i++) {
             String text = letters(random, 40);
             if (i % 2 == 0) text = text.substring(0, 20) + entries[random.nextInt(entries.length)] + text.substring(20);
@@ -48,12 +50,17 @@ class TextRuleMatcherTest {
     @ParameterizedTest
     @ValueSource(strings = {"unknown:private-rule", "missing-prefix", "exact:", "phrase:   ", "phrase:\u200b"})
     void rejectsInvalidWholeDictionaryWithLineNumberOnly(String invalid) throws Exception {
-        var error = assertThrows(IllegalArgumentException.class, () -> load("exact:valid\n" + invalid));
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> load("exact:valid\n" + invalid));
         assertEquals("词表第 2 行格式错误或词条为空", error.getMessage());
     }
 
-    @Test void rejectsMissingFilesInvalidUtf8AndBlankLocations() throws Exception {
-        assertThrows(IOException.class, () -> TextRuleMatcher.load(directory.resolve("missing.txt").toUri().toString()));
+    @Test
+    void rejectsMissingFilesInvalidUtf8AndBlankLocations() throws Exception {
+        assertThrows(
+                IOException.class,
+                () -> TextRuleMatcher.load(directory.resolve("missing.txt").toUri().toString()));
         for (String location : new String[]{null, "", " "})
             assertThrows(IllegalArgumentException.class, () -> TextRuleMatcher.load(location));
         Path file = directory.resolve("invalid.txt");
@@ -62,8 +69,9 @@ class TextRuleMatcherTest {
         assertThrows(IOException.class, () -> TextRuleMatcher.load(file.toUri().toString()));
     }
 
-    @Test void emptyDictionaryDoesNotMatchAnyText() throws Exception {
-        var matcher = load("# empty\n");
+    @Test
+    void emptyDictionaryDoesNotMatchAnyText() throws Exception {
+        TextRuleMatcher matcher = load("# empty\n");
         assertFalse(matcher.matches(""));
         assertFalse(matcher.matches("valid"));
         assertFalse(TextRuleMatcher.empty().matches("valid"));

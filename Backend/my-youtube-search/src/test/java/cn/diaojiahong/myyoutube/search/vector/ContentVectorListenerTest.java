@@ -17,11 +17,14 @@ class ContentVectorListenerTest {
         new ApplicationContextRunner().withUserConfiguration(ContentVectorListener.class)
                 .withBean(ContentVectorService.class, () -> mock(ContentVectorService.class))
                 .withPropertyValues("my-youtube.search.vector.enabled=" + enabled)
-                .run(context -> assertEquals(enabled ? 1 : 0, context.getBeansOfType(ContentVectorListener.class).size()));
+                .run(context -> assertEquals(
+                        enabled ? 1 : 0,
+                        context.getBeansOfType(ContentVectorListener.class).size()));
     }
 
-    @Test void invalidMessageFailsInsteadOfAcknowledgingConsumption() {
-        var service = mock(ContentVectorService.class);
+    @Test
+    void invalidMessageFailsInsteadOfAcknowledgingConsumption() {
+        ContentVectorService service = mock(ContentVectorService.class);
         var listener = new ContentVectorListener(service);
         assertThrows(IllegalArgumentException.class, () -> listener.onMessage(null));
         assertThrows(IllegalArgumentException.class, () -> listener.onMessage(new ContentVectorMessage(null)));
@@ -30,8 +33,9 @@ class ContentVectorListenerTest {
         verifyNoInteractions(service);
     }
 
-    @Test void passesRecoveryTargetToTheExistingConsumerService() {
-        var service = mock(ContentVectorService.class);
+    @Test
+    void passesRecoveryTargetToTheExistingConsumerService() {
+        ContentVectorService service = mock(ContentVectorService.class);
         new ContentVectorListener(service).onMessage(new ContentVectorMessage(1L, "model:2", "model failure"));
         verify(service).embedContent(1L, "model:2");
     }

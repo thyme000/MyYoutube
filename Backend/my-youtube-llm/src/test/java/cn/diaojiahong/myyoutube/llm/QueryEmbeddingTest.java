@@ -3,11 +3,15 @@ package cn.diaojiahong.myyoutube.llm;
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 
 import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
+import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
 import cn.diaojiahong.myyoutube.llm.embedding.EmbeddingProvider;
 import cn.diaojiahong.myyoutube.llm.embedding.OpenAiCompatEmbeddingProvider;
 import cn.diaojiahong.myyoutube.llm.embedding.QueryEmbeddingService;
 import com.sun.net.httpserver.HttpServer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import org.springframework.test.web.servlet.MockMvc;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
@@ -24,10 +28,12 @@ import static org.mockito.Mockito.*;
 
 @org.junit.jupiter.api.Timeout(10)
 class QueryEmbeddingTest {
-    @Test void metadataReturnsCurrentVersionWithoutStartingModels() {
-        var properties = new LlmProperties(); properties.getEmbedding().setModel("model");
+    @Test
+    void metadataReturnsCurrentVersionWithoutStartingModels() {
+        var properties = new LlmProperties();
+        properties.getEmbedding().setModel("model");
         properties.getEmbedding().setDims(2);
-        var provider = mock(EmbeddingProvider.class);
+        EmbeddingProvider provider = mock(EmbeddingProvider.class);
         var service = new QueryEmbeddingService(provider, properties);
         assertEquals(new QueryEmbeddingPort.Info("model:2", 2), service.info());
         properties.getEmbedding().setVersion("new-version");
@@ -35,45 +41,63 @@ class QueryEmbeddingTest {
         verifyNoInteractions(provider);
     }
 
-    @Test void expiredRequestsDoNotStartModels() {
-        var provider = mock(EmbeddingProvider.class);
+    @Test
+    void expiredRequestsDoNotStartModels() {
+        EmbeddingProvider provider = mock(EmbeddingProvider.class);
         var service = new QueryEmbeddingService(provider, new LlmProperties());
         assertThrows(ModelUnavailable.class, () -> service.embed(new QueryEmbeddingPort.Query("query", 1)));
         verifyNoInteractions(provider);
     }
 
-    @Test void queryConcurrencyRejectsQuicklyWithoutChangingContentRules() throws Exception {
-        var properties = new LlmProperties(); properties.getEmbedding().setQueryMaxConcurrent(1);
+    @Test
+    void queryConcurrencyRejectsQuicklyWithoutChangingContentRules() throws Exception {
+        var properties = new LlmProperties();
+        properties.getEmbedding().setQueryMaxConcurrent(1);
         properties.getEmbedding().setDims(2);
-        var provider = mock(EmbeddingProvider.class);
+        EmbeddingProvider provider = mock(EmbeddingProvider.class);
         var service = new QueryEmbeddingService(provider, properties);
-        var entered = new CountDownLatch(1); var release = new CountDownLatch(1);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
         when(provider.embedQuery(anyString(), any())).thenAnswer(call -> {
-            entered.countDown(); release.await(); return List.of(new float[]{1, 2});
+            entered.countDown();
+            release.await();
+            return List.of(new float[]{1, 2});
         });
         when(provider.embed(any())).thenReturn(List.of(new float[]{1, 2}));
-        var caller = Executors.newSingleThreadExecutor();
+        ExecutorService caller = Executors.newSingleThreadExecutor();
         try {
-            var first = caller.submit(() -> service.embed(query()));
+            Future<LlmPort.EmbeddingsResponse> first = caller.submit(() -> service.embed(query()));
             assertTrue(entered.await(1, TimeUnit.SECONDS));
             assertThrows(ModelUnavailable.class, () -> service.embed(query()));
             assertEquals(1, provider.embed(List.of("content")).size());
-            release.countDown(); assertEquals(2, first.get(1, TimeUnit.SECONDS).getDims());
+            release.countDown();
+            assertEquals(2, first.get(1, TimeUnit.SECONDS).getDims());
             assertEquals(2, service.embed(query()).getDims());
-        } finally { release.countDown(); caller.shutdownNow(); }
+        } finally {
+            release.countDown();
+            caller.shutdownNow();
+        }
     }
 
-    @Test void blockedModelAndTricklingBodyAreCancelledWithoutRetryAndSlotsRecover() throws Exception {
-        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        var workers = Executors.newCachedThreadPool(); var calls = new AtomicInteger();
+    @Test
+    void blockedModelAndTricklingBodyAreCancelledWithoutRetryAndSlotsRecover() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        ExecutorService workers = Executors.newCachedThreadPool();
+        var calls = new AtomicInteger();
         server.setExecutor(workers);
         server.createContext("/embeddings", exchange -> {
             calls.incrementAndGet();
             exchange.sendResponseHeaders(200, 0);
             try {
-                while (true) { exchange.getResponseBody().write(' '); exchange.getResponseBody().flush(); Thread.sleep(20); }
-            } catch (Exception ignored) { }
-            finally { exchange.close(); }
+                while (true) {
+                    exchange.getResponseBody().write(' ');
+                    exchange.getResponseBody().flush();
+                    Thread.sleep(20);
+                }
+            } catch (Exception ignored) {
+            } finally {
+                exchange.close();
+            }
         });
         server.start();
         try {
@@ -89,15 +113,21 @@ class QueryEmbeddingTest {
                 assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 800);
             }
             assertEquals(2, calls.get());
-        } finally { server.stop(0); workers.shutdownNow(); }
+        } finally {
+            server.stop(0);
+            workers.shutdownNow();
+        }
     }
 
-    @Test void queryProviderReceivesRemainingBudgetClampedToModelLimit() {
-        var properties = new LlmProperties(); properties.getEmbedding().setDims(1);
+    @Test
+    void queryProviderReceivesRemainingBudgetClampedToModelLimit() {
+        var properties = new LlmProperties();
+        properties.getEmbedding().setDims(1);
         properties.getEmbedding().setQueryTimeoutMillis(500);
-        var provider = mock(EmbeddingProvider.class);
+        EmbeddingProvider provider = mock(EmbeddingProvider.class);
         when(provider.embedQuery(anyString(), any())).thenAnswer(call -> {
-            Duration timeout = call.getArgument(1); assertTrue(timeout.toMillis() > 0 && timeout.toMillis() <= 100);
+            Duration timeout = call.getArgument(1);
+            assertTrue(timeout.toMillis() > 0 && timeout.toMillis() <= 100);
             return List.of(new float[]{1});
         });
         assertEquals(1, new QueryEmbeddingService(provider, properties)
@@ -105,20 +135,31 @@ class QueryEmbeddingTest {
         verify(provider, never()).embed(any());
     }
 
-    @Test void queryEndpointUsesIndependentMetricsAndContract() throws Exception {
-        var service = mock(QueryEmbeddingService.class);
+    @Test
+    void queryEndpointUsesIndependentMetricsAndContract() throws Exception {
+        QueryEmbeddingService service = mock(QueryEmbeddingService.class);
         when(service.embed(any())).thenReturn(new cn.diaojiahong.myyoutube.llm.api.LlmPort.EmbeddingsResponse(
                 List.of(List.of(1f)), 1, "test:1"));
         var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
-        var endpoint = new cn.diaojiahong.myyoutube.llm.controller.QueryEmbeddingController(service, new LlmRequestMetrics(registry));
-        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(endpoint).build();
+        var endpoint = new cn.diaojiahong.myyoutube.llm.controller.QueryEmbeddingController(
+                service,
+                new LlmRequestMetrics(registry));
+        MockMvc mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(endpoint).build();
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/internal/llm/query-embedding")
                 .contentType("application/json").content("{\"text\":\"q\",\"deadlineEpochMillis\":123}"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.version").value("test:1"));
-        assertEquals(0, registry.get(MetricNames.LLM_REQUESTS_ACTIVE).tag("operation", "query-embedding").gauge().value());
-        assertEquals(1, registry.get(MetricNames.LLM_REQUEST_DURATION).tags("operation", "query-embedding", "outcome", "success").timer().count());
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.version")
+                .value("test:1"));
+        assertEquals(
+                0,
+                registry.get(MetricNames.LLM_REQUESTS_ACTIVE).tag("operation", "query-embedding").gauge().value());
+        assertEquals(1, registry.get(MetricNames.LLM_REQUEST_DURATION)
+                .tags("operation", "query-embedding", "outcome", "success")
+                .timer()
+                .count());
     }
 
-    static QueryEmbeddingPort.Query query() { return new QueryEmbeddingPort.Query("query", System.currentTimeMillis() + 2000); }
+    static QueryEmbeddingPort.Query query() {
+        return new QueryEmbeddingPort.Query("query", System.currentTimeMillis() + 2000);
+    }
 }

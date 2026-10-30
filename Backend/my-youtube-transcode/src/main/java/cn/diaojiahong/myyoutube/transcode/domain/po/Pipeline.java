@@ -14,6 +14,7 @@ public class Pipeline {
     private Long id;
     private Long eventSequence;
     private Long contentId;
+
     @TableField(updateStrategy = FieldStrategy.NEVER)
     private String inputJson;
     private PipelineStatus status;

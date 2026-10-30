@@ -24,8 +24,10 @@ public class PipelineLogLocation {
             log.warn("Structured file format configured without logging.file.name; verify the Filebeat source");
             return;
         }
-        var file = Path.of(name);
+        Path file = Path.of(name);
         log.info("Structured log file={}", file.toAbsolutePath().normalize());
-        if (!file.isAbsolute()) log.warn("Log file is relative to process cwd; configure an absolute OBSERVABILITY_LOG_DIRECTORY matching the Filebeat mount");
+        if (!file.isAbsolute()) {
+            log.warn("Log file is relative to process cwd; configure an absolute OBSERVABILITY_LOG_DIRECTORY matching the Filebeat mount");
+        }
     }
 }

@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.follow.service.impl.UserFollowServiceImpl;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.session.SqlSession;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +27,8 @@ class FollowSnapshotTest {
     SqlSession session;
     UserFollowServiceImpl follows;
 
-    @BeforeEach void setup() throws Exception {
+    @BeforeEach
+    void setup() throws Exception {
         var ds = new DriverManagerDataSource("jdbc:h2:mem:follows-" + UUID.randomUUID()
                 + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
         jdbc = new JdbcTemplate(ds);
@@ -34,7 +36,7 @@ class FollowSnapshotTest {
                 + "is_deleted BOOLEAN, update_time TIMESTAMP)");
         var bean = new MybatisSqlSessionFactoryBean();
         bean.setDataSource(ds);
-        var factory = bean.getObject();
+        SqlSessionFactory factory = bean.getObject();
         factory.getConfiguration().addMapper(UserFollowMapper.class);
         session = factory.openSession(true);
         follows = new UserFollowServiceImpl(mock(UserPort.class), mock(S3StorageUtil.class),
@@ -42,9 +44,14 @@ class FollowSnapshotTest {
         ReflectionTestUtils.setField(follows, "baseMapper", session.getMapper(UserFollowMapper.class));
     }
 
-    @AfterEach void close() { session.close(); jdbc.execute("SHUTDOWN"); }
+    @AfterEach
+    void close() {
+        session.close();
+        jdbc.execute("SHUTDOWN");
+    }
 
-    @Test void includesFollowsBeyondTwoHundredAndExcludesOtherUsersAndCancelledRelations() {
+    @Test
+    void includesFollowsBeyondTwoHundredAndExcludesOtherUsersAndCancelledRelations() {
         for (long id = 1; id <= 205; id++) {
             jdbc.update("INSERT INTO user_follow VALUES (?,7,?,false,CURRENT_TIMESTAMP)", id, id + 1000);
         }
@@ -57,7 +64,8 @@ class FollowSnapshotTest {
         assertFalse(ids.contains(9002L));
     }
 
-    @Test void userWithoutFollowsHasAnEmptySnapshot() {
+    @Test
+    void userWithoutFollowsHasAnEmptySnapshot() {
         assertEquals(List.of(), follows.getFollowIds(7L));
     }
 }

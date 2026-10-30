@@ -12,17 +12,20 @@ import static org.mockito.Mockito.*;
 
 class AudioDocPublisherTest {
     private final RocketMQTemplate mq = mock(RocketMQTemplate.class);
+
     private final EsSyncPublisher publisher = new EsSyncPublisher(mq);
 
     @ParameterizedTest @EnumSource(SendStatus.class)
     void requiresConfirmedSend(SendStatus status) {
-        var result = new SendResult(); result.setSendStatus(status);
+        var result = new SendResult();
+        result.setSendStatus(status);
         when(mq.syncSendDelayTimeSeconds(anyString(), any(Object.class), anyLong())).thenReturn(result);
         if (status == SendStatus.SEND_OK) assertDoesNotThrow(() -> publisher.syncAudioDoc(1));
         else assertThrows(MqSendUnconfirmedException.class, () -> publisher.syncAudioDoc(1));
     }
 
-    @Test void missingAcknowledgementIsNotSuccess() {
+    @Test
+    void missingAcknowledgementIsNotSuccess() {
         assertThrows(MqSendUnconfirmedException.class, () -> publisher.syncAudioDoc(1));
     }
 }

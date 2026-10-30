@@ -24,7 +24,9 @@ public class AdminController {
     private final IAdminService adminService;
     private final cn.diaojiahong.myyoutube.video.api.ContentAdminPort contentAdminPort;
     private final AdminAuthorization authorization;
-    public record Decision(@jakarta.validation.constraints.NotBlank String reason) {}
+
+    public record Decision(@jakarta.validation.constraints.NotBlank String reason) {
+    }
 
     @GetMapping("/content/{contentId}/media")
     public Result<cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO> media(@PathVariable Long contentId) {
@@ -39,12 +41,19 @@ public class AdminController {
 
         return Result.success(contentAdminPort.contentStatus(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId)));
     }
+
     @GetMapping("/content/waiting")
     public Result<java.util.List<java.util.Map<String, Object>>> waiting(@RequestParam(defaultValue = "1") long pageNo,
                                                                        @RequestParam(defaultValue = "20") long pageSize) {
         authorization.requireAdmin();
 
-        return Result.success(contentAdminPort.waitingContent(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.AdminContentQuery(null, null, null, pageNo, pageSize, null)));
+        return Result.success(contentAdminPort.waitingContent(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.AdminContentQuery(
+                null,
+                null,
+                null,
+                pageNo,
+                pageSize,
+                null)));
     }
 
 

@@ -14,7 +14,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 class IdempotentConfigurationTest {
-    @Test void leaseSchedulerDoesNotReplaceBusinessSchedulingBeans() {
+    @Test
+    void leaseSchedulerDoesNotReplaceBusinessSchedulingBeans() {
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(AopAutoConfiguration.class, IdempotentAutoConfiguration.class))
                 .withBean(StringRedisTemplate.class, () -> mock(StringRedisTemplate.class))
@@ -31,6 +32,7 @@ class IdempotentConfigurationTest {
 
     static class Work {
         @Idempotent(key = "'context:test'", ttl = 0)
-        public void run() {}
+        public void run() {
+        }
     }
 }

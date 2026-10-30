@@ -9,7 +9,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 final class AuthorizationFixture {
-    private AuthorizationFixture() {}
+    private AuthorizationFixture() {
+    }
 
     static AdminAuthorization authorization() {
         UserRolePort roles = mock(UserRolePort.class);

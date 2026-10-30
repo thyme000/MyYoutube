@@ -14,4 +14,5 @@ import com.baomidou.mybatisplus.extension.service.IService;
  */
 public interface IUserVideoBehaviorService extends IService<UserVideoBehavior> {
 
-    void report(BehaviorDTO behaviorDTO);}
+    void report(BehaviorDTO behaviorDTO);
+    }

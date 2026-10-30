@@ -50,14 +50,23 @@ class AudioHistoricalAuthorCountIntegrationTest {
     @Configuration
     @MapperScan(basePackageClasses = {AudioMapper.class, ContentStatisticsMapper.class})
     static class Config {
-        @Bean DataSource dataSource() { return ContentTestDatabase.create("audio-usage"); }
-        @Bean SqlSessionFactory sqlSessionFactory(DataSource source) throws Exception {
+        @Bean
+        DataSource dataSource() {
+            return ContentTestDatabase.create("audio-usage");
+        }
+
+        @Bean
+        SqlSessionFactory sqlSessionFactory(DataSource source) throws Exception {
             var factory = new MybatisSqlSessionFactoryBean();
             factory.setDataSource(source);
-            factory.setMapperLocations(new ClassPathResource("mapper/ContentPublicationEventMapper.xml"), new ClassPathResource("mapper/ContentStatisticsMapper.xml"));
+            factory.setMapperLocations(
+                    new ClassPathResource("mapper/ContentPublicationEventMapper.xml"),
+                    new ClassPathResource("mapper/ContentStatisticsMapper.xml"));
             return factory.getObject();
         }
-        @Bean TransactionTemplate transaction(DataSource source) {
+
+        @Bean
+        TransactionTemplate transaction(DataSource source) {
             return new TransactionTemplate(new DataSourceTransactionManager(source));
         }
     }
@@ -73,7 +82,8 @@ class AudioHistoricalAuthorCountIntegrationTest {
     RocketMQTemplate mq;
     ContentDocPort search;
 
-    @BeforeEach void setup() throws Exception {
+    @BeforeEach
+    void setup() throws Exception {
         jdbc = new JdbcTemplate(source);
         ContentTestDatabase.drop(jdbc, "audio", "content_publication_event", "audio_author_usage");
         String schema = Files.readString(Path.of("../../resources/schema.sql"));
@@ -95,7 +105,11 @@ class AudioHistoricalAuthorCountIntegrationTest {
         search = mock(ContentDocPort.class);
         effects = new PublicationEffectsService(events, search,
                 mock(IUserNotificationService.class), mock(PushFanoutPublisher.class), transaction,
-                mq, mock(ContentReviewRecordMapper.class), counts, mock(ContentMapper.class), mock(AudioContentAccess.class));
+                mq,
+                mock(ContentReviewRecordMapper.class),
+                counts,
+                mock(ContentMapper.class),
+                mock(AudioContentAccess.class));
     }
 
     void event(long id, long audioId, long author) {
@@ -109,45 +123,63 @@ class AudioHistoricalAuthorCountIntegrationTest {
                 .setAudioCountDone(false).setSearchDone(true).setNoticeDone(true).setCompleted(false));
     }
 
-    @Test void deduplicatesAuthorsAndDuplicateOrOutOfOrderMessagesDoNotCountAgain() {
-        event(1, 20, 7); event(2, 20, 7); event(3, 20, 8);
+    @Test
+    void deduplicatesAuthorsAndDuplicateOrOutOfOrderMessagesDoNotCountAgain() {
+        event(1, 20, 7);
+        event(2, 20, 7);
+        event(3, 20, 8);
         effects.apply(new PublicationEffectMessage(3L, PublicationBranch.AUDIO_COUNT));
         effects.apply(new PublicationEffectMessage(1L, PublicationBranch.AUDIO_COUNT));
         effects.apply(new PublicationEffectMessage(3L, PublicationBranch.AUDIO_COUNT));
         assertEquals(2L, audios.selectById(20L).getHistoricalAuthorCount());
-        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event WHERE audio_count_done=1 AND completed=1", Integer.class));
+        assertEquals(
+                3,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM content_publication_event WHERE audio_count_done=1 AND completed=1",
+                        Integer.class));
         assertEquals(1L, audios.selectById(20L).getIndexVersion());
     }
 
-    @Test void oneDeliveryProcessesAtMostTwoHundredEventsAndRecoveryFindsTheRest() {
+    @Test
+    void oneDeliveryProcessesAtMostTwoHundredEventsAndRecoveryFindsTheRest() {
         for (int id = 1; id <= 201; id++) event(id, 20, id);
         effects.apply(new PublicationEffectMessage(1L, PublicationBranch.AUDIO_COUNT));
         assertEquals(201L, audios.selectById(20L).getHistoricalAuthorCount());
         assertFalse(events.selectById(201L).getAudioCountDone());
         effects.recover();
-        verify(mq).syncSend(MqConstants.TOPIC_PUBLICATION_EFFECT + ":AUDIO_COUNT", new PublicationEffectMessage(201L, PublicationBranch.AUDIO_COUNT));
+        verify(mq).syncSend(
+                MqConstants.TOPIC_PUBLICATION_EFFECT + ":AUDIO_COUNT",
+                new PublicationEffectMessage(201L, PublicationBranch.AUDIO_COUNT));
         effects.apply(new PublicationEffectMessage(201L, PublicationBranch.AUDIO_COUNT));
         assertEquals(201L, audios.selectById(20L).getHistoricalAuthorCount());
         assertTrue(events.selectById(201L).getCompleted());
     }
 
-    @Test void concurrentDeliveriesApplyTheSameBatchOnce() throws Exception {
+    @Test
+    void concurrentDeliveriesApplyTheSameBatchOnce() throws Exception {
         for (int id = 1; id <= 10; id++) event(id, 20, id);
         CompletableFuture<Void> first = CompletableFuture.runAsync(() -> counts.apply(20L));
         CompletableFuture<Void> second = CompletableFuture.runAsync(() -> counts.apply(20L));
-        first.get(5, TimeUnit.SECONDS); second.get(5, TimeUnit.SECONDS);
+        first.get(5, TimeUnit.SECONDS);
+        second.get(5, TimeUnit.SECONDS);
         assertEquals(10L, audios.selectById(20L).getHistoricalAuthorCount());
-        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event WHERE audio_count_done=0", Integer.class));
+        assertEquals(
+                0,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM content_publication_event WHERE audio_count_done=0",
+                        Integer.class));
     }
 
-    @Test void sameAuthorAcrossTypesAndVisibilityCountsOnceEvenWithZeroReferences() {
+    @Test
+    void sameAuthorAcrossTypesAndVisibilityCountsOnceEvenWithZeroReferences() {
         event(1, 20, 7);
         jdbc.update("INSERT INTO audio_author_usage VALUES(20,7,'video','private',0),(20,7,'dynamic','private',2),(21,8,'video','public',1)");
         counts.apply(20L);
         assertEquals(1L, audios.selectById(20L).getHistoricalAuthorCount());
     }
 
-    @Test void eventsArrivingAfterTheBatchReadAreNotAcknowledgedByTheOldAggregation() {
+    @Test
+    void eventsArrivingAfterTheBatchReadAreNotAcknowledgedByTheOldAggregation() {
         event(1, 20, 7);
         ContentStatisticsMapper delayed = mock(ContentStatisticsMapper.class);
         when(delayed.historicalAuthorCount(20L)).thenAnswer(call -> {
@@ -164,7 +196,8 @@ class AudioHistoricalAuthorCountIntegrationTest {
         assertTrue(events.selectById(2L).getAudioCountDone());
     }
 
-    @Test void aLateOlderAggregationCannotDecreaseTheHistoricalCount() throws Exception {
+    @Test
+    void aLateOlderAggregationCannotDecreaseTheHistoricalCount() throws Exception {
         event(1, 20, 7);
         var aggregated = new CountDownLatch(1);
         var release = new CountDownLatch(1);
@@ -191,7 +224,8 @@ class AudioHistoricalAuthorCountIntegrationTest {
         assertTrue(events.selectById(2L).getCompleted());
     }
 
-    @Test void aggregationDoesNotHoldTheAudioWriteLock() throws Exception {
+    @Test
+    void aggregationDoesNotHoldTheAudioWriteLock() throws Exception {
         event(1, 20, 7);
         var aggregating = new CountDownLatch(1);
         var release = new CountDownLatch(1);
@@ -215,14 +249,21 @@ class AudioHistoricalAuthorCountIntegrationTest {
         assertEquals(1L, audios.selectById(20L).getHistoricalAuthorCount());
     }
 
-    @Test void differentAudioCountsDoNotWaitForEachOtherToCommit() throws Exception {
-        event(1, 20, 1); event(2, 21, 1);
+    @Test
+    void differentAudioCountsDoNotWaitForEachOtherToCommit() throws Exception {
+        event(1, 20, 1);
+        event(2, 21, 1);
         var processed = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         CompletableFuture<Void> first = CompletableFuture.runAsync(() -> transaction.executeWithoutResult(tx -> {
-            counts.apply(20L); processed.countDown();
-            try { assertTrue(release.await(10, TimeUnit.SECONDS)); }
-            catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AssertionError(error); }
+            counts.apply(20L);
+            processed.countDown();
+            try {
+                assertTrue(release.await(10, TimeUnit.SECONDS));
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(error);
+            }
         }));
         CompletableFuture<Void> second = null;
         try {
@@ -230,14 +271,16 @@ class AudioHistoricalAuthorCountIntegrationTest {
             second = CompletableFuture.runAsync(() -> counts.apply(21L));
             second.get(5, TimeUnit.SECONDS);
         } finally {
-            release.countDown(); first.get(5, TimeUnit.SECONDS);
+            release.countDown();
+            first.get(5, TimeUnit.SECONDS);
             if (second != null) second.get(5, TimeUnit.SECONDS);
         }
         assertEquals(1L, audios.selectById(20L).getHistoricalAuthorCount());
         assertEquals(1L, audios.selectById(21L).getHistoricalAuthorCount());
     }
 
-    @Test void markingFailureRollsBackTheCountAndLeavesTheEventsPending() {
+    @Test
+    void markingFailureRollsBackTheCountAndLeavesTheEventsPending() {
         event(1, 20, 1);
         jdbc.execute("ALTER TABLE content_publication_event ADD CONSTRAINT reject_audio_done CHECK(audio_count_done=0)");
         assertThrows(RuntimeException.class, () -> counts.apply(20L));
@@ -246,13 +289,15 @@ class AudioHistoricalAuthorCountIntegrationTest {
         assertFalse(events.selectById(1L).getCompleted());
     }
 
-    @Test void missingAudioDoesNotAcknowledgeAnUnappliedCount() {
+    @Test
+    void missingAudioDoesNotAcknowledgeAnUnappliedCount() {
         event(1, 99, 1);
         assertThrows(IllegalStateException.class, () -> counts.apply(99L));
         assertFalse(events.selectById(1L).getAudioCountDone());
     }
 
-    @Test void completingAudioCountDoesNotCompleteOtherPendingBranches() {
+    @Test
+    void completingAudioCountDoesNotCompleteOtherPendingBranches() {
         event(1, 20, 1);
         jdbc.update("UPDATE content_publication_event SET search_done=0 WHERE id=1");
         effects.apply(new PublicationEffectMessage(1L, PublicationBranch.AUDIO_COUNT));
@@ -262,7 +307,8 @@ class AudioHistoricalAuthorCountIntegrationTest {
         assertTrue(events.selectById(1L).getCompleted());
     }
 
-    @Test void otherCompletedBranchesCannotHideThePendingAudioCount() {
+    @Test
+    void otherCompletedBranchesCannotHideThePendingAudioCount() {
         event(1, 20, 1);
         effects.apply(new PublicationEffectMessage(1L, PublicationBranch.SEARCH));
         assertFalse(events.selectById(1L).getCompleted());
@@ -271,34 +317,46 @@ class AudioHistoricalAuthorCountIntegrationTest {
         assertTrue(events.selectById(1L).getCompleted());
     }
 
-    @Test void failedMqWakeupLeavesDurableProgressForTheExistingRecovery() {
+    @Test
+    void failedMqWakeupLeavesDurableProgressForTheExistingRecovery() {
         event(1, 20, 1);
-        doThrow(new IllegalStateException("MQ unavailable")).when(mq).syncSend(anyString(), any(PublicationEffectMessage.class));
+        doThrow(new IllegalStateException("MQ unavailable"))
+                .when(mq)
+                .syncSend(anyString(), any(PublicationEffectMessage.class));
         assertDoesNotThrow(() -> effects.trigger(1L));
         assertFalse(events.selectById(1L).getAudioCountDone());
         reset(mq);
         effects.recover();
-        verify(mq).syncSend(MqConstants.TOPIC_PUBLICATION_EFFECT + ":AUDIO_COUNT", new PublicationEffectMessage(1L, PublicationBranch.AUDIO_COUNT));
+        verify(mq).syncSend(
+                MqConstants.TOPIC_PUBLICATION_EFFECT + ":AUDIO_COUNT",
+                new PublicationEffectMessage(1L, PublicationBranch.AUDIO_COUNT));
         effects.apply(new PublicationEffectMessage(1L, PublicationBranch.AUDIO_COUNT));
         assertEquals(1L, audios.selectById(20L).getHistoricalAuthorCount());
     }
 
-    @Test void searchFailureDoesNotBlockTheIndependentAudioCount() {
+    @Test
+    void searchFailureDoesNotBlockTheIndependentAudioCount() {
         event(1, 20, 1);
         jdbc.update("UPDATE content_publication_event SET search_done=0 WHERE id=1");
         doThrow(new IllegalStateException("Search unavailable")).when(search).rebuildContent(1L);
-        assertThrows(IllegalStateException.class, () -> effects.apply(new PublicationEffectMessage(1L, PublicationBranch.SEARCH)));
+        assertThrows(
+                IllegalStateException.class,
+                () -> effects.apply(new PublicationEffectMessage(1L, PublicationBranch.SEARCH)));
         effects.apply(new PublicationEffectMessage(1L, PublicationBranch.AUDIO_COUNT));
         assertEquals(1L, audios.selectById(20L).getHistoricalAuthorCount());
         assertTrue(events.selectById(1L).getAudioCountDone());
         assertFalse(events.selectById(1L).getCompleted());
         effects.recover();
-        verify(mq).syncSend(MqConstants.TOPIC_PUBLICATION_EFFECT + ":SEARCH", new PublicationEffectMessage(1L, PublicationBranch.SEARCH));
+        verify(mq).syncSend(
+                MqConstants.TOPIC_PUBLICATION_EFFECT + ":SEARCH",
+                new PublicationEffectMessage(1L, PublicationBranch.SEARCH));
         verifyNoMoreInteractions(mq);
     }
 
-    @Test void zeroReferencesStillCountAsHistoricalUsage() {
-        event(1, 20, 7); event(2, 20, 7);
+    @Test
+    void zeroReferencesStillCountAsHistoricalUsage() {
+        event(1, 20, 7);
+        event(2, 20, 7);
         jdbc.update("UPDATE audio_author_usage SET reference_count=0");
         counts.apply(20L);
         assertEquals(1L, audios.selectById(20L).getHistoricalAuthorCount());
@@ -306,14 +364,16 @@ class AudioHistoricalAuthorCountIntegrationTest {
         assertTrue(events.selectById(2L).getCompleted());
     }
 
-    @Test void finishingAudioProgressDoesNotDecideOverallCompletion() {
+    @Test
+    void finishingAudioProgressDoesNotDecideOverallCompletion() {
         event(1, 20, 1);
         assertEquals(1, events.finishAudioCounts(List.of(1L)));
         assertTrue(events.selectById(1L).getAudioCountDone());
         assertFalse(events.selectById(1L).getCompleted());
     }
 
-    @Test void overallCompletionFailureRollsBackTheCountAndAudioProgress() {
+    @Test
+    void overallCompletionFailureRollsBackTheCountAndAudioProgress() {
         event(1, 20, 1);
         jdbc.execute("ALTER TABLE content_publication_event ADD CONSTRAINT reject_completed CHECK(completed=0)");
         assertThrows(RuntimeException.class, () -> counts.apply(20L));
@@ -324,7 +384,8 @@ class AudioHistoricalAuthorCountIntegrationTest {
 
     @ParameterizedTest @EnumSource(PublicationBranch.class)
     void sharedCompletionRequiresEveryBranch(PublicationBranch pending) {
-        event(1, 20, 1); event(2, 20, 1);
+        event(1, 20, 1);
+        event(2, 20, 1);
         jdbc.update("UPDATE content_publication_event SET audio_count_done=1");
         String column = switch (pending) {
             case SEARCH -> "search_done";
@@ -341,7 +402,8 @@ class AudioHistoricalAuthorCountIntegrationTest {
         assertEquals(0, events.completeIfReady(List.of(1L, 2L)));
     }
 
-    @Test void typedPublicationBranchesPreserveTheirMqCodes() {
+    @Test
+    void typedPublicationBranchesPreserveTheirMqCodes() {
         for (PublicationBranch branch : PublicationBranch.values()) {
             var message = new PublicationEffectMessage(1L, branch);
             String json = JsonUtil.toJson(message);

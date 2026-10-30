@@ -16,12 +16,16 @@ import java.util.List;
 import static org.mockito.Mockito.*;
 
 class CommentCacheTimeTest {
-    @Test void latestCacheCursorUsesBusinessTimeInsteadOfJvmTimeZone() {
-        var redis = mock(StringRedisTemplate.class); var rows = mock(ContentCommentMapper.class);
+    @Test
+    void latestCacheCursorUsesBusinessTimeInsteadOfJvmTimeZone() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        ContentCommentMapper rows = mock(ContentCommentMapper.class);
         ValueOperations<String, String> values = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
         when(values.setIfAbsent(anyString(), eq("1"), any(Duration.class))).thenReturn(true);
-        var comment = new ContentComment(); comment.setId(5L); comment.setCreateTime(LocalDateTime.parse("2026-10-25T10:00:00"));
+        var comment = new ContentComment();
+        comment.setId(5L);
+        comment.setCreateTime(LocalDateTime.parse("2026-10-25T10:00:00"));
         when(rows.selectList(any())).thenReturn(List.of(comment));
         var cache = new CommentListCacheImpl(redis, rows);
         ReflectionTestUtils.setField(cache, "threshold", 1);

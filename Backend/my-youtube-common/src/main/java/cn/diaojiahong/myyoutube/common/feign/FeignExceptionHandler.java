@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.feign;
 
+import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import feign.FeignException;
 import lombok.extern.slf4j.Slf4j;
@@ -19,10 +20,12 @@ import org.springframework.web.context.request.WebRequest;
 public class FeignExceptionHandler {
     @ExceptionHandler(FeignException.class)
     public ResponseEntity<Result<?>> failure(FeignException error, WebRequest request) {
-        var failure = FeignFailures.classify(error);
+        DependencyException failure = FeignFailures.classify(error);
         log.error("Remote call failed code={}", failure.getErrorCode().getCode(), failure);
         if (request instanceof ServletWebRequest servlet && servlet.getResponse() != null
-                && servlet.getResponse().isCommitted()) return null;
+                && servlet.getResponse().isCommitted()) {
+            return null;
+        }
         return ResponseEntity.status(failure.getErrorCode().getHttpStatus())
                 .body(Result.fail(failure.getErrorCode(), failure.getMessage()));
     }

@@ -10,10 +10,15 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
-@RocketMQMessageListener(topic = MqConstants.TOPIC_CONTENT_UNDERSTOOD, consumerGroup = "video_content_understood", maxReconsumeTimes = 3)
+@RocketMQMessageListener(
+        topic = MqConstants.TOPIC_CONTENT_UNDERSTOOD,
+        consumerGroup = "video_content_understood",
+        maxReconsumeTimes = 3)
 public class ContentUnderstoodListener implements RocketMQListener<ContentUnderstoodMessage> {
     private final ContentUnderstandingService understanding;
-    @Override public void onMessage(ContentUnderstoodMessage message) {
+
+    @Override
+    public void onMessage(ContentUnderstoodMessage message) {
         if (message != null && message.manifest() != null) understanding.accept(message);
     }
 }

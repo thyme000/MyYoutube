@@ -19,30 +19,44 @@ public final class PipelineEventJson {
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
             .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY).build()
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+
     static {
         JSON.coercionConfigFor(LogicalType.Textual)
                 .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
                 .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
                 .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail);
     }
-    private PipelineEventJson() {}
+
+    private PipelineEventJson() {
+    }
 
     public static String encode(PipelineEvent event) {
-        try { return JSON.writeValueAsString(event); }
-        catch (JsonProcessingException e) { throw new IllegalArgumentException("Invalid pipeline event", e); }
+        try {
+            return JSON.writeValueAsString(event);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Invalid pipeline event", e);
+        }
     }
+
     public static PipelineEvent decode(String source) {
         try {
             JsonNode tree = JSON.readTree(source);
             if (tree == null || !tree.isObject() || !tree.path("@timestamp").isTextual()
-                    || (tree.hasNonNull("nextRetryAt") && !tree.get("nextRetryAt").isTextual()))
+                    || (tree.hasNonNull("nextRetryAt") && !tree.get("nextRetryAt").isTextual())) {
                 throw new IllegalArgumentException("Invalid timestamp field");
+            }
             return JSON.treeToValue(tree, PipelineEvent.class);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Invalid pipeline event", e);
         }
-        catch (JsonProcessingException e) { throw new IllegalArgumentException("Invalid pipeline event", e); }
     }
+
     public static String digest(PipelineEvent event) {
-        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(encode(event).getBytes(StandardCharsets.UTF_8))); }
-        catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(encode(event).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

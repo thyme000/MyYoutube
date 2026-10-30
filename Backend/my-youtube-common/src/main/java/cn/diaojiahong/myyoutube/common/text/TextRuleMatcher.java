@@ -17,9 +17,11 @@ import java.util.regex.Pattern;
 
 public final class TextRuleMatcher {
     private static final Pattern CONTROL_CHARACTERS = Pattern.compile("[\\p{Cc}\\p{Cf}]");
+
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private final Set<String> exact;
+
     private final Node root = new Node();
 
     private TextRuleMatcher(Set<String> exact, Set<String> phrases) {
@@ -39,7 +41,7 @@ public final class TextRuleMatcher {
         // 失败链接复用最长后缀，扫描时不必逐条遍历短语。
         while (!queue.isEmpty()) {
             Node node = queue.remove();
-            for (var entry : node.children.entrySet()) {
+            for (Map.Entry<Character, Node> entry : node.children.entrySet()) {
                 Node child = entry.getValue();
                 child.failure = advance(node.failure, entry.getKey());
                 child.matched |= child.failure.matched;
@@ -53,23 +55,36 @@ public final class TextRuleMatcher {
     }
 
     public static TextRuleMatcher load(String location) throws IOException {
-        if (location == null || location.isBlank()) throw new IllegalArgumentException("词表路径不能为空");
+        if (location == null || location.isBlank()) {
+            throw new IllegalArgumentException("词表路径不能为空");
+        }
+
         var exact = new HashSet<String>();
         var phrases = new HashSet<String>();
         try (var reader = new BufferedReader(new InputStreamReader(
-                new DefaultResourceLoader().getResource(location).getInputStream(), StandardCharsets.UTF_8.newDecoder()))) {
+                new DefaultResourceLoader()
+                        .getResource(location)
+                        .getInputStream(), StandardCharsets.UTF_8.newDecoder()))) {
             int number = 0;
             for (String line; (line = reader.readLine()) != null;) {
                 number++;
                 line = line.strip();
-                if (line.isEmpty() || line.startsWith("#")) continue;
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+
                 int separator = line.indexOf(':');
                 String type = separator < 0 ? "" : line.substring(0, separator);
                 String value = separator < 0 ? "" : normalize(line.substring(separator + 1));
-                if (value.isEmpty() || !(type.equals("exact") || type.equals("phrase")))
+                if (value.isEmpty() || !(type.equals("exact") || type.equals("phrase"))) {
                     throw new IllegalArgumentException("词表第 " + number + " 行格式错误或词条为空");
-                if (type.equals("exact")) exact.add(value);
-                else phrases.add(value);
+                }
+
+                if (type.equals("exact")) {
+                    exact.add(value);
+                } else {
+                    phrases.add(value);
+                }
             }
         }
         return new TextRuleMatcher(exact, phrases);
@@ -81,19 +96,29 @@ public final class TextRuleMatcher {
     }
 
     public boolean matches(String text) {
-        if (text == null) return false;
+        if (text == null) {
+            return false;
+        }
+
         String normalized = normalize(text);
-        if (exact.contains(normalized)) return true;
+        if (exact.contains(normalized)) {
+            return true;
+        }
+
         Node node = root;
         for (int i = 0; i < normalized.length(); i++) {
             node = advance(node, normalized.charAt(i));
-            if (node.matched) return true;
+            if (node.matched) {
+                return true;
+            }
         }
         return false;
     }
 
     private Node advance(Node node, char character) {
-        while (node != root && !node.children.containsKey(character)) node = node.failure;
+        while (node != root && !node.children.containsKey(character)) {
+            node = node.failure;
+        }
         return node.children.getOrDefault(character, root);
     }
 

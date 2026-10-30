@@ -14,7 +14,9 @@ class ObservationTransactionTest {
     TransactionTemplate transaction;
     PipelineEventRecorder recorder;
     PipelineObservationProperties properties;
-    @BeforeEach void setup() throws Exception {
+
+    @BeforeEach
+    void setup() throws Exception {
         var ds = new DriverManagerDataSource("jdbc:h2:mem:observation;MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
         jdbc = new JdbcTemplate(ds);
         var manager = new DataSourceTransactionManager(ds);
@@ -27,21 +29,27 @@ class ObservationTransactionTest {
         properties.getRecording().setEnabled(true);
         recorder = new PipelineEventRecorder(jdbc, properties, manager);
     }
+
     PipelineEvent started(long sequence) {
         return new PipelineEvent(Instant.now(), new PipelineEvent.Service("transcode"),
-                new PipelineEvent.Event("event-" + sequence, "ASR_STARTED", sequence), new PipelineEvent.Aggregate("TASK", "1"),
+                new PipelineEvent.Event("event-" + sequence, "ASR_STARTED", sequence),
+                new PipelineEvent.Aggregate("TASK", "1"),
                 null, "100", "10", "1", null, null, null, 1, null, null, null, null,
                 new PipelineEvent.State("READY", "RUNNING"), null);
     }
+
     void change() {
         long current = jdbc.queryForObject("SELECT event_sequence FROM media_task WHERE id=1 FOR UPDATE", Long.class);
         long next = PipelineEvent.nextSequence(current);
         jdbc.update("UPDATE media_task SET status='RUNNING',event_sequence=? WHERE id=1", next);
         recorder.record(started(next));
     }
-    @Test void stateSequenceAndEventCommitAndRollbackTogether() {
+
+    @Test
+    void stateSequenceAndEventCommitAndRollbackTogether() {
         assertThrows(IllegalStateException.class, () -> transaction.executeWithoutResult(tx -> {
-            change(); throw new IllegalStateException("forced rollback");
+            change();
+            throw new IllegalStateException("forced rollback");
         }));
         assertEquals("READY", jdbc.queryForObject("SELECT status FROM media_task WHERE id=1", String.class));
         assertEquals(0, jdbc.queryForObject("SELECT event_sequence FROM media_task WHERE id=1", Long.class));
@@ -51,16 +59,22 @@ class ObservationTransactionTest {
         assertEquals(1, jdbc.queryForObject("SELECT event_sequence FROM pipeline_event_outbox", Long.class));
         assertEquals("PENDING", jdbc.queryForObject("SELECT status FROM pipeline_event_outbox", String.class));
     }
-    @Test void recordingOffKeepsExistingEventsAndRequiresNoTransaction() {
+
+    @Test
+    void recordingOffKeepsExistingEventsAndRequiresNoTransaction() {
         assertThrows(IllegalStateException.class, () -> recorder.record(started(1)));
         transaction.executeWithoutResult(tx -> change());
         properties.getRecording().setEnabled(false);
         recorder.record(started(2));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM pipeline_event_outbox", Integer.class));
     }
-    @Test void anotherDatasourceCannotJoinTheBusinessTransactionImplicitly() {
+
+    @Test
+    void anotherDatasourceCannotJoinTheBusinessTransactionImplicitly() {
         var other = new DriverManagerDataSource("jdbc:h2:mem:observation-other;MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
-        assertThrows(IllegalArgumentException.class, () -> new PipelineEventRecorder(new JdbcTemplate(other), properties,
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PipelineEventRecorder(new JdbcTemplate(other), properties,
                 new DataSourceTransactionManager(jdbc.getDataSource())));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM pipeline_event_outbox", Integer.class));
     }

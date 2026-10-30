@@ -1,8 +1,10 @@
 package cn.diaojiahong.myyoutube.search.port;
 
+import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDocRepository;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
@@ -29,7 +31,7 @@ public class ContentDocPortImpl implements ContentDocPort {
 
     @Override
     public void rebuildContent(Long contentId) {
-        var current = contents.searchDocument(contentId);
+        ContentDocMessage current = contents.searchDocument(contentId);
         if (current != null) writer.write(current);
     }
 
@@ -43,9 +45,9 @@ public class ContentDocPortImpl implements ContentDocPort {
         if (counts == null || counts.isEmpty()) {
             return;
         }
+
         List<Long> ids = counts.stream().map(CountSync::contentId).toList();
-        var existing = StreamSupport
-                .stream(contentDocRepository.findAllById(ids).spliterator(), false)
+        Set<Long> existing = StreamSupport.stream(contentDocRepository.findAllById(ids).spliterator(), false)
                 .map(ContentDoc::getId).collect(Collectors.toSet());
         List<UpdateQuery> updated = new ArrayList<>();
         for (CountSync c : counts) {

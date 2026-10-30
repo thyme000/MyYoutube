@@ -18,13 +18,18 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class AudioPreparationClientTest {
     @FeignClient(name = "ordinary-port", url = "${my-youtube.transcode-service.url}")
-    interface OrdinaryPort { @GetMapping("/ordinary") String get(); }
+    interface OrdinaryPort {
+        @GetMapping("/ordinary") String get();
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableFeignClients(clients = {AudioPreparationPort.class, OrdinaryPort.class})
-    static class Clients {}
+    static class Clients {
+    }
 
-    @Test void actualFeignClientUsesShortAudioTimeoutAndDoesNotRetryOrChangeOtherClients() throws Exception {
-        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    @Test
+    void actualFeignClientUsesShortAudioTimeoutAndDoesNotRetryOrChangeOtherClients() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var audioCalls = new AtomicInteger();
         server.createContext("/internal/media/audios/1", exchange -> {
             audioCalls.incrementAndGet();
@@ -32,21 +37,32 @@ class AudioPreparationClientTest {
                 Thread.sleep(350);
                 byte[] body = "{\"audioId\":1,\"status\":\"RUNNING\",\"attempt\":1,\"retryCount\":0}".getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json");
-                exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body);
-            } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            catch (java.io.IOException ignored) { }
-            finally { exchange.close(); }
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (java.io.IOException ignored) {
+            } finally {
+                exchange.close();
+            }
         });
         server.createContext("/ordinary", exchange -> {
             try {
-                Thread.sleep(200); byte[] body = "ok".getBytes(StandardCharsets.UTF_8);
-                exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body);
-            } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            finally { exchange.close(); }
+                Thread.sleep(200);
+                byte[] body = "ok".getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
         });
         server.start();
         try {
-            new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(FeignAutoConfiguration.class, HttpMessageConvertersAutoConfiguration.class))
+            new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(
+                    FeignAutoConfiguration.class,
+                    HttpMessageConvertersAutoConfiguration.class))
                     .withUserConfiguration(Clients.class).withPropertyValues(
                             "my-youtube.transcode-service.url=http://127.0.0.1:" + server.getAddress().getPort(),
                             "spring.cloud.openfeign.client.config.default.connectTimeout=5000",
@@ -55,11 +71,13 @@ class AudioPreparationClientTest {
                             "my-youtube.audio-processing.read-timeout-ms=80")
                     .run(context -> {
                         assertNull(context.getStartupFailure());
-                        var audio = context.getBean(AudioPreparationPort.class);
+                        AudioPreparationPort audio = context.getBean(AudioPreparationPort.class);
                         assertThrows(FeignException.class, () -> audio.preparation(1L));
                         assertEquals("ok", context.getBean(OrdinaryPort.class).get());
                         assertEquals(1, audioCalls.get());
                     });
-        } finally { server.stop(0); }
+        } finally {
+            server.stop(0);
+        }
     }
 }

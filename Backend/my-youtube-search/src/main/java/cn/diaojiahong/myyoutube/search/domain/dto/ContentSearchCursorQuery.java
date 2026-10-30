@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public class ContentSearchCursorQuery extends CursorPageQuery {
     @Schema(description = "搜索关键词", maxLength = SearchQueryValidation.MAX_KEYWORD_LENGTH)
     private String keyword;
+
     // 搜索类型(长视频/短视频)
     // 视频种类
     private String category;

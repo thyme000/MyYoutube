@@ -3,13 +3,16 @@ package cn.diaojiahong.myyoutube.common.media;
 import java.util.Map;
 
 public final class PipelineContracts {
-    private PipelineContracts() {}
+    private PipelineContracts() {
+    }
 
     public record Input(Long pipelineId, Long contentId, Long userId, String title,
-                        String description, String tags, String coverObjectKey, ContentMedia media, long submittedAt) {}
+                        String description, String tags, String coverObjectKey, ContentMedia media, long submittedAt) {
+    }
 
     public record Manifest(Long pipelineId, Long contentId, PipelineStatus status, Input input,
-                           Map<String, String> results, long completedAt) {}
+                           Map<String, String> results, long completedAt) {
+    }
 
     public record ReviewSpec(boolean enabled, String model, String rulesVersion, String rules, double maxRisk,
                              double minConfidence, int chunkCharacters, boolean visionEnabled, int frameBatchSize) {
@@ -20,7 +23,9 @@ public final class PipelineContracts {
     }
 
     public record ReviewResult(Long pipelineId, Long contentId, Long taskId, int attempt,
-                               String verdictJson, String error, boolean exhausted) {}
+                               String verdictJson, String error, boolean exhausted) {
+    }
 
-    public record TagRequest(String title, String description, String summary) {}
+    public record TagRequest(String title, String description, String summary) {
+    }
 }

@@ -11,6 +11,7 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -46,6 +47,7 @@ public class S3StorageUtil {
     private static final DateTimeFormatter DATE_FOLDER = DateTimeFormatter.ofPattern("yyyyMMdd");
     /** SigV4 scope 日期必须纯 8 位, BASIC_ISO_DATE 对 UTC 零偏移会追加 Z */
     private static final DateTimeFormatter AMZ_DATE_DAY = DateTimeFormatter.ofPattern("yyyyMMdd");
+
     private static final DateTimeFormatter AMZ_DATE = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'");
 
     private final S3Properties properties;
@@ -114,6 +116,7 @@ public class S3StorageUtil {
         if (!StringUtils.hasText(s)) {
             return "upload";
         }
+
         return s.replaceAll("[^a-zA-Z0-9_-]", "_");
     }
 
@@ -124,6 +127,7 @@ public class S3StorageUtil {
         if (!StringUtils.hasText(name)) {
             return "file";
         }
+
         String base = name.trim();
         int slash = Math.max(base.lastIndexOf('/'), base.lastIndexOf('\\'));
         if (slash >= 0) {
@@ -154,10 +158,12 @@ public class S3StorageUtil {
         if (!StringUtils.hasText(keyOrUrl)) {
             return keyOrUrl;
         }
+
         String value = keyOrUrl.trim();
         if (!(value.startsWith("http://") || value.startsWith("https://"))) {
             return value;
         }
+
         try {
             URI uri = URI.create(value);
             String path = uri.getPath();
@@ -185,10 +191,12 @@ public class S3StorageUtil {
         if (!StringUtils.hasText(keyOrUrl)) {
             return keyOrUrl;
         }
+
         String objectKey = normalizeToObjectKey(keyOrUrl);
         if (!StringUtils.hasText(objectKey)) {
             return keyOrUrl;
         }
+
         try {
             GetObjectPresignRequest request = GetObjectPresignRequest.builder()
                     .signatureDuration(Duration.ofSeconds(Math.max(1, expireSeconds)))
@@ -215,7 +223,7 @@ public class S3StorageUtil {
     public String presignPutUrl(String objectKey, long expireSeconds, long contentLength, String contentType) {
         if (contentLength <= 0 || !StringUtils.hasText(contentType))
             throw new IllegalArgumentException("上传大小和类型不能为空");
-        var request = PutObjectPresignRequest.builder()
+        PutObjectPresignRequest request = PutObjectPresignRequest.builder()
                 .signatureDuration(Duration.ofSeconds(Math.max(1, expireSeconds)))
                 .putObjectRequest(b -> b.bucket(properties.getBucketName()).key(objectKey)
                         .contentLength(contentLength).contentType(contentType))
@@ -223,13 +231,17 @@ public class S3StorageUtil {
         return s3Presigner.presignPutObject(request).url().toString();
     }
 
-    public record UploadMetadata(long bytes, String contentType) {}
+    public record UploadMetadata(long bytes, String contentType) {
+    }
 
     public UploadMetadata inspectUpload(String key, Duration timeout) {
         requireUploadKey(key);
         try {
-            var head = s3Client.headObject(software.amazon.awssdk.services.s3.model.HeadObjectRequest.builder()
-                    .bucket(properties.getBucketName()).key(key).overrideConfiguration(c -> c.apiCallTimeout(timeout)).build());
+            HeadObjectResponse head = s3Client.headObject(software.amazon.awssdk.services.s3.model.HeadObjectRequest.builder()
+                    .bucket(properties.getBucketName())
+                    .key(key)
+                    .overrideConfiguration(c -> c.apiCallTimeout(timeout))
+                    .build());
             if (head.contentLength() == null || head.contentType() == null || head.contentType().isBlank())
                 throw new IllegalStateException("上传对象缺少大小或类型元数据");
             return new UploadMetadata(head.contentLength(), head.contentType());
@@ -338,7 +350,9 @@ public class S3StorageUtil {
     public boolean objectExists(String objectKey) {
         try {
             return s3Client.headObject(software.amazon.awssdk.services.s3.model.HeadObjectRequest.builder()
-                    .bucket(properties.getBucketName()).key(normalizeToObjectKey(objectKey)).build()).contentLength() > 0;
+                    .bucket(properties.getBucketName())
+                    .key(normalizeToObjectKey(objectKey))
+                    .build()).contentLength() > 0;
         } catch (S3Exception e) {
             if (e.statusCode() == 404) return false;
             throw e;
@@ -370,10 +384,12 @@ public class S3StorageUtil {
         if (!StringUtils.hasText(keyOrUrl)) {
             return;
         }
+
         String objectKey = normalizeToObjectKey(keyOrUrl.trim());
         if (!StringUtils.hasText(objectKey)) {
             return;
         }
+
         try {
             s3Client.deleteObject(DeleteObjectRequest.builder()
                     .bucket(properties.getBucketName()).key(objectKey).build());
@@ -388,6 +404,7 @@ public class S3StorageUtil {
         String endpoint = properties.getEndpoint();
         return endpoint.replaceAll("/+$", "") + "/" + properties.getBucketName() + "/" + objectKey;
     }
+
     private static DependencyException storageFailure(String message, S3Exception cause) {
         ErrorCode code = switch (cause.statusCode()) {
             case 429, 503 -> ErrorCode.DEPENDENCY_UNAVAILABLE;

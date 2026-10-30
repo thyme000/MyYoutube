@@ -25,6 +25,7 @@ import feign.Retryer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.openfeign.support.SpringMvcContract;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.net.InetSocketAddress;
@@ -36,7 +37,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 class InternalAdminFeignContractTest {
     final ContentReadService reads = mock(ContentReadService.class);
+
     final IContentCommentService comments = mock(IContentCommentService.class);
+
     final AtomicInteger calls = new AtomicInteger();
     final HttpServer server;
     final ContentAdminPort content;
@@ -46,7 +49,9 @@ class InternalAdminFeignContractTest {
 
     InternalAdminFeignContractTest() throws Exception {
         MockMvc mvc = MockMvcBuilders.standaloneSetup(
-                new InternalAdminContentController(mock(ContentUnderstandingService.class), mock(ReviewDecisionService.class),
+                new InternalAdminContentController(
+                        mock(ContentUnderstandingService.class),
+                        mock(ReviewDecisionService.class),
                         mock(IContentService.class), mock(ContentTypeStrategyRegistry.class), reads),
                 new InternalAdminCommentController(comments, mock(ICommentReportService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
@@ -55,29 +60,40 @@ class InternalAdminFeignContractTest {
             calls.incrementAndGet();
             byte[] body = exchange.getRequestBody().readAllBytes();
             try {
-                var result = mvc.perform(post(route == null ? exchange.getRequestURI().getPath() : route)
+                MockHttpServletResponse result = mvc.perform(post(route == null ? exchange.getRequestURI().getPath() : route)
                         .contentType("application/json").content(corruptBody ? new byte[]{'{' } : body)).andReturn().getResponse();
-                var bytes = result.getContentAsByteArray();
+                byte[] bytes = result.getContentAsByteArray();
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(result.getStatus(), result.getStatus() == 204 ? -1 : bytes.length);
                 if (result.getStatus() != 204) exchange.getResponseBody().write(bytes);
-            } catch (Exception error) { throw new java.io.IOException(error); }
-            finally { exchange.close(); }
+            } catch (Exception error) {
+                throw new java.io.IOException(error);
+            } finally {
+                exchange.close();
+            }
         });
         server.start();
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
         content = builder().target(ContentAdminPort.class, base + "/internal/admin/content");
         comment = builder().target(CommentAdminPort.class, base + "/internal/admin/comment");
     }
+
     Feign.Builder builder() {
         return Feign.builder().contract(new SpringMvcContract()).errorDecoder(new InternalApiErrorDecoder())
                 .retryer(Retryer.NEVER_RETRY)
                 .encoder((value, type, template) -> template.body(JsonUtil.toJson(value)))
-                .decoder((response, type) -> JsonUtil.GSON.fromJson(response.body().asReader(StandardCharsets.UTF_8), type));
+                .decoder((response, type) -> JsonUtil.GSON.fromJson(
+                        response.body().asReader(StandardCharsets.UTF_8),
+                        type));
     }
-    @AfterEach void close() { server.stop(0); }
 
-    @Test void providerDtoAnd204CommandsMatchTheNewFeignSignatures() {
+    @AfterEach
+    void close() {
+        server.stop(0);
+    }
+
+    @Test
+    void providerDtoAnd204CommandsMatchTheNewFeignSignatures() {
         var media = new ContentMediaVO("video", new ContentMediaVO.Video("url", 1200), null);
         when(reads.adminMedia(7L)).thenReturn(media);
         assertEquals(media, content.media(new ContentAdminPort.ContentId(7L)));
@@ -86,7 +102,8 @@ class InternalAdminFeignContractTest {
         assertEquals(2, calls.get());
     }
 
-    @Test void missingResourceAndDeletedStateRemainBusinessRejections() {
+    @Test
+    void missingResourceAndDeletedStateRemainBusinessRejections() {
         assertEquals(ErrorCode.NOT_FOUND, assertThrows(BizException.class,
                 () -> comment.restore(new CommentAdminPort.CommentId(7L))).getErrorCode());
         when(comments.getById(7L)).thenReturn(new ContentComment().setStatus("deleted"));
@@ -95,11 +112,13 @@ class InternalAdminFeignContractTest {
         assertEquals(2, calls.get());
     }
 
-    @Test void routeAndSerializationContractErrorsAreNotBusinessErrors() {
+    @Test
+    void routeAndSerializationContractErrorsAreNotBusinessErrors() {
         route = "/missing-internal-route";
         assertEquals(ErrorCode.DEPENDENCY_FAILURE, assertThrows(DependencyException.class,
                 () -> content.media(new ContentAdminPort.ContentId(7L))).getErrorCode());
-        route = null; corruptBody = true;
+        route = null;
+        corruptBody = true;
         assertEquals(ErrorCode.DEPENDENCY_FAILURE, assertThrows(DependencyException.class,
                 () -> content.media(new ContentAdminPort.ContentId(7L))).getErrorCode());
         verifyNoInteractions(reads);

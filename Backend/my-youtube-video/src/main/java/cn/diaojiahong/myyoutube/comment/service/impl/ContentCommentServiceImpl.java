@@ -61,12 +61,14 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
-public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper, ContentComment> implements IContentCommentService {
+public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
+ContentComment> implements IContentCommentService {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int STORAGE_EXPIRE = 60 * 20;
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
+
     /** 名单里的失效条目(取回时已被删/改状态)会让当页变短, 每次多取一点并循环补齐 */
     private static final int OVERFETCH = 10;
     private static final int MAX_CHUNKS = 3;
@@ -164,11 +166,13 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
 
             throw new BizException(ErrorCode.NOT_FOUND, "评论不存在");
         }
+
         Long userId = getUserId();
         if (!comment.getUserId().equals(userId)) {
 
             throw new BizException(ErrorCode.FORBIDDEN, "用户没有权限删除评论");
         }
+
         // 删楼时连回复一起摘, 先收齐受影响 id 供计数
         List<Long> affectedIds = new ArrayList<>();
         affectedIds.add(commentId);
@@ -210,6 +214,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
 
             throw new BizException(ErrorCode.NOT_FOUND, "内容不存在");
         }
+
         CommentTab tab = query.getTab() == null || query.getTab().isBlank()
                 ? CommentTab.HOT : CommentTab.of(query.getTab());
         int limit = clampPageSize(query.getPageSize());
@@ -245,12 +250,16 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
 
             throw new BizException(ErrorCode.NOT_FOUND, "评论不存在");
         }
+
         access.readable(root.getContentId(), getUserId());
         int limit = clampPageSize(query.getPageSize());
         CommentCursor cursor = CommentCursor.decode(query.getCursor());
         LambdaQueryWrapper<ContentComment> w = new LambdaQueryWrapper<ContentComment>()
                 .likeRight(ContentComment::getPath, rootId + ".")
-                .in(ContentComment::getStatus, CommentStatusEnum.VISIBLE.getCode(), CommentStatusEnum.BLOCKED.getCode());
+                .in(
+                        ContentComment::getStatus,
+                        CommentStatusEnum.VISIBLE.getCode(),
+                        CommentStatusEnum.BLOCKED.getCode());
         if (cursor != null) {
             long ts = cursor.getScore();
             w.and(x -> x.gt(ContentComment::getCreateTime, toLocalDateTime(ts))
@@ -310,6 +319,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         if (slice.isEmpty()) {
             return;
         }
+
         List<Long> ids = slice.stream().map(CommentCursor::getId).toList();
         Map<Long, ContentComment> found = lambdaQuery()
                 .in(ContentComment::getId, ids)
@@ -348,7 +358,10 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         LambdaQueryWrapper<ContentComment> w = new LambdaQueryWrapper<ContentComment>()
                 .eq(ContentComment::getContentId, contentId)
                 .eq(ContentComment::getLevel, 1)
-                .in(ContentComment::getStatus, CommentStatusEnum.VISIBLE.getCode(), CommentStatusEnum.BLOCKED.getCode());
+                .in(
+                        ContentComment::getStatus,
+                        CommentStatusEnum.VISIBLE.getCode(),
+                        CommentStatusEnum.BLOCKED.getCode());
         if (cursor != null) {
             if (tab == CommentTab.LATEST) {
                 long ts = cursor.getScore();
@@ -375,6 +388,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         if (cursor == null) {
             return 0;
         }
+
         for (int i = 0; i < list.size(); i++) {
             CommentCursor e = list.get(i);
             if (e.getScore() < cursor.getScore()
@@ -395,6 +409,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         if (records.isEmpty()) {
             return List.of();
         }
+
         List<CommentVO> voList = records.stream().map(record -> {
             CommentVO vo = BeanUtil.toBean(record, CommentVO.class);
             vo.setContentId(record.getContentId());
@@ -461,6 +476,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
         if (pageSize == null || pageSize <= 0) {
             return DEFAULT_PAGE_SIZE;
         }
+
         return Math.min(pageSize, MAX_PAGE_SIZE);
     }
 
@@ -471,6 +487,7 @@ public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,
 
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         return Long.valueOf(userId);
     }
 }

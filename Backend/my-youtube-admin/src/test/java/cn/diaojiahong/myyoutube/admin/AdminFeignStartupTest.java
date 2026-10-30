@@ -50,5 +50,6 @@ class AdminFeignStartupTest {
     @EnableFeignClients(clients = {UserAdministrationPort.class, UserRolePort.class})
     @Import({AdminAdministratorsController.class, AdminWebConfiguration.class,
             AdminAuthorization.class, GlobalExceptionHandler.class})
-    static class Clients {}
+    static class Clients {
+    }
 }

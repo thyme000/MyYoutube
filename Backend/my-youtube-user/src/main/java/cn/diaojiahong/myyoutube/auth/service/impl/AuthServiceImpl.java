@@ -166,6 +166,7 @@ public class AuthServiceImpl implements IAuthService {
         if (RegexUtils.isPasswordInvalid(newPassword)) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "密码格式错误，需10~32位字母/数字/下划线!");
         }
+
         // 校验字段是否有效
         User user = userService.lambdaQuery()
                 .eq(User::getUsername, forgetPasswordDTO.getUsername())

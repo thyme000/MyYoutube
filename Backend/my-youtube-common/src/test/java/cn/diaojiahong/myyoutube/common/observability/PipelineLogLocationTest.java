@@ -6,8 +6,10 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PipelineLogLocationTest {
-    @Test void enabledLoggingReportsLocationWithoutRequiringBusinessComponentScanning() {
-        var runner = new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(PipelineLogLocation.class));
+    @Test
+    void enabledLoggingReportsLocationWithoutRequiringBusinessComponentScanning() {
+        ApplicationContextRunner runner = new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(PipelineLogLocation.class));
         runner.run(context -> assertFalse(context.containsBean("pipelineLogLocation")));
         runner.withPropertyValues("logging.structured.format.file=" + PipelineLogFormatter.class.getName())
                 .run(context -> assertDoesNotThrow(() -> context.getBean(PipelineLogLocation.class).report()));

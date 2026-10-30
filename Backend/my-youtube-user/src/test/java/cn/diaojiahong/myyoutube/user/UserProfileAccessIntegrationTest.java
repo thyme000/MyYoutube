@@ -31,6 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class UserProfileAccessIntegrationTest {
     private final UserSummaryCache summaryCache = mock(UserSummaryCache.class);
+
     private final EsSyncPublisher publisher = mock(EsSyncPublisher.class);
     private JdbcTemplate jdbc;
     private SqlSession session;

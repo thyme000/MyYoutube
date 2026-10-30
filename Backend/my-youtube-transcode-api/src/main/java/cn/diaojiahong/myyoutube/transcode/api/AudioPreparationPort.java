@@ -14,15 +14,20 @@ import org.springframework.web.bind.annotation.*;
 public interface AudioPreparationPort {
     @PostMapping
     void prepare(@RequestBody Request request);
+
     @GetMapping("/{audioId}")
     View preparation(@PathVariable("audioId") Long audioId);
+
     @PostMapping("/analysis")
     void analyze(@RequestBody AudioAnalysisContracts.Request request);
+
     @GetMapping("/{audioId}/analysis/{type}")
     AudioAnalysisContracts.View analysis(@PathVariable("audioId") Long id,
             @PathVariable("type") MediaTaskType type);
+
     @PostMapping("/{audioId}/analysis/{type}/retry")
     boolean retryAnalysis(@PathVariable("audioId") Long id, @PathVariable("type") MediaTaskType type);
+
     @PostMapping("/{audioId}/retry")
     boolean retry(@PathVariable("audioId") Long audioId);
 }

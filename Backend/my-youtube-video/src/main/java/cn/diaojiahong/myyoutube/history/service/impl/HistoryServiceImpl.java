@@ -62,7 +62,11 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
         int total = historyMapper.selectHistoryCount(userId, pageQuery.getType());
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
-        List<Long> contentIds = historyMapper.selectHistoryIds(userId, pageQuery.getType(), offset, pageQuery.getPageSize());
+        List<Long> contentIds = historyMapper.selectHistoryIds(
+                userId,
+                pageQuery.getType(),
+                offset,
+                pageQuery.getPageSize());
         if (contentIds.isEmpty()) {
 
             return PageResult.of(total, totalPages, List.of());
@@ -132,6 +136,7 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
 
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         return Long.valueOf(userId);
     }
 }

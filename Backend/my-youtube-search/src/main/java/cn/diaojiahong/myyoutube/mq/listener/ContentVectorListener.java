@@ -12,7 +12,11 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "my-youtube.search.vector", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(
+        prefix = "my-youtube.search.vector",
+        name = "enabled",
+        havingValue = "true",
+        matchIfMissing = true)
 @RocketMQMessageListener(topic = MqConstants.TOPIC_CONTENT_VECTOR, consumerGroup = MqConstants.GROUP_CONTENT_VECTOR,
         consumeThreadNumber = 1, consumeThreadMax = 1, consumeTimeout = 5, maxReconsumeTimes = 3,
         consumeFromWhere = ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET)
@@ -24,9 +28,11 @@ public class ContentVectorListener implements RocketMQListener<ContentVectorMess
         if (message == null || message.contentId() == null || message.contentId() <= 0) {
             throw new IllegalArgumentException("Invalid content vector message");
         }
+
         if (message.targetVersion() != null && message.targetVersion().isBlank()) {
             throw new IllegalArgumentException("Invalid content vector target version");
         }
+
         vectors.embedContent(message.contentId(), message.targetVersion());
     }
 }

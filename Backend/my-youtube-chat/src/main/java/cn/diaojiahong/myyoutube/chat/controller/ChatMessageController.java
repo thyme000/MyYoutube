@@ -53,7 +53,9 @@ public class ChatMessageController {
      */
     @Operation(summary = "分页查询历史消息")
     @GetMapping("/list/{conversationId}")
-    public Result<MessagePageVO> getMessageList(@PathVariable String conversationId, @Valid @ModelAttribute MessageListPageQuery messageListPageQuery) {
+    public Result<MessagePageVO> getMessageList(
+            @PathVariable String conversationId,
+            @Valid @ModelAttribute MessageListPageQuery messageListPageQuery) {
         return Result.success(chatMessageService.getMessageList(conversationId, messageListPageQuery));
     }
 
@@ -65,7 +67,9 @@ public class ChatMessageController {
      */
     @Operation(summary = "重连查询增量消息(同步消息)")
     @GetMapping("/sync/{conversationId}")
-    public Result<MessagePageVO> syncMessageList(@PathVariable String conversationId, @Valid @ModelAttribute MessageListPageQuery messageListPageQuery) {
+    public Result<MessagePageVO> syncMessageList(
+            @PathVariable String conversationId,
+            @Valid @ModelAttribute MessageListPageQuery messageListPageQuery) {
         return Result.success(chatMessageService.syncMessageList(conversationId, messageListPageQuery));
     }
 
@@ -91,7 +95,9 @@ public class ChatMessageController {
      */
     @Operation(summary = "查找聊天记录")
     @GetMapping("/find/record/{conversationId}")
-    public Result<PageResult<FindRecordVO>> findRecord(@PathVariable String conversationId,  @RequestParam String keyword,
+    public Result<PageResult<FindRecordVO>> findRecord(
+            @PathVariable String conversationId,
+            @RequestParam String keyword,
                                                        @RequestParam Integer pageNum, @RequestParam Integer pageSize) {
         return Result.success(chatMessageService.findRecord(conversationId, keyword, pageNum, pageSize));
     }

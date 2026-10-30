@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 @TableName("content")
 public class Content implements Serializable {
     @java.io.Serial private static final long serialVersionUID = 1L;
+
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private ContentTypeEnum type;

@@ -7,6 +7,11 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.ElasticsearchException;
 import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
+import co.elastic.clients.elasticsearch.core.GetResponse;
+import co.elastic.clients.elasticsearch.core.MgetResponse;
+import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
+import co.elastic.clients.elasticsearch.core.get.GetResult;
+import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
 import co.elastic.clients.json.JsonData;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +31,14 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class ContentVectorBuilder {
     static final String EXECUTION_KEY = "{content-vector}:";
-    private static final List<String> FIELDS = List.of("title", "description", "summary", "status", "visibility", "vectorVersion");
+
+    private static final List<String> FIELDS = List.of(
+            "title",
+            "description",
+            "summary",
+            "status",
+            "visibility",
+            "vectorVersion");
     private static final int WRITE_ATTEMPTS = 3;
     private final LlmPort llm;
     private final ElasticsearchClient es;
@@ -34,15 +46,21 @@ public class ContentVectorBuilder {
     private final IdempotentGuard guard;
     private final VectorProperties vectorProperties;
 
-    enum Outcome { SUCCEEDED, EXISTING, SKIPPED }
-    private record Snapshot(Long id, Map<String, Object> source, long seqNo, long primaryTerm) {}
-    private record VectorWrite(Snapshot original, Snapshot expected, List<Float> vector) {}
+    enum Outcome {
+        SUCCEEDED, EXISTING, SKIPPED
+    }
+    private record Snapshot(Long id, Map<String, Object> source, long seqNo, long primaryTerm) {
+    }
+
+    private record VectorWrite(Snapshot original, Snapshot expected, List<Float> vector) {
+    }
 
     public record Counts(long succeeded, long existing, long skipped, long pendingRecovery) {
         public Counts plus(Counts other) {
             return new Counts(succeeded + other.succeeded, existing + other.existing,
                     skipped + other.skipped, pendingRecovery + other.pendingRecovery);
         }
+
         private Counts add(Outcome outcome) {
             return plus(new Counts(outcome == Outcome.SUCCEEDED ? 1 : 0, outcome == Outcome.EXISTING ? 1 : 0,
                     outcome == Outcome.SKIPPED ? 1 : 0, 0));
@@ -56,7 +74,7 @@ public class ContentVectorBuilder {
         lease.assertOwned();
         LlmPort.EmbeddingsResponse response = generate(List.of(text(content)), targetVersion);
         lease.assertOwned();
-        var item = response.getItems().get(0);
+        LlmPort.EmbeddingItem item = response.getItems().get(0);
         if (response.getUnavailableReason() != null) throw unavailable(response);
         if (item.error() != null) throw new IllegalStateException(item.error());
         Outcome outcome = write(content, item.vector(), response.getVersion(), lease);
@@ -64,7 +82,7 @@ public class ContentVectorBuilder {
     }
 
     public Counts batch(List<Long> ids, String version) {
-        try (var lease = guard.acquireAll(ids.stream().map(id -> EXECUTION_KEY + id).toList(), IdempotentGuard.DEFAULT_LEASE_SECONDS)) {
+        try (IdempotentGuard.Lease lease = guard.acquireAll(ids.stream().map(id -> EXECUTION_KEY + id).toList(), IdempotentGuard.DEFAULT_LEASE_SECONDS)) {
             if (!lease.acquired()) throw new IllegalStateException("向量批量占位状态异常");
             Map<Long, Snapshot> contents = fetchAll(ids);
             Counts counts = new Counts(0, 0, 0, 0);
@@ -80,15 +98,15 @@ public class ContentVectorBuilder {
                 return counts;
             }
             lease.assertOwned();
-            var response = generate(pending.stream().map(this::text).toList(), version);
+            LlmPort.EmbeddingsResponse response = generate(pending.stream().map(this::text).toList(), version);
             List<VectorWrite> writes = new ArrayList<>();
-            for (var item : response.getItems()) {
+            for (LlmPort.EmbeddingItem item : response.getItems()) {
                 Snapshot content = pending.get(item.index());
                 if (item.error() == null) writes.add(new VectorWrite(content, content, item.vector()));
             }
             counts = writeAll(writes, version, counts, lease);
             if (response.getUnavailableReason() != null) throw unavailable(response);
-            for (var item : response.getItems()) {
+            for (LlmPort.EmbeddingItem item : response.getItems()) {
                 if (item.error() != null) counts = registerFailure(pending.get(item.index()).id(), version,
                         new IllegalStateException(item.error()), counts, lease);
             }
@@ -97,7 +115,12 @@ public class ContentVectorBuilder {
         }
     }
 
-    private Counts registerFailure(Long id, String version, RuntimeException error, Counts counts, IdempotentGuard.Lease lease) {
+    private Counts registerFailure(
+            Long id,
+            String version,
+            RuntimeException error,
+            Counts counts,
+            IdempotentGuard.Lease lease) {
         lease.assertOwned();
         String reason = error.getClass().getSimpleName() + ": " + error.getMessage();
         publisher.publishRecovery(id, version, reason.substring(0, Math.min(reason.length(), 500)));
@@ -106,16 +129,19 @@ public class ContentVectorBuilder {
     }
 
     private LlmPort.EmbeddingsResponse generate(List<String> texts, String targetVersion) {
-        var response = llm.embeddings(new LlmPort.EmbeddingsRequest(texts), vectorProperties.embeddingOptions(texts.size()));
+        LlmPort.EmbeddingsResponse response = llm.embeddings(
+                new LlmPort.EmbeddingsRequest(texts),
+                vectorProperties.embeddingOptions(texts.size()));
         if (response == null || response.getVersion() == null || response.getVersion().isBlank()
                 || response.getDims() == null || response.getDims() <= 0 || response.getItems() == null
                 || response.getItems().size() != texts.size()) throw new IllegalStateException("模型向量响应结构不完整");
         if (targetVersion != null && !targetVersion.equals(response.getVersion())) {
             throw new VersionChanged(targetVersion, response.getVersion());
         }
+
         boolean[] seen = new boolean[texts.size()];
         List<LlmPort.EmbeddingItem> checked = new ArrayList<>();
-        for (var item : response.getItems()) {
+        for (LlmPort.EmbeddingItem item : response.getItems()) {
             if (item == null || item.index() < 0 || item.index() >= texts.size() || seen[item.index()]
                     || (item.vector() == null) == (item.error() == null)) {
                 throw new IllegalStateException("模型向量响应位置或结果非法");
@@ -139,11 +165,15 @@ public class ContentVectorBuilder {
         for (int attempt = 1; attempt <= WRITE_ATTEMPTS && !pending.isEmpty(); attempt++) {
             lease.assertOwned();
             var request = new BulkRequest.Builder();
-            for (var item : pending) {
-                var expected = item.expected();
+            for (ContentVectorBuilder.VectorWrite item : pending) {
+                ContentVectorBuilder.Snapshot expected = item.expected();
                 request.operations(operation -> operation.update(update -> update.index("content").id(expected.id().toString())
                         .ifSeqNo(expected.seqNo()).ifPrimaryTerm(expected.primaryTerm())
-                        .action(action -> action.doc(JsonData.of(Map.of("vector", item.vector(), "vectorVersion", version))))));
+                        .action(action -> action.doc(JsonData.of(Map.of(
+                                "vector",
+                                item.vector(),
+                                "vectorVersion",
+                                version))))));
             }
             BulkResponse response = null;
             RuntimeException transportError = null;
@@ -163,8 +193,8 @@ public class ContentVectorBuilder {
             List<VectorWrite> failed = new ArrayList<>();
             Map<Long, RuntimeException> errors = new LinkedHashMap<>();
             for (int i = 0; i < pending.size(); i++) {
-                var item = pending.get(i);
-                var result = response == null ? null : response.items().get(i);
+                ContentVectorBuilder.VectorWrite item = pending.get(i);
+                BulkResponseItem result = response == null ? null : response.items().get(i);
                 if (result != null && result.error() == null && result.status() >= 200 && result.status() < 300) {
                     counts = counts.add(Outcome.SUCCEEDED);
                 } else {
@@ -180,11 +210,13 @@ public class ContentVectorBuilder {
             }
             if (failed.isEmpty()) break;
             lease.assertOwned();
-            var latest = fetchAll(failed.stream().map(item -> item.original().id()).toList());
+            Map<Long,ContentVectorBuilder.Snapshot> latest = fetchAll(failed.stream()
+                    .map(item -> item.original().id())
+                    .toList());
             List<VectorWrite> retry = new ArrayList<>();
-            for (var item : failed) {
-                var original = item.original();
-                var current = latest.get(original.id());
+            for (ContentVectorBuilder.VectorWrite item : failed) {
+                ContentVectorBuilder.Snapshot original = item.original();
+                ContentVectorBuilder.Snapshot current = latest.get(original.id());
                 if (ineligible(current)) counts = counts.add(Outcome.SKIPPED);
                 else if (completed(current, version)) counts = counts.add(Outcome.EXISTING);
                 else if (!text(original).equals(text(current)) || !Objects.equals(
@@ -230,7 +262,9 @@ public class ContentVectorBuilder {
 
     private Snapshot fetch(Long id) {
         try {
-            var response = es.get(get -> get.index("content").id(id.toString()).sourceIncludes(FIELDS), Map.class);
+            GetResponse<Map> response = es.get(
+                    get -> get.index("content").id(id.toString()).sourceIncludes(FIELDS),
+                    Map.class);
             return response.found() ? snapshot(id, response.source(), response.seqNo(), response.primaryTerm()) : null;
         } catch (IOException error) {
             throw new IllegalStateException("向量文档读取失败, contentId=" + id, error);
@@ -239,12 +273,12 @@ public class ContentVectorBuilder {
 
     private Map<Long, Snapshot> fetchAll(List<Long> ids) {
         try {
-            var response = es.mget(get -> get.index("content").ids(ids.stream().map(Object::toString).toList())
+            MgetResponse<Map> response = es.mget(get -> get.index("content").ids(ids.stream().map(Object::toString).toList())
                     .sourceIncludes(FIELDS), Map.class);
             Map<Long, Snapshot> contents = new LinkedHashMap<>();
-            for (var item : response.docs()) {
+            for (MultiGetResponseItem<Map> item : response.docs()) {
                 if (!item.isResult()) throw new IllegalStateException("批量内容状态读取失败");
-                var result = item.result();
+                GetResult<Map> result = item.result();
                 contents.put(Long.valueOf(result.id()), result.found()
                         ? snapshot(Long.valueOf(result.id()), result.source(), result.seqNo(), result.primaryTerm()) : null);
             }
@@ -259,6 +293,7 @@ public class ContentVectorBuilder {
         if (source == null || seqNo == null || seqNo < 0 || primaryTerm == null || primaryTerm <= 0) {
             throw new IllegalStateException("内容状态或并发版本缺失, contentId=" + id);
         }
+
         return new Snapshot(id, new LinkedHashMap<>(source), seqNo, primaryTerm);
     }
 
@@ -274,10 +309,15 @@ public class ContentVectorBuilder {
 
     private String text(Snapshot content) {
         return Stream.of("title", "description", "summary").map(content.source()::get).filter(Objects::nonNull)
-                .map(Object::toString).map(String::trim).filter(value -> !value.isEmpty()).collect(Collectors.joining("\n"));
+                .map(Object::toString)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .collect(Collectors.joining("\n"));
     }
 
     private static class VersionChanged extends IllegalStateException {
-        VersionChanged(String expected, String actual) { super("目标向量版本已变化: expected=" + expected + ", actual=" + actual); }
+        VersionChanged(String expected, String actual) {
+            super("目标向量版本已变化: expected=" + expected + ", actual=" + actual);
+        }
     }
 }

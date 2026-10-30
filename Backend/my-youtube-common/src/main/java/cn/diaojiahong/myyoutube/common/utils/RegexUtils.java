@@ -11,6 +11,7 @@ public class RegexUtils {
     public static boolean isPhoneInvalid(String phone){
         return mismatch(phone, RegexPatterns.PHONE_REGEX);
     }
+
     /**
      * 是否是无效邮箱格式
      * @param email 要校验的邮箱
@@ -34,8 +35,10 @@ public class RegexUtils {
         if (StrUtil.isBlank(str)) {
             return true;
         }
+
         return !str.matches(regex);
     }
+
     /**
      * 是否是无效密码格式
      * @param password 要校验的密码

@@ -16,10 +16,34 @@ import org.springframework.web.bind.annotation.*;
 public class InternalAudioPreparationController implements AudioPreparationPort {
     private final MediaTaskService tasks;
     private final AudioAnalysisTaskService analysis;
-    @Override public void analyze(AudioAnalysisContracts.Request request) { analysis.start(request); }
-    @Override public AudioAnalysisContracts.View analysis(Long id, MediaTaskType type) { return analysis.view(id, type); }
-    @Override public boolean retryAnalysis(Long id, MediaTaskType type) { return analysis.retry(id, type); }
-    @Override public void prepare(Request request) { tasks.startAudioPreparation(request); }
-    @Override public View preparation(Long id) { return tasks.audioPreparationView(id); }
-    @Override public boolean retry(Long id) { return tasks.retryAudioPreparation(id); }
+
+    @Override
+    public void analyze(AudioAnalysisContracts.Request request) {
+        analysis.start(request);
+    }
+
+    @Override
+    public AudioAnalysisContracts.View analysis(Long id, MediaTaskType type) {
+        return analysis.view(id, type);
+    }
+
+    @Override
+    public boolean retryAnalysis(Long id, MediaTaskType type) {
+        return analysis.retry(id, type);
+    }
+
+    @Override
+    public void prepare(Request request) {
+        tasks.startAudioPreparation(request);
+    }
+
+    @Override
+    public View preparation(Long id) {
+        return tasks.audioPreparationView(id);
+    }
+
+    @Override
+    public boolean retry(Long id) {
+        return tasks.retryAudioPreparation(id);
+    }
 }

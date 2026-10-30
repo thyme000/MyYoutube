@@ -33,6 +33,7 @@ public class InternalUserDocController {
         if (syncs == null || syncs.isEmpty()) {
             return;
         }
+
         List<UpdateQuery> queries = syncs.stream()
                 .map(s -> UpdateQuery.builder(String.valueOf(s.userId()))
                         .withScriptType(ScriptType.INLINE)

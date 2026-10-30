@@ -9,7 +9,9 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class LocalModelStartupHealth implements HealthIndicator {
     private final LocalModelServices models;
-    @Override public Health health() {
+
+    @Override
+    public Health health() {
         return Health.up().withDetail("startupSnapshot",models.startupStates()).build();
     }
 }

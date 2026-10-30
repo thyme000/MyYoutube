@@ -4,6 +4,9 @@ import cn.diaojiahong.myyoutube.common.media.StructuredJson;
 import cn.diaojiahong.myyoutube.common.media.VideoFrameSampling;
 import cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings;
 import cn.diaojiahong.myyoutube.transcode.ffmpeg.FFmpegUtil;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import java.util.regex.Matcher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
@@ -24,8 +27,11 @@ public class PreparedVideoReader {
     private final MediaPreparationProperties properties;
     private final PreparedImageWriter images;
     private final FrameProcessingSettings frameSettings;
+
     private static final String DECIMAL = "(-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)";
+
     private static final Pattern PTS = Pattern.compile("pts_time:" + DECIMAL);
+
     private static final Pattern FRAME_PTS = Pattern.compile("(?m)^best_effort_timestamp_time=" + DECIMAL + "$");
 
     public record Probe(long durationMs, int width, int height, int rotation, boolean hasAudio,
@@ -34,27 +40,36 @@ public class PreparedVideoReader {
                      String profile, int level, double frameRate) {
             this(durationMs, width, height, rotation, hasAudio, profile, level, frameRate, durationMs, 0);
         }
-        public int sampleCount() { return VideoFrameSampling.count(videoDurationMs, availableFrames); }
+        public int sampleCount() {
+            return VideoFrameSampling.count(videoDurationMs, availableFrames);
+        }
     }
-    public record Frame(int index, long timeMs, Path path, PreparedImageWriter.PreparedImageResult image) {}
-    @FunctionalInterface public interface FrameConsumer { void accept(Frame frame) throws Exception; }
+
+    public record Frame(int index, long timeMs, Path path, PreparedImageWriter.PreparedImageResult image) {
+    }
+
+    @FunctionalInterface public interface FrameConsumer {
+        void accept(Frame frame) throws Exception;
+    }
 
     public Probe probe(String source, byte[] head) {
         String mime = new Tika().detect(head);
         if (!mime.startsWith("video/") && !"application/mp4".equals(mime))
             throw new IllegalArgumentException("视频类型初筛失败: " + mime);
-        var result = FFmpegUtil.runBoundedCommand(List.of("ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", source), Duration.ofSeconds(60));
+        FFmpegUtil.CommandOutput result = FFmpegUtil.runBoundedCommand(
+                List.of("ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", source),
+                Duration.ofSeconds(60));
         if (result.exitCode() != 0) throw new IllegalArgumentException("视频探测失败");
         return validateProbe(result.output());
     }
 
     public Probe validateProbe(String text) {
-        var json = StructuredJson.object(text);
-        var format = json.getAsJsonObject("format");
+        JsonObject json = StructuredJson.object(text);
+        JsonObject format = json.getAsJsonObject("format");
         if (!Set.of(format.get("format_name").getAsString().split(",")).contains("mp4"))
             throw new IllegalArgumentException("仅支持 MP4 容器");
-        var tags = format.get("tags");
-        var brand = tags != null && tags.isJsonObject() ? tags.getAsJsonObject().get("major_brand") : null;
+        JsonElement tags = format.get("tags");
+        JsonElement brand = tags != null && tags.isJsonObject() ? tags.getAsJsonObject().get("major_brand") : null;
         if (brand == null || brand.isJsonNull() || !brand.isJsonPrimitive()
                 || !brand.getAsJsonPrimitive().isString() || brand.getAsString().isBlank())
             throw new IllegalArgumentException("MP4 探测结果缺少 major_brand，无法确认容器兼容性");
@@ -70,25 +85,28 @@ public class PreparedVideoReader {
             throw new IllegalArgumentException("视频时长非法");
         com.google.gson.JsonObject video = null;
         boolean audio = false;
-        for (var item : json.getAsJsonArray("streams")) {
-            var stream = item.getAsJsonObject();
+        for (JsonElement item : json.getAsJsonArray("streams")) {
+            JsonObject stream = item.getAsJsonObject();
             String type = stream.get("codec_type").getAsString();
             if ("video".equals(type)) {
                 if (video != null) throw new IllegalArgumentException("仅支持单条视频轨");
                 if (!"h264".equals(stream.get("codec_name").getAsString())
                         || !"yuv420p".equals(stream.get("pix_fmt").getAsString())
                         || !properties.getVideoProfiles().contains(stream.get("profile").getAsString())
-                        || stream.get("level").getAsInt() <= 0 || stream.get("level").getAsInt() > properties.getVideoMaxLevel())
+                        || stream.get("level").getAsInt() <= 0
+                        || stream.get("level").getAsInt() > properties.getVideoMaxLevel())
                     throw new IllegalArgumentException("视频编码不兼容: codec=" + stream.get("codec_name")
                             + ", profile=" + stream.get("profile") + ", level=" + stream.get("level")
                             + ", pix_fmt=" + stream.get("pix_fmt") + "；要求 H.264、8-bit 4:2:0 (yuv420p)，profile="
                             + properties.getVideoProfiles().stream().sorted().toList()
                             + "，level≤" + properties.getVideoMaxLevel() + "（如 50 表示 5.0）");
-                if (stream.has("color_transfer") && Set.of("smpte2084", "arib-std-b67").contains(stream.get("color_transfer").getAsString()))
+                if (stream.has("color_transfer")
+                        && Set.of("smpte2084", "arib-std-b67").contains(stream.get("color_transfer").getAsString()))
                     throw new IllegalArgumentException("不支持 HDR 视频");
                 video = stream;
             } else if ("audio".equals(type)) {
-                if (audio || !"aac".equals(stream.get("codec_name").getAsString())) throw new IllegalArgumentException("音轨须为单条 AAC");
+                if (audio
+                        || !"aac".equals(stream.get("codec_name").getAsString())) throw new IllegalArgumentException("音轨须为单条 AAC");
                 audio = true;
             }
         }
@@ -97,7 +115,7 @@ public class PreparedVideoReader {
         if (width <= 0 || height <= 0 || (long) width * height > properties.getSourcePixels()
                 || Math.max(width, height) > properties.getSourceLongEdge()) throw new IllegalArgumentException("视频尺寸超限");
         int rotation = 0;
-        if (video.has("side_data_list")) for (var side : video.getAsJsonArray("side_data_list")) {
+        if (video.has("side_data_list")) for (JsonElement side : video.getAsJsonArray("side_data_list")) {
             if (side.getAsJsonObject().has("rotation")) rotation = side.getAsJsonObject().get("rotation").getAsInt();
         }
         return new Probe(Math.max(1, Math.round(seconds * 1000)), width, height, rotation, audio,
@@ -108,8 +126,11 @@ public class PreparedVideoReader {
     private static long videoDuration(com.google.gson.JsonObject stream, double fallback) {
         double seconds = fallback;
         if (stream.has("duration")) {
-            try { seconds = Double.parseDouble(stream.get("duration").getAsString()); }
-            catch (NumberFormatException ignored) { seconds = fallback; }
+            try {
+                seconds = Double.parseDouble(stream.get("duration").getAsString());
+            } catch (NumberFormatException ignored) {
+                seconds = fallback;
+            }
         }
         if (!Double.isFinite(seconds) || seconds <= 0 || seconds > Long.MAX_VALUE / 1000.0) seconds = fallback;
         return Math.max(1, Math.round(seconds * 1000));
@@ -117,8 +138,11 @@ public class PreparedVideoReader {
 
     private static long availableFrames(com.google.gson.JsonObject stream) {
         if (!stream.has("nb_frames")) return 0;
-        try { return Math.max(0, Long.parseLong(stream.get("nb_frames").getAsString())); }
-        catch (NumberFormatException ignored) { return 0; }
+        try {
+            return Math.max(0, Long.parseLong(stream.get("nb_frames").getAsString()));
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
     }
 
     private static double frameRate(com.google.gson.JsonObject stream) {
@@ -135,10 +159,21 @@ public class PreparedVideoReader {
 
     public void frames(String source, Probe probe, Path directory, java.util.function.IntPredicate skip,
                        FrameConsumer consumer) throws Exception {
-        frames(source, probe, directory, frameSettings.snapshot().plan(probe.videoDurationMs(), probe.availableFrames()), skip, consumer);
+        frames(
+                source,
+                probe,
+                directory,
+                frameSettings.snapshot().plan(probe.videoDurationMs(), probe.availableFrames()),
+                skip,
+                consumer);
     }
 
-    public void frames(String source, Probe probe, Path directory, VideoFrameSampling.Plan plan, java.util.function.IntPredicate skip,
+    public void frames(
+            String source,
+            Probe probe,
+            Path directory,
+            VideoFrameSampling.Plan plan,
+            java.util.function.IntPredicate skip,
                        FrameConsumer consumer) throws Exception {
         int count = plan.targetCount();
         var accepted = new ArrayList<Integer>();
@@ -149,26 +184,38 @@ public class PreparedVideoReader {
                 ? Math.max(0, duration - 1.0 / probe.frameRate() - 0.001) : duration * 0.99;
         double samplingEnd = lastFrame;
         for (int index = 0; index < count; index++) {
-            if (skip.test(index)) { accepted.add(index); continue; }
+            if (skip.test(index)) {
+                accepted.add(index);
+                continue;
+            }
             double second = Math.min(lastFrame, samplingEnd * VideoFrameSampling.ratio(index, count));
-            var raw = directory.resolve("frame-" + index + ".jpg");
-            var prepared = directory.resolve("prepared-" + index + ".jpg");
+            Path raw = directory.resolve("frame-" + index + ".jpg");
+            Path prepared = directory.resolve("prepared-" + index + ".jpg");
             try {
                 Frame frame = null;
                 for (int attempt = 0; attempt < 2; attempt++) {
-                    var result = extract(source, second, raw);
-                    if (FFmpegUtil.extractionUnavailable(result)) throw commandFailure("视频抽帧进程或源输入不可用", index, second, result);
-                    var timestamp = PTS.matcher(result.output());
+                    FFmpegUtil.CommandOutput result = extract(source, second, raw);
+                    if (FFmpegUtil.extractionUnavailable(result)) throw commandFailure(
+                            "视频抽帧进程或源输入不可用",
+                            index,
+                            second,
+                            result);
+                    Matcher timestamp = PTS.matcher(result.output());
                     if (result.exitCode() == 0 && Files.isRegularFile(raw) && Files.size(raw) > 0 && timestamp.find()) {
                         double actualSecond = Double.parseDouble(timestamp.group(1));
                         if (!Double.isFinite(actualSecond)) throw new IllegalStateException("视频帧时间非法");
                         long actualMs = Math.round(actualSecond * 1000);
                         if (actualMs < 0 || actualMs > probe.durationMs()) throw new IllegalStateException("视频帧时间非法");
-                        var image = images.write(raw, prepared);
+                        PreparedImageWriter.PreparedImageResult image = images.write(raw, prepared);
                         frame = new Frame(index, actualMs, prepared, image);
                         break;
                     }
-                    log.warn("视频采样点抽取失败: index={}, seek={}s, attempt={}, exitCode={}", index, seconds(second), attempt + 1, result.exitCode());
+                    log.warn(
+                            "视频采样点抽取失败: index={}, seek={}s, attempt={}, exitCode={}",
+                            index,
+                            seconds(second),
+                            attempt + 1,
+                            result.exitCode());
                     if (attempt == 0 && result.exitCode() == 0 && !PTS.matcher(result.output()).find()) {
                         // 正常 EOF 才查询真实片尾；解码错误不能被片尾恢复掩盖。
                         double tail = lastFrameSecond(source, second, index);
@@ -183,14 +230,22 @@ public class PreparedVideoReader {
                     accepted.add(index);
                 }
             } finally {
-                for (var temporary : List.of(raw, prepared)) {
-                    try { Files.deleteIfExists(temporary); }
-                    catch (java.io.IOException error) { log.warn("媒体准备临时文件清理失败", error); }
+                for (Path temporary : List.of(raw, prepared)) {
+                    try {
+                        Files.deleteIfExists(temporary);
+                    } catch (java.io.IOException error) {
+                        log.warn("媒体准备临时文件清理失败", error);
+                    }
                 }
             }
         }
         plan.validate(accepted);
-        log.info("视频抽帧完成: target={} minimum={} actual={} missing={}", count, plan.minimumCount(), accepted.size(), plan.missing(accepted));
+        log.info(
+                "视频抽帧完成: target={} minimum={} actual={} missing={}",
+                count,
+                plan.minimumCount(),
+                accepted.size(),
+                plan.missing(accepted));
     }
 
     private FFmpegUtil.CommandOutput extract(String source, double second, Path raw) throws java.io.IOException {
@@ -205,11 +260,11 @@ public class PreparedVideoReader {
 
     private double lastFrameSecond(String source, double second, int index) {
         for (double start : new double[]{second, 0}) {
-            var result = FFmpegUtil.runBoundedCommand(List.of("ffprobe", "-v", "error", "-threads", "1", "-select_streams", "v:0",
+            FFmpegUtil.CommandOutput result = FFmpegUtil.runBoundedCommand(List.of("ffprobe", "-v", "error", "-threads", "1", "-select_streams", "v:0",
                     "-read_intervals", seconds(start) + "%", "-show_entries", "frame=best_effort_timestamp_time",
                     "-of", "default=noprint_wrappers=1", source), Duration.ofSeconds(60));
             if (result.exitCode() != 0) throw commandFailure("视频片尾探测失败", index, start, result);
-            var timestamps = FRAME_PTS.matcher(result.output());
+            Matcher timestamps = FRAME_PTS.matcher(result.output());
             double last = -1;
             while (timestamps.find()) {
                 double value = Double.parseDouble(timestamps.group(1));
@@ -224,10 +279,20 @@ public class PreparedVideoReader {
         return String.format(java.util.Locale.ROOT, "%.6f", value);
     }
 
-    private static IllegalStateException commandFailure(String message, int index, double second, FFmpegUtil.CommandOutput result) {
+    private static IllegalStateException commandFailure(
+            String message,
+            int index,
+            double second,
+            FFmpegUtil.CommandOutput result) {
         String detail = result.output().strip();
         if (detail.length() > 1800) detail = detail.substring(detail.length() - 1800);
-        log.warn("{}: index={}, seek={}s, exitCode={}, output={}", message, index, seconds(second), result.exitCode(), detail);
+        log.warn(
+                "{}: index={}, seek={}s, exitCode={}, output={}",
+                message,
+                index,
+                seconds(second),
+                result.exitCode(),
+                detail);
         return new IllegalStateException(message + ": index=" + index + ", seek=" + seconds(second)
                 + "s, exitCode=" + result.exitCode() + "，详情见服务日志");
     }

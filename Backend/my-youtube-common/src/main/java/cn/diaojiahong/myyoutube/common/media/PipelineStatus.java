@@ -8,5 +8,7 @@ public enum PipelineStatus {
     @EnumValue
     private final String code = name();
 
-    public String getCode() { return code; }
+    public String getCode() {
+        return code;
+    }
 }

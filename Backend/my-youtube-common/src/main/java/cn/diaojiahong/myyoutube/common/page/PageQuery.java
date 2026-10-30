@@ -26,16 +26,21 @@ public class PageQuery {
         return new Page<>(pageNo, pageSize);
     }
 
-    public void validate() { validate(pageNo, pageSize); }
+    public void validate() {
+        validate(pageNo, pageSize);
+    }
 
     public static void validate(int pageNo, int pageSize) {
-        if (pageNo < 1)
+        if (pageNo < 1) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "分页参数无效，页码须为正数，每页条数为 1~" + MAX_PAGE_SIZE);
+        }
+
         validatePageSize(pageSize);
     }
 
     public static void validatePageSize(int pageSize) {
-        if (pageSize < 1 || pageSize > MAX_PAGE_SIZE)
+        if (pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "分页数量须为 1~" + MAX_PAGE_SIZE);
+        }
     }
 }

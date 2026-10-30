@@ -14,14 +14,18 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 final class RecallTestSupport implements AutoCloseable {
     final ThreadPoolTaskExecutor keywordExecutor = new RecallConfig().recallExecutor();
     final ThreadPoolTaskExecutor vectorExecutor;
+
     final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
     final AsyncTimeoutAspect aspect;
-    final ThreadPoolTaskScheduler scheduler = (ThreadPoolTaskScheduler) new AsyncTimeoutConfiguration().asyncTimeoutScheduler();
+
+    final ThreadPoolTaskScheduler scheduler = (ThreadPoolTaskScheduler) new AsyncTimeoutConfiguration()
+            .asyncTimeoutScheduler();
 
     RecallTestSupport(int waitMillis) {
         scheduler.initialize();
         VectorProperties vectors = new VectorProperties();
-        vectors.setQueryMaxConcurrent(1); vectors.setQueryQueueCapacity(1);
+        vectors.setQueryMaxConcurrent(1);
+        vectors.setQueryQueueCapacity(1);
         vectorExecutor = new RecallConfig().queryVectorExecutor(vectors);
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
         beans.registerSingleton("recallExecutor", keywordExecutor);
@@ -43,7 +47,11 @@ final class RecallTestSupport implements AutoCloseable {
         return factory.getProxy();
     }
 
-    @Override public void close() {
-        keywordExecutor.shutdown(); vectorExecutor.shutdown(); scheduler.shutdown(); metrics.close();
+    @Override
+    public void close() {
+        keywordExecutor.shutdown();
+        vectorExecutor.shutdown();
+        scheduler.shutdown();
+        metrics.close();
     }
 }

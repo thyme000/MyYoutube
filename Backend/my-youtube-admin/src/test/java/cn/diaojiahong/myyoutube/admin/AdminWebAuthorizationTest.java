@@ -156,14 +156,19 @@ class AdminWebAuthorizationTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"审核原因\",\"actorId\":99}"))
                 .andExpect(status().isOk());
         mvc.perform(authenticated(post("/admin/media-retry-batches").param("actorId", "99"), "42")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"requestId\":\"one\",\"taskIds\":[7],\"actorId\":99}"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"requestId\":\"one\",\"taskIds\":[7],\"actorId\":99}"))
                 .andExpect(status().isAccepted());
-        mvc.perform(authenticated(post("/admin/dead-letters/content-vectors/messages/replay").param("actorId", "99"), "42")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"brokerName\":\"broker\",\"queueId\":0,\"offset\":5,\"actorId\":99}"))
+        mvc.perform(authenticated(
+                post("/admin/dead-letters/content-vectors/messages/replay").param("actorId", "99"),
+                "42")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"brokerName\":\"broker\",\"queueId\":0,\"offset\":5,\"actorId\":99}"))
                 .andExpect(status().isAccepted());
 
         verify(context.getBean(AudioAdminPort.class)).decide(7L, new AudioAdminPort.Decision("BAN", "审核原因", 42L));
-        verify(context.getBean(ContentAdminPort.class)).markStatus(argThat(decision -> decision.getActorId().equals(42L)));
+        verify(context.getBean(ContentAdminPort.class))
+                .markStatus(argThat(decision -> decision.getActorId().equals(42L)));
         verify(context.getBean(MediaRetryPort.class)).create(any(), eq(42L));
         verify(context.getBean(ContentVectorDeadLetterPort.class)).replay(any(), eq(42L));
         verify(roles, times(4)).getRole(42L);
@@ -317,13 +322,18 @@ class AdminWebAuthorizationTest {
                 new Route("/admin/hot-search/users?date=2026-10-29&groupId=g&keywordId=7", null, false),
                 new Route("/admin/hot-search/events?date=2026-10-29&groupId=g&keywordId=7", null, false),
                 new Route("/admin/dead-letters/content-vectors/messages", null, false),
-                new Route("/admin/dead-letters/content-vectors/messages/replay", "{\"brokerName\":\"broker\",\"queueId\":0,\"offset\":5}", true));
+                new Route(
+                        "/admin/dead-letters/content-vectors/messages/replay",
+                        "{\"brokerName\":\"broker\",\"queueId\":0,\"offset\":5}",
+                        true));
     }
 
     @RestController
     static class ProbeController {
         @GetMapping("/admin/probe")
-        public String probe() { return "ok"; }
+        public String probe() {
+            return "ok";
+        }
     }
 
     @Configuration(proxyBeanMethods = false)
@@ -334,15 +344,54 @@ class AdminWebAuthorizationTest {
             AdminAdministratorsController.class,
             GlobalExceptionHandler.class, FeignExceptionHandler.class, ProbeController.class})
     static class WebTestConfiguration {
-        @Bean UserRolePort roles() { return mock(UserRolePort.class); }
-        @Bean UserAdministrationPort administration() { return mock(UserAdministrationPort.class); }
-        @Bean UserPort users() { return mock(UserPort.class); }
-        @Bean ContentAdminPort content() { return mock(ContentAdminPort.class); }
-        @Bean CommentAdminPort comments() { return mock(CommentAdminPort.class); }
-        @Bean AudioAdminPort audios() { return mock(AudioAdminPort.class); }
-        @Bean MediaRetryPort retries() { return mock(MediaRetryPort.class); }
-        @Bean HotSearchHistoryPort hotSearch() { return mock(HotSearchHistoryPort.class); }
-        @Bean ContentVectorDeadLetterPort deadLetters() { return mock(ContentVectorDeadLetterPort.class); }
-        @Bean S3StorageUtil storage() { return mock(S3StorageUtil.class); }
+        @Bean
+        UserRolePort roles() {
+            return mock(UserRolePort.class);
+        }
+
+        @Bean
+        UserAdministrationPort administration() {
+            return mock(UserAdministrationPort.class);
+        }
+
+        @Bean
+        UserPort users() {
+            return mock(UserPort.class);
+        }
+
+        @Bean
+        ContentAdminPort content() {
+            return mock(ContentAdminPort.class);
+        }
+
+        @Bean
+        CommentAdminPort comments() {
+            return mock(CommentAdminPort.class);
+        }
+
+        @Bean
+        AudioAdminPort audios() {
+            return mock(AudioAdminPort.class);
+        }
+
+        @Bean
+        MediaRetryPort retries() {
+            return mock(MediaRetryPort.class);
+        }
+
+        @Bean
+        HotSearchHistoryPort hotSearch() {
+            return mock(HotSearchHistoryPort.class);
+        }
+
+        @Bean
+        ContentVectorDeadLetterPort deadLetters() {
+            return mock(ContentVectorDeadLetterPort.class);
+        }
+
+        @Bean
+        S3StorageUtil storage() {
+            return mock(S3StorageUtil.class);
+        }
     }
 }

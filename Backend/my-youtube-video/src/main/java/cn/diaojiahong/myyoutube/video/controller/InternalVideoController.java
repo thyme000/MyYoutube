@@ -13,6 +13,7 @@ import cn.diaojiahong.myyoutube.video.api.NotificationPort;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.video.api.PreferencePort;
+import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
 import cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper;
 
 import lombok.RequiredArgsConstructor;
@@ -53,22 +54,29 @@ public class InternalVideoController {
     @GetMapping("/content/search-document/{contentId}")
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ContentDocMessage searchDocument(@PathVariable Long contentId) {
-        var content = contentService.getById(contentId);
+        Content content = contentService.getById(contentId);
         if (content == null) return null;
         if (Integer.valueOf(1).equals(content.getIsDelete()) || access.hasBannedAudio(content))
             return ContentDocMessage.builder().contentId(contentId)
                     .indexVersion(content.getIndexVersion()).deleted(true).build();
-        var tagIds = contentTags.lambdaQuery().eq(cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag::getContentId, contentId)
+        List<Long> tagIds = contentTags.lambdaQuery()
+                .eq(cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag::getContentId, contentId)
                 .list().stream().map(cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag::getTagId).toList();
-        var understanding = understandings.selectById(contentId);
+        ContentUnderstanding understanding = understandings.selectById(contentId);
         return cn.diaojiahong.myyoutube.content.support.ContentDocMessages.of(content, tagIds,
                 understanding == null ? null : understanding.getSummary());
     }
+
     @GetMapping("/content/forward-info/{contentId}")
     public ContentInternalPort.ForwardInfo forwardInfo(@PathVariable Long contentId, @RequestParam Long viewerId) {
-        var content = access.readable(contentId, viewerId);
-        return new ContentInternalPort.ForwardInfo(contentId, content.getType().getCode(), content.getTitle(), content.getCoverObjectKey());
+        Content content = access.readable(contentId, viewerId);
+        return new ContentInternalPort.ForwardInfo(
+                contentId,
+                content.getType().getCode(),
+                content.getTitle(),
+                content.getCoverObjectKey());
     }
+
     @PostMapping("/content/share/{contentId}")
     public boolean incrementShareCount(@PathVariable Long contentId, @RequestParam Long viewerId) {
         access.readable(contentId, viewerId);
@@ -83,8 +91,11 @@ public class InternalVideoController {
                 .eq(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getUserId, userId)
                 .eq(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getIsLiked, 1)
                 .in(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getContentId, contentIds)).stream()
-                .collect(java.util.stream.Collectors.toMap(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getContentId, row -> true));
+                .collect(java.util.stream.Collectors.toMap(
+                        cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getContentId,
+                        row -> true));
     }
+
     @GetMapping("/follow/follow-ids")
     public List<Long> getFollowIds(@RequestParam("userId") Long userId) {
         return userFollowService.getFollowIds(userId);
@@ -98,7 +109,9 @@ public class InternalVideoController {
                 .orderByDesc(cn.diaojiahong.myyoutube.recommend.domain.po.UserTagPreference::getScore)
                 .last("LIMIT " + Math.max(1, Math.min(limit, 100)))
                 .list().stream()
-                .map(t -> new PreferencePort.TagPreferenceSummary(t.getTagId(), t.getScore() != null ? t.getScore() : 0.0))
+                .map(t -> new PreferencePort.TagPreferenceSummary(
+                        t.getTagId(),
+                        t.getScore() != null ? t.getScore() : 0.0))
                 .toList();
     }
 

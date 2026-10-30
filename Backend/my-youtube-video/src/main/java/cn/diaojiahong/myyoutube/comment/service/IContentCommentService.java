@@ -18,6 +18,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 public interface IContentCommentService extends IService<ContentComment> {
 
     void publishComment(CommentDTO commentDTO);
+
     void deleteComment(Long commentId);
     /** 根评论列表, hot/latest 双 tab 游标分页 */
     CommentPageVO getRootComments(CommentListQuery query);

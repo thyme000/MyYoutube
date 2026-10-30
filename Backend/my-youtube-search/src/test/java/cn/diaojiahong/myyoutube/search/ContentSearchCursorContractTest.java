@@ -16,9 +16,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class ContentSearchCursorContractTest {
-    @Test void endpointBindsCursorAndReturnsItemsWithoutPageTotals() throws Exception {
+    @Test
+    void endpointBindsCursorAndReturnsItemsWithoutPageTotals() throws Exception {
         ISearchService service = mock(ISearchService.class);
-        SearchVideoVO row = new SearchVideoVO(); row.setId("9007199254740993");
+        SearchVideoVO row = new SearchVideoVO();
+        row.setId("9007199254740993");
         when(service.searchVideo(any())).thenReturn(new CursorPage<>(List.of(row), "next"));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new SearchController(service)).build();
 

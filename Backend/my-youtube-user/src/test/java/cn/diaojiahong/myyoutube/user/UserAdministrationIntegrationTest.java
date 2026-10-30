@@ -237,8 +237,14 @@ class UserAdministrationIntegrationTest {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         var start = new CountDownLatch(1);
         try {
-            Future<Change> first = executor.submit(() -> { start.await(); return service.grant(2L, 1L); });
-            Future<Change> second = executor.submit(() -> { start.await(); return service.grant(2L, 3L); });
+            Future<Change> first = executor.submit(() -> {
+                start.await();
+                return service.grant(2L, 1L);
+            });
+            Future<Change> second = executor.submit(() -> {
+                start.await();
+                return service.grant(2L, 3L);
+            });
             start.countDown();
             List<Change> results = List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
             assertEquals(1, results.stream().filter(Change::changed).count());
@@ -271,7 +277,9 @@ class UserAdministrationIntegrationTest {
                             .param("actorId", "1").header(AuthConstants.INTERNAL_TOKEN_HEADER, "wrong"))
                     .andExpect(status().isUnauthorized());
             mvc.perform(request(org.springframework.http.HttpMethod.valueOf(method), "/internal/user/administrators/2")
-                            .param("actorId", "4").header(AuthConstants.INTERNAL_TOKEN_HEADER, "administration-test-token"))
+                            .param("actorId", "4").header(
+                                    AuthConstants.INTERNAL_TOKEN_HEADER,
+                                    "administration-test-token"))
                     .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value(40302));
         }
         assertEquals(0, auditCount());
@@ -318,13 +326,16 @@ class UserAdministrationIntegrationTest {
                         FeignAutoConfiguration.class, JacksonAutoConfiguration.class,
                         HttpMessageConvertersAutoConfiguration.class))
                 .withUserConfiguration(Clients.class).withBean(Client.class, this::bridge)
-                .withPropertyValues("my-youtube.user-service.url=http://user-service", "my-youtube.internal-token=" + token);
+                .withPropertyValues(
+                        "my-youtube.user-service.url=http://user-service",
+                        "my-youtube.internal-token=" + token);
     }
 
     private Client bridge() {
         return (request, options) -> {
             MockHttpServletRequestBuilder builder = request(
-                    org.springframework.http.HttpMethod.valueOf(request.httpMethod().name()), URI.create(request.url()));
+                    org.springframework.http.HttpMethod.valueOf(request.httpMethod().name()),
+                    URI.create(request.url()));
             request.headers().forEach((name, values) -> builder.header(name, values.toArray()));
             if (request.body() != null) {
                 builder.content(request.body());
@@ -332,7 +343,9 @@ class UserAdministrationIntegrationTest {
             try {
                 MvcResult result = mvc.perform(builder).andReturn();
                 Map<String, Collection<String>> headers = new HashMap<>();
-                result.getResponse().getHeaderNames().forEach(name -> headers.put(name, result.getResponse().getHeaders(name)));
+                result.getResponse()
+                        .getHeaderNames()
+                        .forEach(name -> headers.put(name, result.getResponse().getHeaders(name)));
                 return Response.builder().request(request).status(result.getResponse().getStatus())
                         .headers(headers).body(result.getResponse().getContentAsByteArray()).build();
             } catch (Exception error) {
@@ -343,5 +356,6 @@ class UserAdministrationIntegrationTest {
 
     @Configuration(proxyBeanMethods = false)
     @EnableFeignClients(clients = UserAdministrationPort.class, defaultConfiguration = InternalFeignConfiguration.class)
-    static class Clients {}
+    static class Clients {
+    }
 }

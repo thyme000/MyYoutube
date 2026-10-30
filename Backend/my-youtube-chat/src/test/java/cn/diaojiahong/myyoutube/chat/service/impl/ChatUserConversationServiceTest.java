@@ -2,6 +2,8 @@ package cn.diaojiahong.myyoutube.chat.service.impl;
 
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
+import cn.diaojiahong.myyoutube.chat.mongo.vo.ValidUserConversationVO;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
@@ -38,7 +40,7 @@ class ChatUserConversationServiceTest {
                 .thenReturn(List.of(blockedGroup), List.of(allowedGroup));
         UserContext.setUser("9001");
         try {
-            var result = service.getValidConversations(1L, 3L);
+            PageResult<ValidUserConversationVO> result = service.getValidConversations(1L, 3L);
             assertEquals(List.of("allowed"), result.getList().stream().map(v -> v.getConversationId()).toList());
             assertEquals(3L, result.getTotal());
         } finally {

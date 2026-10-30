@@ -19,8 +19,15 @@ public final class JsonUtil {
     public static final Gson GSON = new GsonBuilder()
             .setLongSerializationPolicy(LongSerializationPolicy.STRING)
             .registerTypeAdapter(LocalDateTime.class, new TypeAdapter<LocalDateTime>() {
-                @Override public void write(JsonWriter out, LocalDateTime value) throws IOException { out.value(value.toString()); }
-                @Override public LocalDateTime read(JsonReader in) throws IOException { return LocalDateTime.parse(in.nextString()); }
+                @Override
+                public void write(JsonWriter out, LocalDateTime value) throws IOException {
+                    out.value(value.toString());
+                }
+
+                @Override
+                public LocalDateTime read(JsonReader in) throws IOException {
+                    return LocalDateTime.parse(in.nextString());
+                }
             }.nullSafe())
             .create();
 

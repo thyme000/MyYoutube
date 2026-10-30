@@ -25,7 +25,9 @@ public class ContentVectorDeadLetterService implements ContentVectorDeadLetterPo
     private final ContentVectorPublisher publisher;
     private final VectorProperties properties;
 
-    private record Recovery(State state, String reason, String version) {}
+    private record Recovery(State state, String reason, String version) {
+    }
+
     private static final Recovery UNKNOWN = new Recovery(State.UNKNOWN, "STATE_UNAVAILABLE", null);
 
     @Override
@@ -37,8 +39,17 @@ public class ContentVectorDeadLetterService implements ContentVectorDeadLetterPo
         List<Item> items = page.entries().stream().map(entry -> {
             Recovery recovery = entry.contentId() == null ? new Recovery(State.INVALID_MESSAGE, "INVALID_MESSAGE", null)
                     : recovery(entry, states);
-            return new Item(entry.reference(), entry.messageId(), entry.contentId(), entry.storedAt(), entry.reconsumeTimes(),
-                    recovery.state(), recovery.reason(), recovery.version(), entry.targetVersion(), entry.failureReason());
+            return new Item(
+                    entry.reference(),
+                    entry.messageId(),
+                    entry.contentId(),
+                    entry.storedAt(),
+                    entry.reconsumeTimes(),
+                    recovery.state(),
+                    recovery.reason(),
+                    recovery.version(),
+                    entry.targetVersion(),
+                    entry.failureReason());
         }).toList();
         return new Page(items, page.nextCursor(), properties.isEnabled());
     }
@@ -53,19 +64,36 @@ public class ContentVectorDeadLetterService implements ContentVectorDeadLetterPo
         ContentVectorDeadLetters.Entry entry = deadLetters.find(reference);
         ReplayResult result;
         if (entry == null) result = new ReplayResult(ReplayStatus.NOT_FOUND, null, "死信不存在或已过期");
-        else if (entry.contentId() == null) result = new ReplayResult(ReplayStatus.INVALID_MESSAGE, null, "消息格式错误，无法重投");
+        else if (entry.contentId() == null) result = new ReplayResult(
+                ReplayStatus.INVALID_MESSAGE,
+                null,
+                "消息格式错误，无法重投");
         else result = replay(entry);
         log.info("Content vector dead letter replay actorId={} broker={} queueId={} offset={} contentId={} result={}",
-                actorId, reference.brokerName(), reference.queueId(), reference.offset(), result.contentId(), result.status());
+                actorId,
+                reference.brokerName(),
+                reference.queueId(),
+                reference.offset(),
+                result.contentId(),
+                result.status());
         return result;
     }
 
     private ReplayResult replay(ContentVectorDeadLetters.Entry entry) {
         Long contentId = entry.contentId();
         Recovery recovery = recovery(entry, states(List.of(contentId)));
-        if (recovery.state() == State.RECOVERED) return new ReplayResult(ReplayStatus.ALREADY_COMPLETED, contentId, "已有向量，无需重投");
-        if (recovery.state() == State.UNKNOWN) return new ReplayResult(ReplayStatus.STATE_UNAVAILABLE, contentId, "当前内容状态不可用，请稍后重试");
-        if (recovery.state() == State.INELIGIBLE) return new ReplayResult(ReplayStatus.INELIGIBLE, contentId, recovery.reason());
+        if (recovery.state() == State.RECOVERED) return new ReplayResult(
+                ReplayStatus.ALREADY_COMPLETED,
+                contentId,
+                "已有向量，无需重投");
+        if (recovery.state() == State.UNKNOWN) return new ReplayResult(
+                ReplayStatus.STATE_UNAVAILABLE,
+                contentId,
+                "当前内容状态不可用，请稍后重试");
+        if (recovery.state() == State.INELIGIBLE) return new ReplayResult(
+                ReplayStatus.INELIGIBLE,
+                contentId,
+                recovery.reason());
         if (!properties.isEnabled()) return new ReplayResult(ReplayStatus.DISABLED, contentId, "向量功能已关闭");
         try {
             if (entry.targetVersion() == null) publisher.publish(contentId);
@@ -91,7 +119,8 @@ public class ContentVectorDeadLetterService implements ContentVectorDeadLetterPo
         try {
             MgetResponse<ContentDoc> response = client.mget(request -> request.index("content")
                     .ids(ids.stream().map(Object::toString).toList())
-                    .sourceIncludes(List.of("title", "description", "summary", "status", "visibility", "vectorVersion")), ContentDoc.class);
+                    .sourceIncludes(List.of("title", "description", "summary", "status", "visibility", "vectorVersion")),
+                    ContentDoc.class);
             Map<Long, Recovery> states = new HashMap<>();
             for (MultiGetResponseItem<ContentDoc> item : response.docs()) {
                 if (item.isResult()) states.put(Long.valueOf(item.result().id()), recovery(item.result().source()));

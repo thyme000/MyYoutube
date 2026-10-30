@@ -31,6 +31,7 @@ public class BearerAuthStep implements ChainStep<AuthContext> {
         if (header == null || !header.startsWith(AuthConstants.BEARER_PREFIX)) {
             return Mono.empty();
         }
+
         String token = header.substring(AuthConstants.BEARER_PREFIX.length());
         JwtPayload payload = JwtUtil.verify(token);
         if (payload == null) {

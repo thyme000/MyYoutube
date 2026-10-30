@@ -6,7 +6,8 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 public final class SearchQueryValidation {
     public static final int MAX_KEYWORD_LENGTH = 100;
 
-    private SearchQueryValidation() {}
+    private SearchQueryValidation() {
+    }
 
     public static void validateKeyword(String keyword) {
         if (keyword != null && keyword.codePointCount(0, keyword.length()) > MAX_KEYWORD_LENGTH)

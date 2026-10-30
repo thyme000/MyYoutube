@@ -47,6 +47,7 @@ public class PrivateConversationNotifyStrategy extends AbstractConversationNotif
             // 开启免打扰 -> 不通知
             return;
         }
+
         boolean send = isSendEvent(message);
         if (isKnownEvent(message)) {
             String avatarUrl = storageUtil.signGetUrl(sender.getAvatarUrl(), AVATAR_EXPIRE_SECONDS);

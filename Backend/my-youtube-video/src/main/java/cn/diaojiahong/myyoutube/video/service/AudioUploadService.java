@@ -14,6 +14,7 @@ import cn.diaojiahong.myyoutube.video.domain.vo.AudioUploadVO;
 import cn.diaojiahong.myyoutube.video.mapper.AudioMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -29,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 public class AudioUploadService {
     public static final long UPLOAD_SECONDS = 1800;
     public static final long GRACE_SECONDS = 600;
+
     private static final Duration STORAGE_TIMEOUT = Duration.ofSeconds(1);
     private final IAudioService audios;
     private final AudioMapper rows;
@@ -37,10 +39,10 @@ public class AudioUploadService {
 
     public AudioUploadVO start(AudioUploadDTO request) {
         long id = Long.parseLong(audios.registerUpload(request));
-        var audio = rows.selectById(id);
+        Audio audio = rows.selectById(id);
         if (audio.getReviewStatus() == AudioReviewStatus.BANNED)
             throw new BizException(ErrorCode.STATE_CONFLICT, "该音频已不可用");
-        var expires = audio.getUploadDeadline().minusSeconds(GRACE_SECONDS);
+        LocalDateTime expires = audio.getUploadDeadline().minusSeconds(GRACE_SECONDS);
         if (audio.getProcessingStatus() == AudioProcessingStatus.EXPIRED)
             throw new BizException(ErrorCode.AUDIO_UPLOAD_EXPIRED);
         if (audio.getProcessingStatus() != AudioProcessingStatus.UPLOADING)
@@ -50,7 +52,11 @@ public class AudioUploadService {
         return new AudioUploadVO(Long.toString(id), audio.getProcessingStatus().getCode(), expires,
                 sign(audio.getSourceObjectKey(), audio.getUploadSize(), audio.getUploadContentType(), seconds),
                 audio.getSourceCoverObjectKey() == null ? null
-                        : sign(audio.getSourceCoverObjectKey(), audio.getCoverUploadSize(), audio.getCoverUploadContentType(), seconds));
+                        : sign(
+                                audio.getSourceCoverObjectKey(),
+                                audio.getCoverUploadSize(),
+                                audio.getCoverUploadContentType(),
+                                seconds));
     }
 
     private AudioUploadVO.File sign(String key, long bytes, String type, long seconds) {
@@ -60,7 +66,7 @@ public class AudioUploadService {
     public void complete(Long id) {
         String user = UserContext.getUserId();
         if (user == null) throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
-        var audio = rows.selectById(id);
+        Audio audio = rows.selectById(id);
         if (audio == null || audio.getIsDelete() != 0 || !Objects.equals(audio.getUploaderId(), Long.valueOf(user)))
             throw new BizException(ErrorCode.NOT_FOUND, "音频不存在");
         advance(audio);
@@ -68,7 +74,7 @@ public class AudioUploadService {
 
     public void uploaded(String key) {
         if (key == null || !(key.startsWith("uploads/audio/") || key.startsWith("uploads/audio-cover/"))) return;
-        var audio = rows.selectOne(new LambdaQueryWrapper<Audio>().eq(
+        Audio audio = rows.selectOne(new LambdaQueryWrapper<Audio>().eq(
                 key.startsWith("uploads/audio/") ? Audio::getSourceObjectKey : Audio::getSourceCoverObjectKey, key));
         if (audio != null) advance(audio);
     }
@@ -76,10 +82,13 @@ public class AudioUploadService {
     @Scheduled(fixedDelay = 5000, initialDelay = 5000)
     public void reconcile() {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
-        var page = rows.selectList(new LambdaQueryWrapper<Audio>()
+        List<Audio> page = rows.selectList(new LambdaQueryWrapper<Audio>()
                 .in(Audio::getProcessingStatus, AudioProcessingStatus.UPLOADING, AudioProcessingStatus.EXPIRED)
-                .le(Audio::getUploadAfter, LocalDateTime.now()).orderByAsc(Audio::getUploadAfter).orderByAsc(Audio::getId).last("LIMIT 50"));
-        for (var audio : page) {
+                .le(Audio::getUploadAfter, LocalDateTime.now())
+                .orderByAsc(Audio::getUploadAfter)
+                .orderByAsc(Audio::getId)
+                .last("LIMIT 50"));
+        for (Audio audio : page) {
             if (deadline - System.nanoTime() < TimeUnit.SECONDS.toNanos(2)) return;
             advance(audio);
         }
@@ -87,9 +96,14 @@ public class AudioUploadService {
 
     private void advance(Audio audio) {
         if (audio.getUploadAfter() == null || audio.getUploadAfter().isAfter(LocalDateTime.now())
-                || audio.getProcessingStatus() != AudioProcessingStatus.UPLOADING && audio.getProcessingStatus() != AudioProcessingStatus.EXPIRED) return;
-        var lease = LocalDateTime.now().plusSeconds(10).withNano(0);
-        if (rows.update(null, current(audio).eq(Audio::getUploadAfter, audio.getUploadAfter()).set(Audio::getUploadAfter, lease)) != 1) return;
+                || audio.getProcessingStatus() != AudioProcessingStatus.UPLOADING
+                && audio.getProcessingStatus() != AudioProcessingStatus.EXPIRED) {
+            return;
+        }
+        LocalDateTime lease = LocalDateTime.now().plusSeconds(10).withNano(0);
+        if (rows.update(null, current(audio).eq(Audio::getUploadAfter, audio.getUploadAfter()).set(Audio::getUploadAfter, lease)) != 1) {
+            return;
+        }
         audio.setUploadAfter(lease);
         try {
             if (audio.getProcessingStatus() == AudioProcessingStatus.EXPIRED) {
@@ -101,23 +115,33 @@ public class AudioUploadService {
                 expire(audio, "上传未完成或已取消，请重新上传");
                 return;
             }
-            var source = storage.inspectUpload(audio.getSourceObjectKey(), STORAGE_TIMEOUT);
-            var cover = audio.getSourceCoverObjectKey() == null ? null : storage.inspectUpload(audio.getSourceCoverObjectKey(), STORAGE_TIMEOUT);
+            S3StorageUtil.UploadMetadata source = storage.inspectUpload(audio.getSourceObjectKey(), STORAGE_TIMEOUT);
+            S3StorageUtil.UploadMetadata cover = audio.getSourceCoverObjectKey() == null ? null : storage.inspectUpload(
+                    audio.getSourceCoverObjectKey(),
+                    STORAGE_TIMEOUT);
             if (source == null || audio.getSourceCoverObjectKey() != null && cover == null) return;
             if (!matches(source, audio.getUploadSize(), audio.getUploadContentType())
-                    || cover != null && !matches(cover, audio.getCoverUploadSize(), audio.getCoverUploadContentType())) {
+                    || cover != null
+                    && !matches(cover, audio.getCoverUploadSize(), audio.getCoverUploadContentType())) {
                 defer(audio, "文件校验未通过，请重新上传与登记信息一致的文件");
                 return;
             }
-            rows.update(null, AudioIndexChanges.bump(leased(audio)).eq(Audio::getIsDelete, 0).gt(Audio::getUploadDeadline, LocalDateTime.now())
+            rows.update(null, AudioIndexChanges.bump(leased(audio)).eq(Audio::getIsDelete, 0).gt(
+                    Audio::getUploadDeadline,
+                    LocalDateTime.now())
                     .set(Audio::getProcessingStatus, AudioProcessingStatus.PROCESSING).set(Audio::getUploadAfter, null)
                     .set(Audio::getErrorMessage, null)
                     .set(Audio::getPreparationAfter, LocalDateTime.now())
-                    .set(Audio::getProcessingDeadline, LocalDateTime.now().plusMinutes(processing.getDeadlineMinutes())));
+                    .set(
+                            Audio::getProcessingDeadline,
+                            LocalDateTime.now().plusMinutes(processing.getDeadlineMinutes())));
         } catch (Exception error) {
             if (audio.getProcessingStatus() == AudioProcessingStatus.UPLOADING)
                 defer(audio, "暂时无法核验上传文件，请稍后重试");
-            log.warn("Audio upload reconciliation deferred audioId={} reason={}", audio.getId(), error.getClass().getSimpleName());
+            log.warn(
+                    "Audio upload reconciliation deferred audioId={} reason={}",
+                    audio.getId(),
+                    error.getClass().getSimpleName());
         }
     }
 
@@ -127,7 +151,7 @@ public class AudioUploadService {
     }
 
     private void defer(Audio audio, String message) {
-        var next = LocalDateTime.now().plusSeconds(60).withNano(0);
+        LocalDateTime next = LocalDateTime.now().plusSeconds(60).withNano(0);
         if (next.isAfter(audio.getUploadDeadline())) next = audio.getUploadDeadline();
         rows.update(null, leased(audio).set(Audio::getErrorMessage, message).set(Audio::getUploadAfter, next));
     }
@@ -143,13 +167,22 @@ public class AudioUploadService {
     }
 
     private void expire(Audio audio, String reason) {
-        rows.update(null, AudioIndexChanges.bump(leased(audio)).set(Audio::getProcessingStatus, AudioProcessingStatus.EXPIRED)
-                .set(Audio::getErrorMessage, reason).set(Audio::getUploadAfter, audio.getUploadDeadline().plusHours(24)));
+        rows.update(null, AudioIndexChanges.bump(leased(audio)).set(
+                Audio::getProcessingStatus,
+                AudioProcessingStatus.EXPIRED)
+                .set(Audio::getErrorMessage, reason).set(
+                        Audio::getUploadAfter,
+                        audio.getUploadDeadline().plusHours(24)));
     }
 
     private LambdaUpdateWrapper<Audio> current(Audio audio) {
-        return new LambdaUpdateWrapper<Audio>().eq(Audio::getId, audio.getId()).eq(Audio::getReviewStatus, audio.getReviewStatus())
+        return new LambdaUpdateWrapper<Audio>()
+                .eq(Audio::getId, audio.getId())
+                .eq(Audio::getReviewStatus, audio.getReviewStatus())
                 .eq(Audio::getProcessingStatus, audio.getProcessingStatus());
     }
-    private LambdaUpdateWrapper<Audio> leased(Audio audio) { return current(audio).eq(Audio::getUploadAfter, audio.getUploadAfter()); }
+
+    private LambdaUpdateWrapper<Audio> leased(Audio audio) {
+        return current(audio).eq(Audio::getUploadAfter, audio.getUploadAfter());
+    }
 }

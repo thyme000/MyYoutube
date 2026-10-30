@@ -69,6 +69,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (upload == null) {
             throw new IllegalStateException("上传头像未返回对象键");
         }
+
         // 更新用户头像url
         lambdaUpdate()
                 .set(User::getAvatarUrl, upload)
@@ -95,6 +96,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (upload == null) {
             throw new IllegalStateException("上传背景图片未返回对象键");
         }
+
         // 更新用户头像url
         lambdaUpdate()
                 .set(User::getBgImage, upload)
@@ -110,6 +112,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (user == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "用户不存在");
         }
+
         String oldName = user.getNickname();
         User changes = new User().setId(id)
                 .setNickname(userDTO.getNickname() == null || userDTO.getNickname().isEmpty() ?
@@ -120,6 +123,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (!success) {
             throw new BizException(ErrorCode.NOT_FOUND, "用户不存在或已被删除");
         }
+
         summaryCache.evict(user.getId());
         // 同步 ES 文档: 发消息, 由 search 侧以 MySQL 为准重建
         esSyncPublisher.syncUserDoc(user.getId());
@@ -133,6 +137,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (ids == null || ids.isEmpty()) {
             return Map.of();
         }
+
         return listByIds(ids).stream().collect(Collectors.toMap(User::getId, User::getNickname));
     }
 
@@ -141,6 +146,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (authorIds == null || authorIds.isEmpty()) {
             return Map.of();
         }
+
         return listByIds(authorIds).stream().collect(Collectors.toMap(User::getId, User::getAvatarUrl));
     }
 
@@ -149,6 +155,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (userId == null || userId.isEmpty()) {
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         return Long.valueOf(userId);
     }
 

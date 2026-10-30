@@ -22,8 +22,11 @@ record ContentSearchCursor(String keyword, String category, boolean latest, Long
         return CODEC.decode(value, cursor -> {
             if (!Objects.equals(cursor.keyword(), context.getKeyword())
                     || !Objects.equals(cursor.category(), context.getCategory())
-                    || cursor.latest() != context.isSortByLatest() || !Objects.equals(cursor.userId(), context.getUserId())
-                    || cursor.firstPageIds() == null || cursor.firstPageIds().size() > PageQuery.MAX_PAGE_SIZE || cursor.sort() == null)
+                    || cursor.latest() != context.isSortByLatest()
+                    || !Objects.equals(cursor.userId(), context.getUserId())
+                    || cursor.firstPageIds() == null
+                    || cursor.firstPageIds().size() > PageQuery.MAX_PAGE_SIZE
+                    || cursor.sort() == null)
                 throw new IllegalArgumentException();
 
             for (String id : cursor.firstPageIds()) if (Long.parseLong(id) <= 0) throw new IllegalArgumentException();
@@ -32,5 +35,7 @@ record ContentSearchCursor(String keyword, String category, boolean latest, Long
         });
     }
 
-    List<FieldValue> position() { return RecallSearchClient.sortValues(sort); }
+    List<FieldValue> position() {
+        return RecallSearchClient.sortValues(sort);
+    }
 }

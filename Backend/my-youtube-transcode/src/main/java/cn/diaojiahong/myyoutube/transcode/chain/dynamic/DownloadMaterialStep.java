@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.transcode.chain.dynamic;
 
 import cn.diaojiahong.myyoutube.common.utils.DownLoadMP4ToTemp;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
+import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeItemDTO;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -26,7 +27,7 @@ public class DownloadMaterialStep extends TranscodeStep {
     @Override
     protected void doApply(TranscodeContext ctx) throws IOException, InterruptedException {
         List<Path> imagePaths = new ArrayList<>();
-        for (var item : ctx.getParams().getItems()) {
+        for (TranscodeItemDTO item : ctx.getParams().getItems()) {
             imagePaths.add(downloadTo(item.getImageObjectKey(), ctx.getWorkDir()));
         }
         Path audioPath = StringUtils.hasText(ctx.getParams().getAudioObjectKey())
@@ -43,14 +44,17 @@ public class DownloadMaterialStep extends TranscodeStep {
         if (!StringUtils.hasText(key)) {
             return ".bin";
         }
+
         int dot = key.lastIndexOf('.');
         if (dot < 0 || dot >= key.length() - 1) {
             return ".img";
         }
+
         String ext = key.substring(dot).toLowerCase(Locale.ROOT);
         if (ext.matches("\\.(jpg|jpeg|png|webp|gif|bmp|mp3|m4a|aac|wav|flac|ogg)")) {
             return ext;
         }
+
         return ".bin";
     }
 }

@@ -16,21 +16,29 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ObservationWiringTest {
-    @Test void importedConfigurationWiresLocalTransactionsAndDisabledJobsNeedNoOutboxTable() {
+    @Test
+    void importedConfigurationWiresLocalTransactionsAndDisabledJobsNeedNoOutboxTable() {
         try (var context = new AnnotationConfigApplicationContext()) {
-            context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test", Map.of("spring.application.name", "transcode-test")));
+            context.getEnvironment()
+                    .getPropertySources()
+                    .addFirst(new MapPropertySource("test", Map.of("spring.application.name", "transcode-test")));
             var ds = new DriverManagerDataSource("jdbc:h2:mem:observation-wiring;MODE=MySQL", "sa", "");
-            var mq = mock(RocketMQTemplate.class);
+            RocketMQTemplate mq = mock(RocketMQTemplate.class);
             context.registerBean(DataSource.class, () -> ds);
             context.registerBean(JdbcTemplate.class, () -> new JdbcTemplate(ds));
-            context.registerBean(TransactionTemplate.class, () -> new TransactionTemplate(new DataSourceTransactionManager(ds)));
+            context.registerBean(
+                    TransactionTemplate.class,
+                    () -> new TransactionTemplate(new DataSourceTransactionManager(ds)));
             context.registerBean(MeterRegistry.class, SimpleMeterRegistry::new);
             context.registerBean(RocketMQTemplate.class, () -> mq);
             context.registerBean(PipelineObservationProperties.class, PipelineObservationProperties::new);
-            context.register(PipelineObservationConfiguration.class); context.refresh();
+            context.register(PipelineObservationConfiguration.class);
+            context.refresh();
             clearInvocations(mq);
             assertFalse(context.getBean(PipelineEvents.class).enabled());
-            var jobs = context.getBean(OutboxJobs.class); jobs.deliver(); jobs.cleanup();
+            OutboxJobs jobs = context.getBean(OutboxJobs.class);
+            jobs.deliver();
+            jobs.cleanup();
             verifyNoInteractions(mq);
         }
     }

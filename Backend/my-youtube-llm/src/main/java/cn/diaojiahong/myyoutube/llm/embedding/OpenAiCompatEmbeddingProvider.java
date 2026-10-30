@@ -3,7 +3,9 @@ package cn.diaojiahong.myyoutube.llm.embedding;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
 import cn.diaojiahong.myyoutube.llm.LlmProperties;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import java.util.concurrent.CompletableFuture;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -71,11 +73,13 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
                 if (resp.statusCode() == 429 || resp.statusCode() >= 500) {
                     throw new ModelUnavailable("LLM", "MODEL_UPSTREAM_UNAVAILABLE", 30, null);
                 }
-                String detail = resp.body() == null ? "" : resp.body().substring(0, Math.min(resp.body().length(), 300));
+                String detail = resp.body() == null ? "" : resp.body().substring(
+                        0,
+                        Math.min(resp.body().length(), 300));
                 throw new IllegalStateException("Embedding 响应 " + resp.statusCode() + ": " + detail);
             }
             JsonObject root = JsonUtil.GSON.fromJson(resp.body(), JsonObject.class);
-            var data = root.getAsJsonArray("data");
+            JsonArray data = root.getAsJsonArray("data");
             // OpenAI 兼容协议 data[].index 标记输入位置, 按位回填保证与输入顺序一致
             List<float[]> vectors = new ArrayList<>(texts.size());
             for (int i = 0; i < texts.size(); i++) {
@@ -90,7 +94,7 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
                 }
                 seen[index] = true;
                 try {
-                    var arr = item.getAsJsonArray("embedding");
+                    JsonArray arr = item.getAsJsonArray("embedding");
                     float[] vec = new float[arr.size()];
                     for (int j = 0; j < arr.size(); j++) vec[j] = arr.get(j).getAsFloat();
                     vectors.set(index, vec);
@@ -114,7 +118,7 @@ public class OpenAiCompatEmbeddingProvider implements EmbeddingProvider {
 
     private HttpResponse<String> sendQuery(HttpRequest request, Duration timeout)
             throws IOException, InterruptedException {
-        var pending = HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        CompletableFuture<HttpResponse<String>> pending = HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString());
         try {
             return pending.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
         } catch (TimeoutException error) {

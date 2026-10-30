@@ -8,7 +8,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import java.util.List;
 
 /** 搜索回源使用独立的固定网络超时。 */
-@FeignClient(name = "my-youtube-video-service", contextId = "searchContentSummaryClient", path = "/internal/content-summary",
+@FeignClient(
+        name = "my-youtube-video-service",
+        contextId = "searchContentSummaryClient",
+        path = "/internal/content-summary",
         url = "${my-youtube.video-service.url:}")
 public interface SearchContentSummaryClient extends ContentSummaryPort {
     @PostMapping("/list-ordered")

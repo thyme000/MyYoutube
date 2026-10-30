@@ -6,10 +6,18 @@ import lombok.RequiredArgsConstructor;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.stereotype.Component;
+
 @Component
 @RequiredArgsConstructor
-@RocketMQMessageListener(topic = MqConstants.TOPIC_REVIEW_REQUESTED, consumerGroup = "transcode_review_requested", maxReconsumeTimes = 3)
+@RocketMQMessageListener(
+        topic = MqConstants.TOPIC_REVIEW_REQUESTED,
+        consumerGroup = "transcode_review_requested",
+        maxReconsumeTimes = 3)
 public class ReviewRequestedListener implements RocketMQListener<ReviewRequestedMessage> {
     private final MediaTaskService tasks;
-    @Override public void onMessage(ReviewRequestedMessage message) { tasks.startReview(message.pipelineId()); }
+
+    @Override
+    public void onMessage(ReviewRequestedMessage message) {
+        tasks.startReview(message.pipelineId());
+    }
 }

@@ -35,6 +35,7 @@ public class ChatConversationDoc extends BaseMongoEntity {
     private Boolean isLastMessageRecall;
     /** 创建人用户 ID */
     private Long createdBy;
+
     /** 是否开启全员禁言(群才有) */
     private Boolean banned;
     /** 群公告 */

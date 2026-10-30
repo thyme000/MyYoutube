@@ -28,7 +28,8 @@ class AsyncTimeoutConfigurationTest {
                 });
     }
 
-    @Test void timeoutSchedulerDoesNotReplaceBusinessSchedulingAndClosesWithTheContext() {
+    @Test
+    void timeoutSchedulerDoesNotReplaceBusinessSchedulingAndClosesWithTheContext() {
         ThreadPoolTaskScheduler[] timer = new ThreadPoolTaskScheduler[1];
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(TaskSchedulingAutoConfiguration.class))
@@ -45,7 +46,8 @@ class AsyncTimeoutConfigurationTest {
 
     @Configuration(proxyBeanMethods = false)
     @EnableScheduling
-    static class Scheduling {}
+    static class Scheduling {
+    }
 
     @Configuration(proxyBeanMethods = false)
     static class FailingStartup {

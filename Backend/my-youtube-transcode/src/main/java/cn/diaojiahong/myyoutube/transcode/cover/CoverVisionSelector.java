@@ -37,7 +37,8 @@ public class CoverVisionSelector {
         try {
             List<LlmPort.ContentPart> parts = new ArrayList<>();
             parts.add(new LlmPort.ContentPart("text",
-                    prompts.snapshot().render("cover-user", java.util.Map.of("candidateCount", candidates.size())), null));
+                    prompts.snapshot()
+                            .render("cover-user", java.util.Map.of("candidateCount", candidates.size())), null));
             for (FFmpegUtil.FrameScore candidate : candidates) {
                 parts.add(new LlmPort.ContentPart("image_url", null,
                         new LlmPort.ContentPart.ImageUrl(toDataUrl(candidate.framePath()))));
@@ -79,6 +80,7 @@ public class CoverVisionSelector {
         if (start < 0 || end <= start) {
             throw new IllegalArgumentException("缺少 JSON 片段");
         }
+
         return content.substring(start, end + 1);
     }
 

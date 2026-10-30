@@ -17,6 +17,7 @@ public class MqConstants {
     public static final String TOPIC_COMMENT_ACTION = "comment_action_topic";
     // ES 文档同步, tag 区分: user
     public static final String TOPIC_ES_DOCUMENT = "es_document_topic";
+
     // 聊天消息(发送/撤回)
     public static final String TOPIC_CHAT_MESSAGE = "chat_message_topic";
     // 已读回执
@@ -27,6 +28,7 @@ public class MqConstants {
     public static final String TOPIC_DYNAMIC_TRANSCODE = "dynamic_transcode_topic";
     // 动态打标任务, video 服务自产自销
     public static final String TOPIC_AUTO_TAG = "auto_tag_topic";
+
     // 上传事件(对象存储 webhook 桥接后拆任务), transcode 自产自销
     public static final String TOPIC_MEDIA_UPLOAD_EVENT = "media_upload_event_topic";
     // 媒体处理任务分发, 编排器 -> worker

@@ -19,6 +19,7 @@ public class StrUtils {
     }
 
     private static final HanyuPinyinOutputFormat PINYIN_FORMAT;
+
     private static final Pattern SPECIAL_CHAR_PATTERN = Pattern.compile("[^a-zA-Z0-9\\u4e00-\\u9fa5]");
 
     static {
@@ -84,13 +85,14 @@ public class StrUtils {
         if (keyword == null) {
             return "";
         }
-        String s = keyword
-                .replaceAll("\\p{Cntrl}", " ")
+
+        String s = keyword.replaceAll("\\p{Cntrl}", " ")
                 .trim()
                 .replaceAll("\\s+", " ");
         if (s.isEmpty()) {
             return "";
         }
+
         return s.length() > MAX_LEN ? s.substring(0, MAX_LEN) : s;
     }
 
@@ -99,6 +101,7 @@ public class StrUtils {
         if (display.isEmpty()) {
             return "";
         }
+
         String lower = display.toLowerCase(Locale.ROOT);
         String noAccent = Normalizer.normalize(lower, Normalizer.Form.NFKD)
                 .replaceAll("\\p{M}+", "");

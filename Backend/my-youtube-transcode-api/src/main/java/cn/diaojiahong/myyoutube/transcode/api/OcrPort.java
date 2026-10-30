@@ -11,7 +11,13 @@ import java.util.List;
 public interface OcrPort {
     @PostMapping("/ocr/batch")
     Response recognize(@RequestBody Request request);
-    record Request(List<String> urls) {}
-    record Item(String url, String text, String error) {}
-    record Response(List<Item> results) {}
+
+    record Request(List<String> urls) {
+    }
+
+    record Item(String url, String text, String error) {
+    }
+
+    record Response(List<Item> results) {
+    }
 }

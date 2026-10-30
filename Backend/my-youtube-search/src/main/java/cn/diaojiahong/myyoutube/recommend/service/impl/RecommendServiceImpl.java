@@ -70,8 +70,10 @@ public class RecommendServiceImpl implements IRecommendService {
     /** 三路 RRF 权重 */
     @Value("${my-youtube.recommend.fusion.weights.tag:1.0}")
     private double weightTag;
+
     @Value("${my-youtube.recommend.fusion.weights.hot:0.6}")
     private double weightHot;
+
     @Value("${my-youtube.recommend.fusion.weights.cf:1.0}")
     private double weightCf;
 
@@ -98,7 +100,13 @@ public class RecommendServiceImpl implements IRecommendService {
         List<Long> tagRoute = List.of();
         List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
         if (!preferences.isEmpty()) {
-            tagRoute = searchIds(tagRouteQuery(userId, type, category, preferences, excludeIds, PageRequest.of(0, needed)));
+            tagRoute = searchIds(tagRouteQuery(
+                    userId,
+                    type,
+                    category,
+                    preferences,
+                    excludeIds,
+                    PageRequest.of(0, needed)));
         }
 
         // 热度路: content 互动计数 + 时间衰减, 零标签的动态也天然进池
@@ -136,6 +144,7 @@ public class RecommendServiceImpl implements IRecommendService {
         if (from >= ordered.size()) {
             return List.of();
         }
+
         return ordered.subList(from, Math.min(from + safeSize, ordered.size()));
     }
 
@@ -147,6 +156,7 @@ public class RecommendServiceImpl implements IRecommendService {
         if (candidateIds == null || candidateIds.isEmpty()) {
             return List.of();
         }
+
         List<String> ids = candidateIds.stream().map(String::valueOf).toList();
         NativeQuery query = NativeQuery.builder()
                 .withQuery(q -> q.bool(b -> {
@@ -198,22 +208,20 @@ public class RecommendServiceImpl implements IRecommendService {
         List<FunctionScore> functions = new ArrayList<>();
         // 关注作者加权(个性化信号之一)
         for (Long fid : followPort.getFollowIds(userId)) {
-            functions.add(FunctionScore.of(f -> f
-                    .filter(fq -> fq.term(t -> t.field("authorId").value(fid)))
+            functions.add(FunctionScore.of(f -> f.filter(fq -> fq.term(t -> t.field("authorId").value(fid)))
                     .weight(50.0)
             ));
         }
         // 标签偏好权重
         for (PreferencePort.TagPreferenceSummary p : preferences) {
-            functions.add(FunctionScore.of(f -> f
-                    .filter(fq -> fq.term(t -> t.field("tagIds").value(p.getTagId())))
-                    .weight(p.getScore() > 0 ? (double) p.getScore() : 0) // es里不允许权重为负数
+            functions.add(FunctionScore.of(f -> f.filter(fq -> fq.term(t -> t.field("tagIds").value(p.getTagId())))
+                    .weight(p.getScore() > 0 ? (double) p.getScore() : 0)
+                    // es里不允许权重为负数
             ));
         }
 
         return NativeQuery.builder()
-                .withQuery(q -> q.functionScore(fs -> fs
-                        .query(inner -> inner.bool(b -> {
+                .withQuery(q -> q.functionScore(fs -> fs.query(inner -> inner.bool(b -> {
                             applyCommonFilters(b, userId, type, category, excludeIds);
                             return b;
                         }))
@@ -231,30 +239,21 @@ public class RecommendServiceImpl implements IRecommendService {
     private NativeQuery hotRouteQuery(Long userId, String type, String category,
                                       Set<String> excludeIds, Pageable pageable) {
         return NativeQuery.builder()
-                .withQuery(q -> q.functionScore(fs -> fs
-                        .query(inner -> inner.bool(b -> {
+                .withQuery(q -> q.functionScore(fs -> fs.query(inner -> inner.bool(b -> {
                             applyCommonFilters(b, userId, type, category, excludeIds);
                             return b;
                         }))
                         .functions(List.of(
-                                FunctionScore.of(f -> f
-                                        .fieldValueFactor(fvf -> fvf
-                                                .field("playCount")
+                                FunctionScore.of(f -> f.fieldValueFactor(fvf -> fvf.field("playCount")
                                                 .modifier(co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier.Log1p)
                                                 .missing(0.0)
                                         )),
-                                FunctionScore.of(f -> f
-                                        .fieldValueFactor(fvf -> fvf
-                                                .field("likeCount")
+                                FunctionScore.of(f -> f.fieldValueFactor(fvf -> fvf.field("likeCount")
                                                 .modifier(co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier.Log1p)
                                                 .missing(0.0)
                                         )),
-                                FunctionScore.of(f -> f
-                                        .gauss(g -> g
-                                                .date(d -> d
-                                                        .field("createTime")
-                                                        .placement(pl -> pl
-                                                                .scale(Time.of(t -> t.time(HOT_DECAY_SCALE)))
+                                FunctionScore.of(f -> f.gauss(g -> g.date(d -> d.field("createTime")
+                                                        .placement(pl -> pl.scale(Time.of(t -> t.time(HOT_DECAY_SCALE)))
                                                                 .offset(Time.of(t -> t.time(HOT_DECAY_OFFSET)))
                                                                 .decay(0.5)
                                                         )
@@ -336,8 +335,7 @@ public class RecommendServiceImpl implements IRecommendService {
                     .withQuery(q -> q.bool(b -> {
                         b.must(m -> m.term(t -> t.field("status").value("published")));
                         // 只查关注的人的内容
-                        b.must(m -> m.terms(t -> t
-                                .field("authorId")
+                        b.must(m -> m.terms(t -> t.field("authorId")
                                 .terms(tv -> tv.value(followFieldValues))
                         ));
                         if (!excludeIds.isEmpty()) {
@@ -352,19 +350,16 @@ public class RecommendServiceImpl implements IRecommendService {
         } else {
             // 有偏好 → 限定关注作者 + 标签偏好打分
             List<FunctionScore> functions = preferences.stream()
-                    .map(p -> FunctionScore.of(f -> f
-                            .filter(fq -> fq.term(t -> t.field("tagIds").value(p.getTagId())))
+                    .map(p -> FunctionScore.of(f -> f.filter(fq -> fq.term(t -> t.field("tagIds").value(p.getTagId())))
                             .weight(p.getScore() > 0 ? (double) p.getScore() : 0)
                     ))
                     .toList();
 
             query = NativeQuery.builder()
-                    .withQuery(q -> q.functionScore(fs -> fs
-                            .query(inner -> inner.bool(b -> {
+                    .withQuery(q -> q.functionScore(fs -> fs.query(inner -> inner.bool(b -> {
                                 b.must(m -> m.term(t -> t.field("status").value("published")));
                                 // 只查关注的人的内容
-                                b.must(m -> m.terms(t -> t
-                                        .field("authorId")
+                                b.must(m -> m.terms(t -> t.field("authorId")
                                         .terms(tv -> tv.value(followFieldValues))
                                 ));
                                 if (!excludeIds.isEmpty()) {

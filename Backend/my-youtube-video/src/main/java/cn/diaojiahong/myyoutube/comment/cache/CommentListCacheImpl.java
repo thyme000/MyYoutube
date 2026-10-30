@@ -33,12 +33,16 @@ public class CommentListCacheImpl implements CommentListCache {
 
     @Value("${my-youtube.comment.cache-threshold:50}")
     private int threshold;
+
     @Value("${my-youtube.comment.latest-cap:200}")
     private int latestCap;
+
     @Value("${my-youtube.comment.hot-cap:100}")
     private int hotCap;
+
     @Value("${my-youtube.comment.latest-ttl-seconds:5}")
     private long latestTtlSeconds;
+
     @Value("${my-youtube.comment.hot-ttl-seconds:30}")
     private long hotTtlSeconds;
 
@@ -49,6 +53,7 @@ public class CommentListCacheImpl implements CommentListCache {
         if (value == null || value.isEmpty()) {
             return null;
         }
+
         try {
             List<CommentCursor> cursors = new ArrayList<>();
             for (String item : value.split(SEPARATOR)) {
@@ -67,10 +72,12 @@ public class CommentListCacheImpl implements CommentListCache {
         if (commentCount < threshold) {
             return;
         }
+
         String key = key(contentId, tab);
         if (redis.hasKey(key)) {
             return;
         }
+
         String lockKey = RedisConstants.COMMENT_LIST_LOCK + tab.getCode() + ":" + contentId;
         // 抢不到锁的这轮直接走 DB, 不等待
         if (!Boolean.TRUE.equals(redis.opsForValue()
@@ -99,7 +106,10 @@ public class CommentListCacheImpl implements CommentListCache {
         LambdaQueryWrapper<ContentComment> w = new LambdaQueryWrapper<ContentComment>()
                 .eq(ContentComment::getContentId, contentId)
                 .eq(ContentComment::getLevel, 1)
-                .in(ContentComment::getStatus, CommentStatusEnum.VISIBLE.getCode(), CommentStatusEnum.BLOCKED.getCode());
+                .in(
+                        ContentComment::getStatus,
+                        CommentStatusEnum.VISIBLE.getCode(),
+                        CommentStatusEnum.BLOCKED.getCode());
         if (latest) {
             w.orderByDesc(ContentComment::getCreateTime).orderByDesc(ContentComment::getId);
         } else {

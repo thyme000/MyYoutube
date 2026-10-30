@@ -69,12 +69,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleExceptionInternal(Exception error, Object body, HttpHeaders headers,
                                                               HttpStatusCode status, WebRequest request) {
         ErrorCode code = switch (status.value()) {
-            case 400 -> error instanceof MethodArgumentNotValidException || error instanceof HandlerMethodValidationException
+            case 400 -> error instanceof MethodArgumentNotValidException
+                    || error instanceof HandlerMethodValidationException
                     ? ErrorCode.INVALID_ARGUMENT : ErrorCode.INVALID_REQUEST;
             case 404 -> ErrorCode.ENDPOINT_NOT_FOUND;
             default -> ErrorCode.forHttpStatus(status.value());
         };
-        if (code.getHttpStatus() >= 500) log.error("Request processing failed code={}", code.getCode(), error);
+        if (code.getHttpStatus() >= 500) {
+            log.error("Request processing failed code={}", code.getCode(), error);
+        }
         return super.handleExceptionInternal(error, Result.fail(code), headers,
                 HttpStatusCode.valueOf(code.getHttpStatus()), request);
     }
@@ -93,7 +96,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private ResponseEntity<Object> respond(ErrorCode code, Object body, HttpHeaders headers, WebRequest request) {
         if (request instanceof ServletWebRequest servlet) {
             HttpServletResponse response = servlet.getResponse();
-            if (response != null && response.isCommitted()) return null;
+            if (response != null && response.isCommitted()) {
+                return null;
+            }
         }
         return ResponseEntity.status(code.getHttpStatus()).headers(headers).body(body);
     }

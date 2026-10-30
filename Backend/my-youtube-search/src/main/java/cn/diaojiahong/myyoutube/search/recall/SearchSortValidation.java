@@ -10,7 +10,8 @@ final class SearchSortValidation {
     private static final DateTimeFormatter CREATE_TIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss")
             .withResolverStyle(ResolverStyle.STRICT);
 
-    private SearchSortValidation() {}
+    private SearchSortValidation() {
+    }
 
     static void validate(JsonArray sort, boolean latest) {
         int fields = latest ? 2 : 3;

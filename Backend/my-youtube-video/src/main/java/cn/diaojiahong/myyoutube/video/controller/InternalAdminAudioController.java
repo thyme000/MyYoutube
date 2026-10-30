@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.page.*;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.AudioAdminPort;
 import cn.diaojiahong.myyoutube.video.domain.enums.*;
 import cn.diaojiahong.myyoutube.video.domain.po.*;
@@ -39,20 +40,25 @@ public class InternalAdminAudioController implements AudioAdminPort {
         return PageResult.of(page.getTotal(), page.getPages(), page.getRecords().stream().map(this::item).toList());
     }
 
-    @Override public PageResult<Item> waiting(PageQuery query) {
-        var page = rows.selectPage(query.toPage(), new LambdaQueryWrapper<Audio>().eq(Audio::getIsDelete, 0)
-                .eq(Audio::getReviewStatus, AudioReviewStatus.PENDING).eq(Audio::getProcessingStatus, AudioProcessingStatus.READY)
+    @Override
+    public PageResult<Item> waiting(PageQuery query) {
+        Page<Audio> page = rows.selectPage(query.toPage(), new LambdaQueryWrapper<Audio>().eq(Audio::getIsDelete, 0)
+                .eq(Audio::getReviewStatus, AudioReviewStatus.PENDING).eq(
+                        Audio::getProcessingStatus,
+                        AudioProcessingStatus.READY)
                 .in(Audio::getAnalysisStatus, AudioAnalysisStatus.MANUAL, AudioAnalysisStatus.FAILED)
                 .orderByAsc(Audio::getCreateTime).orderByAsc(Audio::getId));
         return PageResult.of(page.getTotal(), page.getPages(), page.getRecords().stream().map(this::item).toList());
     }
-    @Override public Detail detail(Long id) {
-        var audio = rows.selectById(id);
+
+    @Override
+    public Detail detail(Long id) {
+        Audio audio = rows.selectById(id);
         if (audio == null) throw new BizException(ErrorCode.NOT_FOUND, "音频不存在");
         String preview = audio.getObjectKey() == null ? null : storage.signGetUrl(audio.getObjectKey(), 600);
         String cover = audio.getCoverObjectKey();
         if (cover == null) {
-            var summaries = users.listByIds(List.of(audio.getUploaderId()));
+            List<UserSummary> summaries = users.listByIds(List.of(audio.getUploaderId()));
             if (summaries != null && !summaries.isEmpty()) cover = summaries.get(0).getAvatarUrl();
         }
         ContentArtifacts.Transcript transcript = null;
@@ -60,17 +66,35 @@ public class InternalAdminAudioController implements AudioAdminPort {
             transcript = artifacts.read(audio.getTranscriptKey(), ContentArtifacts.Transcript.class);
             AudioTranscript.validate(transcript, audio.getDurationMs());
         }
-        var history = records.selectList(new LambdaQueryWrapper<AudioReviewRecord>().eq(AudioReviewRecord::getAudioId, id)
+        List<AudioReviewRecord> history = records.selectList(new LambdaQueryWrapper<AudioReviewRecord>().eq(
+                AudioReviewRecord::getAudioId,
+                id)
                 .orderByAsc(AudioReviewRecord::getCreateTime).orderByAsc(AudioReviewRecord::getId));
-        return new Detail(item(audio), preview, cover == null || cover.isBlank() ? null : storage.signGetUrl(cover, 600), transcript,
-                audio.getErrorMessage(), history.stream().map(r -> new Audit(r.getSource(), r.getDecision(), r.getReason(), r.getPayloadJson(),
-                r.getAttempt(), r.getActorId() == null ? null : r.getActorId().toString(), r.getCreateTime())).toList());
+        return new Detail(
+                item(audio),
+                preview,
+                cover == null || cover.isBlank() ? null : storage.signGetUrl(cover, 600),
+                transcript,
+                audio.getErrorMessage(), history.stream()
+                        .map(r -> new Audit(r.getSource(), r.getDecision(), r.getReason(), r.getPayloadJson(),
+                r.getAttempt(), r.getActorId() == null ? null : r.getActorId()
+                        .toString(), r.getCreateTime())).toList());
     }
-    @Override public boolean decide(Long id, Decision decision) {
-        return reviews.decide(id, AudioReviewDecision.parse(decision.decision()), decision.reason(), decision.actorId());
+
+    @Override
+    public boolean decide(Long id, Decision decision) {
+        return reviews.decide(
+                id,
+                AudioReviewDecision.parse(decision.decision()),
+                decision.reason(),
+                decision.actorId());
     }
+
     private Item item(Audio a) {
-        return new Item(a.getId().toString(), a.getTitle(), a.getProcessingStatus().getCode(), a.getReviewStatus().getCode(),
+        return new Item(a.getId()
+                .toString(), a.getTitle(), a.getProcessingStatus()
+                .getCode(), a.getReviewStatus()
+                .getCode(),
                 a.getAnalysisStatus() == null ? null : a.getAnalysisStatus().getCode(), a.getHistoricalAuthorCount());
     }
 }

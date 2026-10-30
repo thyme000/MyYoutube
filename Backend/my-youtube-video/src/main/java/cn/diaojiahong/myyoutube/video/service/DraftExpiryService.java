@@ -20,25 +20,32 @@ import java.util.List;
 public class DraftExpiryService {
     private final MediaDraftMapper drafts;
     private final DraftObservation observation;
+
     private static final List<MediaDraftStatusEnum> EDITABLE = List.of(MediaDraftStatusEnum.UPLOADING,
             MediaDraftStatusEnum.PROCESSING, MediaDraftStatusEnum.READY, MediaDraftStatusEnum.FAILED);
 
     @Scheduled(fixedDelay = 1800000, initialDelay = 300000)
     @ObservedBusiness(BusinessOperation.EXPIRE_DRAFTS)
     public void expire() {
-        var now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
         long cursor = 0;
         while (true) {
-            var page = drafts.selectList(new LambdaQueryWrapper<MediaDraft>().gt(MediaDraft::getId, cursor)
+            List<MediaDraft> page = drafts.selectList(new LambdaQueryWrapper<MediaDraft>().gt(MediaDraft::getId, cursor)
                     .isNotNull(MediaDraft::getPreparationId).in(MediaDraft::getStatus, EDITABLE)
                     .le(MediaDraft::getExpiresAt, now).orderByAsc(MediaDraft::getId).last("LIMIT 100"));
             if (page.isEmpty()) return;
             cursor = page.get(page.size() - 1).getId();
-            for (var draft : page) {
-                int hit = observation.update(draft.getId(), new LambdaUpdateWrapper<MediaDraft>().eq(MediaDraft::getId, draft.getId())
-                        .eq(MediaDraft::getRevision, draft.getRevision()).eq(MediaDraft::getPreparationId, draft.getPreparationId())
+            for (MediaDraft draft : page) {
+                int hit = observation.update(draft.getId(), new LambdaUpdateWrapper<MediaDraft>().eq(
+                        MediaDraft::getId,
+                        draft.getId())
+                        .eq(MediaDraft::getRevision, draft.getRevision()).eq(
+                                MediaDraft::getPreparationId,
+                                draft.getPreparationId())
                         .in(MediaDraft::getStatus, EDITABLE).le(MediaDraft::getExpiresAt, now)
-                        .set(MediaDraft::getStatus, MediaDraftStatusEnum.EXPIRED).setIncrBy(MediaDraft::getRevision, 1));
+                        .set(MediaDraft::getStatus, MediaDraftStatusEnum.EXPIRED).setIncrBy(
+                                MediaDraft::getRevision,
+                                1));
                 if (hit > 0) log.info("Prepared draft expired draftId={}", draft.getId());
             }
         }

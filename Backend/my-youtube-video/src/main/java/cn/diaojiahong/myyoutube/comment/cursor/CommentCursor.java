@@ -27,10 +27,12 @@ public class CommentCursor {
         if (cursor == null || cursor.isBlank()) {
             return null;
         }
+
         int idx = cursor.lastIndexOf('.');
         if (idx <= 0 || idx == cursor.length() - 1) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "游标格式错误");
         }
+
         try {
             return new CommentCursor(Long.parseLong(cursor.substring(0, idx)),
                     Long.parseLong(cursor.substring(idx + 1)));

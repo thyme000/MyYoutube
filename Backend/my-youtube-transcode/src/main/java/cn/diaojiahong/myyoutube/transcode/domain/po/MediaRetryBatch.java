@@ -16,6 +16,7 @@ public class MediaRetryBatch {
     private String requestId;
     private Long actorId;
     private MediaRetryBatchStatus status;
+
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer active;
     private String selectionJson;

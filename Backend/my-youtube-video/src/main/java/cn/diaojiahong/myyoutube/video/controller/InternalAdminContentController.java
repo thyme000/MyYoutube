@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
+import cn.diaojiahong.myyoutube.common.media.ContentMedia;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -9,6 +10,8 @@ import cn.diaojiahong.myyoutube.video.api.ContentAdminPort;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -44,7 +47,7 @@ public class InternalAdminContentController implements ContentAdminPort {
         if (ContentStatusEnum.PUBLISHED.getCode().equals(mark.getStatusCode()))
             return decisions.manual(mark.getContentId(), true, mark.getReason(), mark.getActorId());
         if (ContentStatusEnum.BANNED.getCode().equals(mark.getStatusCode())) {
-            var video = contentService.getById(mark.getContentId());
+            Content video = contentService.getById(mark.getContentId());
             boolean published = video != null && video.getStatus() == ContentStatusEnum.PUBLISHED;
             return published ? decisions.banPublished(mark.getContentId(), mark.getReason(), mark.getActorId())
                     : decisions.manual(mark.getContentId(), false, mark.getReason(), mark.getActorId());
@@ -56,11 +59,16 @@ public class InternalAdminContentController implements ContentAdminPort {
     public Map<String, Object> contentStatus(@RequestBody ContentAdminPort.ContentId id) {
         return understanding.status(id.getContentId());
     }
+
     @PostMapping("/content/waiting")
     public List<Map<String, Object>> waitingContent(@RequestBody ContentAdminPort.AdminContentQuery query) {
         return understanding.waiting((int) query.getPageNo(), (int) query.getPageSize()).stream().map(row -> {
-            var video = contentService.getById(row.contentId());
-            return Map.<String, Object>of("contentId", row.contentId().toString(), "title", video == null ? "" : video.getTitle(),
+            Content video = contentService.getById(row.contentId());
+            return Map.<String, Object>of(
+                    "contentId",
+                    row.contentId().toString(),
+                    "title",
+                    video == null ? "" : video.getTitle(),
                     "state", row.status(), "pipelineId", row.pipelineId().toString());
         }).toList();
     }
@@ -69,21 +77,28 @@ public class InternalAdminContentController implements ContentAdminPort {
     public PageResult<ContentSummary> pageContents(@RequestBody ContentAdminPort.AdminContentQuery query) {
         ContentStatusEnum status = null;
         if (query.getStatusCode() != null) {
-            try { status = ContentStatusEnum.fromCode(query.getStatusCode()); }
-            catch (IllegalArgumentException error) { throw new BizException(ErrorCode.INVALID_ARGUMENT, "审核状态无效", error); }
+            try {
+                status = ContentStatusEnum.fromCode(query.getStatusCode());
+            } catch (IllegalArgumentException error) {
+                throw new BizException(ErrorCode.INVALID_ARGUMENT, "审核状态无效", error);
+            }
         }
-        var type = query.getType() == null ? null : cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum.fromCode(query.getType());
+        ContentTypeEnum type = query.getType() == null ? null : cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum.fromCode(query.getType());
         if (query.getType() != null && type == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "内容类型无效");
-        var page = contentService.lambdaQuery().eq(Content::getIsDelete, 0)
+        Page<Content> page = contentService.lambdaQuery().eq(Content::getIsDelete, 0)
                 .eq(status != null, Content::getStatus, status)
                 .eq(type != null, Content::getType, type)
-                .apply(status == ContentStatusEnum.REVIEW, "EXISTS (SELECT 1 FROM content_understanding u WHERE u.content_id = content.id AND u.state = 'MANUAL_PENDING')")
+                .apply(
+                        status == ContentStatusEnum.REVIEW,
+                        "EXISTS (SELECT 1 FROM content_understanding u WHERE u.content_id = content.id AND u.state = 'MANUAL_PENDING')")
                 .eq(query.getUserId() != null, Content::getAuthorId, query.getUserId())
                 .eq(query.getCategoryCode() != null, Content::getCategoryCode, query.getCategoryCode())
                 .orderByDesc(Content::getCreateTime)
-                .page(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<Content>(query.getPageNo(), query.getPageSize()));
-        var summaries = page.getRecords().stream().map(c -> {
-            var media = strategies.get(c.getType()).loadMedia(List.of(c.getId())).get(c.getId());
+                .page(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<Content>(
+                        query.getPageNo(),
+                        query.getPageSize()));
+        List<ContentSummary> summaries = page.getRecords().stream().map(c -> {
+            ContentMedia media = strategies.get(c.getType()).loadMedia(List.of(c.getId())).get(c.getId());
             return cn.diaojiahong.myyoutube.content.support.ContentCards.summary(c, media);
         }).toList();
         return PageResult.of(page.getTotal(), page.getPages(), summaries);

@@ -16,25 +16,36 @@ import java.util.stream.Collectors;
 public class DynamicContentStrategy implements ContentTypeStrategy {
     private final DynamicMapper dynamics;
     private final IAudioService audios;
-    @Override public ContentTypeEnum type() { return ContentTypeEnum.DYNAMIC; }
-    @Override public ContentMedia prepare(MediaDraft draft) {
+
+    @Override
+    public ContentTypeEnum type() {
+        return ContentTypeEnum.DYNAMIC;
+    }
+
+    @Override
+    public ContentMedia prepare(MediaDraft draft) {
         return PreparedDrafts.media(draft);
     }
 
-    @Override public void validateSubmission(ContentMedia media, Long authorId) {
+    @Override
+    public void validateSubmission(ContentMedia media, Long authorId) {
         DynamicMedia.Audio audio = media.dynamic().audio();
         if (audio != null) audios.lockReferenceable(audio.id(), authorId);
     }
 
-    @Override public Long audioId(ContentMedia media) {
+    @Override
+    public Long audioId(ContentMedia media) {
         DynamicMedia.Audio audio = media.dynamic().audio();
         return audio == null ? null : audio.id();
     }
 
-    @Override public void persist(Long id, ContentMedia media) {
+    @Override
+    public void persist(Long id, ContentMedia media) {
         dynamics.insert(new Dynamic().setId(id).setMediaJson(JsonUtil.toJson(media.dynamic())));
     }
-    @Override public Map<Long, ContentMedia> loadMedia(Collection<Long> ids) {
+
+    @Override
+    public Map<Long, ContentMedia> loadMedia(Collection<Long> ids) {
         if (ids.isEmpty()) return Map.of();
         return dynamics.selectBatchIds(ids).stream().collect(Collectors.toMap(Dynamic::getId,
                 d -> new ContentMedia("dynamic", null, JsonUtil.fromJson(d.getMediaJson(), DynamicMedia.class))));

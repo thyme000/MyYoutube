@@ -39,6 +39,7 @@ public class UserPortAdapter implements UserPort {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
+
         return summaryCache.listByIds(ids, missIds -> userService.listByIds(missIds).stream()
                 .map(UserPortAdapter::toSummary).collect(Collectors.toList()));
     }

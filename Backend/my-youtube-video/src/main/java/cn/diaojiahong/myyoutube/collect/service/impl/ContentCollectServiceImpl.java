@@ -45,7 +45,8 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
-public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper, ContentCollect> implements IContentCollectService {
+public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
+ContentCollect> implements IContentCollectService {
 
     private static final int STORAGE_EXPIRE = 24 * 60 * 60;
 
@@ -67,6 +68,7 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
 
             return;
         }
+
         save(new ContentCollect().setUserId(userId).setContentId(contentId).setCreateTime(LocalDateTime.now()));
         counterBuffer.add(CounterType.CONTENT_COLLECT, contentId, 1);
         notifyAuthor(userId, content);
@@ -81,6 +83,7 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
 
             return;
         }
+
         // 落库 + 门铃与降级语义都在门面里, 这里不再自包 try/catch
         UserNotification notification = new UserNotification();
         notification.setReceiverId(authorId);
@@ -114,7 +117,11 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
         int total = collectMapper.selectCollectCount(userId, pageQuery.getType());
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
-        List<Long> contentIds = collectMapper.selectCollectIds(userId, pageQuery.getType(), offset, pageQuery.getPageSize());
+        List<Long> contentIds = collectMapper.selectCollectIds(
+                userId,
+                pageQuery.getType(),
+                offset,
+                pageQuery.getPageSize());
         if (contentIds.isEmpty()) {
 
             return PageResult.of(total, totalPages, List.of());
@@ -176,6 +183,7 @@ public class ContentCollectServiceImpl extends ServiceImpl<ContentCollectMapper,
 
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         return Long.valueOf(userId);
     }
 }

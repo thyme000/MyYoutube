@@ -73,12 +73,15 @@ public class UserAdministrationService implements UserAdministrationPort {
         if (target == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "目标用户不存在或已删除");
         }
+
         if (target.getRole() == UserRole.SUPER_ADMIN) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "不能通过此接口修改超级管理员");
         }
+
         if (target.getRole() == newRole) {
             return new Change(userId, newRole, false);
         }
+
         if (target.getRole() != previousRole) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "目标用户角色已变化");
         }
@@ -89,6 +92,7 @@ public class UserAdministrationService implements UserAdministrationPort {
         if (updated != 1) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "目标用户状态已变化，请重试");
         }
+
         changes.insert(new UserRoleChange().setActorId(actorId).setTargetUserId(userId)
                 .setPreviousRole(previousRole).setNewRole(newRole).setCreateTime(BusinessTime.now()));
         return new Change(userId, newRole, true);

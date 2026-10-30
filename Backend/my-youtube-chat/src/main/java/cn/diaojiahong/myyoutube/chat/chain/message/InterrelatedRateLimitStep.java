@@ -31,6 +31,7 @@ public class InterrelatedRateLimitStep extends MessageSendStep {
         if (!conversation.getType().equals(ConversationTypeEnum.SINGLE)) {
             return;
         }
+
         Long senderId = Long.valueOf(ctx.getUserId());
         conversation.getMemberIds().remove(senderId);
         try {

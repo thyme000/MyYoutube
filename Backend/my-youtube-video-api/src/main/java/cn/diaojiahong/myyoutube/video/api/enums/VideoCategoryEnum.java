@@ -22,14 +22,17 @@ public enum VideoCategoryEnum {
     private final String code;
     /** 中文展示 */
     private final String label;
+
     VideoCategoryEnum(String code, String label) {
         this.code = code;
         this.label = label;
     }
+
     public static VideoCategoryEnum fromCode(String code) {
         if (code == null || code.isBlank()) {
             return OTHER;
         }
+
         for (VideoCategoryEnum c : values()) {
             if (c.code.equalsIgnoreCase(code.trim())) {
                 return c;

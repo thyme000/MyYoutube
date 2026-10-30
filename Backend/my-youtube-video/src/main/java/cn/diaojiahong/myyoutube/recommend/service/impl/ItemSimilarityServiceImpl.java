@@ -15,6 +15,7 @@ import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.SessionCallback;
@@ -83,6 +84,7 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         if (fresh.isEmpty()) {
             return;
         }
+
         // 只重算新行为涉及的内容; 矩阵仍全量加载(练手规模秒级), 增量省的是重算与写库
         Set<Long> affected = fresh.stream().map(UserVideoBehavior::getContentId).collect(Collectors.toSet());
         Map<Long, Map<Long, Double>> matrix = loadPositiveMatrix();
@@ -120,6 +122,7 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         if (type == null || type != typeMap.get(row.getItemB())) {
             return null;
         }
+
         return row.setContentType(type);
     }
 
@@ -179,6 +182,7 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         if (byItem.isEmpty()) {
             return;
         }
+
         redisTemplate.executePipelined(new SessionCallback<>() {
             @Override
             @SuppressWarnings("unchecked")
@@ -212,7 +216,7 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         ScanOptions options = ScanOptions.scanOptions()
                 .match(RedisConstants.RECOMMEND_SIM + algorithm.getCode() + ":*").build();
         List<String> staleKeys = new ArrayList<>();
-        try (var cursor = redisTemplate.scan(options)) {
+        try (Cursor<String> cursor = redisTemplate.scan(options)) {
             cursor.forEachRemaining(staleKeys::add);
         }
         if (!staleKeys.isEmpty()) {
@@ -225,6 +229,7 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         if (v == null || v.isBlank()) {
             return 0L;
         }
+
         try {
             return Long.parseLong(v.trim());
         } catch (NumberFormatException e) {

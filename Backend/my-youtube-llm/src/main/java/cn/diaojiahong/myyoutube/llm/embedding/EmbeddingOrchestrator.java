@@ -21,7 +21,7 @@ public class EmbeddingOrchestrator {
 
     public EmbeddingResult embedAll(List<String> texts) {
         if (texts == null || texts.isEmpty()) throw new IllegalArgumentException("texts 不能为空");
-        var conf = properties.getEmbedding();
+        LlmProperties.Embedding conf = properties.getEmbedding();
         int dims = conf.getDims();
         String version = conf.effectiveVersion();
         int batchSize = Math.max(conf.getBatchSize(), 1);
@@ -123,5 +123,6 @@ public class EmbeddingOrchestrator {
         throw last;
     }
 
-    public record EmbeddingResult(List<EmbeddingItem> items, int dims, String version, String unavailableReason) {}
+    public record EmbeddingResult(List<EmbeddingItem> items, int dims, String version, String unavailableReason) {
+    }
 }

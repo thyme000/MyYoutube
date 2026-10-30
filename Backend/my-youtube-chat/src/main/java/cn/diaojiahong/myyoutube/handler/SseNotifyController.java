@@ -35,7 +35,8 @@ public class SseNotifyController {
         registry.register(Long.valueOf(userIdStr), emitter);
         try {
             emitter.send(SseEmitter.event().data("{\"type\":\"CONNECTED\"}"));
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return emitter;
     }
 }

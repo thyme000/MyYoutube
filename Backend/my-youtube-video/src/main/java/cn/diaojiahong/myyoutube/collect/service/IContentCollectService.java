@@ -16,4 +16,5 @@ public interface IContentCollectService {
     /** 我的收藏, 按收藏时间倒序 */
     PageResult<CollectVO> page(ContentPageQuery pageQuery);
     /** 我是否收藏了该内容 */
-    Boolean status(Long contentId);}
+    Boolean status(Long contentId);
+    }

@@ -72,22 +72,32 @@ public class TranscodeTaskService {
         String taskKey = taskKeyOf(dto);
         String requestJson = objectMapper.writeValueAsString(dto);
 
-        var lock = artifactLock(taskKey);
+        RLock lock = artifactLock(taskKey);
         if (!lock.tryLock()) return insert(dto, taskKey, requestJson, TranscodeTaskStatus.PENDING, null);
         try {
-            var done = validCompleted(taskKey);
-            return insert(dto, taskKey, requestJson, done == null ? TranscodeTaskStatus.PENDING : TranscodeTaskStatus.DONE,
+            TranscodeTask done = validCompleted(taskKey);
+            return insert(
+                    dto,
+                    taskKey,
+                    requestJson,
+                    done == null ? TranscodeTaskStatus.PENDING : TranscodeTaskStatus.DONE,
                     done == null ? null : done.getResultObjectKey());
-        } finally { lock.unlock(); }
+        } finally {
+            lock.unlock();
+        }
     }
 
     public TranscodeTask validCompleted(String taskKey) {
-        var done = taskMapper.selectOne(new LambdaQueryWrapper<TranscodeTask>()
-                .eq(TranscodeTask::getTaskKey, taskKey).eq(TranscodeTask::getStatus, TranscodeTaskStatus.DONE).last("limit 1"));
+        TranscodeTask done = taskMapper.selectOne(new LambdaQueryWrapper<TranscodeTask>()
+                .eq(TranscodeTask::getTaskKey, taskKey)
+                .eq(TranscodeTask::getStatus, TranscodeTaskStatus.DONE)
+                .last("limit 1"));
         if (done == null || done.getResultObjectKey() == null || done.getResultObjectKey().isBlank()) return null;
         if (storage.objectExists(done.getResultObjectKey())) return done;
         taskMapper.update(null, new LambdaUpdateWrapper<TranscodeTask>().eq(TranscodeTask::getTaskKey, taskKey)
-                .eq(TranscodeTask::getStatus, TranscodeTaskStatus.DONE).set(TranscodeTask::getStatus, TranscodeTaskStatus.EXPIRED));
+                .eq(TranscodeTask::getStatus, TranscodeTaskStatus.DONE).set(
+                        TranscodeTask::getStatus,
+                        TranscodeTaskStatus.EXPIRED));
         return null;
     }
 
@@ -118,7 +128,8 @@ public class TranscodeTaskService {
     }
 
     public void failByKey(String taskKey, String errorMessage) {
-        String err = errorMessage != null && errorMessage.length() > 500 ? errorMessage.substring(0, 500) : errorMessage;
+        String err = errorMessage != null
+                && errorMessage.length() > 500 ? errorMessage.substring(0, 500) : errorMessage;
         TranscodeTask patch = new TranscodeTask();
         patch.setStatus(TranscodeTaskStatus.FAILED);
         patch.setErrorMessage(err);

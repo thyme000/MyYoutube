@@ -4,7 +4,12 @@ import cn.diaojiahong.myyoutube.common.page.CursorCodec;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentSortEnum;
 import java.time.LocalDateTime;
 
-public record AudioContentCursor(long audioId, ContentSortEnum sort, long likeCount, LocalDateTime createTime, long contentId) {
+public record AudioContentCursor(
+        long audioId,
+        ContentSortEnum sort,
+        long likeCount,
+        LocalDateTime createTime,
+        long contentId) {
     private static final CursorCodec<AudioContentCursor> CODEC = new CursorCodec<>(
             AudioContentCursor.class, 512, "音频关联内容游标无效，请重新加载");
 

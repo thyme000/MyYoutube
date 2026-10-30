@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class DeadLetterInternalAuthorizationTest {
     private final ContentVectorDeadLetterService service = mock(ContentVectorDeadLetterService.class);
+
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new InternalContentVectorDeadLetterController(
                     service, new InternalApiCredentials("internal-test-token")))
             .setControllerAdvice(new GlobalExceptionHandler()).build();

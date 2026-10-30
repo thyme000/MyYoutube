@@ -32,6 +32,9 @@ import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
 import cn.diaojiahong.myyoutube.search.recall.ContentSearchPage;
 import cn.diaojiahong.myyoutube.search.recall.SearchContext;
 import cn.diaojiahong.myyoutube.search.recall.SearchContentSummaryClient;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.search.CompletionSuggest;
+import co.elastic.clients.elasticsearch.core.search.Suggestion;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -87,25 +90,23 @@ public class SearchServiceImpl implements ISearchService {
 
         // 查询用户的关注列表
         List<Long> followIds = followPort.getFollowIds(userId);
-        List<FunctionScore> followFunctions = followIds.stream().map(fid -> FunctionScore.of(f -> f
-                .filter(fq -> fq.term(t -> t.field("id").value(fid)))
+        List<FunctionScore> followFunctions = followIds.stream()
+                .map(fid -> FunctionScore.of(f -> f.filter(fq -> fq.term(t -> t.field("id").value(fid)))
                 .weight(5.0)
         )).toList();
         List<FunctionScore> allFunctions = new java.util.ArrayList<>(followFunctions);
         // 用 field_value_factor 把 fans 转成分数
-        allFunctions.add(FunctionScore.of(f -> f
-                .fieldValueFactor(fvf -> fvf
-                        .field("fans")
+        allFunctions.add(FunctionScore.of(f -> f.fieldValueFactor(fvf -> fvf.field("fans")
                         .modifier(co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier.Log1p)
-                        .missing(0.0)  // fans 不存在时当 0
+                        .missing(0.0)
+                        // fans 不存在时当 0
                 )
         ));
         // 用 field_value_factor 把 likeCount 转成分数
-        allFunctions.add(FunctionScore.of(f -> f
-                .fieldValueFactor(fvf -> fvf
-                        .field("likeCount")
+        allFunctions.add(FunctionScore.of(f -> f.fieldValueFactor(fvf -> fvf.field("likeCount")
                         .modifier(co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier.Log1p)
-                        .missing(0.0)  // likeCount 不存在时当 0
+                        .missing(0.0)
+                        // likeCount 不存在时当 0
                 )
         ));
 
@@ -116,11 +117,9 @@ public class SearchServiceImpl implements ISearchService {
         boolean numeric = keyword.matches("\\d+");
 
         query = NativeQuery.builder()
-                .withQuery(q -> q.functionScore(fs -> fs
-                        .query(inner -> inner.bool(b -> {
+                .withQuery(q -> q.functionScore(fs -> fs.query(inner -> inner.bool(b -> {
                                     if (!keyword.isEmpty()) {
-                                        b.should(m -> m.multiMatch(mm -> mm
-                                                .query(keyword)
+                                        b.should(m -> m.multiMatch(mm -> mm.query(keyword)
                                                 .fields("nickname^5", "introduction^2")
                                                 .fuzziness("AUTO")
                                                 .minimumShouldMatch("40%")
@@ -132,7 +131,8 @@ public class SearchServiceImpl implements ISearchService {
                                     }
                                     return b;
                                 }
-                        )) // 按播放量,获赞数和被关注用户的视频综合排列
+                        ))
+                        // 按播放量,获赞数和被关注用户的视频综合排列
                         .functions(allFunctions)
                         .scoreMode(FunctionScoreMode.Sum)
                         .boostMode(FunctionBoostMode.Sum)
@@ -146,6 +146,7 @@ public class SearchServiceImpl implements ISearchService {
         if (list.isEmpty()) {
             return PageResult.of(0, 0, Collections.emptyList());
         }
+
         // 转换为VO
         List<SearchUserVO> result = BeanUtil.copyToList(list, SearchUserVO.class);
         // 填充头像url
@@ -154,6 +155,7 @@ public class SearchServiceImpl implements ISearchService {
         if (avatarUrls == null || avatarUrls.isEmpty()) {
             return PageResult.of(0, 0, result);
         }
+
         result.forEach(vo -> {
             vo.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(vo.getId()), STORAGE_EXPIRE_SECONDS));
         });
@@ -175,27 +177,24 @@ public class SearchServiceImpl implements ISearchService {
         if (q.isEmpty()) {
             return Collections.emptyList();
         }
+
         try {
-            var videoResp = elasticsearchClient.search(s -> s
-                    .index("content")
-                    .suggest(su -> su.suggesters("video_suggest", sg -> sg
-                            .prefix(q)
+            SearchResponse<Void> videoResp = elasticsearchClient.search(s -> s.index("content")
+                    .suggest(su -> su.suggesters("video_suggest", sg -> sg.prefix(q)
                             .completion(c -> c.field("suggest").size(8).skipDuplicates(true))
                     )), Void.class);
 
-            var userResp = elasticsearchClient.search(s -> s
-                    .index("user")
-                    .suggest(su -> su.suggesters("user_suggest", sg -> sg
-                            .prefix(q)
+            SearchResponse<Void> userResp = elasticsearchClient.search(s -> s.index("user")
+                    .suggest(su -> su.suggesters("user_suggest", sg -> sg.prefix(q)
                             .completion(c -> c.field("suggest").size(6).skipDuplicates(true))
                     )), Void.class);
 
             Set<String> merged = new LinkedHashSet<>();
-            var entries = videoResp.suggest().get("video_suggest");
-            var ids = entries == null ? List.<String>of() : entries.stream()
+            List<Suggestion<Void>> entries = videoResp.suggest().get("video_suggest");
+            List<String> ids = entries == null ? List.<String>of() : entries.stream()
                     .flatMap(entry -> entry.completion().options().stream())
                     .map(option -> option.id()).filter(Objects::nonNull).distinct().toList();
-            var readable = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(ids, null))
+            Set<String> readable = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(ids, null))
                     .stream().map(summary -> summary.getId().toString()).collect(Collectors.toSet());
             appendSuggestTexts(videoResp, "video_suggest", merged, readable::contains);
             appendSuggestTexts(userResp, "user_suggest", merged, id -> true);
@@ -212,14 +211,17 @@ public class SearchServiceImpl implements ISearchService {
         if (response == null || response.suggest() == null) {
             return;
         }
-        var entries = response.suggest().get(suggestName);
+
+        List<Suggestion<Void>> entries = response.suggest().get(suggestName);
         if (entries == null || entries.isEmpty()) {
             return;
         }
-        var completion = entries.get(0).completion();
+
+        CompletionSuggest<Void> completion = entries.get(0).completion();
         if (completion == null || completion.options() == null) {
             return;
         }
+
         completion.options().forEach(opt -> {
             String text = opt.text();
             if (readable.test(opt.id()) && text != null && !text.isBlank()) {
@@ -255,9 +257,12 @@ public class SearchServiceImpl implements ISearchService {
         if (authorNicknames == null || authorAvatarUrls == null) {
             return result;
         }
+
         result.forEach(vo -> {
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
-            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), STORAGE_EXPIRE_SECONDS));
+            vo.setAuthorAvatarUrl(storageUtil.signGetUrl(
+                    authorAvatarUrls.get(vo.getAuthorId()),
+                    STORAGE_EXPIRE_SECONDS));
         });
         // 视频url,封面url
         result.forEach(re -> {
@@ -265,7 +270,9 @@ public class SearchServiceImpl implements ISearchService {
             re.setCoverUrl(storageUtil.signGetUrl(re.getCoverUrl(), STORAGE_EXPIRE_SECONDS));
         });
         // 判断是否点过赞
-        List<Long> likedIds = isLike(getUserId(), videos.stream().map(ContentSummary::getId).collect(Collectors.toList()));
+        List<Long> likedIds = isLike(
+                getUserId(),
+                videos.stream().map(ContentSummary::getId).collect(Collectors.toList()));
         if (likedIds != null && !likedIds.isEmpty()) {
             Map<Long, Boolean> isLikes = likedIds.stream().collect(Collectors.toMap(id -> id, id -> true));
             result.forEach(vo -> {
@@ -279,6 +286,7 @@ public class SearchServiceImpl implements ISearchService {
         if (videoIds == null || videoIds.isEmpty()) {
             return Collections.emptyList();
         }
+
         Map<Long, Boolean> likedMap = contentInternalPort.likedMap(userId, new HashSet<>(videoIds));
         return likedMap.entrySet().stream().filter(Map.Entry::getValue).map(Map.Entry::getKey).toList();
     }
@@ -288,6 +296,7 @@ public class SearchServiceImpl implements ISearchService {
         if (userId == null || userId.isEmpty()) {
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         return Long.parseLong(userId);
     }
 }

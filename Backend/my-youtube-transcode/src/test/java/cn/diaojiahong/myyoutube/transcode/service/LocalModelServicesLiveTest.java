@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.file.DirectoryStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
@@ -21,20 +23,24 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfEnvironmentVariable(named = "MODEL_LIFECYCLE_PYTHON", matches = ".+")
 class LocalModelServicesLiveTest {
     @TempDir Path root;
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     private void prepareServices() throws Exception {
         Path repository = Path.of(System.getProperty("user.dir")).toAbsolutePath();
-        while (repository != null && !Files.isDirectory(repository.resolve("model_runtime"))) repository = repository.getParent();
+        while (repository != null
+                && !Files.isDirectory(repository.resolve("model_runtime"))) repository = repository.getParent();
         assertNotNull(repository);
         Path runtime = Files.createDirectories(root.resolve("model_runtime"));
-        try (var files = Files.newDirectoryStream(repository.resolve("model_runtime"), "*.py")) {
-            for (var file : files) Files.copy(file, runtime.resolve(file.getFileName()));
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(repository.resolve("model_runtime"), "*.py")) {
+            for (Path file : files) Files.copy(file, runtime.resolve(file.getFileName()));
         }
         for (String service : new String[]{"asr-svc", "ocr-svc"}) {
             Path directory = Files.createDirectories(root.resolve(service));
             int port;
-            try (var socket = new ServerSocket(0)) { port = socket.getLocalPort(); }
+            try (var socket = new ServerSocket(0)) {
+                port = socket.getLocalPort();
+            }
             String models;
             if (service.equals("asr-svc")) {
                 Files.writeString(directory.resolve("speech.bin"), "test model");
@@ -104,7 +110,7 @@ class LocalModelServicesLiveTest {
     }
 
     private void awaitStartup(AnnotationConfigApplicationContext context) throws Exception {
-        var linkage=context.getBean(LocalModelServices.class);
+        LocalModelServices linkage=context.getBean(LocalModelServices.class);
         long deadline=System.nanoTime()+Duration.ofSeconds(20).toNanos();
         while (linkage.startupStates().containsValue("STARTING") && System.nanoTime()<deadline) Thread.sleep(20);
         assertFalse(linkage.startupStates().containsValue("STARTING"));
@@ -123,34 +129,41 @@ class LocalModelServicesLiveTest {
         }
     }
 
-    @Test void launchesBothReusesAndStopsOwnedServersAndChildren() throws Exception {
+    @Test
+    void launchesBothReusesAndStopsOwnedServersAndChildren() throws Exception {
         prepareServices();
         var parents = new ArrayList<ProcessHandle>();
-        try (var owner = startContext(true, "15s")) {
+        try (AnnotationConfigApplicationContext owner = startContext(true, "15s")) {
             awaitStartup(owner);
-            assertTrue(owner.getBean(LocalModelServices.class).startupStates().values().stream().allMatch("READY"::equals));
+            assertTrue(owner.getBean(LocalModelServices.class)
+                    .startupStates()
+                    .values()
+                    .stream()
+                    .allMatch("READY"::equals));
             for (String service : new String[]{"asr-svc", "ocr-svc"}) {
                 parents.add(ProcessHandle.of(pid(service)).orElseThrow());
-                var record = mapper.readTree(root.resolve(service + "/.runtime/server.json").toFile());
-                assertTrue(Files.readString(root.resolve(service + "/.env")).contains("SERVER_PORT=" + record.path("port").asInt() + "\n"));
+                JsonNode record = mapper.readTree(root.resolve(service + "/.runtime/server.json").toFile());
+                assertTrue(Files.readString(root.resolve(service + "/.env"))
+                        .contains("SERVER_PORT=" + record.path("port").asInt() + "\n"));
                 assertTrue(Files.exists(root.resolve(service + "/logs/" + service + ".log")));
             }
-            try (var reused = startContext(false, "15s")) {
+            try (AnnotationConfigApplicationContext reused = startContext(false, "15s")) {
                 awaitStartup(reused);
                 assertEquals(parents.get(0).pid(), pid("asr-svc"));
                 assertEquals(parents.get(1).pid(), pid("ocr-svc"));
             }
-            for (var process : parents) assertTrue(process.isAlive());
+            for (ProcessHandle process : parents) assertTrue(process.isAlive());
         }
-        for (var process : parents) assertFalse(process.isAlive());
+        for (ProcessHandle process : parents) assertFalse(process.isAlive());
         assertStopped();
     }
 
-    @Test void reusedServersAreStoppedThroughAuthenticatedControl() throws Exception {
+    @Test
+    void reusedServersAreStoppedThroughAuthenticatedControl() throws Exception {
         prepareServices();
-        try (var launcher = startContext(false, "15s")) {
+        try (AnnotationConfigApplicationContext launcher = startContext(false, "15s")) {
             awaitStartup(launcher);
-            try (var reused = startContext(true, "15s")) {
+            try (AnnotationConfigApplicationContext reused = startContext(true, "15s")) {
                 awaitStartup(reused);
                 assertTrue(ProcessHandle.of(pid("asr-svc")).orElseThrow().isAlive());
             }
@@ -158,11 +171,12 @@ class LocalModelServicesLiveTest {
         assertStopped();
     }
 
-    @Test void wrongHealthIdentityKeepsContextAndHealthySiblingRunning() throws Exception {
+    @Test
+    void wrongHealthIdentityKeepsContextAndHealthySiblingRunning() throws Exception {
         prepareServices();
         Path app = root.resolve("asr-svc/app.py");
         Files.writeString(app, Files.readString(app).replace("'pid': os.getpid()", "'pid': os.getpid() + 1"));
-        try (var context=startContext(true,"15s")) {
+        try (AnnotationConfigApplicationContext context=startContext(true,"15s")) {
             awaitStartup(context);
             assertTrue(context.isActive());
             assertEquals("FAILED",context.getBean(LocalModelServices.class).startupStates().get("asr-svc"));
@@ -171,16 +185,21 @@ class LocalModelServicesLiveTest {
         assertStopped();
     }
 
-    @Test void readinessTimeoutDoesNotFailTranscodeContext() throws Exception {
+    @Test
+    void readinessTimeoutDoesNotFailTranscodeContext() throws Exception {
         prepareServices();
         for (String service : new String[]{"asr-svc", "ocr-svc"}) {
             Path app = root.resolve(service + "/app.py");
             Files.writeString(app, Files.readString(app).replace("return {'ready': True", "return {'ready': False"));
         }
-        try (var context=startContext(true,"5s")) {
+        try (AnnotationConfigApplicationContext context=startContext(true,"5s")) {
             awaitStartup(context);
             assertTrue(context.isActive());
-            assertTrue(context.getBean(LocalModelServices.class).startupStates().values().stream().allMatch("FAILED"::equals));
+            assertTrue(context.getBean(LocalModelServices.class)
+                    .startupStates()
+                    .values()
+                    .stream()
+                    .allMatch("FAILED"::equals));
         }
         assertStopped();
     }

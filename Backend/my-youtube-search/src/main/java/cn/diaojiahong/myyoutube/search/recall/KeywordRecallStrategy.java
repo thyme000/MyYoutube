@@ -32,7 +32,9 @@ public class KeywordRecallStrategy implements RecallStrategy {
     }
 
     @Override
-    public boolean supportsPaging() { return true; }
+    public boolean supportsPaging() {
+        return true;
+    }
 
     @Override
     @AsyncTimeout("keyword-recall")
@@ -45,7 +47,8 @@ public class KeywordRecallStrategy implements RecallStrategy {
     }
 
     // 续查基于实时 _score，跨请求可能重排；重复由前端按 id 去重处理
-    @Override public RecallBatch nextBatch(SearchContext ctx, RecallBatch previous, int size) throws Exception {
+    @Override
+    public RecallBatch nextBatch(SearchContext ctx, RecallBatch previous, int size) throws Exception {
         return load(ctx, previous.nextCursor(), size);
     }
 

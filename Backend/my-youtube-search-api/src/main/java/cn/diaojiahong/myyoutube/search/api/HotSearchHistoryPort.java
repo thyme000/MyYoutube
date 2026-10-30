@@ -14,14 +14,23 @@ import java.time.LocalDateTime;
 @FeignClient(name = "my-youtube-search-service", contextId = "hotSearchHistoryPort",
         path = "/internal/hot-search/history", url = "${my-youtube.search-service.url:}")
 public interface HotSearchHistoryPort {
-    record Day(LocalDate statDate, LocalDateTime updatedAt) {}
+    record Day(LocalDate statDate, LocalDateTime updatedAt) {
+    }
+
     record Group(String groupId, String groupName, String vectorVersion, long searchCount,
-                 long userCount, long score, long rankNo, LocalDateTime updatedAt) {}
+                 long userCount, long score, long rankNo, LocalDateTime updatedAt) {
+    }
+
     // keywordId 是该原词在当前日期/组下的首条记录 ID，后续查询不在 URL 中传原文。
-    record Keyword(long keywordId, String rawKeyword, long searchCount, long userCount) {}
-    record User(long userId, long searchCount, long firstHappenedAt, long lastHappenedAt) {}
+    record Keyword(long keywordId, String rawKeyword, long searchCount, long userCount) {
+    }
+
+    record User(long userId, long searchCount, long firstHappenedAt, long lastHappenedAt) {
+    }
+
     record Event(long id, String eventId, LocalDate statDate, long happenedAt, long eventHour, long userId,
-                 String rawKeyword, String groupingKeyword, String groupId, String groupName, String vectorVersion) {}
+                 String rawKeyword, String groupingKeyword, String groupId, String groupName, String vectorVersion) {
+    }
 
     @GetMapping("/dates")
     CursorPage<Day, String> dates(@RequestParam(value = "cursor", required = false) String cursor,

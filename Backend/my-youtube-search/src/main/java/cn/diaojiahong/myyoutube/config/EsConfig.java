@@ -14,22 +14,27 @@ import java.util.Arrays;
 @Configuration
 public class EsConfig {
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     @WritingConverter
     public enum LocalDateTimeToStringConverter implements Converter<LocalDateTime, String> {
         INSTANCE;
+
         @Override
         public String convert(LocalDateTime source) {
             return source.format(FMT);
         }
     }
+
     @ReadingConverter
     public enum StringToLocalDateTimeConverter implements Converter<String, LocalDateTime> {
         INSTANCE;
+
         @Override
         public LocalDateTime convert(String source) {
             return LocalDateTime.parse(source, FMT);
         }
     }
+
     @Bean
     public ElasticsearchCustomConversions elasticsearchCustomConversions() {
         return new ElasticsearchCustomConversions(Arrays.asList(

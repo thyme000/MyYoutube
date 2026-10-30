@@ -33,29 +33,38 @@ public class ContentVectorService {
     private static final String REBUILD_KEY = "{content-vector}:rebuild";
     private static final String CHECKPOINT_KEY = "search:{content-vector}:rebuild";
     private static final int REBUILD_BATCH = 50;
+
     private static final RedisScript<Long> SAVE_CHECKPOINT = RedisScript.of(
             new ClassPathResource("lua/vector-rebuild-checkpoint.lua"), Long.class);
     private final LlmPort llmPort;
     private final ElasticsearchClient elasticsearchClient;
     private final StringRedisTemplate redisTemplate;
     private final VectorProperties vectorProperties;
+
     private final @Qualifier("vectorRebuildExecutor") ThreadPoolTaskExecutor vectorRebuildExecutor;
     private final IdempotentGuard idempotentGuard;
     private final ContentVectorBuilder builder;
+
     private final AtomicBoolean rebuildRunning = new AtomicBoolean(false);
 
-    public record QueryVector(List<Float> vector, String version) {}
+    public record QueryVector(List<Float> vector, String version) {
+    }
+
     public record RebuildReport(String targetVersion, long cursor, ContentVectorBuilder.Counts counts,
-                                boolean scanCompleted, String error) {}
+                                boolean scanCompleted, String error) {
+    }
 
     /** 后台重建探测向量空间，沿用内容构建的 RPC 规则。 */
     public QueryVector embedQuery(String keyword) {
         if (!vectorProperties.isEnabled() || keyword == null || keyword.isBlank()) {
             return null;
         }
+
         try {
-            LlmPort.EmbeddingsResponse resp = llmPort.embeddings(new LlmPort.EmbeddingsRequest(List.of(keyword)), vectorProperties.embeddingOptions(1));
-            var item = resp.getItems().get(0);
+            LlmPort.EmbeddingsResponse resp = llmPort.embeddings(
+                    new LlmPort.EmbeddingsRequest(List.of(keyword)),
+                    vectorProperties.embeddingOptions(1));
+            LlmPort.EmbeddingItem item = resp.getItems().get(0);
             if (resp.getUnavailableReason() != null || item.index() != 0 || item.error() != null
                     || item.vector() == null || item.vector().isEmpty()) return null;
             return new QueryVector(item.vector(), resp.getVersion());
@@ -88,11 +97,9 @@ public class ContentVectorService {
     }
 
     static SearchRequest knnRequest(QueryVector queryVector, String category, int size) {
-        return SearchRequest.of(s -> s
-                    .index(CONTENT_INDEX)
+        return SearchRequest.of(s -> s.index(CONTENT_INDEX)
                     .size(size)
-                    .knn(k -> k
-                            .field(VECTOR_FIELD)
+                    .knn(k -> k.field(VECTOR_FIELD)
                             .queryVector(queryVector.vector())
                             .k(size)
                             .numCandidates(Math.max(size * 3, 100))
@@ -124,7 +131,9 @@ public class ContentVectorService {
         }
     }
 
-    public boolean isRebuildRunning() { return rebuildRunning.get(); }
+    public boolean isRebuildRunning() {
+        return rebuildRunning.get();
+    }
 
     public Long rebuildCursor() {
         RebuildReport report = rebuildReport();
@@ -137,7 +146,7 @@ public class ContentVectorService {
     }
 
     private void doRebuild() {
-        try (var lease = idempotentGuard.acquire(REBUILD_KEY, IdempotentGuard.DEFAULT_LEASE_SECONDS)) {
+        try (IdempotentGuard.Lease lease = idempotentGuard.acquire(REBUILD_KEY, IdempotentGuard.DEFAULT_LEASE_SECONDS)) {
             if (!lease.acquired()) throw new IllegalStateException("向量重建占位状态异常");
             RebuildReport report = null;
             try {
@@ -156,8 +165,7 @@ public class ContentVectorService {
                     long cursor = report.cursor();
                     SearchResponse<Void> response = elasticsearchClient.search(search -> {
                         search.index(CONTENT_INDEX).size(REBUILD_BATCH)
-                                .query(query -> query.bool(bool -> bool
-                                        .filter(filter -> filter.term(term -> term.field("status").value("published")))
+                                .query(query -> query.bool(bool -> bool.filter(filter -> filter.term(term -> term.field("status").value("published")))
                                         .filter(filter -> filter.term(term -> term.field("visibility").value("public")))
                                         .mustNot(filter -> filter.term(term -> term.field("vectorVersion").value(version)))))
                                 .sort(sort -> sort.field(field -> field.field("id")
@@ -167,7 +175,9 @@ public class ContentVectorService {
                     }, Void.class);
                     List<Hit<Void>> hits = response.hits().hits();
                     if (hits.isEmpty()) break;
-                    ContentVectorBuilder.Counts counts = builder.batch(hits.stream().map(hit -> Long.valueOf(hit.id())).toList(), version);
+                    ContentVectorBuilder.Counts counts = builder.batch(
+                            hits.stream().map(hit -> Long.valueOf(hit.id())).toList(),
+                            version);
                     RebuildReport next = new RebuildReport(version, Long.parseLong(hits.get(hits.size() - 1).id()),
                             report.counts().plus(counts), false, null);
                     checkpoint(next, lease);
@@ -177,14 +187,20 @@ public class ContentVectorService {
                 checkpoint(report, lease);
                 lease.complete(IdempotentGuard.DONE, 0);
                 log.info("向量扫描完成 targetVersion={} succeeded={} existing={} skipped={} handedToRecovery={}", version,
-                        report.counts().succeeded(), report.counts().existing(), report.counts().skipped(), report.counts().pendingRecovery());
+                        report.counts()
+                                .succeeded(), report.counts()
+                                .existing(), report.counts()
+                                .skipped(), report.counts()
+                                .pendingRecovery());
             } catch (Exception error) {
                 if (report != null) {
                     String reason = error.getClass().getSimpleName() + ": " + error.getMessage();
                     try {
                         checkpoint(new RebuildReport(report.targetVersion(), report.cursor(), report.counts(), false,
                                 reason.substring(0, Math.min(reason.length(), 500))), lease);
-                    } catch (RuntimeException saveError) { error.addSuppressed(saveError); }
+                    } catch (RuntimeException saveError) {
+                        error.addSuppressed(saveError);
+                    }
                 }
                 log.error("向量扫描中断，保留最后已确认检查点；未完成批次将重试 cursor={}", report == null ? null : report.cursor(), error);
             }

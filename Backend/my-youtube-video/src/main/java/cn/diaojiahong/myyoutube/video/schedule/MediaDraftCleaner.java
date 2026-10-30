@@ -49,6 +49,7 @@ public class MediaDraftCleaner {
         if (stale.isEmpty()) {
             return;
         }
+
         long startedAt = System.currentTimeMillis();
         for (MediaDraft draft : stale) {
             try {
@@ -58,7 +59,10 @@ public class MediaDraftCleaner {
                 log.warn("草稿治理失败: draftId={}", draft.getId(), e);
             }
         }
-        log.info("Draft cleanup completed scanned={} elapsedMs={}", stale.size(), System.currentTimeMillis() - startedAt);
+        log.info(
+                "Draft cleanup completed scanned={} elapsedMs={}",
+                stale.size(),
+                System.currentTimeMillis() - startedAt);
     }
 
     private void repairUpload(MediaDraft draft) {

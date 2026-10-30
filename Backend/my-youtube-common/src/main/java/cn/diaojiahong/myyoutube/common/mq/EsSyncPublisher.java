@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.common.mq.message.UserDocSyncMessage;
 import lombok.RequiredArgsConstructor;
+import org.apache.rocketmq.client.producer.SendResult;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.stereotype.Component;
 
@@ -30,10 +31,12 @@ public class EsSyncPublisher {
     }
 
     public void syncAudioDoc(long id) {
-        var result = rocketMQTemplate.syncSendDelayTimeSeconds(MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_AUDIO,
+        SendResult result = rocketMQTemplate.syncSendDelayTimeSeconds(
+                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_AUDIO,
                 new AudioDiscoveryContracts.Sync(id), ES_SYNC_DELAY_SECONDS);
-        if (result == null || result.getSendStatus() != org.apache.rocketmq.client.producer.SendStatus.SEND_OK)
+        if (result == null || result.getSendStatus() != org.apache.rocketmq.client.producer.SendStatus.SEND_OK) {
             throw new MqSendUnconfirmedException(result == null ? null : result.getSendStatus());
+        }
     }
 
     /** 内容文档同步(视频/动态), 消息体经 ContentDocMessages 工厂组装 */

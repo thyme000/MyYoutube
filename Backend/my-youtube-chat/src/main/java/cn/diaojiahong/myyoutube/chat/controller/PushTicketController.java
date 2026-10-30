@@ -34,6 +34,7 @@ public class PushTicketController {
 
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         String ticket = UUID.randomUUID().toString();
         redisTemplate.opsForValue().set(RedisConstants.PUSH_CONNECTION_TICKET + ticket,
                 userId, Duration.ofSeconds(TICKET_TTL_SECONDS));

@@ -25,7 +25,7 @@ public class QueryEmbeddingService {
     }
 
     public QueryEmbeddingPort.Info info() {
-        var conf = properties.getEmbedding();
+        LlmProperties.Embedding conf = properties.getEmbedding();
         return new QueryEmbeddingPort.Info(conf.effectiveVersion(), conf.getDims());
     }
 
@@ -33,14 +33,19 @@ public class QueryEmbeddingService {
         if (query == null || query.text() == null || query.text().isBlank()) {
             throw new IllegalArgumentException("查询文本不能为空");
         }
+
         if (!slots.tryAcquire()) throw new ModelUnavailable("LLM", "QUERY_EMBEDDING_BUSY", 1, null);
         try {
-            var conf = properties.getEmbedding();
-            long remaining = Math.min(query.deadlineEpochMillis() - System.currentTimeMillis(), conf.getQueryTimeoutMillis());
+            LlmProperties.Embedding conf = properties.getEmbedding();
+            long remaining = Math.min(
+                    query.deadlineEpochMillis() - System.currentTimeMillis(),
+                    conf.getQueryTimeoutMillis());
             if (remaining <= 0) throw new ModelUnavailable("LLM", "QUERY_EMBEDDING_EXPIRED", 1, null);
-            var vectors = provider.embedQuery(query.text(), Duration.ofMillis(remaining));
+            List<float[]> vectors = provider.embedQuery(query.text(), Duration.ofMillis(remaining));
             if (vectors == null || vectors.size() != 1 || vectors.get(0) == null
-                    || vectors.get(0).length != conf.getDims()) throw new IllegalStateException("查询向量维度非法");
+                    || vectors.get(0).length != conf.getDims()) {
+                throw new IllegalStateException("查询向量维度非法");
+            }
             List<Float> values = new ArrayList<>(conf.getDims());
             for (float value : vectors.get(0)) {
                 if (!Float.isFinite(value)) throw new IllegalStateException("查询向量数值非法");

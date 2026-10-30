@@ -115,6 +115,7 @@ public class TagPoolHolder {
         if (tuples == null || tuples.isEmpty()) {
             return;
         }
+
         List<Tag> tags = tuples.stream()
                 .map(t -> fromMetaValue(t.getValue(), toStringValue(meta.get(t.getValue()))))
                 .filter(java.util.Objects::nonNull)
@@ -140,10 +141,12 @@ public class TagPoolHolder {
         if (value == null || value.isBlank()) {
             return null;
         }
+
         String[] parts = value.split("\\" + META_SEP, -1);
         if (parts.length < 3) {
             return null;
         }
+
         try {
             return new Tag()
                     .setId(Long.parseLong(parts[0]))

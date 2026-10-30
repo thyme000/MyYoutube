@@ -19,19 +19,28 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 class QueryFeignConfigurationTest {
-    @Test void sharedErrorsDoNotReplaceTheCancellableTransportOrRetryPolicy() {
+    @Test
+    void sharedErrorsDoNotReplaceTheCancellableTransportOrRetryPolicy() {
         new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(
-                FeignAutoConfiguration.class, JacksonAutoConfiguration.class, HttpMessageConvertersAutoConfiguration.class))
+                FeignAutoConfiguration.class,
+                JacksonAutoConfiguration.class,
+                HttpMessageConvertersAutoConfiguration.class))
                 .withPropertyValues("my-youtube.llm-service.url=http://127.0.0.1:1")
                 .withUserConfiguration(Clients.class).run(context -> {
                     assertThat(context).hasNotFailed();
-                    var factory = context.getBean(FeignClientFactory.class);
-                    assertInstanceOf(QueryEmbeddingPort.CancellableClient.class, factory.getInstance("queryEmbeddingPort", Client.class));
+                    FeignClientFactory factory = context.getBean(FeignClientFactory.class);
+                    assertInstanceOf(
+                            QueryEmbeddingPort.CancellableClient.class,
+                            factory.getInstance("queryEmbeddingPort", Client.class));
                     assertSame(Retryer.NEVER_RETRY, factory.getInstance("queryEmbeddingPort", Retryer.class));
-                    assertInstanceOf(InternalApiErrorDecoder.class, factory.getInstance("queryEmbeddingPort", ErrorDecoder.class));
+                    assertInstanceOf(
+                            InternalApiErrorDecoder.class,
+                            factory.getInstance("queryEmbeddingPort", ErrorDecoder.class));
                 });
     }
+
     @Configuration(proxyBeanMethods = false)
     @EnableFeignClients(clients = QueryEmbeddingPort.class, defaultConfiguration = InternalFeignConfiguration.class)
-    static class Clients {}
+    static class Clients {
+    }
 }

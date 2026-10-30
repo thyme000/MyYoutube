@@ -16,15 +16,24 @@ import java.util.List;
         path = "/internal/dead-letters/content-vectors", url = "${my-youtube.search-service.url:}",
         configuration = InternalTokenFeignConfiguration.class)
 public interface ContentVectorDeadLetterPort {
-    enum State { UNRECOVERED, RECOVERED, INELIGIBLE, UNKNOWN, INVALID_MESSAGE }
+    enum State {
+        UNRECOVERED, RECOVERED, INELIGIBLE, UNKNOWN, INVALID_MESSAGE
+    }
     enum ReplayStatus { ACCEPTED, ALREADY_COMPLETED, INELIGIBLE, DISABLED, NOT_FOUND,
         INVALID_MESSAGE, STATE_UNAVAILABLE, DELIVERY_UNCONFIRMED }
 
-    record Reference(String brokerName, Integer queueId, Long offset) {}
+    record Reference(String brokerName, Integer queueId, Long offset) {
+    }
+
     record Item(Reference reference, String messageId, Long contentId, long storedAt, int reconsumeTimes,
-                State state, String reason, String vectorVersion, String targetVersion, String failureReason) {}
-    record Page(List<Item> items, String nextCursor, boolean enabled) {}
-    record ReplayResult(ReplayStatus status, Long contentId, String message) {}
+                State state, String reason, String vectorVersion, String targetVersion, String failureReason) {
+    }
+
+    record Page(List<Item> items, String nextCursor, boolean enabled) {
+    }
+
+    record ReplayResult(ReplayStatus status, Long contentId, String message) {
+    }
 
     @GetMapping("/messages")
     Page query(@RequestParam(value = "cursor", required = false) String cursor,

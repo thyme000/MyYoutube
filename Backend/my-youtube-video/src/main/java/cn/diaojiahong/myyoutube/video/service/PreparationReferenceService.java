@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.video.api.MediaDraftPort.PreparationReference;
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
@@ -19,18 +20,23 @@ public class PreparationReferenceService {
 
     @Transactional
     public String reference(PreparationReference reference) {
-        if (reference == null || reference.draftId() == null || reference.preparationId() == null || reference.userId() == null)
+        if (reference == null
+                || reference.draftId() == null
+                || reference.preparationId() == null
+                || reference.userId() == null)
             return "UNKNOWN";
         // The draft lock also serializes submission, whose content insert is in the same transaction.
-        var draft = drafts.selectOne(new LambdaQueryWrapper<MediaDraft>().eq(MediaDraft::getId, reference.draftId()).last("FOR UPDATE"));
+        MediaDraft draft = drafts.selectOne(new LambdaQueryWrapper<MediaDraft>().eq(MediaDraft::getId, reference.draftId()).last("FOR UPDATE"));
         if (draft == null || !Objects.equals(draft.getUserId(), reference.userId()) || draft.getMediaVersion() == null)
             return "UNKNOWN";
         if (draft.getMediaVersion() > reference.mediaVersion()) return "RELEASED";
         if (!Objects.equals(draft.getMediaVersion(), reference.mediaVersion())
-                || !Objects.equals(draft.getPreparationId(), reference.preparationId())) return "UNKNOWN";
+                || !Objects.equals(draft.getPreparationId(), reference.preparationId())) {
+            return "UNKNOWN";
+        }
         if (draft.getStatus() == MediaDraftStatusEnum.EXPIRED) return "RELEASED";
         if (draft.getStatus() != MediaDraftStatusEnum.SUBMITTED) return "RETAINED";
-        var content = contents.selectById(draft.getId());
+        Content content = contents.selectById(draft.getId());
         if (content == null || !Objects.equals(content.getAuthorId(), reference.userId())) return "UNKNOWN";
         return Integer.valueOf(1).equals(content.getIsDelete()) ? "RELEASED" : "RETAINED";
     }

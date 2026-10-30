@@ -21,7 +21,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(5)
 class AsyncTimeoutAspectTest {
     private final ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-    private final ThreadPoolTaskScheduler scheduler = (ThreadPoolTaskScheduler) new AsyncTimeoutConfiguration().asyncTimeoutScheduler();
+
+    private final ThreadPoolTaskScheduler scheduler = (ThreadPoolTaskScheduler) new AsyncTimeoutConfiguration()
+            .asyncTimeoutScheduler();
+
     private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
     private final AsyncTimeoutAspect aspect;
     private final Service service;
@@ -35,7 +38,8 @@ class AsyncTimeoutAspectTest {
 
         AsyncTimeoutProperties properties = new AsyncTimeoutProperties();
         AsyncTimeoutProperties.Policy policy = new AsyncTimeoutProperties.Policy();
-        policy.setExecutor("worker"); policy.setTimeoutMillis(150);
+        policy.setExecutor("worker");
+        policy.setTimeoutMillis(150);
         properties.getResources().put("test", policy);
         properties.validate();
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
@@ -46,16 +50,23 @@ class AsyncTimeoutAspectTest {
         service = proxy.getProxy();
     }
 
-    @AfterEach void close() { executor.shutdown(); scheduler.shutdown(); metrics.close(); }
+    @AfterEach
+    void close() {
+        executor.shutdown();
+        scheduler.shutdown();
+        metrics.close();
+    }
 
-    @Test void genericResultsRunOnTheConfiguredExecutor() throws Exception {
+    @Test
+    void genericResultsRunOnTheConfiguredExecutor() throws Exception {
         Thread caller = Thread.currentThread();
         assertNotSame(caller, service.thread().get());
         assertEquals(42, service.number().get());
         assertEquals("ok", service.text().get());
     }
 
-    @Test void timeoutDoesNotInterruptRunningWorkOrReplaceItsPublicResult() throws Exception {
+    @Test
+    void timeoutDoesNotInterruptRunningWorkOrReplaceItsPublicResult() throws Exception {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         AtomicBoolean interrupted = new AtomicBoolean();
@@ -64,14 +75,23 @@ class AsyncTimeoutAspectTest {
         assertInstanceOf(TimeoutException.class, assertThrows(ExecutionException.class, response::get).getCause());
         assertFalse(interrupted.get());
         release.countDown();
-        executor.submit(() -> {}).get(1, TimeUnit.SECONDS);
+        executor.submit(() -> {
+        }).
+        get(1, TimeUnit.SECONDS);
         assertInstanceOf(TimeoutException.class, assertThrows(ExecutionException.class, response::get).getCause());
         assertEquals(1, metrics.counter(MetricNames.ASYNC_TIMEOUTS, "resource", "test").count());
     }
 
-    @Test void queueWaitCountsAndExpiredQueuedWorkDoesNotStart() throws Exception {
+    @Test
+    void queueWaitCountsAndExpiredQueuedWorkDoesNotStart() throws Exception {
         CountDownLatch release = new CountDownLatch(1);
-        executor.execute(() -> { try { release.await(); } catch (InterruptedException error) { Thread.currentThread().interrupt(); } });
+        executor.execute(() -> {
+            try {
+                release.await();
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+            }
+        });
         AtomicBoolean called = new AtomicBoolean();
         CompletableFuture<Boolean> response = service.mark(called);
         assertInstanceOf(TimeoutException.class, assertThrows(ExecutionException.class, response::get).getCause());
@@ -81,9 +101,16 @@ class AsyncTimeoutAspectTest {
         assertFalse(called.get());
     }
 
-    @Test void saturatedExecutorRejectsWithoutRunningOnCaller() throws Exception {
+    @Test
+    void saturatedExecutorRejectsWithoutRunningOnCaller() throws Exception {
         CountDownLatch release = new CountDownLatch(1);
-        Runnable block = () -> { try { release.await(); } catch (InterruptedException error) { Thread.currentThread().interrupt(); } };
+        Runnable block = () -> {
+            try {
+                release.await();
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+            }
+        };
         executor.execute(block);
         executor.execute(block);
         AtomicBoolean called = new AtomicBoolean();
@@ -91,27 +118,62 @@ class AsyncTimeoutAspectTest {
             assertInstanceOf(java.util.concurrent.RejectedExecutionException.class,
                     assertThrows(ExecutionException.class, () -> service.mark(called).get()).getCause());
             assertFalse(called.get());
-        } finally { release.countDown(); }
+        } finally {
+            release.countDown();
+        }
     }
 
-    @Test void originalFailuresAreNotConvertedIntoEmptyResults() {
+    @Test
+    void originalFailuresAreNotConvertedIntoEmptyResults() {
         assertInstanceOf(IllegalArgumentException.class,
                 assertThrows(ExecutionException.class, () -> service.fail().get()).getCause());
         assertThrows(IllegalStateException.class, service::invalidSignature);
     }
 
     public static class Service {
-        @AsyncTimeout("test") public CompletableFuture<Thread> thread() { return CompletableFuture.completedFuture(Thread.currentThread()); }
-        @AsyncTimeout("test") public CompletableFuture<Integer> number() { return CompletableFuture.completedFuture(42); }
-        @AsyncTimeout("test") public CompletableFuture<String> text() { return CompletableFuture.completedFuture("ok"); }
-        @AsyncTimeout("test") public CompletableFuture<String> fail() { throw new IllegalArgumentException("bug"); }
-        @AsyncTimeout("test") public String invalidSignature() { return "invalid"; }
-        @AsyncTimeout("test") public CompletableFuture<Boolean> mark(AtomicBoolean called) { called.set(true); return CompletableFuture.completedFuture(true); }
         @AsyncTimeout("test")
-        public CompletableFuture<String> block(CountDownLatch entered, CountDownLatch release, AtomicBoolean interrupted) {
+        public CompletableFuture<Thread> thread() {
+            return CompletableFuture.completedFuture(Thread.currentThread());
+        }
+
+        @AsyncTimeout("test")
+        public CompletableFuture<Integer> number() {
+            return CompletableFuture.completedFuture(42);
+        }
+
+        @AsyncTimeout("test")
+        public CompletableFuture<String> text() {
+            return CompletableFuture.completedFuture("ok");
+        }
+
+        @AsyncTimeout("test")
+        public CompletableFuture<String> fail() {
+            throw new IllegalArgumentException("bug");
+        }
+
+        @AsyncTimeout("test")
+        public String invalidSignature() {
+            return "invalid";
+        }
+
+        @AsyncTimeout("test")
+        public CompletableFuture<Boolean> mark(AtomicBoolean called) {
+            called.set(true);
+            return CompletableFuture.completedFuture(true);
+        }
+
+        @AsyncTimeout("test")
+        public CompletableFuture<String> block(
+                CountDownLatch entered,
+                CountDownLatch release,
+                AtomicBoolean interrupted) {
             entered.countDown();
-            try { release.await(); }
-            catch (InterruptedException error) { interrupted.set(true); Thread.currentThread().interrupt(); }
+            try {
+                release.await();
+            } catch (InterruptedException error) {
+                interrupted.set(true);
+                Thread.currentThread().interrupt();
+            }
             return CompletableFuture.completedFuture("late");
         }
     }

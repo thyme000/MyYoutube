@@ -2,7 +2,8 @@ package cn.diaojiahong.myyoutube.common.monitoring;
 
 /** 自定义指标名称统一在此维护；名称保持稳定，便于告警和看板引用。 */
 public final class MetricNames {
-    private MetricNames() {}
+    private MetricNames() {
+    }
 
     public static final String ASYNC_REJECTED = "myyoutube.async.rejected";
     public static final String ASYNC_TIMEOUTS = "myyoutube.async.timeouts";

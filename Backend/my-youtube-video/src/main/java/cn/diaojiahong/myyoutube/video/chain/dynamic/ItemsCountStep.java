@@ -19,6 +19,7 @@ public class ItemsCountStep extends DynamicPreparationStep {
         if (ctx.getItems() == null || ctx.getItems().isEmpty()) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "图片列表不能为空");
         }
+
         if (ctx.getItems().size() > MAX_IMAGES) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "图片数量需在 " + MIN_IMAGES + "~" + MAX_IMAGES + " 张之间");
         }

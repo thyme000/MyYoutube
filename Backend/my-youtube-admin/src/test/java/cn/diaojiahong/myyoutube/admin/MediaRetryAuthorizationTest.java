@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import org.junit.jupiter.api.*;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -14,9 +15,15 @@ import static org.mockito.Mockito.*;
 import java.util.List;
 
 class MediaRetryAuthorizationTest {
-    @AfterEach void clear() { UserContext.removeUser(); }
-    @Test void allRetryOperationsRequireAdmin() {
-        var port=mock(MediaRetryPort.class); var controller=new AdminMediaRetryController(port, AuthorizationFixture.authorization());
+    @AfterEach
+    void clear() {
+        UserContext.removeUser();
+    }
+
+    @Test
+    void allRetryOperationsRequireAdmin() {
+        MediaRetryPort port=mock(MediaRetryPort.class);
+        var controller=new AdminMediaRetryController(port, AuthorizationFixture.authorization());
         var request=new MediaRetryPort.Request("one",List.of(2L));
         UserContext.setUser("2");
         assertThrows(BizException.class,() -> controller.create(request));
@@ -26,13 +33,20 @@ class MediaRetryAuthorizationTest {
         assertThrows(BizException.class,() -> controller.items(1L));
         verifyNoInteractions(port);
         UserContext.setUser("1");
-        when(port.create(request,1L)).thenReturn(new MediaRetryPort.Admission(false,"RETRY_BATCH_RUNNING","当前已有批次在运行",null));
+        when(port.create(request,1L)).thenReturn(new MediaRetryPort.Admission(
+                false,
+                "RETRY_BATCH_RUNNING",
+                "当前已有批次在运行",
+                null));
         assertEquals(409,controller.create(request).getStatusCode().value());
         verify(port).create(request,1L);
     }
-    @Test void httpQueryBindsOptionalFiltersAndCreationReturnsAccepted() throws Exception {
-        var port=mock(MediaRetryPort.class); var controller=new AdminMediaRetryController(port, AuthorizationFixture.authorization());
-        var mvc=MockMvcBuilders.standaloneSetup(controller).build();
+
+    @Test
+    void httpQueryBindsOptionalFiltersAndCreationReturnsAccepted() throws Exception {
+        MediaRetryPort port=mock(MediaRetryPort.class);
+        var controller=new AdminMediaRetryController(port, AuthorizationFixture.authorization());
+        MockMvc mvc=MockMvcBuilders.standaloneSetup(controller).build();
         UserContext.setUser("1");
         when(port.query(any())).thenReturn(new CursorPage<>(List.of(),null));
         mvc.perform(get("/admin/media-tasks").param("taskType","SUMMARY").param("size","20"))

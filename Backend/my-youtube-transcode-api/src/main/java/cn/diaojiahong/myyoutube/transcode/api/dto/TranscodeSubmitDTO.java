@@ -20,8 +20,10 @@ public class TranscodeSubmitDTO implements Serializable {
     private String transition;
     private Integer fadeMs;
     private String audioObjectKey;
+
     /** 音频时长(毫秒), 无音频为 0 */
     private Long audioDurationMs;
+
     /** 成片总时长(毫秒) */
     private Long totalDurationMs;
     private List<TranscodeItemDTO> items;

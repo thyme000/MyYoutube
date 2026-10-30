@@ -16,8 +16,10 @@ public class TranscodeItemDTO implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private String imageObjectKey;
+
     /** 切换点时刻(毫秒), 首图为 0 */
     private Long startMs;
+
     /** 输入时长(毫秒) */
     private Long durationMs;
     /** 封面裁剪焦点 0~1, 默认 0.5 中心 */

@@ -38,10 +38,12 @@ public class TicketAuthStep implements ChainStep<AuthContext> {
         if (!ctx.isConnectionPath()) {
             return Mono.empty();
         }
+
         String ticket = ctx.getExchange().getRequest().getQueryParams().getFirst(TICKET_QUERY_PARAM);
         if (ticket == null || ticket.isBlank()) {
             return Mono.empty();
         }
+
         return redisTemplate.opsForValue().getAndDelete(AuthConstants.PUSH_TICKET_KEY_PREFIX + ticket)
                 .defaultIfEmpty("")
                 .doOnNext(userId -> {

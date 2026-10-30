@@ -16,5 +16,6 @@ import java.util.List;
 public interface ContentMapper extends BaseMapper<Content> {
     List<Content> publicAudioContents(@Param("audioId") long audioId, @Param("sort") ContentSortEnum sort,
             @Param("cursor") AudioContentCursor cursor, @Param("limit") int limit);
+
     List<AudioContentBanMessage> pendingAudioBans(@Param("afterId") long afterId, @Param("limit") int limit);
 }

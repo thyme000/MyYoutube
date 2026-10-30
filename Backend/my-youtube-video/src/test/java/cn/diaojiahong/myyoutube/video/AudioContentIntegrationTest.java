@@ -75,13 +75,25 @@ class AudioContentIntegrationTest {
     @Configuration
     @MapperScan(basePackageClasses = {ContentMapper.class, AudioMapper.class, ContentLikeMapper.class})
     static class Config {
-        @Bean DataSource dataSource() { return ContentTestDatabase.create("audio-contents"); }
-        @Bean SqlSessionFactory sqlSessionFactory(DataSource ds) throws Exception {
-            var factory = new MybatisSqlSessionFactoryBean(); factory.setDataSource(ds);
-            factory.setMapperLocations(new ClassPathResource("mapper/ContentMapper.xml")); return factory.getObject();
+        @Bean
+        DataSource dataSource() {
+            return ContentTestDatabase.create("audio-contents");
         }
-        @Bean IContentService contents() { return new ContentServiceImpl(); }
+
+        @Bean
+        SqlSessionFactory sqlSessionFactory(DataSource ds) throws Exception {
+            var factory = new MybatisSqlSessionFactoryBean();
+            factory.setDataSource(ds);
+            factory.setMapperLocations(new ClassPathResource("mapper/ContentMapper.xml"));
+            return factory.getObject();
+        }
+
+        @Bean
+        IContentService contents() {
+            return new ContentServiceImpl();
+        }
     }
+
     @Autowired DataSource database;
     @Autowired AudioMapper audios;
     @Autowired DynamicMapper dynamics;
@@ -89,14 +101,18 @@ class AudioContentIntegrationTest {
     @Autowired ContentMapper contents;
     @Autowired IContentService contentService;
     @Autowired ContentLikeMapper likes;
+
     final S3StorageUtil storage = mock(S3StorageUtil.class);
+
     final UserPort users = mock(UserPort.class);
+
     final AudioContentAccess access = mock(AudioContentAccess.class);
     JdbcTemplate jdbc;
     AudioServiceImpl audioService;
     AudioContentService service;
 
-    @BeforeEach void setup() throws Exception {
+    @BeforeEach
+    void setup() throws Exception {
         jdbc = new JdbcTemplate(database);
         ContentTestDatabase.drop(jdbc, "audio", "content", "dynamic", "video", "content_like");
         String schema = Files.readString(Path.of("../../resources/schema.sql"));
@@ -104,7 +120,9 @@ class AudioContentIntegrationTest {
             int start = schema.indexOf("CREATE TABLE IF NOT EXISTS `" + table + "`");
             String ddl = schema.substring(start, schema.indexOf(';', start) + 1);
             // H2 会把字符串写成 JSON 字符串值；原生 MySQL 验证保留真实 JSON 列。
-            if (!Boolean.getBoolean("content.integration")) ddl = ddl.replace(" CHARACTER SET ascii COLLATE ascii_bin", "")
+            if (!Boolean.getBoolean("content.integration")) ddl = ddl.replace(
+                    " CHARACTER SET ascii COLLATE ascii_bin",
+                    "")
                     .replace(" ENGINE=InnoDB", "").replace(" JSON NOT NULL", " TEXT NOT NULL");
             jdbc.execute(ddl);
         }
@@ -112,14 +130,24 @@ class AudioContentIntegrationTest {
         when(storage.signGetUrl(anyString(), anyLong())).thenAnswer(call -> "signed/" + call.getArgument(0));
         audioService = spy(new AudioServiceImpl(audios, storage, users, new ContentSubmissionRules("content-moderation/blocked.txt"),
                 new AudioProcessingProperties(), mock(AudioSearchPort.class)));
-        var strategies = new ContentTypeStrategyRegistry(List.of(new DynamicContentStrategy(dynamics, audioService), new VideoContentStrategy(videos)));
+        var strategies = new ContentTypeStrategyRegistry(List.of(
+                new DynamicContentStrategy(dynamics, audioService),
+                new VideoContentStrategy(videos)));
         var cards = new ContentFeedServiceImpl(contentService, likes, mock(IUserFollowService.class), users, storage,
-                mock(RecommendPort.class), strategies, access, mock(ContentReviewRecordMapper.class), mock(AuthorContentPageService.class));
+                mock(RecommendPort.class),
+                strategies,
+                access,
+                mock(ContentReviewRecordMapper.class),
+                mock(AuthorContentPageService.class));
         service = new AudioContentService(audioService, contents, cards);
         UserContext.setUser("9");
         for (long id : List.of(20L, 30L)) audios.insert(new Audio().setId(id).setUploaderId(9L).setTitle("音频" + id)
-                .setRequestId("request-" + id).setRequestFingerprint("a".repeat(64)).setSourceObjectKey("uploads/audio/9/" + id)
-                .setUploadSize(100L).setUploadContentType("audio/wav").setUploadDeadline(LocalDateTime.now().plusHours(1))
+                .setRequestId("request-" + id)
+                .setRequestFingerprint("a".repeat(64))
+                .setSourceObjectKey("uploads/audio/9/" + id)
+                .setUploadSize(100L)
+                .setUploadContentType("audio/wav")
+                .setUploadDeadline(LocalDateTime.now().plusHours(1))
                 .setProcessingStatus(AudioProcessingStatus.READY).setReviewStatus(AudioReviewStatus.APPROVED)
                 .setVisibility(ContentVisibilityEnum.PUBLIC.getCode()).setIsDelete(0));
         for (long id = 1; id <= 11; id++) {
@@ -140,21 +168,36 @@ class AudioContentIntegrationTest {
             else dynamics.insert(new Dynamic().setId(id).setMediaJson(JsonUtil.toJson(media)));
         }
     }
-    @AfterEach void cleanup() { UserContext.removeUser(); }
-    AudioContentQuery query(String sort, String cursor, int size) {
-        var query = new AudioContentQuery(); query.setSort(sort); query.setCursor(cursor); query.setPageSize(size); return query;
+
+    @AfterEach
+    void cleanup() {
+        UserContext.removeUser();
     }
 
-    @Test void latestPaginationIsStableAndOmitsNonPublicOrUnrelatedContents() {
+    AudioContentQuery query(String sort, String cursor, int size) {
+        var query = new AudioContentQuery();
+        query.setSort(sort);
+        query.setCursor(cursor);
+        query.setPageSize(size);
+        return query;
+    }
+
+    @Test
+    void latestPaginationIsStableAndOmitsNonPublicOrUnrelatedContents() {
         CursorPage<ContentFeedVO, String> first = service.list(20L, 9L, query(null, null, 2));
-        assertEquals(List.of("3", "2"), first.items().stream().map(c -> c.getId()).toList()); assertNotNull(first.nextCursor());
+        assertEquals(List.of("3", "2"), first.items().stream().map(c -> c.getId()).toList());
+        assertNotNull(first.nextCursor());
         CursorPage<ContentFeedVO, String> second = service.list(20L, 9L, query("latest", first.nextCursor(), 2));
-        assertEquals(List.of("1", "4"), second.items().stream().map(c -> c.getId()).toList()); assertNull(second.nextCursor());
+        assertEquals(List.of("1", "4"), second.items().stream().map(c -> c.getId()).toList());
+        assertNull(second.nextCursor());
         CursorPage<ContentFeedVO, String> exact = service.list(20L, null, query("latest", null, 4));
-        assertEquals(4, exact.items().size()); assertNull(exact.nextCursor());
-        String older = new AudioContentCursor(20, ContentSortEnum.LATEST, 0, LocalDateTime.of(2020, 1, 1, 0, 0), 1).encode();
+        assertEquals(4, exact.items().size());
+        assertNull(exact.nextCursor());
+        String older = new AudioContentCursor(20, ContentSortEnum.LATEST, 0, LocalDateTime.of(2020, 1, 1, 0, 0), 1)
+                .encode();
         CursorPage<ContentFeedVO, String> empty = service.list(20L, null, query("latest", older, 2));
-        assertTrue(empty.items().isEmpty()); assertNull(empty.nextCursor());
+        assertTrue(empty.items().isEmpty());
+        assertNull(empty.nextCursor());
         assertEquals("signed/cover/3", first.items().get(0).getCoverUrl());
         assertEquals("published", first.items().get(0).getStatus());
         assertEquals("dynamic", first.items().get(0).getType());
@@ -162,14 +205,18 @@ class AudioContentIntegrationTest {
         verifyNoInteractions(access);
     }
 
-    @Test void mostLikedUsesCreationTimeAndIdToBreakTies() {
+    @Test
+    void mostLikedUsesCreationTimeAndIdToBreakTies() {
         CursorPage<ContentFeedVO, String> first = service.list(20L, null, query("mostLiked", null, 2));
-        assertEquals(List.of("4", "3"), first.items().stream().map(c -> c.getId()).toList()); assertNotNull(first.nextCursor());
+        assertEquals(List.of("4", "3"), first.items().stream().map(c -> c.getId()).toList());
+        assertNotNull(first.nextCursor());
         CursorPage<ContentFeedVO, String> second = service.list(20L, null, query("mostLiked", first.nextCursor(), 2));
-        assertEquals(List.of("2", "1"), second.items().stream().map(c -> c.getId()).toList()); assertNull(second.nextCursor());
+        assertEquals(List.of("2", "1"), second.items().stream().map(c -> c.getId()).toList());
+        assertNull(second.nextCursor());
     }
 
-    @Test void associationListUsesTheCommonReferenceAndExistingMediaStrategies() {
+    @Test
+    void associationListUsesTheCommonReferenceAndExistingMediaStrategies() {
         jdbc.update("UPDATE content SET audio_id=20 WHERE id=9");
         CursorPage<ContentFeedVO, String> page = service.list(20L, null, query(null, null, 10));
         assertEquals(List.of("3", "2", "9", "1", "4"), page.items().stream().map(c -> c.getId()).toList());
@@ -179,7 +226,8 @@ class AudioContentIntegrationTest {
         assertEquals(3000L, video.getDurationMs());
     }
 
-    @Test void newlyPublishedContentBeforeTheCursorDoesNotRepeatThePreviousPage() {
+    @Test
+    void newlyPublishedContentBeforeTheCursorDoesNotRepeatThePreviousPage() {
         CursorPage<ContentFeedVO, String> first = service.list(20L, null, query(null, null, 2));
         Content template = contents.selectById(1L);
         template.setId(100L).setCreateTime(template.getCreateTime().plusDays(1));
@@ -190,7 +238,8 @@ class AudioContentIntegrationTest {
         assertNull(second.nextCursor());
     }
 
-    @Test void deletingTheCursorBoundaryDoesNotSkipRemainingContents() {
+    @Test
+    void deletingTheCursorBoundaryDoesNotSkipRemainingContents() {
         CursorPage<ContentFeedVO, String> first = service.list(20L, null, query(null, null, 2));
         jdbc.update("UPDATE content SET is_delete=1 WHERE id=2");
         CursorPage<ContentFeedVO, String> second = service.list(20L, null, query(null, first.nextCursor(), 2));
@@ -220,20 +269,23 @@ class AudioContentIntegrationTest {
             return result;
         }).when(audioService).getPublic(20L);
         CursorPage<ContentFeedVO, String> page = service.list(20L, 9L, query(null, null, 10));
-        assertTrue(page.items().isEmpty()); assertNull(page.nextCursor());
+        assertTrue(page.items().isEmpty());
+        assertNull(page.nextCursor());
         verifyNoInteractions(storage, users);
     }
 
     @ParameterizedTest @ValueSource(ints = {-1, 0, 101})
     void invalidPageSizeRejectsBeforeAudioOrContentQueries(int size) {
         assertThrows(BizException.class, () -> service.list(20L, null, query(null, null, size)));
-        verify(audioService, never()).getPublic(anyLong()); verifyNoInteractions(storage, users);
+        verify(audioService, never()).getPublic(anyLong());
+        verifyNoInteractions(storage, users);
     }
 
     @ParameterizedTest @ValueSource(strings = {"hot", "recommended", "mostPlayed", "unknown"})
     void unsupportedSortRejectsBeforeAudioOrContentQueries(String sort) {
         assertThrows(BizException.class, () -> service.list(20L, null, query(sort, null, 10)));
-        verify(audioService, never()).getPublic(anyLong()); verifyNoInteractions(storage, users);
+        verify(audioService, never()).getPublic(anyLong());
+        verifyNoInteractions(storage, users);
     }
 
     @ParameterizedTest @ValueSource(strings = {"malformed", "other-audio", "other-sort", "missing-time", "negative-count", "bad-id", "oversize"})
@@ -241,28 +293,60 @@ class AudioContentIntegrationTest {
         var position = new AudioContentCursor(20, ContentSortEnum.LATEST, 8, LocalDateTime.of(2026, 10, 26, 9, 1), 2);
         String cursor = switch (problem) {
             case "malformed" -> "not-a-cursor";
-            case "other-audio" -> new AudioContentCursor(30, position.sort(), position.likeCount(), position.createTime(), position.contentId()).encode();
-            case "other-sort" -> new AudioContentCursor(20, ContentSortEnum.MOST_LIKED, position.likeCount(), position.createTime(), position.contentId()).encode();
-            case "missing-time" -> new AudioContentCursor(20, position.sort(), position.likeCount(), null, position.contentId()).encode();
-            case "negative-count" -> new AudioContentCursor(20, position.sort(), -1, position.createTime(), position.contentId()).encode();
-            case "bad-id" -> new AudioContentCursor(20, position.sort(), position.likeCount(), position.createTime(), 0).encode();
+            case "other-audio" -> new AudioContentCursor(
+                    30,
+                    position.sort(),
+                    position.likeCount(),
+                    position.createTime(),
+                    position.contentId())
+                    .encode();
+            case "other-sort" -> new AudioContentCursor(
+                    20,
+                    ContentSortEnum.MOST_LIKED,
+                    position.likeCount(),
+                    position.createTime(),
+                    position.contentId())
+                    .encode();
+            case "missing-time" -> new AudioContentCursor(
+                    20,
+                    position.sort(),
+                    position.likeCount(),
+                    null,
+                    position.contentId())
+                    .encode();
+            case "negative-count" -> new AudioContentCursor(
+                    20,
+                    position.sort(),
+                    -1,
+                    position.createTime(),
+                    position.contentId())
+                    .encode();
+            case "bad-id" -> new AudioContentCursor(20, position.sort(), position.likeCount(), position.createTime(), 0)
+                    .encode();
             case "oversize" -> "X".repeat(513);
             default -> throw new AssertionError(problem);
         };
         assertThrows(BizException.class, () -> service.list(20L, null, query(null, cursor, 10)));
-        verify(audioService, never()).getPublic(anyLong()); verifyNoInteractions(storage, users);
+        verify(audioService, never()).getPublic(anyLong());
+        verifyNoInteractions(storage, users);
     }
 
-    @Test void endpointReturnsOnlyListAndLookaheadWithoutCountsAndRejectsBadParameters() throws Exception {
+    @Test
+    void endpointReturnsOnlyListAndLookaheadWithoutCountsAndRejectsBadParameters() throws Exception {
         UserContext.removeUser();
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AudioController(audioService, mock(AudioUploadService.class), service))
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AudioController(
+                audioService,
+                mock(AudioUploadService.class),
+                service))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         mvc.perform(get("/audios/20/contents").param("sort", "latest").param("pageSize", "2"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.items[0].id").value("3"))
-                .andExpect(jsonPath("$.data.hasMore").doesNotExist()).andExpect(jsonPath("$.data.nextCursor").isString())
+                .andExpect(jsonPath("$.data.hasMore").doesNotExist())
+                .andExpect(jsonPath("$.data.nextCursor").isString())
                 .andExpect(jsonPath("$.data.list").doesNotExist())
                 .andExpect(jsonPath("$.data.total").doesNotExist())
-                .andExpect(jsonPath("$.data.pages").doesNotExist()).andExpect(jsonPath("$.data.historicalAuthorCount").doesNotExist());
+                .andExpect(jsonPath("$.data.pages").doesNotExist())
+                .andExpect(jsonPath("$.data.historicalAuthorCount").doesNotExist());
         mvc.perform(get("/audios/20/contents").param("sort", "unknown")).andExpect(status().isBadRequest());
         mvc.perform(get("/audios/20/contents").param("pageSize", "101")).andExpect(status().isBadRequest());
         mvc.perform(get("/audios/20/contents").param("cursor", "invalid")).andExpect(status().isBadRequest());

@@ -58,12 +58,15 @@ public class InternalAdminCommentController implements CommentAdminPort {
         if (comment == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "评论不存在");
         }
+
         if (comment.getStatus().equals(CommentStatusEnum.DELETED.getCode())) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "评论已被删除");
         }
+
         if (comment.getStatus().equals(CommentStatusEnum.VISIBLE.getCode())) {
             return;
         }
+
         comment.setStatus(CommentStatusEnum.VISIBLE.getCode());
         videoCommentService.updateById(comment);
     }
@@ -76,7 +79,11 @@ public class InternalAdminCommentController implements CommentAdminPort {
                 .orderByDesc(ContentComment::getCreateTime)
                 .page(new Page<>(q.getPageNo(), q.getPageSize()));
         List<CommentAdminPort.CommentSummary> list = page.getRecords().stream()
-                .map(c -> new CommentAdminPort.CommentSummary(c.getId(), c.getContent(), c.getUserId(), c.getCreateTime()))
+                .map(c -> new CommentAdminPort.CommentSummary(
+                        c.getId(),
+                        c.getContent(),
+                        c.getUserId(),
+                        c.getCreateTime()))
                 .toList();
         return PageResult.of(page.getTotal(), page.getPages(), list);
     }
@@ -103,6 +110,7 @@ public class InternalAdminCommentController implements CommentAdminPort {
         if (records.isEmpty()) {
             return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
+
         List<Long> commentIds = records.stream().map(CommentReport::getCommentId).toList();
         Map<Long, ContentComment> commentMap = videoCommentService.lambdaQuery()
                 .eq(ContentComment::getStatus, CommentStatusEnum.VISIBLE.getCode())

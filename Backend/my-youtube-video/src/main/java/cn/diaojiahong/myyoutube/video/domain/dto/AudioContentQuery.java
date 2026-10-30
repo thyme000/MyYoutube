@@ -13,8 +13,10 @@ import lombok.Setter;
 public class AudioContentQuery {
     @Schema(description = "关联内容排序", allowableValues = {"latest", "mostLiked"}, defaultValue = "latest")
     private String sort;
+
     @Schema(description = "上一页返回的 nextCursor，首次请求省略")
     private String cursor;
+
     @Schema(description = "每次加载条数", defaultValue = "10")
     private int pageSize = 10;
 

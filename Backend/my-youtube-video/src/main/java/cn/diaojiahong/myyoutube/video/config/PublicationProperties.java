@@ -16,6 +16,7 @@ public class PublicationProperties {
     private int leaseSeconds = 30;
     private int waitingSeconds = 15;
     private int deadlineMinutes = 30;
+
     private List<Integer> retryBackoffSeconds = List.of(5, 30, 120);
     // 首次失败之外允许的自动重试次数。
     private int maxAttempts = 3;

@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
+import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
+import cn.diaojiahong.myyoutube.search.hot.HotSearchGroup;
 import cn.diaojiahong.myyoutube.search.hot.HotSearchService;
 import cn.diaojiahong.myyoutube.search.recall.RecallSearchClient;
 import cn.diaojiahong.myyoutube.search.recall.RecallRanking;
@@ -27,12 +29,17 @@ public class QueryVectorRecall {
     private final RecallProperties timeouts;
 
     public List<String> recall(SearchContext ctx) throws Exception {
-        var cached = hotSearch.cachedGroup(ctx.getKeyword());
+        HotSearchGroup cached = hotSearch.cachedGroup(ctx.getKeyword());
         ContentVectorService.QueryVector vector = null;
         if (cached != null && ctx.getKeyword().equals(cached.name())) {
             try {
                 long budget = 200;
-                var info = embeddings.info(new Request.Options(budget, TimeUnit.MILLISECONDS, budget, TimeUnit.MILLISECONDS, true));
+                QueryEmbeddingPort.Info info = embeddings.info(new Request.Options(
+                        budget,
+                        TimeUnit.MILLISECONDS,
+                        budget,
+                        TimeUnit.MILLISECONDS,
+                        true));
                 if (info != null && cached.valid(info.version(), info.dims())) {
                     vector = new ContentVectorService.QueryVector(cached.vector(), cached.version());
                 }
@@ -55,11 +62,13 @@ public class QueryVectorRecall {
 
     private ContentVectorService.QueryVector generate(SearchContext ctx) throws Exception {
         long timeout = timeouts.getEmbeddingTimeoutMillis();
-        var response = embeddings.embed(new QueryEmbeddingPort.Query(ctx.getKeyword(), System.currentTimeMillis() + timeout),
+        LlmPort.EmbeddingsResponse response = embeddings.embed(new QueryEmbeddingPort.Query(ctx.getKeyword(), System.currentTimeMillis() + timeout),
                 new Request.Options(1000, TimeUnit.MILLISECONDS, timeout, TimeUnit.MILLISECONDS, true));
         if (response == null || response.getUnavailableReason() != null || response.getItems() == null
-                || response.getItems().size() != 1 || response.getVersion() == null || response.getVersion().isBlank()) return null;
-        var item = response.getItems().get(0);
+                || response.getItems().size() != 1
+                || response.getVersion() == null
+                || response.getVersion().isBlank()) return null;
+        LlmPort.EmbeddingItem item = response.getItems().get(0);
         if (item.index() != 0 || item.error() != null || item.vector() == null || item.vector().isEmpty()
                 || response.getDims() == null || response.getDims() != item.vector().size()
                 || item.vector().stream().anyMatch(value -> value == null || !Float.isFinite(value))) return null;

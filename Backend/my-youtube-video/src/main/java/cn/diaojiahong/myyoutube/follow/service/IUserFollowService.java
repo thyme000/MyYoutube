@@ -19,9 +19,13 @@ import java.util.List;
 public interface IUserFollowService extends IService<UserFollow> {
 
     void follow(Long authorId);
+
     void cancelFollow(Long authorId);
+
     PageResult<UserRelationshipVO> getUserFollowList(PageQuery pageQuery);
+
     Boolean isFollow(Long authorId);
+
     Boolean interrelated(Long userId, List<Long> memberIds);
 
     /** 粉丝数权威值, 供 user 服务对 user.fans 做对账覆盖 */
@@ -31,9 +35,12 @@ public interface IUserFollowService extends IService<UserFollow> {
     Long countAttention(Long followerId);
 
     PageResult<UserRelationshipVO> getFansList(PageQuery pageQuery);
+
     List<Long> getFollowIds(Long userId);
 
     List<Boolean> isFollowOnList(List<Long> authorIds, Long userId);
 
     void removeFan(Long followerId);
-    PageResult<UserRelationshipVO> getInterrelated(PageQuery pageQuery);}
+
+    PageResult<UserRelationshipVO> getInterrelated(PageQuery pageQuery);
+    }

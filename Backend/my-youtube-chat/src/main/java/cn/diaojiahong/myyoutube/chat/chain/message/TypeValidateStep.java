@@ -22,6 +22,7 @@ public class TypeValidateStep extends MessageSendStep {
         if (strategy == null) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "消息类型错误");
         }
+
         strategy.validate(ctx.getDto().getContent());
     }
 }

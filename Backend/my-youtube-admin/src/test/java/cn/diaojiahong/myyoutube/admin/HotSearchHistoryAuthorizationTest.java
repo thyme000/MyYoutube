@@ -25,13 +25,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class HotSearchHistoryAuthorizationTest {
     final HotSearchHistoryPort port = mock(HotSearchHistoryPort.class);
-    final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminHotSearchHistoryController(port, AuthorizationFixture.authorization())).setControllerAdvice(new GlobalExceptionHandler(), new FeignExceptionHandler()).build();
+
+    final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminHotSearchHistoryController(
+            port,
+            AuthorizationFixture.authorization()))
+            .setControllerAdvice(new GlobalExceptionHandler(), new FeignExceptionHandler())
+            .build();
     final String root = "/admin/hot-search/";
     final String date = "2026-10-20";
 
-    @AfterEach void cleanup() { UserContext.removeUser(); }
+    @AfterEach
+    void cleanup() {
+        UserContext.removeUser();
+    }
 
-    @Test void allFiveRoutesRequireTheExistingAdministratorIdentity() throws Exception {
+    @Test
+    void allFiveRoutesRequireTheExistingAdministratorIdentity() throws Exception {
         for (String user : List.of("", "2")) {
             UserContext.setUser(user);
             for (String route : List.of("dates", "groups", "keywords", "users", "events")) {
@@ -42,7 +51,8 @@ class HotSearchHistoryAuthorizationTest {
         verifyNoInteractions(port);
     }
 
-    @Test void authorizedQueriesForwardOnlyTheRequestedScopeAndCursor() throws Exception {
+    @Test
+    void authorizedQueriesForwardOnlyTheRequestedScopeAndCursor() throws Exception {
         UserContext.setUser("1");
         when(port.dates(null, 20)).thenReturn(new CursorPage<>(List.of(), null));
         when(port.groups(date, "8", 10)).thenReturn(new CursorPage<>(List.of(), "18"));
@@ -53,7 +63,8 @@ class HotSearchHistoryAuthorizationTest {
         mvc.perform(get(root + "groups").param("date", date).param("cursor", "8").param("size", "10"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.nextCursor").value("18"));
         mvc.perform(get(root + "keywords").param("date", date).param("groupId", "g")).andExpect(status().isOk());
-        mvc.perform(get(root + "users").param("date", date).param("groupId", "g").param("keywordId", "7")).andExpect(status().isOk());
+        mvc.perform(get(root + "users").param("date", date).param("groupId", "g").param("keywordId", "7"))
+                .andExpect(status().isOk());
         mvc.perform(get(root + "events").param("date", date).param("groupId", "g").param("keywordId", "7")
                 .param("userId", "9").param("cursor", "100.5").param("size", "10")).andExpect(status().isOk());
         verify(port).dates(null, 20);
@@ -64,12 +75,21 @@ class HotSearchHistoryAuthorizationTest {
         verifyNoMoreInteractions(port);
     }
 
-    @Test void unrecognizedValidationIsDependencyFailureAndUnavailableStatusIsPreserved() throws Exception {
+    @Test
+    void unrecognizedValidationIsDependencyFailureAndUnavailableStatusIsPreserved() throws Exception {
         UserContext.setUser("1");
-        Request request = Request.create(Request.HttpMethod.GET, "http://search", Map.of(), null, StandardCharsets.UTF_8, null);
+        Request request = Request.create(
+                Request.HttpMethod.GET,
+                "http://search",
+                Map.of(),
+                null,
+                StandardCharsets.UTF_8,
+                null);
         for (int status : new int[]{400, 503}) {
             doThrow(FeignException.errorStatus("groups",
-                    Response.builder().request(request).status(status).reason("unavailable").build())).when(port).groups(date, null, 20);
+                    Response.builder().request(request).status(status).reason("unavailable").build()))
+                            .when(port)
+                            .groups(date, null, 20);
             mvc.perform(get(root + "groups").param("date", date)).andExpect(status().is(status == 400 ? 502 : status));
         }
     }

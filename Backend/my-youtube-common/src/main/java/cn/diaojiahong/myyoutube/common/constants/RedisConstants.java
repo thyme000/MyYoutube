@@ -24,6 +24,7 @@ public class RedisConstants {
         if (shard < 0 || shard >= VIDEO_PLAY_COUNT_SHARD_COUNT) {
             throw new IllegalArgumentException("shard out of range: " + shard);
         }
+
         return VIDEO_PLAY_COUNT + shard;
     }
 
@@ -80,6 +81,7 @@ public class RedisConstants {
 
     /** 多实例推送扇出: 聊天 WS 通道(承载聊天事件报文) */
     public static final String PUSH_CHANNEL_WS = "push:channel:ws";
+
     /** 多实例推送扇出: SSE 门铃通道(只承载"有新通知"轻量信号) */
     public static final String PUSH_CHANNEL_SSE = "push:channel:sse";
 
@@ -92,8 +94,10 @@ public class RedisConstants {
     // ==================== 协同过滤相似度缓存 ====================
     /** 物品相似度 Top-K: recommend:sim:{算法}:{内容ID} zset member=邻居内容ID score=相似度 */
     public static final String RECOMMEND_SIM = "recommend:sim:";
+
     /** 相似度缓存 TTL(天): 每日全量重算兜底, TTL 略大于重算周期 */
     public static final Long RECOMMEND_SIM_EXPIRE = 8L;
+
     /** CF 增量任务行为流水水位(已处理到的最大行为 id) */
     public static final String SCHEDULE_CF_WATERMARK = "schedule:cf:behavior:watermark";
 
@@ -104,12 +108,15 @@ public class RedisConstants {
     public static final String COUNTER_INFLIGHT = "inflight:";
     /** 最近被写过的 id 集合 dirty:{type}, 只用于对账自愈 */
     public static final String COUNTER_DIRTY = "dirty:";
+
     /** inflight 租期(秒): 落库任务停摆超过该时长即视为崩溃, 下轮由认领脚本回补退回 pending */
     public static final long COUNTER_INFLIGHT_TTL_SECONDS = 600L;
+
     /** dirty 集合保留时长(秒), 取对账周期(1h)的 2 倍 */
     public static final long COUNTER_DIRTY_TTL_SECONDS = 7200L;
     /** 单轮落库处理 id 数上限, 给单轮耗时设上界, 保证短于锁租期 */
     public static final int COUNTER_MAX_KEYS_PER_ROUND = 1000;
+
     /** 整轮锁租期(秒): 显式设租期而不依赖看门狗 —— 长 STW 时看门狗线程同样会停 */
     public static final long SCHEDULE_LOCK_LEASE_SECONDS = 300L;
 

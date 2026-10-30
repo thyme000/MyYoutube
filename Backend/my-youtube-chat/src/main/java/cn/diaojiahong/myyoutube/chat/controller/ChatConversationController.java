@@ -43,7 +43,9 @@ public class ChatConversationController {
      */
     @Operation(summary = "修改群头像")
     @PutMapping("/avatar/{conversationId}")
-    public Result<String> updateConversationAvatar(@PathVariable String conversationId, @RequestParam MultipartFile avatar) {
+    public Result<String> updateConversationAvatar(
+            @PathVariable String conversationId,
+            @RequestParam MultipartFile avatar) {
         return Result.success(chatConversationService.updateConversationAvatar(conversationId, avatar));
     }
 
@@ -78,7 +80,9 @@ public class ChatConversationController {
      */
     @Operation(summary = "移除会话成员")
     @DeleteMapping("/remove/member/{conversationId}")
-    public Result<Void> removeConversationMember(@PathVariable String conversationId, @RequestParam List<Long> userIds) {
+    public Result<Void> removeConversationMember(
+            @PathVariable String conversationId,
+            @RequestParam List<Long> userIds) {
         chatConversationService.removeConversationMember(conversationId, userIds);
         return Result.success(null);
     }
@@ -127,7 +131,10 @@ public class ChatConversationController {
      */
     @Operation(summary = "禁言或取消禁言会话成员")
     @PutMapping("/ban/{userId}/{conversationId}")
-    public Result<Void> banConversationMember(@PathVariable Long userId, @PathVariable String conversationId, @RequestParam Boolean banned) {
+    public Result<Void> banConversationMember(
+            @PathVariable Long userId,
+            @PathVariable String conversationId,
+            @RequestParam Boolean banned) {
         chatConversationService.banConversationMember(userId, conversationId, banned);
         return Result.success(null);
     }

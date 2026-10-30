@@ -10,7 +10,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class AudioDiscoveryContractsTest {
     @ParameterizedTest @CsvSource({"0,10", "-1,10", "1,0", "1,101", "100,100", "10000,1", "2147483647,100"})
     void invalidBoundsAndOverflowCannotReachSearch(int page, int size) {
-        var error = assertThrows(BizException.class, () -> new AudioDiscoveryContracts.Query(null, null, page, size).validate());
+        BizException error = assertThrows(
+                BizException.class,
+                () -> new AudioDiscoveryContracts.Query(null, null, page, size).validate());
         assertEquals(ErrorCode.INVALID_ARGUMENT, error.getErrorCode());
     }
 
@@ -19,9 +21,12 @@ class AudioDiscoveryContractsTest {
         assertDoesNotThrow(() -> new AudioDiscoveryContracts.Query("雨声", null, page, size).validate());
     }
 
-    @Test void keywordAndOwnerLimitsApplyToBothEntryPoints() {
+    @Test
+    void keywordAndOwnerLimitsApplyToBothEntryPoints() {
         assertDoesNotThrow(() -> new AudioDiscoveryContracts.Query("音".repeat(100), 9L, 1, 10).validate());
-        assertThrows(BizException.class, () -> new AudioDiscoveryContracts.Query("音".repeat(101), null, 1, 10).validate());
+        assertThrows(
+                BizException.class,
+                () -> new AudioDiscoveryContracts.Query("音".repeat(101), null, 1, 10).validate());
         assertThrows(BizException.class, () -> new AudioDiscoveryContracts.Query(null, 0L, 1, 10).validate());
         assertThrows(BizException.class, () -> new AudioDiscoveryContracts.Query(null, -1L, 1, 10).validate());
     }

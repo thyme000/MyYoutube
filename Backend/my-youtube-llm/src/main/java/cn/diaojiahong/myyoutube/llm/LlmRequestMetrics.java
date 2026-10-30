@@ -17,6 +17,7 @@ import java.util.function.Supplier;
 @Component
 public class LlmRequestMetrics {
     private final MeterRegistry registry;
+
     private final Map<String, AtomicInteger> active = Map.of(
             "chat", new AtomicInteger(), "embeddings", new AtomicInteger(), "query-embedding", new AtomicInteger());
 
@@ -53,7 +54,9 @@ public class LlmRequestMetrics {
     private boolean isTimeout(Throwable failure) {
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             if (cause instanceof HttpTimeoutException || cause instanceof SocketTimeoutException
-                    || cause instanceof TimeoutException) return true;
+                    || cause instanceof TimeoutException) {
+                return true;
+            }
             if (cause == cause.getCause()) break;
         }
         return false;

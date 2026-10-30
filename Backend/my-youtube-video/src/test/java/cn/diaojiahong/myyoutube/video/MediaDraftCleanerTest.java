@@ -14,25 +14,42 @@ import static org.mockito.Mockito.*;
 
 class MediaDraftCleanerTest {
     final MediaDraftMapper rows = mock(MediaDraftMapper.class);
+
     final S3StorageUtil storage = mock(S3StorageUtil.class);
+
     final RocketMQTemplate mq = mock(RocketMQTemplate.class);
-    final MediaDraftCleaner cleaner = new MediaDraftCleaner(rows, storage, mq, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+
+    final MediaDraftCleaner cleaner = new MediaDraftCleaner(
+            rows,
+            storage,
+            mq,
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
     MediaDraft uploading() {
         return new MediaDraft().setId(1L).setUserId(9L).setPreparationId(101L).setObjectKey("uploads/video/9/a.mp4")
                 .setStatus(MediaDraftStatusEnum.UPLOADING).setUpdateTime(LocalDateTime.now().minusHours(8));
     }
-    @Test void storageFailureCannotExpireAnUploadingDraft() {
+
+    @Test
+    void storageFailureCannotExpireAnUploadingDraft() {
         when(rows.selectList(any())).thenReturn(List.of(uploading()));
         when(storage.objectExists(anyString())).thenThrow(S3Exception.builder().statusCode(503).build());
-        cleaner.clean(); verifyNoInteractions(mq); verify(rows, never()).update(any(), any());
+        cleaner.clean();
+        verifyNoInteractions(mq);
+        verify(rows, never()).update(any(), any());
     }
-    @Test void newUploadingDraftDoesNotExpireAtSixHoursWhenObjectIsAbsent() {
+
+    @Test
+    void newUploadingDraftDoesNotExpireAtSixHoursWhenObjectIsAbsent() {
         when(rows.selectList(any())).thenReturn(List.of(uploading()));
         when(storage.objectExists(anyString())).thenReturn(false);
-        cleaner.clean(); verifyNoInteractions(mq); verify(rows, never()).update(any(), any());
+        cleaner.clean();
+        verifyNoInteractions(mq);
+        verify(rows, never()).update(any(), any());
     }
-    @Test void completedUploadRepairsEventWithoutDeletingMedia() {
+
+    @Test
+    void completedUploadRepairsEventWithoutDeletingMedia() {
         when(rows.selectList(any())).thenReturn(List.of(uploading()));
         when(storage.objectExists(anyString())).thenReturn(true);
         cleaner.clean();

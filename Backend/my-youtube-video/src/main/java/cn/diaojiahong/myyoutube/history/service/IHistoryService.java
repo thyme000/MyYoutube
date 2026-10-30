@@ -16,4 +16,5 @@ public interface IHistoryService {
     /** 删除单条历史 */
     void removeOne(Long contentId);
     /** 清空我的历史 */
-    void clear();}
+    void clear();
+    }

@@ -48,7 +48,9 @@ public class ChatUserConversationController {
      */
     @Operation(summary = "获取用户所有聊天会话")
     @GetMapping("/list")
-    public Result<PageResult<UserConversationVO>> getPageConversations(@RequestParam Long page, @RequestParam Long pageSize) {
+    public Result<PageResult<UserConversationVO>> getPageConversations(
+            @RequestParam Long page,
+            @RequestParam Long pageSize) {
         return Result.success(chatUserConversationService.getPageConversations(page, pageSize));
     }
 
@@ -82,7 +84,9 @@ public class ChatUserConversationController {
      */
     @Operation(summary = "获取用户合法的聊天会话列表")
     @GetMapping("/valid")
-    public Result<PageResult<ValidUserConversationVO>> getValidConversations(@RequestParam Long page, @RequestParam Long pageSize) {
+    public Result<PageResult<ValidUserConversationVO>> getValidConversations(
+            @RequestParam Long page,
+            @RequestParam Long pageSize) {
         return Result.success(chatUserConversationService.getValidConversations(page, pageSize));
     }
 }

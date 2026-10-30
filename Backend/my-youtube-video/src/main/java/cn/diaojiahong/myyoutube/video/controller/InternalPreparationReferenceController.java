@@ -12,5 +12,7 @@ public class InternalPreparationReferenceController {
     private final PreparationReferenceService references;
 
     @PostMapping("/preparation-reference")
-    public String reference(@RequestBody PreparationReference reference) { return references.reference(reference); }
+    public String reference(@RequestBody PreparationReference reference) {
+        return references.reference(reference);
+    }
 }

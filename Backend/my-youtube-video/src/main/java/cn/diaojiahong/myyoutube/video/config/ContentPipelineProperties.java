@@ -21,7 +21,10 @@ public class ContentPipelineProperties {
     @jakarta.annotation.PostConstruct
     public void validate() {
         if (!Double.isFinite(maxRisk) || maxRisk < 0 || maxRisk > 1 || !Double.isFinite(minConfidence)
-                || minConfidence < 0 || minConfidence > 1 || evidenceChunkCharacters < 1024 || evidenceChunkCharacters > 30000)
+                || minConfidence < 0
+                || minConfidence > 1
+                || evidenceChunkCharacters < 1024
+                || evidenceChunkCharacters > 30000)
             throw new IllegalStateException("内容审核阈值或分批预算非法");
 
         if (autoReview && (reviewModel == null || reviewModel.isBlank()))

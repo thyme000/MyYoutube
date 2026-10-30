@@ -11,7 +11,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class AuthorContentCursorTest {
     private final LocalDateTime time = LocalDateTime.of(2026, 10, 28, 0, 0);
 
-    @Test void cursorPreservesLargeIdsAndRejectsChangedSearchConditions() {
+    @Test
+    void cursorPreservesLargeIdsAndRejectsChangedSearchConditions() {
         long id = 9007199254740993L;
         String value = new AuthorContentCursor(42, 9L, ContentTypeEnum.VIDEO, time, id).encode();
         assertEquals(id, AuthorContentCursor.decode(value, 42, 9L, ContentTypeEnum.VIDEO).contentId());
@@ -21,7 +22,8 @@ class AuthorContentCursorTest {
         assertThrows(BizException.class, () -> AuthorContentCursor.decode(value, 42, 9L, null));
     }
 
-    @Test void rejectsInvalidCursorBeforeAnyDatabaseWork() {
+    @Test
+    void rejectsInvalidCursorBeforeAnyDatabaseWork() {
         assertNull(AuthorContentCursor.decode(null, 42, 9L, null));
         assertThrows(BizException.class, () -> AuthorContentCursor.decode("invalid", 42, 9L, null));
         assertThrows(BizException.class, () -> AuthorContentCursor.decode("a".repeat(1025), 42, 9L, null));
@@ -31,7 +33,8 @@ class AuthorContentCursorTest {
                 new AuthorContentCursor(42, 9L, null, time, 0).encode(), 42, 9L, null));
     }
 
-    @Test void queryUsesCommonPageSizeValidationAndNormalizesMediaType() {
+    @Test
+    void queryUsesCommonPageSizeValidationAndNormalizesMediaType() {
         AuthorContentCursorQuery query = new AuthorContentCursorQuery();
         assertEquals(10, query.getPageSize());
         query.setType("VIDEO");

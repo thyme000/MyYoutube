@@ -11,6 +11,14 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class InternalAudioSearchController implements AudioSearchPort {
     private final AudioSearchService service;
-    @Override public Slice search(Query query) { return service.search(query); }
-    @Override public void rebuild(Long id) { service.rebuild(id); }
+
+    @Override
+    public Slice search(Query query) {
+        return service.search(query);
+    }
+
+    @Override
+    public void rebuild(Long id) {
+        service.rebuild(id);
+    }
 }

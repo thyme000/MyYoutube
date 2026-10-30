@@ -12,7 +12,8 @@ public class AuthorContentPageProperties {
     private int scanLimit = 500;
     private int scanBudgetMs = 200;
 
-    @PostConstruct public void validate() {
+    @PostConstruct
+    public void validate() {
         if (scanLimit < 1 || scanBudgetMs < 1)
             throw new IllegalStateException("作者作品分页补取配置无效");
     }

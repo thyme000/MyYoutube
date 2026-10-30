@@ -10,6 +10,7 @@ import cn.diaojiahong.myyoutube.transcode.service.TranscodeTaskService;
 import cn.diaojiahong.myyoutube.transcode.mq.listener.TranscodeTaskListener;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -32,6 +33,7 @@ final class IsolatedDownloadSupport implements AutoCloseable {
     final S3Client s3;
     final S3Presigner signer;
     final S3StorageUtil storage;
+
     final ObjectMapper json = new ObjectMapper();
     final TranscodeTaskService tasks;
     static final String BUCKET = "content-integration";
@@ -39,28 +41,55 @@ final class IsolatedDownloadSupport implements AutoCloseable {
 
     IsolatedDownloadSupport() throws Exception {
         if (!Boolean.getBoolean("content.integration")) throw new IllegalStateException("Isolated integration opt-in required");
-        var ds = database(); jdbc = new JdbcTemplate(ds);
-        var factoryBean = new MybatisSqlSessionFactoryBean(); factoryBean.setDataSource(ds);
-        var factory = factoryBean.getObject(); factory.getConfiguration().addMapper(TranscodeTaskMapper.class);
+        DriverManagerDataSource ds = database();
+        jdbc = new JdbcTemplate(ds);
+        var factoryBean = new MybatisSqlSessionFactoryBean();
+        factoryBean.setDataSource(ds);
+        SqlSessionFactory factory = factoryBean.getObject();
+        factory.getConfiguration().addMapper(TranscodeTaskMapper.class);
         rows = new SqlSessionTemplate(factory).getMapper(TranscodeTaskMapper.class);
-        var config = new Config(); config.setNettyThreads(2); config.setThreads(2); config.setLockWatchdogTimeout(3000);
-        config.useSingleServer().setAddress("redis://127.0.0.1:16379").setConnectionMinimumIdleSize(1).setConnectionPoolSize(8);
+        var config = new Config();
+        config.setNettyThreads(2);
+        config.setThreads(2);
+        config.setLockWatchdogTimeout(3000);
+        config.useSingleServer()
+                .setAddress("redis://127.0.0.1:16379")
+                .setConnectionMinimumIdleSize(1)
+                .setConnectionPoolSize(8);
         redis = Redisson.create(config);
-        var credentials = StaticCredentialsProvider.create(AwsBasicCredentials.create("content-it", "content-it-only"));
-        var endpoint = URI.create("http://127.0.0.1:19000");
-        s3 = S3Client.builder().endpointOverride(endpoint).region(Region.US_EAST_1).credentialsProvider(credentials).forcePathStyle(true).build();
-        signer = S3Presigner.builder().endpointOverride(endpoint).region(Region.US_EAST_1).credentialsProvider(credentials)
-                .serviceConfiguration(software.amazon.awssdk.services.s3.S3Configuration.builder().pathStyleAccessEnabled(true).build()).build();
-        var properties = new S3Properties(); properties.setEndpoint(endpoint.toString()); properties.setBucketName(BUCKET);
+        StaticCredentialsProvider credentials = StaticCredentialsProvider.create(AwsBasicCredentials.create(
+                "content-it",
+                "content-it-only"));
+        URI endpoint = URI.create("http://127.0.0.1:19000");
+        s3 = S3Client.builder()
+                .endpointOverride(endpoint)
+                .region(Region.US_EAST_1)
+                .credentialsProvider(credentials)
+                .forcePathStyle(true)
+                .build();
+        signer = S3Presigner.builder()
+                .endpointOverride(endpoint)
+                .region(Region.US_EAST_1)
+                .credentialsProvider(credentials)
+                .serviceConfiguration(software.amazon.awssdk.services.s3.S3Configuration.builder().pathStyleAccessEnabled(true).build())
+                .build();
+        var properties = new S3Properties();
+        properties.setEndpoint(endpoint.toString());
+        properties.setBucketName(BUCKET);
         storage = new S3StorageUtil(properties,s3,signer);
         tasks = new TranscodeTaskService(rows,json,redis,storage);
     }
+
     static DriverManagerDataSource database() {
-        var ds = new DriverManagerDataSource("jdbc:mysql://127.0.0.1:13306/content_it?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC", "root", "content-it-only");
+        var ds = new DriverManagerDataSource(
+                "jdbc:mysql://127.0.0.1:13306/content_it?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC",
+                "root",
+                "content-it-only");
         if (new JdbcTemplate(ds).queryForObject("SELECT COUNT(*) FROM isolated_test_environment WHERE id=1",Integer.class) != 1)
             throw new IllegalStateException("Missing isolated Docker environment marker");
         return ds;
     }
+
     void initialize() throws Exception {
         Path root = Path.of("").toAbsolutePath();
         while (root != null && !Files.exists(root.resolve("resources/schema.sql"))) root = root.getParent();
@@ -73,6 +102,7 @@ final class IsolatedDownloadSupport implements AutoCloseable {
         jdbc.execute("DELETE FROM export_execution");
         if (s3.listBuckets().buckets().stream().noneMatch(b -> BUCKET.equals(b.name()))) s3.createBucket(b -> b.bucket(BUCKET));
     }
+
     TranscodeTaskListener listener(String worker) {
         var notifier = new TranscodeNotifier(mock(PushFanoutPublisher.class));
         var count = new TranscodeStep(25) {
@@ -85,5 +115,10 @@ final class IsolatedDownloadSupport implements AutoCloseable {
                 new ComposeStep(),new UploadResultStep(storage),new CompleteStep(tasks,notifier)));
         return new TranscodeTaskListener(tasks,notifier,chains);
     }
-    public void close() { redis.shutdown(); signer.close(); s3.close(); }
+
+    public void close() {
+        redis.shutdown();
+        signer.close();
+        s3.close();
+    }
 }

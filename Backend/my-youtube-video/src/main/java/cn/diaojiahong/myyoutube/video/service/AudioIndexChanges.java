@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import java.time.LocalDateTime;
 
 public final class AudioIndexChanges {
-    private AudioIndexChanges() {}
+    private AudioIndexChanges() {
+    }
+
     public static LambdaUpdateWrapper<Audio> bump(LambdaUpdateWrapper<Audio> update) {
         return update.setSql("index_pending_since = COALESCE(index_pending_since, CURRENT_TIMESTAMP), index_version = index_version + 1")
                 .set(Audio::getIndexAfter, LocalDateTime.now());

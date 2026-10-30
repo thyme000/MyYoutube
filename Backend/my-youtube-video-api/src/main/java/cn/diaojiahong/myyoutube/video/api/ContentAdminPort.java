@@ -31,6 +31,7 @@ public interface ContentAdminPort {
 
     @PostMapping("/content/get")
     java.util.Map<String, Object> contentStatus(@RequestBody ContentId id);
+
     @PostMapping("/content/waiting")
     List<java.util.Map<String, Object>> waitingContent(@RequestBody AdminContentQuery query);
 

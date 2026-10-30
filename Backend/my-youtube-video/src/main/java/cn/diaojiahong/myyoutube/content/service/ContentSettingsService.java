@@ -23,7 +23,9 @@ public class ContentSettingsService {
     private final ContentPublicationEventMapper events;
     private final PublicationEffectsService effects;
     private final ContentStatisticsService statistics;
-    public record Settings(String visibility, Integer allowComment) {}
+
+    public record Settings(String visibility, Integer allowComment) {
+    }
 
     @Transactional
     public void update(Long id, Long viewer, Settings settings) {
@@ -34,7 +36,9 @@ public class ContentSettingsService {
         String target = visibility.getCode();
 
         Content content = access.requireOwner(access.locked(id), viewer);
-        if (content.getStatus() != ContentStatusEnum.PUBLISHED) throw new BizException(ErrorCode.STATE_CONFLICT, "仅可修改已发布内容");
+        if (content.getStatus() != ContentStatusEnum.PUBLISHED) throw new BizException(
+                ErrorCode.STATE_CONFLICT,
+                "仅可修改已发布内容");
         boolean visibilityChanged = !target.equals(content.getVisibility());
 
         contents.update(null, new LambdaUpdateWrapper<Content>().eq(Content::getId, id)
@@ -45,6 +49,7 @@ public class ContentSettingsService {
         if (visibilityChanged)
             rebuild(content);
     }
+
     @Transactional
     public void delete(Long id, Long viewer) {
         Content content = access.requireOwner(access.locked(id), viewer);
@@ -55,14 +60,20 @@ public class ContentSettingsService {
         statistics.delete(content);
         rebuild(content);
     }
+
     private void rebuild(Content content) {
-        var event = new ContentPublicationEvent().setContentId(content.getId()).setAuthorId(content.getAuthorId())
+        ContentPublicationEvent event = new ContentPublicationEvent()
+                .setContentId(content.getId())
+                .setAuthorId(content.getAuthorId())
                 .setAudioId(content.getAudioId()).setAudioCountDone(true)
                 .setStatus(content.getStatus()).setReason("内容设置变更")
                 .setSearchDone(false).setNoticeDone(true).setCompleted(false);
         events.insert(event);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() { effects.trigger(event.getId()); }
+            @Override
+            public void afterCommit() {
+                effects.trigger(event.getId());
+            }
         });
     }
 }

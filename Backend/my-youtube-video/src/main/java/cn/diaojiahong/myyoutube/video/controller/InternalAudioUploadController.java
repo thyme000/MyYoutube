@@ -11,5 +11,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class InternalAudioUploadController implements AudioUploadPort {
     private final AudioUploadService uploads;
-    @Override public void uploaded(String objectKey) { uploads.uploaded(objectKey); }
+
+    @Override
+    public void uploaded(String objectKey) {
+        uploads.uploaded(objectKey);
+    }
 }

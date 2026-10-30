@@ -10,7 +10,8 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class SearchQueryValidationTest {
-    @Test void bothSearchInputsRetainInheritedDefaultsAndPageSizeValidation() {
+    @Test
+    void bothSearchInputsRetainInheritedDefaultsAndPageSizeValidation() {
         for (CursorPageQuery query : new CursorPageQuery[]{new ContentSearchCursorQuery(), new TagSearchCursorQuery()}) {
             assertEquals(10, query.getPageSize());
             assertNull(query.getCursor());
@@ -25,7 +26,8 @@ class SearchQueryValidationTest {
         }
     }
 
-    @Test void bothSearchInputsAcceptTheBoundaryAndRejectLongerKeywords() {
+    @Test
+    void bothSearchInputsAcceptTheBoundaryAndRejectLongerKeywords() {
         ContentSearchCursorQuery content = new ContentSearchCursorQuery();
         TagSearchCursorQuery tag = new TagSearchCursorQuery();
         String maximum = "音".repeat(SearchQueryValidation.MAX_KEYWORD_LENGTH);
@@ -40,9 +42,12 @@ class SearchQueryValidationTest {
         assertThrows(BizException.class, tag::validate);
     }
 
-    @Test void supplementaryCharactersCountAsOneCharacterAndEmptySearchRemainsAllowed() {
+    @Test
+    void supplementaryCharactersCountAsOneCharacterAndEmptySearchRemainsAllowed() {
         assertDoesNotThrow(() -> SearchQueryValidation.validateKeyword("🎵".repeat(SearchQueryValidation.MAX_KEYWORD_LENGTH)));
-        assertThrows(BizException.class, () -> SearchQueryValidation.validateKeyword("🎵".repeat(SearchQueryValidation.MAX_KEYWORD_LENGTH + 1)));
+        assertThrows(
+                BizException.class,
+                () -> SearchQueryValidation.validateKeyword("🎵".repeat(SearchQueryValidation.MAX_KEYWORD_LENGTH + 1)));
         assertDoesNotThrow(() -> SearchQueryValidation.validateKeyword(null));
         assertDoesNotThrow(() -> SearchQueryValidation.validateKeyword(""));
     }

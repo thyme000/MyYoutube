@@ -9,5 +9,6 @@ public class AudioUploadDTO {
     private File audio;
     private File cover;
 
-    public record File(String filename, long bytes, String contentType) {}
+    public record File(String filename, long bytes, String contentType) {
+    }
 }

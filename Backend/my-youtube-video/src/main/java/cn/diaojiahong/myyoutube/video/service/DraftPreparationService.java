@@ -17,6 +17,7 @@ import cn.diaojiahong.myyoutube.video.mapper.MediaDraftMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -36,7 +37,9 @@ public class DraftPreparationService {
 
     public boolean uploaded(Long id) {
         int hit = observation.update(id, new LambdaUpdateWrapper<MediaDraft>().eq(MediaDraft::getId, id)
-                .eq(MediaDraft::getType, ContentTypeEnum.VIDEO).eq(MediaDraft::getStatus, MediaDraftStatusEnum.UPLOADING)
+                .eq(MediaDraft::getType, ContentTypeEnum.VIDEO).eq(
+                        MediaDraft::getStatus,
+                        MediaDraftStatusEnum.UPLOADING)
                 .set(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                 .set(MediaDraft::getPreparationAfter, LocalDateTime.now()));
         if (hit > 0) log.info("Draft upload confirmed draftId={} status=PROCESSING", id);
@@ -46,7 +49,7 @@ public class DraftPreparationService {
 
     @ObservedBusiness(BusinessOperation.RETRY_PREPARATION)
     public boolean retry(Long id, Long userId) {
-        var draft = drafts.selectById(id);
+        MediaDraft draft = drafts.selectById(id);
         if (draft == null || !userId.equals(draft.getUserId())) throw new BizException(ErrorCode.NOT_FOUND, "草稿不存在");
         if (draft.expiredAt(LocalDateTime.now())) return false;
         if (draft.getStatus() == MediaDraftStatusEnum.PROCESSING) {
@@ -57,11 +60,11 @@ public class DraftPreparationService {
             log.debug("Draft retry rejected draftId={} reason=STATUS_{}", id, draft.getStatus());
             return false;
         }
-        var result = tasks.preparation(draft.getPreparationId());
+        PreparationContracts.View result = tasks.preparation(draft.getPreparationId());
         if (result == null || !Objects.equals(result.preparationId(), draft.getPreparationId())
                 || result.attempt() < draft.getPreparationAttempt())
             throw new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "无法确认媒体准备状态，请稍后重试", null);
-        var update = version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.FAILED)
+        LambdaUpdateWrapper<MediaDraft> update = version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.FAILED)
                 .set(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                 .set(MediaDraft::getPreparationAfter, LocalDateTime.now()).set(MediaDraft::getErrorMessage, null);
         if (result.parametersChanged()) {
@@ -73,7 +76,9 @@ public class DraftPreparationService {
                     .set(MediaDraft::getMediaVersion, draft.getMediaVersion() + 1)
                     .set(MediaDraft::getPreparationId, nextPreparationId).set(MediaDraft::getPreparationAttempt, 0)
                     .set(MediaDraft::getPreparationRetry, false).set(MediaDraft::getPreparedJson, null)
-                    .set(MediaDraft::getPreparedCoverObjectKey, null).set(MediaDraft::getExpiresAt, LocalDateTime.now().plusDays(7));
+                    .set(MediaDraft::getPreparedCoverObjectKey, null).set(
+                            MediaDraft::getExpiresAt,
+                            LocalDateTime.now().plusDays(7));
             if (Objects.equals(draft.getSubmissionRevision(), draft.getRevision()))
                 update.set(MediaDraft::getSubmissionRevision, draft.getRevision() + 1);
         } else {
@@ -88,34 +93,52 @@ public class DraftPreparationService {
     @Scheduled(fixedDelay = 1000, initialDelay = 1000)
     public void reconcile() {
         long cursor = 0;
-        var now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
         while (true) {
-            var page = drafts.selectList(new LambdaQueryWrapper<MediaDraft>().gt(MediaDraft::getId, cursor)
+            List<MediaDraft> page = drafts.selectList(new LambdaQueryWrapper<MediaDraft>().gt(MediaDraft::getId, cursor)
                     .eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING).le(MediaDraft::getPreparationAfter, now)
                     .orderByAsc(MediaDraft::getId).last("LIMIT 100"));
             if (page.isEmpty()) return;
             cursor = page.get(page.size() - 1).getId();
-            for (var draft : page) {
+            for (MediaDraft draft : page) {
                 if (drafts.update(null, version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
-                        .le(MediaDraft::getPreparationAfter, now).set(MediaDraft::getPreparationAfter, now.plusSeconds(15))) == 0) continue;
-                try { advance(draft); }
-                catch (Exception e) { log.warn("Draft preparation reconciliation failed draftId={} mediaVersion={}", draft.getId(), draft.getMediaVersion(), e); }
+                        .le(MediaDraft::getPreparationAfter, now)
+                        .set(MediaDraft::getPreparationAfter, now.plusSeconds(15))) == 0) {
+                    continue;
+                }
+                try {
+                    advance(draft);
+                } catch (Exception e) {
+                    log.warn(
+                            "Draft preparation reconciliation failed draftId={} mediaVersion={}",
+                            draft.getId(),
+                            draft.getMediaVersion(),
+                            e);
+                }
             }
         }
     }
 
     private void advance(MediaDraft draft) {
-        var media = draft.getType() == ContentTypeEnum.VIDEO
+        ContentMedia media = draft.getType() == ContentTypeEnum.VIDEO
                 ? new ContentMedia("video", new VideoMedia(draft.getObjectKey(), 0), null)
                 : new ContentMedia("dynamic", null, JsonUtil.fromJson(draft.getMediaJson(), DynamicMedia.class));
-        var request = new Request(draft.getPreparationId(), draft.getId(), draft.getMediaVersion(), draft.getUserId(), media, draft.getCoverObjectKey());
+        var request = new Request(
+                draft.getPreparationId(),
+                draft.getId(),
+                draft.getMediaVersion(),
+                draft.getUserId(),
+                media,
+                draft.getCoverObjectKey());
         tasks.prepare(request);
         if (Boolean.TRUE.equals(draft.getPreparationRetry())) {
-            if (!tasks.retryPreparation(draft.getPreparationId())) throw new IllegalStateException("Preparation retry rejected");
+            if (!tasks.retryPreparation(draft.getPreparationId())) {
+                throw new IllegalStateException("Preparation retry rejected");
+            }
             drafts.update(null, version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                     .set(MediaDraft::getPreparationRetry, false));
         }
-        var result = tasks.preparation(draft.getPreparationId());
+        PreparationContracts.View result = tasks.preparation(draft.getPreparationId());
         if (result == null || !Objects.equals(result.preparationId(), draft.getPreparationId())
                 || result.attempt() < draft.getPreparationAttempt()) {
             log.debug("Draft preparation reconciliation deferred draftId={} preparationId={} reason=STALE_RESULT",
@@ -123,19 +146,28 @@ public class DraftPreparationService {
             return;
         }
         if (MediaTaskStatus.SUCCESS.equals(result.status())) {
-            var frozen = PreparedMedia.freeze(request, result.manifest());
-            int changed = observation.update(draft.getId(), version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
-                    .set(MediaDraft::getStatus, MediaDraftStatusEnum.READY).set(MediaDraft::getPreparedJson, JsonUtil.toJson(frozen.media()))
-                    .set(MediaDraft::getPreparedCoverObjectKey, frozen.coverObjectKey()).set(MediaDraft::getDurationMs, frozen.media().durationMs())
+            PreparedMedia.Snapshot frozen = PreparedMedia.freeze(request, result.manifest());
+            int changed = observation.update(draft.getId(), version(draft).eq(
+                    MediaDraft::getStatus,
+                    MediaDraftStatusEnum.PROCESSING)
+                    .set(MediaDraft::getStatus, MediaDraftStatusEnum.READY).set(
+                            MediaDraft::getPreparedJson,
+                            JsonUtil.toJson(frozen.media()))
+                    .set(MediaDraft::getPreparedCoverObjectKey, frozen.coverObjectKey()).set(
+                            MediaDraft::getDurationMs,
+                            frozen.media().durationMs())
                     .set(MediaDraft::getPreparationAttempt, result.attempt()).set(MediaDraft::getErrorMessage, null));
             if (changed > 0) publicationNotifications.afterCommit(drafts.selectById(draft.getId()));
             log.info("Draft preparation ready draftId={} preparationId={} mediaVersion={} attempt={} media={} durationMs={} frames={}",
-                    draft.getId(), draft.getPreparationId(), draft.getMediaVersion(), result.attempt(), frozen.media().type(),
+                    draft.getId(), draft.getPreparationId(), draft.getMediaVersion(), result.attempt(), frozen.media()
+                            .type(),
                     frozen.media().durationMs(), frozen.media().preparation().videoFrameCount());
         } else if (MediaTaskStatus.DEAD.equals(result.status())) {
             String error = result.errorMessage() == null ? "媒体准备失败" : result.errorMessage();
             observation.update(draft.getId(), version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
-                    .set(MediaDraft::getStatus, MediaDraftStatusEnum.FAILED).set(MediaDraft::getPreparationAttempt, result.attempt())
+                    .set(MediaDraft::getStatus, MediaDraftStatusEnum.FAILED).set(
+                            MediaDraft::getPreparationAttempt,
+                            result.attempt())
                     .set(MediaDraft::getErrorMessage, error.substring(0, Math.min(500, error.length()))));
             log.warn("Draft preparation failed draftId={} preparationId={} mediaVersion={} attempt={} error={}",
                     draft.getId(), draft.getPreparationId(), draft.getMediaVersion(), result.attempt(),
@@ -144,8 +176,12 @@ public class DraftPreparationService {
     }
 
     private LambdaUpdateWrapper<MediaDraft> version(MediaDraft draft) {
-        return new LambdaUpdateWrapper<MediaDraft>().eq(MediaDraft::getId, draft.getId()).eq(MediaDraft::getUserId, draft.getUserId())
-                .eq(MediaDraft::getMediaVersion, draft.getMediaVersion()).eq(MediaDraft::getPreparationId, draft.getPreparationId())
+        return new LambdaUpdateWrapper<MediaDraft>()
+                .eq(MediaDraft::getId, draft.getId())
+                .eq(MediaDraft::getUserId, draft.getUserId())
+                .eq(MediaDraft::getMediaVersion, draft.getMediaVersion()).eq(
+                        MediaDraft::getPreparationId,
+                        draft.getPreparationId())
                 .eq(MediaDraft::getPreparationAttempt, draft.getPreparationAttempt());
     }
 }

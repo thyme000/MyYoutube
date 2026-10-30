@@ -22,10 +22,13 @@ public class AudioVO {
     private String mime;
     private cn.diaojiahong.myyoutube.video.domain.enums.AudioProcessingStatus processingStatus;
     private cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus reviewStatus;
+
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String errorMessage;
+
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private AudioAnalysisStatus analysisStatus;
+
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String reviewReason;
     private String coverUrl;

@@ -29,6 +29,7 @@ public class UniqueCheckStep extends RegisterStep {
         if (conflict == null) {
             return;
         }
+
         String reason = dto.getUsername().equals(conflict.getUsername()) ? "用户名已存在!"
                 : dto.getPhone().equals(conflict.getPhone()) ? "手机号已被注册!"
                 : "邮箱已被注册!";

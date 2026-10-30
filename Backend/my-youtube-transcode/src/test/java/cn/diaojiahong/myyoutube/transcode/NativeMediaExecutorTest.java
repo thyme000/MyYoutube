@@ -11,6 +11,7 @@ import cn.diaojiahong.myyoutube.transcode.cover.VideoCoverGenerator;
 import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
 import cn.diaojiahong.myyoutube.transcode.task.*;
 import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
@@ -23,116 +24,198 @@ import static org.mockito.Mockito.*;
 
 class NativeMediaExecutorTest {
     final S3StorageUtil storage = mock(S3StorageUtil.class);
+
     final ContentArtifactStore artifacts = mock(ContentArtifactStore.class);
+
     final ModelCallGuard guard = new ModelCallGuard(new StaticListableBeanFactory()
             .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), new MockEnvironment());
 
     MediaTaskMessage message(int count, DynamicMedia.Audio audio) {
-        var images = IntStream.range(0,count).mapToObj(i -> new DynamicMedia.Image("image-"+i, i*3000L,3000,0.5,0.5)).toList();
+        List<DynamicMedia.Image> images = IntStream.range(0,count)
+                .mapToObj(i -> new DynamicMedia.Image("image-"+i, i*3000L,3000,0.5,0.5))
+                .toList();
         var media = new DynamicMedia("vertical",1080,1920,"cut",0,images,audio,count*3000L);
         return MediaTaskMessage.builder().pipelineId(100L).userId(9L).attempt(1)
                 .input(new Input(100L,1L,9L,"标题","简介","","image-1",new ContentMedia("dynamic",null,media),1)).build();
     }
-    @Test void selectedCoverDoesNotExtractVideoFramesOrChangeImageOrder() {
-        var generator = mock(VideoCoverGenerator.class);
-        var result = StructuredJson.object(new CoverTaskExecutor(generator).execute(message(3,null)));
-        assertEquals("image-1", result.get("coverObjectKey").getAsString()); verifyNoInteractions(generator);
+
+    @Test
+    void selectedCoverDoesNotExtractVideoFramesOrChangeImageOrder() {
+        VideoCoverGenerator generator = mock(VideoCoverGenerator.class);
+        JsonObject result = StructuredJson.object(new CoverTaskExecutor(generator).execute(message(3,null)));
+        assertEquals("image-1", result.get("coverObjectKey").getAsString());
+        verifyNoInteractions(generator);
     }
-    @Test void noMusicWritesExplicitEmptyAsrArtifactsWithoutCallingSpeechService() {
-        var asr = mock(AsrPort.class);
+
+    @Test
+    void noMusicWritesExplicitEmptyAsrArtifactsWithoutCallingSpeechService() {
+        AsrPort asr = mock(AsrPort.class);
         when(artifacts.write(eq(100L),eq("ASR"),eq(1),any())).thenReturn("empty-transcript");
-        var result = StructuredJson.object(new AsrTaskExecutor(asr,guard,storage,artifacts).execute(message(3,null)));
-        assertTrue(result.get("noAudio").getAsBoolean()); assertTrue(result.get("speechEmpty").getAsBoolean());
-        assertEquals(0,result.get("segmentCount").getAsInt()); assertEquals(0,result.get("durationMs").getAsLong());
-        verify(storage).uploadWithKey(eq("WEBVTT\n\n".getBytes(StandardCharsets.UTF_8)),eq(result.get("vttKey").getAsString()));
-        verify(artifacts).write(100L,"ASR",1,new ContentArtifacts.Transcript(List.of())); verifyNoInteractions(asr);
+        JsonObject result = StructuredJson.object(new AsrTaskExecutor(asr,guard,storage,artifacts).execute(message(
+                3,
+                null)));
+        assertTrue(result.get("noAudio").getAsBoolean());
+        assertTrue(result.get("speechEmpty").getAsBoolean());
+        assertEquals(0,result.get("segmentCount").getAsInt());
+        assertEquals(0,result.get("durationMs").getAsLong());
+        verify(storage).uploadWithKey(
+                eq("WEBVTT\n\n".getBytes(StandardCharsets.UTF_8)),
+                eq(result.get("vttKey").getAsString()));
+        verify(artifacts).write(100L,"ASR",1,new ContentArtifacts.Transcript(List.of()));
+        verifyNoInteractions(asr);
     }
-    @Test void longOriginalMusicIsRecognizedOnceWithoutImageDurationTruncationOrLooping() {
-        var asr = mock(AsrPort.class);
+
+    @Test
+    void longOriginalMusicIsRecognizedOnceWithoutImageDurationTruncationOrLooping() {
+        AsrPort asr = mock(AsrPort.class);
         when(storage.signGetUrl("music",3600L)).thenReturn("http://local/music");
         when(asr.transcribe(any())).thenReturn(new AsrPort.Response(120000,1,false));
-        var result = StructuredJson.object(new AsrTaskExecutor(asr,guard,storage,artifacts).execute(
+        JsonObject result = StructuredJson.object(new AsrTaskExecutor(asr,guard,storage,artifacts).execute(
                 message(3,new DynamicMedia.Audio(20L,"music","配乐",120000))));
-        var request=ArgumentCaptor.forClass(AsrPort.Request.class); verify(asr,times(1)).transcribe(request.capture());
-        assertEquals("http://local/music",request.getValue().sourceUrl()); assertEquals(120000,result.get("durationMs").getAsLong());
+        ArgumentCaptor<AsrPort.Request> request=ArgumentCaptor.forClass(AsrPort.Request.class);
+        verify(asr,times(1)).transcribe(request.capture());
+        assertEquals("http://local/music",request.getValue().sourceUrl());
+        assertEquals(120000,result.get("durationMs").getAsLong());
         verifyNoInteractions(artifacts);
     }
-    @Test void ocrUsesEveryOriginalImageInOrderAndPreservesEmptyText() throws Exception {
-        var ocr=mock(OcrPort.class); var message=message(18,null);
+
+    @Test
+    void ocrUsesEveryOriginalImageInOrderAndPreservesEmptyText() throws Exception {
+        OcrPort ocr=mock(OcrPort.class);
+        MediaTaskMessage message=message(18,null);
         when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
         when(ocr.recognize(any())).thenAnswer(call -> new OcrPort.Response(((OcrPort.Request)call.getArgument(0))
                 .urls().stream().map(url -> new OcrPort.Item(url,"",null)).toList()));
         when(artifacts.write(eq(100L),eq("OCR"),eq(1),any())).thenReturn("ocr");
-        var result=StructuredJson.object(new OcrTaskExecutor(ocr,guard,storage,artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings()).execute(message));
-        var requests=ArgumentCaptor.forClass(OcrPort.Request.class);
+        JsonObject result=StructuredJson.object(new OcrTaskExecutor(ocr,guard,storage,artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings()).execute(message));
+        ArgumentCaptor<OcrPort.Request> requests=ArgumentCaptor.forClass(OcrPort.Request.class);
         verify(ocr,times(9)).recognize(requests.capture());
         assertEquals(List.of(2,2,2,2,2,2,2,2,2),requests.getAllValues().stream().map(r -> r.urls().size()).toList());
         assertEquals(IntStream.range(0,18).mapToObj(i -> "http://local/image-"+i).toList(),
                 requests.getAllValues().stream().flatMap(r -> r.urls().stream()).toList());
-        var written=ArgumentCaptor.forClass(Object.class); verify(artifacts).write(eq(100L),eq("OCR"),eq(1),written.capture());
-        var frames=((ContentArtifacts.Ocr)written.getValue()).frames();
-        assertEquals(18,frames.size()); assertEquals(54000,result.get("durationMs").getAsLong());
+        ArgumentCaptor<Object> written=ArgumentCaptor.forClass(Object.class);
+        verify(artifacts).write(eq(100L),eq("OCR"),eq(1),written.capture());
+        List<ContentArtifacts.Frame> frames=((ContentArtifacts.Ocr)written.getValue()).frames();
+        assertEquals(18,frames.size());
+        assertEquals(54000,result.get("durationMs").getAsLong());
         for(int i=0;i<18;i++) {
-            assertEquals(i,frames.get(i).imageIndex()); assertEquals(i*3000L,frames.get(i).timeMs());
-            assertEquals("image-"+i,frames.get(i).objectKey()); assertEquals("",frames.get(i).text());
+            assertEquals(i,frames.get(i).imageIndex());
+            assertEquals(i*3000L,frames.get(i).timeMs());
+            assertEquals("image-"+i,frames.get(i).objectKey());
+            assertEquals("",frames.get(i).text());
         }
     }
-    @Test void missingFailedOrReorderedOcrImagesAreFailures() {
-        var ocr=mock(OcrPort.class); var executor=new OcrTaskExecutor(ocr,guard,storage,artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
+
+    @Test
+    void missingFailedOrReorderedOcrImagesAreFailures() {
+        OcrPort ocr=mock(OcrPort.class);
+        var executor=new OcrTaskExecutor(
+                ocr,
+                guard,
+                storage,
+                artifacts,
+                new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
-        for(var response : List.of(
+        for(OcrPort.Response response : List.of(
                 new OcrPort.Response(List.of(new OcrPort.Item("http://local/image-0","",null))),
                 new OcrPort.Response(List.of(new OcrPort.Item("http://local/image-0",null,"failed"),new OcrPort.Item("http://local/image-1","",null))),
-                new OcrPort.Response(List.of(new OcrPort.Item("http://local/image-1","",null),new OcrPort.Item("http://local/image-0","",null))))) {
+                new OcrPort.Response(List.of(
+                        new OcrPort.Item("http://local/image-1","",null),
+                        new OcrPort.Item("http://local/image-0","",null))))) {
             when(ocr.recognize(any())).thenReturn(response);
             assertThrows(IllegalStateException.class, () -> executor.execute(message(2,null)));
         }
         verifyNoInteractions(artifacts);
     }
-    @Test void laterOcrBatchFailureDoesNotPublishPartialArtifactOrRetryInsideExecutor() {
-        var ocr=mock(OcrPort.class);
+
+    @Test
+    void laterOcrBatchFailureDoesNotPublishPartialArtifactOrRetryInsideExecutor() {
+        OcrPort ocr=mock(OcrPort.class);
         when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
         when(ocr.recognize(any())).thenAnswer(call -> {
-            var urls=((OcrPort.Request)call.getArgument(0)).urls();
+            List<String> urls=((OcrPort.Request)call.getArgument(0)).urls();
             if(urls.contains("http://local/image-4")) throw new IllegalStateException("execution timed out");
             return new OcrPort.Response(urls.stream().map(url -> new OcrPort.Item(url,"",null)).toList());
         });
-        var executor=new OcrTaskExecutor(ocr,guard,storage,artifacts,new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
+        var executor=new OcrTaskExecutor(
+                ocr,
+                guard,
+                storage,
+                artifacts,
+                new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings());
         assertThrows(IllegalStateException.class,() -> executor.execute(message(10,null)));
         verify(ocr,times(3)).recognize(any());
         verify(storage,never()).signGetUrl(eq("image-6"),anyLong());
         verifyNoInteractions(artifacts);
     }
-    @Test void configurableOcrBatchSizePreservesTailAndRejectsInvalidLimits() throws Exception {
-        var ocr=mock(OcrPort.class); var properties=new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(
-                new org.springframework.mock.env.MockEnvironment().withProperty("my-youtube.frame-processing.ocr-batch-size", "3"));
+
+    @Test
+    void configurableOcrBatchSizePreservesTailAndRejectsInvalidLimits() throws Exception {
+        OcrPort ocr=mock(OcrPort.class);
+        var properties=new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(
+                new org.springframework.mock.env.MockEnvironment()
+                        .withProperty("my-youtube.frame-processing.ocr-batch-size", "3"));
         when(artifacts.write(eq(100L),eq("OCR"),eq(1),any())).thenReturn("ocr");
         when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
         when(ocr.recognize(any())).thenAnswer(call -> new OcrPort.Response(((OcrPort.Request)call.getArgument(0))
                 .urls().stream().map(url -> new OcrPort.Item(url,"text",null)).toList()));
         new OcrTaskExecutor(ocr,guard,storage,artifacts,properties).execute(message(10,null));
-        var requests=ArgumentCaptor.forClass(OcrPort.Request.class); verify(ocr,times(4)).recognize(requests.capture());
+        ArgumentCaptor<OcrPort.Request> requests=ArgumentCaptor.forClass(OcrPort.Request.class);
+        verify(ocr,times(4)).recognize(requests.capture());
         assertEquals(List.of(3,3,3,1),requests.getAllValues().stream().map(r -> r.urls().size()).toList());
         for(int invalid : List.of(0,51)) {
-            assertThrows(IllegalArgumentException.class, () -> new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(
-                    new org.springframework.mock.env.MockEnvironment().withProperty("my-youtube.frame-processing.ocr-batch-size", String.valueOf(invalid))));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(
+                    new org.springframework.mock.env.MockEnvironment()
+                            .withProperty("my-youtube.frame-processing.ocr-batch-size", String.valueOf(invalid))));
         }
     }
-    @Test void visionReviewCoversAllEighteenImagesIncludingPartialBatch() {
-        var port=mock(ContentPipelinePort.class); var llm=mock(LlmPort.class); var message=message(18,null);
-        when(port.reviewSpec(100L,1)).thenReturn(new PipelineContracts.ReviewSpec(true,"test","v1","rules",0.2,0.9,12000,true,4));
-        when(artifacts.read("asr",ContentArtifacts.Transcript.class)).thenReturn(new ContentArtifacts.Transcript(List.of()));
-        when(artifacts.read("summary",ContentArtifacts.Summary.class)).thenReturn(new ContentArtifacts.Summary("摘要",List.of()));
-        var frames=message.getInput().media().dynamic().items();
+
+    @Test
+    void visionReviewCoversAllEighteenImagesIncludingPartialBatch() {
+        ContentPipelinePort port=mock(ContentPipelinePort.class);
+        LlmPort llm=mock(LlmPort.class);
+        MediaTaskMessage message=message(18,null);
+        when(port.reviewSpec(100L,1)).thenReturn(new PipelineContracts.ReviewSpec(
+                true,
+                "test",
+                "v1",
+                "rules",
+                0.2,
+                0.9,
+                12000,
+                true,
+                4));
+        when(artifacts.read("asr",ContentArtifacts.Transcript.class))
+                .thenReturn(new ContentArtifacts.Transcript(List.of()));
+        when(artifacts.read("summary",ContentArtifacts.Summary.class)).thenReturn(new ContentArtifacts.Summary(
+                "摘要",
+                List.of()));
+        List<DynamicMedia.Image> frames=message.getInput().media().dynamic().items();
         when(artifacts.read("ocr",ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(IntStream.range(0,18)
-                .mapToObj(i -> new ContentArtifacts.Frame(i,frames.get(i).startMs(),frames.get(i).imageObjectKey(),"")).toList()));
+                .mapToObj(i -> new ContentArtifacts.Frame(i,frames.get(i).startMs(),frames.get(i).imageObjectKey(),""))
+                .toList()));
         when(storage.signGetUrl(anyString(),eq(600L))).thenAnswer(call -> "http://local/"+call.getArgument(0));
-        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse("{\"decision\":\"PASS\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"安全\",\"evidence\":[]}","test","stop",null));
-        message.setDependencies(Map.of("ASR","{\"segmentsKey\":\"asr\"}","OCR","{\"artifactKey\":\"ocr\"}","SUMMARY","{\"artifactKey\":\"summary\"}"));
-        var verdict=ReviewVerdict.parse(new ReviewTaskExecutor(port,artifacts,storage,llm,guard).execute(message),"test");
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(
+                "{\"decision\":\"PASS\",\"riskScore\":0.1,\"confidence\":0.99,\"reason\":\"安全\",\"evidence\":[]}",
+                "test",
+                "stop",
+                null));
+        message.setDependencies(Map.of(
+                "ASR",
+                "{\"segmentsKey\":\"asr\"}",
+                "OCR",
+                "{\"artifactKey\":\"ocr\"}",
+                "SUMMARY",
+                "{\"artifactKey\":\"summary\"}"));
+        ReviewVerdict verdict=ReviewVerdict.parse(
+                new ReviewTaskExecutor(port,artifacts,storage,llm,guard).execute(message),
+                "test");
         assertTrue(verdict.passes(0.2,0.9));
-        var requests=ArgumentCaptor.forClass(LlmPort.ChatRequest.class);verify(llm,times(6)).chat(requests.capture());
-        var urls=requests.getAllValues().stream().flatMap(req -> req.getMessages().get(1).getParts().stream())
+        ArgumentCaptor<LlmPort.ChatRequest> requests=ArgumentCaptor.forClass(LlmPort.ChatRequest.class);
+        verify(llm,times(6)).chat(requests.capture());
+        List<String> urls=requests.getAllValues().stream().flatMap(req -> req.getMessages().get(1).getParts().stream())
                 .filter(p -> "image_url".equals(p.getType())).map(p -> p.getImageUrl().getUrl()).toList();
         assertEquals(IntStream.range(0,18).mapToObj(i -> "http://local/image-"+i).toList(),urls);
     }

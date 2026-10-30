@@ -33,7 +33,10 @@ public class ContentSearchPage {
         List<String> firstPageIds = cursor == null ? List.of() : cursor.firstPageIds();
         CursorPage<ContentSummary, List<FieldValue>> page = keywordPages.search(context, position,
                 Set.copyOf(firstPageIds), context.getQuery().getPageSize());
-        String next = page.nextCursor() == null ? null : ContentSearchCursor.encode(context, firstPageIds, page.nextCursor());
+        String next = page.nextCursor() == null ? null : ContentSearchCursor.encode(
+                context,
+                firstPageIds,
+                page.nextCursor());
         return new CursorPage<>(page.items(), next);
     }
 

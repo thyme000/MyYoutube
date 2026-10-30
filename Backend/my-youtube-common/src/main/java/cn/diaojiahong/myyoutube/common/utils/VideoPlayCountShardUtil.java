@@ -7,7 +7,8 @@ import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
  */
 public final class VideoPlayCountShardUtil {
 
-    private VideoPlayCountShardUtil() {}
+    private VideoPlayCountShardUtil() {
+    }
 
     /**
      * 根据视频 id 计算分片下标 [0, {@link RedisConstants#VIDEO_PLAY_COUNT_SHARD_COUNT})

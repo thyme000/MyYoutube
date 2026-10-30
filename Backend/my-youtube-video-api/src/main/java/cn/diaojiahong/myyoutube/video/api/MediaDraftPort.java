@@ -34,7 +34,8 @@ public interface MediaDraftPort {
     @PostMapping("/preparation-reference")
     String preparationReference(@RequestBody PreparationReference reference);
 
-    record PreparationReference(Long preparationId, Long draftId, Long userId, long mediaVersion) {}
+    record PreparationReference(Long preparationId, Long draftId, Long userId, long mediaVersion) {
+    }
 
     @Data
     @NoArgsConstructor

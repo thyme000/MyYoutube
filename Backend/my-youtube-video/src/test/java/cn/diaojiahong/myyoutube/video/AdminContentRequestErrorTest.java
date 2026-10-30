@@ -17,13 +17,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class AdminContentRequestErrorTest {
     final IContentService content = mock(IContentService.class);
+
     final ReviewDecisionService decisions = mock(ReviewDecisionService.class);
+
     final MockMvc mvc = MockMvcBuilders.standaloneSetup(new InternalAdminContentController(
             mock(ContentUnderstandingService.class), decisions, content,
             mock(ContentTypeStrategyRegistry.class), mock(ContentReadService.class)))
             .setControllerAdvice(new GlobalExceptionHandler()).build();
 
-    @Test void invalidFiltersAndReviewStatesFailBeforeAccessingContent() throws Exception {
+    @Test
+    void invalidFiltersAndReviewStatesFailBeforeAccessingContent() throws Exception {
         for (String input : new String[]{"{\"type\":\"invalid\"}", "{\"statusCode\":\"invalid\"}"}) {
             mvc.perform(post("/internal/admin/content/page").contentType("application/json").content(input))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40001));

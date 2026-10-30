@@ -9,10 +9,12 @@ import cn.diaojiahong.myyoutube.transcode.chain.dynamic.TranscodeNotifier;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
 import cn.diaojiahong.myyoutube.transcode.mq.message.TranscodeTaskMessage;
 import cn.diaojiahong.myyoutube.transcode.service.TranscodeTaskService;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
+import org.redisson.api.RLock;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -40,6 +42,7 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
         if (msg == null || msg.getTaskId() == null) {
             return;
         }
+
         TranscodeTask task = taskService.getById(msg.getTaskId());
         if (task == null) {
             log.warn("转码任务不存在, 消息已丢弃 taskId={}", msg.getTaskId());
@@ -49,11 +52,14 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
             log.debug("转码任务已终态, 跳过重复投递 taskId={} status={}", msg.getTaskId(), task.getStatus());
             return;
         }
-        var lock = taskService.artifactLock(task.getTaskKey());
+        RLock lock = taskService.artifactLock(task.getTaskKey());
         try {
             lock.lockInterruptibly();
-            try { process(taskService.getById(task.getId())); }
-            finally { lock.unlock(); }
+            try {
+                process(taskService.getById(task.getId()));
+            } finally {
+                lock.unlock();
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("等待成片任务锁被中断", e);
@@ -63,9 +69,9 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
     private void process(TranscodeTask task) {
         if (task == null || TranscodeTaskStatus.DONE.equals(task.getStatus())
                 || TranscodeTaskStatus.FAILED.equals(task.getStatus())) return;
-        var cached = taskService.validCompleted(task.getTaskKey());
+        TranscodeTask cached = taskService.validCompleted(task.getTaskKey());
         if (cached != null) {
-            var affected = taskService.listInflightByKey(task.getTaskKey());
+            List<TranscodeTask> affected = taskService.listInflightByKey(task.getTaskKey());
             taskService.completeByKey(task.getTaskKey(), cached.getResultObjectKey());
             notifier.notifyAffected(affected, "TRANSCODE_DONE");
             log.info("动态成片复用已完成产物 taskId={} taskKey={} objectKey={} affected={}",
@@ -91,7 +97,9 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
             List<TranscodeTask> affected = taskService.listInflightByKey(task.getTaskKey());
             log.error("动态成片生成失败 taskId={} taskKey={} affected={} elapsedMs={}",
                     task.getId(), task.getTaskKey(), affected.size(), System.currentTimeMillis() - startedAt, e);
-            taskService.failByKey(task.getTaskKey(), e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            taskService.failByKey(
+                    task.getTaskKey(),
+                    e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
             notifier.notifyAffected(affected, "TRANSCODE_FAILED");
         } finally {
             deleteTreeQuietly(ctx.getWorkRoot());
@@ -102,7 +110,8 @@ public class TranscodeTaskListener implements RocketMQListener<TranscodeTaskMess
         if (root == null || !Files.exists(root)) {
             return;
         }
-        try (var walk = Files.walk(root)) {
+
+        try (Stream<Path> walk = Files.walk(root)) {
             walk.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.deleteIfExists(p);

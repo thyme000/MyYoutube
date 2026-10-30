@@ -17,13 +17,19 @@ public class AudioProcessingProperties {
     private int readTimeoutMs = 1500;
     private int deadlineMinutes = 30;
 
-    @PostConstruct public void validate() {
+    @PostConstruct
+    public void validate() {
         if (scanIntervalMs < 1 || batchSize < 1 || batchSize > 1000 || leaseSeconds < 1 || deadlineMinutes < 1
                 || connectTimeoutMs < 1 || readTimeoutMs < 1 || roundBudgetMs < itemBudgetMs()
                 || leaseSeconds * 1000L <= itemBudgetMs() + 1000)
             throw new IllegalStateException("音频处理调度配置无效");
     }
 
-    public long callBudgetMs() { return (long) connectTimeoutMs + readTimeoutMs; }
-    public long itemBudgetMs() { return 2 * callBudgetMs(); }
+    public long callBudgetMs() {
+        return (long) connectTimeoutMs + readTimeoutMs;
+    }
+
+    public long itemBudgetMs() {
+        return 2 * callBudgetMs();
+    }
 }

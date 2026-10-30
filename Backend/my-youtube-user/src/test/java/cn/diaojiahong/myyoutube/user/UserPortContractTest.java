@@ -23,11 +23,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class UserPortContractTest {
     private final IUserService users = mock(IUserService.class);
+
     private final CounterBuffer counters = mock(CounterBuffer.class);
+
     private final UserSummaryCache cache = mock(UserSummaryCache.class);
+
     private final UserPortAdapter adapter = new UserPortAdapter(users, counters, cache);
 
-    @Test void followsStillUseTheirCounterBuffer() {
+    @Test
+    void followsStillUseTheirCounterBuffer() {
         adapter.adjustCounters(List.of(new CounterAdjust(7L, "fans", 1), new CounterAdjust(8L, "attentionCount", -1)));
         verify(counters).add(CounterType.USER_FANS, 7L, 1);
         verify(counters).add(CounterType.USER_ATTENTION, 8L, -1);
@@ -36,7 +40,8 @@ class UserPortContractTest {
         verifyNoMoreInteractions(counters);
     }
 
-    @Test void retiredContentCounterEndpointIsUnavailable() throws Exception {
+    @Test
+    void retiredContentCounterEndpointIsUnavailable() throws Exception {
         MockMvcBuilders.standaloneSetup(new InternalUserController(adapter)).build()
                 .perform(post("/internal/user/counters/content-event")
                         .contentType("application/json").content("{\"eventId\":\"old\",\"userId\":7,\"delta\":1}"))
@@ -44,7 +49,8 @@ class UserPortContractTest {
         verifyNoInteractions(users, counters, cache);
     }
 
-    @Test void userRepresentationsDoNotExposeARedundantContentCount() {
+    @Test
+    void userRepresentationsDoNotExposeARedundantContentCount() {
         var json = new ObjectMapper();
         for (Object representation : List.of(new User(), new UserVO(), new UserSummary())) {
             assertTrue(json.valueToTree(representation).has("fans"));

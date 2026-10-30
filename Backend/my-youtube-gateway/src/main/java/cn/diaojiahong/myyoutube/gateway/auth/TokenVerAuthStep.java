@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.gateway.auth;
 import cn.diaojiahong.myyoutube.common.chain.ChainStep;
 
 import cn.diaojiahong.myyoutube.security.AuthConstants;
+import cn.diaojiahong.myyoutube.security.JwtPayload;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
@@ -32,10 +33,11 @@ public class TokenVerAuthStep implements ChainStep<AuthContext> {
 
     @Override
     public Mono<Void> apply(AuthContext ctx) {
-        var payload = ctx.getJwtPayload();
+        JwtPayload payload = ctx.getJwtPayload();
         if (payload == null) {
             return Mono.empty();
         }
+
         return redisTemplate.opsForValue()
                 .get(AuthConstants.TOKEN_VER_KEY_PREFIX + payload.userId())
                 .defaultIfEmpty("")

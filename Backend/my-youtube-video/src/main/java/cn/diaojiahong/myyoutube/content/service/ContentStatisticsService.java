@@ -60,12 +60,15 @@ public class ContentStatisticsService {
     }
 
     private ContentVisibilityEnum visibility(Content content) {
-        return Objects.requireNonNull(ContentVisibilityEnum.fromCode(content.getVisibility()), "Invalid content visibility");
+        return Objects.requireNonNull(
+                ContentVisibilityEnum.fromCode(content.getVisibility()),
+                "Invalid content visibility");
     }
 
     private void requireChanged(int affected, Long contentId) {
         if (affected == 0) throw new IllegalStateException("Content statistics out of sync: contentId=" + contentId);
     }
 
-    private record Adjustment(ContentVisibilityEnum visibility, int delta) {}
+    private record Adjustment(ContentVisibilityEnum visibility, int delta) {
+    }
 }

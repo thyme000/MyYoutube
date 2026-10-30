@@ -12,7 +12,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 @EnableScheduling
 public class HotSearchConfiguration {
     @Bean
-    public Clock hotSearchClock() { return Clock.systemUTC(); }
+    public Clock hotSearchClock() {
+        return Clock.systemUTC();
+    }
 
     @Bean
     public ThreadPoolTaskExecutor hotSearchCacheExecutor() {

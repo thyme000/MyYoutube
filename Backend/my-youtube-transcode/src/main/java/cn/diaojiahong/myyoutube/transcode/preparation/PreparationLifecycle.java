@@ -17,8 +17,9 @@ public class PreparationLifecycle {
     }
 
     public void requireActive(Long id) {
-        var row = lock(id);
-        if (row == null || !"ACTIVE".equals(row.getLifecycle())) throw new IllegalStateException("Preparation is retired or missing");
+        MediaPreparation row = lock(id);
+        if (row == null
+                || !"ACTIVE".equals(row.getLifecycle())) throw new IllegalStateException("Preparation is retired or missing");
     }
 
     public void requireActive(ContentMedia media) {

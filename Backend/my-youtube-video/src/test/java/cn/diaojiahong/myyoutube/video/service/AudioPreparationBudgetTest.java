@@ -20,43 +20,81 @@ import static org.mockito.Mockito.*;
 
 class AudioPreparationBudgetTest {
     final AudioMapper rows = mock(AudioMapper.class);
-    final AudioPreparationPort tasks = mock(AudioPreparationPort.class);
-    final AudioProcessingProperties properties = new AudioProcessingProperties();
-    final AtomicLong clock = new AtomicLong();
-    final AudioPreparationService service = new AudioPreparationService(rows, tasks, properties, mock(AudioReviewService.class), clock::get);
 
-    @BeforeEach void setup() {
+    final AudioPreparationPort tasks = mock(AudioPreparationPort.class);
+
+    final AudioProcessingProperties properties = new AudioProcessingProperties();
+
+    final AtomicLong clock = new AtomicLong();
+
+    final AudioPreparationService service = new AudioPreparationService(
+            rows,
+            tasks,
+            properties,
+            mock(AudioReviewService.class),
+            clock::get);
+
+    @BeforeEach
+    void setup() {
         properties.validate();
         when(rows.selectList(any())).thenReturn(List.of(audio(1), audio(2)));
         when(rows.update(isNull(), any())).thenReturn(1);
     }
+
     Audio audio(long id) {
         return new Audio().setId(id).setUploaderId(9L).setSourceObjectKey("uploads/audio/9/day/" + id + ".wav")
-                .setProcessingStatus(AudioProcessingStatus.PROCESSING).setReviewStatus(AudioReviewStatus.PENDING).setIsDelete(0)
-                .setPreparationAttempt(0).setPreparationRetry(false).setPreparationAfter(LocalDateTime.now().minusSeconds(1))
+                .setProcessingStatus(AudioProcessingStatus.PROCESSING)
+                .setReviewStatus(AudioReviewStatus.PENDING)
+                .setIsDelete(0)
+                .setPreparationAttempt(0)
+                .setPreparationRetry(false)
+                .setPreparationAfter(LocalDateTime.now().minusSeconds(1))
                 .setProcessingDeadline(LocalDateTime.now().plusMinutes(30));
     }
-    @Test void stopsClaimingFurtherRowsWhenRemainingBudgetCannotCoverOneItem() {
+
+    @Test
+    void stopsClaimingFurtherRowsWhenRemainingBudgetCannotCoverOneItem() {
         when(tasks.preparation(1L)).thenAnswer(c -> {
             clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(1500));
             return new View(1L, MediaTaskStatus.RUNNING, 1, 0, null, null, null);
         });
         service.reconcile();
-        verify(tasks).preparation(1L); verifyNoMoreInteractions(tasks); verify(rows, times(1)).update(isNull(), any());
+        verify(tasks).preparation(1L);
+        verifyNoMoreInteractions(tasks);
+        verify(rows, times(1)).update(isNull(), any());
     }
-    @Test void slowLookupDoesNotStartAnotherRpcAfterBudgetRunsLow() {
-        when(tasks.preparation(1L)).thenAnswer(c -> { clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(4000)); return null; });
+
+    @Test
+    void slowLookupDoesNotStartAnotherRpcAfterBudgetRunsLow() {
+        when(tasks.preparation(1L)).thenAnswer(c -> {
+            clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(4000));
+            return null;
+        });
         service.reconcile();
-        verify(tasks).preparation(1L); verifyNoMoreInteractions(tasks);
+        verify(tasks).preparation(1L);
+        verifyNoMoreInteractions(tasks);
     }
-    @Test void exhaustedBudgetAfterDatabaseReadDoesNotClaimOrCallAnything() {
-        when(rows.selectList(any())).thenAnswer(c -> { clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(5001)); return List.of(audio(1)); });
+
+    @Test
+    void exhaustedBudgetAfterDatabaseReadDoesNotClaimOrCallAnything() {
+        when(rows.selectList(any())).thenAnswer(c -> {
+            clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(5001));
+            return List.of(audio(1));
+        });
         service.reconcile();
-        verify(rows, never()).update(isNull(), any()); verifyNoInteractions(tasks);
+        verify(rows, never()).update(isNull(), any());
+        verifyNoInteractions(tasks);
     }
-    @Test void dependencyFailureStopsRoundRatherThanCallingEveryRow() {
-        when(tasks.preparation(1L)).thenThrow(new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "unavailable", null));
+
+    @Test
+    void dependencyFailureStopsRoundRatherThanCallingEveryRow() {
+        when(tasks.preparation(1L)).thenThrow(new DependencyException(
+                ErrorCode.DEPENDENCY_FAILURE,
+                "unavailable",
+                null));
         service.reconcile();
-        verify(tasks).preparation(1L); verifyNoMoreInteractions(tasks); verify(rows, times(1)).update(isNull(), any());
+        verify(tasks).preparation(1L);
+        verifyNoMoreInteractions(tasks);
+        verify(rows, times(1)).update(isNull(), any());
     }
 }

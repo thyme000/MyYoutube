@@ -60,6 +60,7 @@ public enum EventEnum {
         if (code == null || code.isBlank()) {
             return null;
         }
+
         for (EventEnum event : values()) {
             if (event.getCode().equals(code)) {
                 return event;

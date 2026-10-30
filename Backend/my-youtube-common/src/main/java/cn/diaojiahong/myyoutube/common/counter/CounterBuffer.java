@@ -42,6 +42,7 @@ public class CounterBuffer {
         if (delta == 0) {
             return;
         }
+
         if (!type.reconcile()) {
             redisTemplate.opsForValue().increment(CounterKeys.pending(type, id), delta);
             return;
@@ -60,6 +61,7 @@ public class CounterBuffer {
         if (claimed == null) {
             return null;
         }
+
         try {
             return Long.valueOf(claimed);
         } catch (NumberFormatException e) {
@@ -106,6 +108,7 @@ public class CounterBuffer {
         if (members == null) {
             return ids;
         }
+
         for (String member : members) {
             try {
                 ids.add(Long.valueOf(member));

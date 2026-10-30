@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
+import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Bindable;
@@ -13,10 +14,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class RecallRankingTest {
     final RecallRankingProperties properties = new RecallRankingProperties();
+
     final RecallRanking ranking = new RecallRanking(properties);
+
     final Query relevance = Query.of(q -> q.matchAll(m -> m));
 
-    @Test void externalConfigurationOverridesBothRoutesAndTextWeights() {
+    @Test
+    void externalConfigurationOverridesBothRoutesAndTextWeights() {
         var source = new MapConfigurationPropertySource(Map.of(
                 "my-youtube.search.ranking.fields.title", "7",
                 "my-youtube.search.ranking.keyword.follow", "0.15",
@@ -29,11 +33,12 @@ class RecallRankingTest {
         assertEquals(0.02, properties.getKeyword().getPlay());
     }
 
-    @Test void oneFollowConditionCoversAnEntireSnapshotAndRoutesHaveIndependentCoefficients() {
-        var ctx = SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L,
+    @Test
+    void oneFollowConditionCoversAnEntireSnapshotAndRoutesHaveIndependentCoefficients() {
+        SearchContext ctx = SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L,
                 java.util.stream.LongStream.rangeClosed(1, 205).boxed().toList());
-        var keyword = ranking.keyword(relevance, ctx).functionScore();
-        var vector = ranking.vector(relevance, ctx).functionScore();
+        FunctionScoreQuery keyword = ranking.keyword(relevance, ctx).functionScore();
+        FunctionScoreQuery vector = ranking.vector(relevance, ctx).functionScore();
         assertEquals(4, keyword.functions().size());
         assertEquals(205, keyword.functions().get(1).filter().terms().terms().value().size());
         assertEquals(0.20, keyword.functions().get(1).weight());
@@ -42,21 +47,25 @@ class RecallRankingTest {
         assertEquals(1.2, vector.maxBoost());
     }
 
-    @Test void disabledBusinessWeightsPreserveTheOriginalScore() {
+    @Test
+    void disabledBusinessWeightsPreserveTheOriginalScore() {
         properties.setKeyword(new RecallRankingProperties.Weights(0, 0, 0, 1));
-        var score = ranking.keyword(relevance, HybridRecallServiceTest.context()).functionScore();
+        FunctionScoreQuery score = ranking.keyword(relevance, HybridRecallServiceTest.context()).functionScore();
         assertEquals(1, score.functions().size());
         assertEquals(1, score.functions().get(0).weight());
         assertEquals(1, score.maxBoost());
     }
 
-    @Test void latestSortSkipsBothBusinessScorers() {
-        var ctx = HybridRecallServiceTest.context(); ctx.getQuery().setSortByLatest(true);
+    @Test
+    void latestSortSkipsBothBusinessScorers() {
+        SearchContext ctx = HybridRecallServiceTest.context();
+        ctx.getQuery().setSortByLatest(true);
         assertSame(relevance, ranking.keyword(relevance, ctx));
         assertSame(relevance, ranking.vector(relevance, ctx));
     }
 
-    @Test void rejectsInvalidConfigurationBeforeServingQueries() {
+    @Test
+    void rejectsInvalidConfigurationBeforeServingQueries() {
         for (double invalid : List.of(-1.0, Double.NaN, Double.POSITIVE_INFINITY)) {
             properties.getKeyword().setFollow(invalid);
             assertThrows(IllegalStateException.class, properties::validate);

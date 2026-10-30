@@ -33,6 +33,7 @@ public class ItemCfCalculator implements SimilarityCalculator {
      */
     private static final class LocalAcc {
         final Map<Long, Map<Long, Double>> coOccurrence = new HashMap<>();
+
         final Map<Long, Integer> itemCount = new HashMap<>();
     }
 

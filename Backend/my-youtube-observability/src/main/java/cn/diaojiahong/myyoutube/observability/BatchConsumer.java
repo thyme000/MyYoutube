@@ -9,28 +9,43 @@ import org.slf4j.*;
 import java.util.List;
 
 final class BatchConsumer implements MessageListenerConcurrently {
-    @FunctionalInterface interface Writer { void ingest(byte[] body); }
-    @FunctionalInterface interface DeadLetters { void transfer(MessageExt message) throws Exception; }
+    @FunctionalInterface interface Writer {
+        void ingest(byte[] body);
+    }
+
+    @FunctionalInterface interface DeadLetters {
+        void transfer(MessageExt message) throws Exception;
+    }
+
     private static final Logger log = LoggerFactory.getLogger(BatchConsumer.class);
     private final Writer writer;
     private final DeadLetters dlq;
     private final PendingDlq pending;
     private final MeterRegistry metrics;
+
     BatchConsumer(Writer writer, DeadLetters dlq, PendingDlq pending, MeterRegistry metrics) {
-        this.writer = writer; this.dlq = dlq; this.pending = pending; this.metrics = metrics;
+        this.writer = writer;
+        this.dlq = dlq;
+        this.pending = pending;
+        this.metrics = metrics;
     }
-    @Override public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> messages, ConsumeConcurrentlyContext context) {
+
+    @Override
+    public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> messages, ConsumeConcurrentlyContext context) {
         // 一条 Broker 消息包含完整且不可变的事件批次。
         if (messages.size() != 1) return ConsumeConcurrentlyStatus.RECONSUME_LATER;
         MessageExt message = messages.get(0);
         byte[] body = message.getBody();
         try {
             if (!pending.contains(body)) {
-                try { writer.ingest(body); return ConsumeConcurrentlyStatus.CONSUME_SUCCESS; }
-                catch (IngestFailure failure) {
+                try {
+                    writer.ingest(body);
+                    return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+                } catch (IngestFailure failure) {
                     if (!failure.permanent()) throw failure;
                     pending.save(body, failure.reason());
-                    metrics.counter(MetricNames.PIPELINE_INGEST_DLQ_CLASSIFIED, "reason", failure.reason().name()).increment();
+                    metrics.counter(MetricNames.PIPELINE_INGEST_DLQ_CLASSIFIED, "reason", failure.reason().name())
+                            .increment();
                     log.error("Pipeline batch requires DLQ transfer reason={}", failure.reason());
                 }
             }

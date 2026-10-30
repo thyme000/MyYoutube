@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import feign.Request;
@@ -23,12 +24,24 @@ public class HotSearchModel {
             Map.of("name", "hot_search_groups", "strict", true, "schema",
                     Map.of("type", "object", "additionalProperties", false, "required", List.of("groups"),
                             "properties", Map.of("groups", Map.of("type", "array", "items",
-                                    Map.of("type", "object", "additionalProperties", false, "required", List.of("name", "members"),
+                                    Map.of(
+                                            "type",
+                                            "object",
+                                            "additionalProperties",
+                                            false,
+                                            "required",
+                                            List.of("name", "members"),
                                             "properties", Map.of("name", Map.of("type", "string"),
-                                                    "members", Map.of("type", "array", "items", Map.of("type", "integer")))))))));
+                                                    "members", Map.of(
+                                                            "type",
+                                                            "array",
+                                                            "items",
+                                                            Map.of("type", "integer")))))))));
 
     public record Grouping(String name, List<String> keywords) {
-        public Grouping { keywords = List.copyOf(keywords); }
+        public Grouping {
+            keywords = List.copyOf(keywords);
+        }
     }
 
     private final LlmPort llm;
@@ -37,16 +50,22 @@ public class HotSearchModel {
     private final PromptTemplates prompts;
 
     public QueryEmbeddingPort.Info info() {
-        QueryEmbeddingPort.Info info = queries.info(new Request.Options(1000, TimeUnit.MILLISECONDS, 1000, TimeUnit.MILLISECONDS, true));
+        QueryEmbeddingPort.Info info = queries.info(new Request.Options(
+                1000,
+                TimeUnit.MILLISECONDS,
+                1000,
+                TimeUnit.MILLISECONDS,
+                true));
         if (info == null || info.version() == null || info.version().isBlank() || info.dims() <= 0) {
             throw new IllegalStateException("模型向量版本信息非法: " + info);
         }
+
         return info;
     }
 
     public Map<String, List<Float>> vectors(List<String> texts, QueryEmbeddingPort.Info info) {
         if (texts.isEmpty()) return Map.of();
-        var response = llm.embeddings(new LlmPort.EmbeddingsRequest(texts), options());
+        LlmPort.EmbeddingsResponse response = llm.embeddings(new LlmPort.EmbeddingsRequest(texts), options());
         if (response == null || !info.version().equals(response.getVersion()) || response.getDims() == null
                 || response.getDims() != info.dims() || response.getItems() == null) {
             throw new IllegalStateException("热搜向量响应结构或版本不匹配: batchSize=" + texts.size()
@@ -57,7 +76,7 @@ public class HotSearchModel {
         Map<Integer, List<Float>> accepted = new HashMap<>();
         Set<Integer> seen = new HashSet<>();
         int invalidItems = 0, duplicateItems = 0;
-        for (var item : response.getItems()) {
+        for (LlmPort.EmbeddingItem item : response.getItems()) {
             if (item == null || item.index() < 0 || item.index() >= texts.size()) {
                 invalidItems++;
                 continue;
@@ -73,7 +92,10 @@ public class HotSearchModel {
             }
             accepted.put(item.index(), List.copyOf(item.vector()));
         }
-        if (accepted.size() != texts.size() || invalidItems > 0 || duplicateItems > 0 || response.getUnavailableReason() != null) {
+        if (accepted.size() != texts.size()
+                || invalidItems > 0
+                || duplicateItems > 0
+                || response.getUnavailableReason() != null) {
             log.warn("Hot search embeddings filtered batchSize={} responseItems={} accepted={} invalidItems={} duplicateItems={} version={} dims={} unavailable={}",
                     texts.size(), response.getItems().size(), accepted.size(), invalidItems, duplicateItems,
                     info.version(), info.dims(), response.getUnavailableReason() != null);
@@ -85,12 +107,14 @@ public class HotSearchModel {
 
     public List<Grouping> group(List<String> texts) {
         if (texts.isEmpty()) return List.of();
-        var templates = prompts.snapshot();
+        PromptTemplates.Snapshot templates = prompts.snapshot();
         try {
-            var response = llm.chat(groupRequest(texts, templates), options());
+            LlmPort.ChatResponse response = llm.chat(groupRequest(texts, templates), options());
             return parseGroups(groupItems(response), texts, templates.version());
         } catch (RuntimeException error) {
-            throw new IllegalStateException("热搜分组失败: batchSize=" + texts.size() + " promptVersion=" + templates.version(), error);
+            throw new IllegalStateException(
+                    "热搜分组失败: batchSize=" + texts.size() + " promptVersion=" + templates.version(),
+                    error);
         }
     }
 
@@ -107,7 +131,8 @@ public class HotSearchModel {
         if (response == null || !"stop".equals(response.getFinishReason()) || response.getContent() == null) {
             throw new IllegalStateException("热搜分组未正常完成: finishReason=" + (response == null ? null : response.getFinishReason()));
         }
-        var json = JsonParser.parseString(response.getContent()).getAsJsonObject();
+
+        JsonObject json = JsonParser.parseString(response.getContent()).getAsJsonObject();
         requireFields(json, Set.of("groups"));
         if (!json.get("groups").isJsonArray()) throw new IllegalStateException("热搜分组列表非法");
         return json.getAsJsonArray("groups");
@@ -119,8 +144,8 @@ public class HotSearchModel {
         int invalidGroups = 0, duplicateMembers = 0;
         for (int i = 0; i < items.size(); i++) {
             try {
-                var value = items.get(i).getAsJsonObject();
-                var group = parseGroup(value, texts, seen);
+                JsonObject value = items.get(i).getAsJsonObject();
+                HotSearchModel.Grouping group = parseGroup(value, texts, seen);
                 duplicateMembers += value.getAsJsonArray("members").size() - group.keywords().size();
                 if (!group.keywords().isEmpty()) result.add(group);
             } catch (RuntimeException error) {
@@ -131,7 +156,13 @@ public class HotSearchModel {
         }
         if (invalidGroups > 0 || duplicateMembers > 0 || seen.size() != texts.size())
             log.warn("Hot search groups filtered batchSize={} responseGroups={} acceptedGroups={} invalidGroups={} duplicateMembers={} unassignedMembers={} promptVersion={}",
-                    texts.size(), items.size(), result.size(), invalidGroups, duplicateMembers, texts.size() - seen.size(), promptVersion);
+                    texts.size(),
+                    items.size(),
+                    result.size(),
+                    invalidGroups,
+                    duplicateMembers,
+                    texts.size() - seen.size(),
+                    promptVersion);
         return List.copyOf(result);
     }
 
@@ -141,7 +172,7 @@ public class HotSearchModel {
                 || !value.get("members").isJsonArray()) {
             throw new IllegalStateException("热搜分组内容非法");
         }
-        var indices = memberIndices(value.getAsJsonArray("members"), texts.size());
+        List<Integer> indices = memberIndices(value.getAsJsonArray("members"), texts.size());
         List<String> members = new ArrayList<>();
         for (int index : indices) {
             if (seen.add(index)) members.add(texts.get(index));
@@ -156,7 +187,7 @@ public class HotSearchModel {
     private List<Integer> memberIndices(JsonArray members, int inputSize) {
         if (members.isEmpty()) throw new IllegalStateException("热搜分组成员为空");
         List<Integer> indices = new ArrayList<>();
-        for (var member : members) {
+        for (JsonElement member : members) {
             if (!member.isJsonPrimitive() || !member.getAsJsonPrimitive().isNumber())
                 throw new IllegalStateException("热搜分组编号必须为整数");
             int index = member.getAsBigDecimal().intValueExact();

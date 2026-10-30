@@ -8,7 +8,8 @@ import org.springframework.mock.env.MockEnvironment;
 import static org.junit.jupiter.api.Assertions.*;
 
 class AuthorContentPagePropertiesTest {
-    @Test void bindsRefillLimits() {
+    @Test
+    void bindsRefillLimits() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("my-youtube.author-content-page.scan-budget-ms", "100")
                 .withProperty("my-youtube.author-content-page.scan-limit", "300");
@@ -19,7 +20,8 @@ class AuthorContentPagePropertiesTest {
         assertEquals(300, properties.getScanLimit());
     }
 
-    @Test void rejectsUnboundedOrInvalidScanSettings() {
+    @Test
+    void rejectsUnboundedOrInvalidScanSettings() {
         AuthorContentPageProperties properties = new AuthorContentPageProperties();
         properties.setScanLimit(0);
         assertThrows(IllegalStateException.class, properties::validate);

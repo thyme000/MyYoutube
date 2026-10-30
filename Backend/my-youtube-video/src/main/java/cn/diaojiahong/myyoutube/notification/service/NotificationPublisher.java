@@ -29,7 +29,9 @@ public class NotificationPublisher {
     public void publish(UserNotification notification) {
         for (int attempt = 0; ; attempt++) {
             try {
-                if (!userNotificationService.save(notification)) throw new IllegalStateException("Notification not saved");
+                if (!userNotificationService.save(notification)) {
+                    throw new IllegalStateException("Notification not saved");
+                }
                 break;
             } catch (Exception e) {
                 if (attempt >= 2) {

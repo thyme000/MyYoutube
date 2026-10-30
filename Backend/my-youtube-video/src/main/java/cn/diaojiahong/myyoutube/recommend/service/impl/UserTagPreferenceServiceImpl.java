@@ -24,7 +24,8 @@ import java.util.stream.Collectors;
  * @since 2026-03-25
  */
 @Service
-public class UserTagPreferenceServiceImpl extends ServiceImpl<UserTagPreferenceMapper, UserTagPreference> implements IUserTagPreferenceService {
+public class UserTagPreferenceServiceImpl extends ServiceImpl<UserTagPreferenceMapper,
+UserTagPreference> implements IUserTagPreferenceService {
 
     public UserTagPreferenceServiceImpl() {
     }
@@ -35,16 +36,15 @@ public class UserTagPreferenceServiceImpl extends ServiceImpl<UserTagPreferenceM
         if (list == null || list.isEmpty()) {
             return;
         }
+
         List<UserTagPreference> original = lambdaQuery().eq(UserTagPreference::getUserId, userId)
                 .in(UserTagPreference::getTagId, list)
                 .list();
 
         // 转换成map
-        Map<Long, Integer> map = original
-                .stream()
+        Map<Long, Integer> map = original.stream()
                 .collect(Collectors.toMap(UserTagPreference::getTagId, UserTagPreference::getScore));
-        Map<Long, Long> idMap = original
-                .stream()
+        Map<Long, Long> idMap = original.stream()
                 .collect(Collectors.toMap(UserTagPreference::getTagId, UserTagPreference::getId));
         // 更新用户偏好标签数据
         List<UserTagPreference> result = new ArrayList<>(list.size());

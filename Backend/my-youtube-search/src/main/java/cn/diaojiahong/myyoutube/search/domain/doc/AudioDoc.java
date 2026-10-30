@@ -22,25 +22,37 @@ public class AudioDoc {
     // _id 由写入端指定；源字段保留数值类型，避免默认 ID 映射改变排序。
     @Field(name = "id", type = FieldType.Long)
     private Long id;
+
     @Field(type = FieldType.Long)
     private Long uploaderId;
+
     @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
     private String title;
+
     @Field(type = FieldType.Keyword)
     private String processingStatus;
+
     @Field(type = FieldType.Keyword)
     private String reviewStatus;
+
     @Field(type = FieldType.Keyword)
     private String visibility;
+
     @Field(type = FieldType.Boolean)
     private boolean deleted;
+
     @Field(type = FieldType.Long)
     private long version;
+
     @Field(type = FieldType.Long)
     private long createdAt;
 
     public static AudioDoc from(AudioDiscoveryContracts.Document document) {
         return new AudioDoc(document.id(), document.uploaderId(), document.title(), document.processingStatus(),
-                document.reviewStatus(), document.visibility(), document.deleted(), document.version(), document.createdAt());
+                document.reviewStatus(),
+                document.visibility(),
+                document.deleted(),
+                document.version(),
+                document.createdAt());
     }
 }

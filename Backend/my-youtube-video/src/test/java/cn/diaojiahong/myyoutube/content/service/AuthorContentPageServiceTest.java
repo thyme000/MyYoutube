@@ -21,15 +21,28 @@ import static org.mockito.Mockito.*;
 
 class AuthorContentPageServiceTest {
     private final IContentService contents = mock(IContentService.class);
+
     private final AudioContentAccess audioAccess = mock(AudioContentAccess.class);
+
     private final AuthorContentPageProperties properties = new AuthorContentPageProperties();
+
     private final ContentStatisticsMapper statistics = mock(ContentStatisticsMapper.class);
+
     private final AtomicLong clock = new AtomicLong();
-    private final AuthorContentPageService service = new AuthorContentPageService(contents, audioAccess, statistics, properties, clock::get);
+
+    private final AuthorContentPageService service = new AuthorContentPageService(
+            contents,
+            audioAccess,
+            statistics,
+            properties,
+            clock::get);
+
     private final AuthorContentCursorQuery query = new AuthorContentCursorQuery();
 
     AuthorContentPageServiceTest() {
-        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), "author-page-test"), Content.class);
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), "author-page-test"),
+                Content.class);
         query.setPageSize(2);
         when(statistics.displayCount(anyLong(), any(), any())).thenReturn(10L);
         when(audioAccess.blocked(anyList())).thenReturn(Set.of());
@@ -39,7 +52,8 @@ class AuthorContentPageServiceTest {
         return new Content().setId(id).setCreateTime(LocalDateTime.of(2026, 10, 1, 0, 0));
     }
 
-    @Test void firstPageReadsTheSummaryWithoutScanningForCount() {
+    @Test
+    void firstPageReadsTheSummaryWithoutScanningForCount() {
         when(contents.list(any(Wrapper.class))).thenReturn(List.of(row(10), row(9), row(8)));
         AuthorContentPageService.AuthorContentCandidates result = service.list(9L, 42L, query);
         assertEquals(10L, result.displayCount());
@@ -49,7 +63,8 @@ class AuthorContentPageServiceTest {
         verify(contents, never()).count(any(Wrapper.class));
     }
 
-    @Test void continuationReadsTheCurrentTotalWithoutScanningRemainingWorks() {
+    @Test
+    void continuationReadsTheCurrentTotalWithoutScanningRemainingWorks() {
         query.setCursor(new AuthorContentCursor(42L, 9L, null, row(10).getCreateTime(), 10L).encode());
         when(contents.list(any(Wrapper.class))).thenReturn(List.of(row(9)));
         assertEquals(10L, service.list(9L, 42L, query).displayCount());
@@ -57,18 +72,22 @@ class AuthorContentPageServiceTest {
         verify(contents, never()).count(any(Wrapper.class));
     }
 
-    @Test void summaryFailurePropagatesInsteadOfReturningAFabricatedCount() {
-        when(statistics.displayCount(anyLong(), any(), any())).thenThrow(new DataAccessResourceFailureException("summary unavailable"));
+    @Test
+    void summaryFailurePropagatesInsteadOfReturningAFabricatedCount() {
+        when(statistics.displayCount(anyLong(), any(), any()))
+                .thenThrow(new DataAccessResourceFailureException("summary unavailable"));
         assertThrows(DataAccessResourceFailureException.class, () -> service.list(9L, 42L, query));
         verifyNoInteractions(contents);
     }
 
-    @Test void initialLookupFailureDoesNotBecomeAnEmptyPage() {
+    @Test
+    void initialLookupFailureDoesNotBecomeAnEmptyPage() {
         when(contents.list(any(Wrapper.class))).thenThrow(new DataAccessResourceFailureException("scan unavailable"));
         assertThrows(DataAccessResourceFailureException.class, () -> service.list(9L, 42L, query));
     }
 
-    @Test void failedRefillKeepsTheLastCheckedPositionAndAllowsRetry() {
+    @Test
+    void failedRefillKeepsTheLastCheckedPositionAndAllowsRetry() {
         when(contents.list(any(Wrapper.class))).thenReturn(List.of(row(10), row(9), row(8)))
                 .thenThrow(new DataAccessResourceFailureException("refill unavailable"));
         when(audioAccess.blocked(anyList())).thenReturn(Set.of(10L));
@@ -77,7 +96,8 @@ class AuthorContentPageServiceTest {
         assertEquals(9, AuthorContentCursor.decode(result.page().nextCursor(), 42L, 9L, null).contentId());
     }
 
-    @Test void elapsedBudgetAllowsAShortEmptyPageWithAContinuation() {
+    @Test
+    void elapsedBudgetAllowsAShortEmptyPageWithAContinuation() {
         properties.setScanLimit(2);
         when(contents.list(any(Wrapper.class))).thenAnswer(call -> {
             clock.set(300_000_000L);

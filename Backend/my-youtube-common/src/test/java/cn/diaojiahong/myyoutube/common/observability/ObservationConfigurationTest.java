@@ -12,30 +12,47 @@ class ObservationConfigurationTest {
             .withInitializer(new ConfigDataApplicationContextInitializer())
             .withUserConfiguration(PipelineObservationProperties.class)
             .withPropertyValues("spring.config.name=application-common,application");
-    @Test void baseConfigurationDisablesAllJobsAndRecording() {
+
+    @Test
+    void baseConfigurationDisablesAllJobsAndRecording() {
         context.run(c -> {
-            assertNull(c.getStartupFailure()); var props = c.getBean(PipelineObservationProperties.class);
-            assertFalse(props.getRecording().isEnabled()); assertFalse(props.getDelivery().isEnabled());
+            assertNull(c.getStartupFailure());
+            PipelineObservationProperties props = c.getBean(PipelineObservationProperties.class);
+            assertFalse(props.getRecording().isEnabled());
+            assertFalse(props.getDelivery().isEnabled());
             assertFalse(props.getCleanup().isEnabled());
         });
     }
-    @Test void monitoringProfileDoesNotEnableRecordingDeliveryOrCleanup() {
+
+    @Test
+    void monitoringProfileDoesNotEnableRecordingDeliveryOrCleanup() {
         context.withPropertyValues("spring.profiles.active=monitoring").run(c -> {
-            assertNull(c.getStartupFailure()); var props = c.getBean(PipelineObservationProperties.class);
+            assertNull(c.getStartupFailure());
+            PipelineObservationProperties props = c.getBean(PipelineObservationProperties.class);
             assertTrue(props.getMonitoring().isEnabled());
-            assertFalse(props.getRecording().isEnabled()); assertFalse(props.getDelivery().isEnabled()); assertFalse(props.getCleanup().isEnabled());
+            assertFalse(props.getRecording().isEnabled());
+            assertFalse(props.getDelivery().isEnabled());
+            assertFalse(props.getCleanup().isEnabled());
         });
     }
-    @Test void explicitObservationProfileEnablesPathsAndEachCanBeOverridden() {
+
+    @Test
+    void explicitObservationProfileEnablesPathsAndEachCanBeOverridden() {
         context.withPropertyValues("spring.profiles.active=observability").run(c -> {
-            assertNull(c.getStartupFailure()); var props = c.getBean(PipelineObservationProperties.class);
-            assertTrue(props.getRecording().isEnabled()); assertTrue(props.getDelivery().isEnabled());
+            assertNull(c.getStartupFailure());
+            PipelineObservationProperties props = c.getBean(PipelineObservationProperties.class);
+            assertTrue(props.getRecording().isEnabled());
+            assertTrue(props.getDelivery().isEnabled());
             assertTrue(props.getCleanup().isEnabled());
         });
-        context.withPropertyValues("spring.profiles.active=observability", "my-youtube.observability.delivery.enabled=false",
+        context.withPropertyValues(
+                "spring.profiles.active=observability",
+                "my-youtube.observability.delivery.enabled=false",
                 "my-youtube.observability.cleanup.enabled=false").run(c -> {
-            assertNull(c.getStartupFailure()); var props = c.getBean(PipelineObservationProperties.class);
-            assertTrue(props.getRecording().isEnabled()); assertFalse(props.getDelivery().isEnabled());
+            assertNull(c.getStartupFailure());
+            PipelineObservationProperties props = c.getBean(PipelineObservationProperties.class);
+            assertTrue(props.getRecording().isEnabled());
+            assertFalse(props.getDelivery().isEnabled());
             assertFalse(props.getCleanup().isEnabled());
         });
     }

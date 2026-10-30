@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpServer;
 import feign.Feign;
 import feign.RetryableException;
 import feign.Retryer;
+import java.util.concurrent.ExecutorService;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.cloud.openfeign.support.SpringMvcContract;
@@ -23,8 +24,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class EmbeddingRpcTimeoutTest {
     @ParameterizedTest @ValueSource(booleans = {false, true})
     void feignHonorsPerRequestTimeoutWithoutSerializingOptions(boolean batch) throws Exception {
-        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        var executor = Executors.newCachedThreadPool();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        ExecutorService executor = Executors.newCachedThreadPool();
         var received = new AtomicReference<String>();
         server.setExecutor(executor);
         server.createContext("/embeddings", exchange -> {
@@ -38,11 +39,13 @@ class EmbeddingRpcTimeoutTest {
                 exchange.getResponseBody().write(body);
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
-            } finally { exchange.close(); }
+            } finally {
+                exchange.close();
+            }
         });
         server.start();
         try {
-            var port = Feign.builder().contract(new SpringMvcContract()).retryer(Retryer.NEVER_RETRY)
+            LlmPort port = Feign.builder().contract(new SpringMvcContract()).retryer(Retryer.NEVER_RETRY)
                     .encoder((object, type, template) -> template.body(JsonUtil.toJson(object)))
                     .decoder((response, type) -> JsonUtil.GSON.fromJson(
                             new InputStreamReader(response.body().asInputStream(), StandardCharsets.UTF_8), type))
@@ -50,11 +53,15 @@ class EmbeddingRpcTimeoutTest {
             var properties = new VectorProperties();
             properties.setSingleReadTimeoutSeconds(1);
             properties.setBatchReadTimeoutSeconds(4);
-            var texts = batch ? List.of("first", "second") : List.of("single");
+            List<String> texts = batch ? List.of("first", "second") : List.of("single");
             var request = new LlmPort.EmbeddingsRequest(texts);
-            if (batch) assertEquals("test:2", port.embeddings(request, properties.embeddingOptions(texts.size())).getVersion());
+            if (batch) assertEquals(
+                    "test:2",
+                    port.embeddings(request, properties.embeddingOptions(texts.size())).getVersion());
             else {
-                var failure = assertThrows(RetryableException.class, () -> port.embeddings(request, properties.embeddingOptions(1)));
+                RetryableException failure = assertThrows(
+                        RetryableException.class,
+                        () -> port.embeddings(request, properties.embeddingOptions(1)));
                 assertInstanceOf(SocketTimeoutException.class, failure.getCause());
             }
             assertEquals(JsonUtil.toJson(request), received.get());

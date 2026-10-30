@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure;
 import cn.diaojiahong.myyoutube.common.resilience.ModelErrorData;
 import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import feign.FeignException;
@@ -12,12 +13,17 @@ import feign.codec.ErrorDecoder;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
+import java.util.Map;
 
 public final class ModelErrorDecoder implements ErrorDecoder {
-    public enum Protocol { INTERNAL, FASTAPI }
+    public enum Protocol {
+        INTERNAL, FASTAPI
+    }
 
     private static final int MAX_BODY_BYTES = 8192;
     private final Protocol protocol;
+
     private final ErrorDecoder fallback = new InternalApiErrorDecoder();
 
     public ModelErrorDecoder(Protocol protocol) {
@@ -31,23 +37,25 @@ public final class ModelErrorDecoder implements ErrorDecoder {
                 || response.status() != 503 && !(protocol == Protocol.INTERNAL && response.status() == 502))
             return fallback.decode(methodKey, response);
         byte[] bytes;
-        try (var body = response.body()) {
+        try (Response.Body body = response.body()) {
             bytes = body.asInputStream().readNBytes(MAX_BODY_BYTES + 1);
         } catch (IOException error) {
             return FeignFailures.fromStatus(response.status(), error);
         }
-        var buffered = response.toBuilder().body(bytes).build();
+        Response buffered = response.toBuilder().body(bytes).build();
         if (bytes.length <= MAX_BODY_BYTES) {
             try {
                 JsonObject json = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
-                ModelErrorData data = protocol == Protocol.INTERNAL ? internal(json, response.status()) : fastapi(json, resource);
+                ModelErrorData data = protocol == Protocol.INTERNAL ? internal(json, response.status()) : fastapi(
+                        json,
+                        resource);
                 if (data != null && resource.equals(data.resource())) {
-                    var cause = FeignException.errorStatus(methodKey, buffered);
+                    FeignException cause = FeignException.errorStatus(methodKey, buffered);
                     if (response.status() == 502 && "MODEL_EXECUTION_FAILED".equals(data.reason()))
                         return new ModelCallFailure(resource, cause);
                     if (response.status() == 503 && (ModelUnavailable.ADMISSION_CODES.contains(data.reason())
                             || protocol == Protocol.INTERNAL && ("MODEL_CIRCUIT_OPEN".equals(data.reason())
-                                || "MODEL_ADMISSION_BLOCKED".equals(data.reason()))))
+                            || "MODEL_ADMISSION_BLOCKED".equals(data.reason()))))
                         return new ModelUnavailable(resource, data.reason(), retryAfter(response), cause);
                 }
             } catch (RuntimeException ignored) {
@@ -68,19 +76,21 @@ public final class ModelErrorDecoder implements ErrorDecoder {
     }
 
     private ModelErrorData internal(JsonObject json, int status) {
-        var code = json.get("code");
+        JsonElement code = json.get("code");
         ErrorCode expected = status == 503 ? ErrorCode.MODEL_UNAVAILABLE : ErrorCode.MODEL_EXECUTION_FAILED;
         if (code == null || !code.isJsonPrimitive() || !code.getAsJsonPrimitive().isNumber()
-                || code.getAsBigDecimal().intValueExact() != expected.getCode()) return null;
+                || code.getAsBigDecimal().intValueExact() != expected.getCode()) {
+            return null;
+        }
         String message = string(json, "message");
         if (message == null || message.isBlank() || message.length() > 512) return null;
-        var data = json.getAsJsonObject("data");
+        JsonObject data = json.getAsJsonObject("data");
         String resource = string(data, "resource"), reason = string(data, "reason");
         return resource == null || reason == null ? null : new ModelErrorData(resource, reason);
     }
 
     private ModelErrorData fastapi(JsonObject json, String expectedResource) {
-        var detail = json.getAsJsonObject("detail");
+        JsonObject detail = json.getAsJsonObject("detail");
         String reason = string(detail, "code");
         if (reason == null) return null;
         if (detail.has("resource") && !expectedResource.equals(string(detail, "resource"))) return null;
@@ -88,15 +98,20 @@ public final class ModelErrorDecoder implements ErrorDecoder {
     }
 
     private String string(JsonObject json, String name) {
-        var value = json == null ? null : json.get(name);
-        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString() ? value.getAsString() : null;
+        JsonElement value = json == null ? null : json.get(name);
+        return value != null
+                && value.isJsonPrimitive()
+                && value.getAsJsonPrimitive().isString() ? value.getAsString() : null;
     }
 
     private int retryAfter(Response response) {
-        for (var header : response.headers().entrySet()) {
+        for (Map.Entry<String, Collection<String>> header : response.headers().entrySet()) {
             if (header.getKey().equalsIgnoreCase("Retry-After")) {
-                try { return Integer.parseInt(header.getValue().iterator().next()); }
-                catch (RuntimeException ignored) { return 30; }
+                try {
+                    return Integer.parseInt(header.getValue().iterator().next());
+                } catch (RuntimeException ignored) {
+                    return 30;
+                }
             }
         }
         return 30;

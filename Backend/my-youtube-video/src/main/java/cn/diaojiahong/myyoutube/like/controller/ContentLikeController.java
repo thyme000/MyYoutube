@@ -71,7 +71,9 @@ public class ContentLikeController {
      */
     @Operation(summary = "用户查看点赞内容")
     @GetMapping("/{userId}/list")
-    public Result<PageResult<LikedContentVO>> getLikedContentList(@PathVariable Long userId, @ModelAttribute ContentPageQuery pageQuery) {
+    public Result<PageResult<LikedContentVO>> getLikedContentList(
+            @PathVariable Long userId,
+            @ModelAttribute ContentPageQuery pageQuery) {
         return Result.success(contentLikeService.getLikedContentList(userId, pageQuery));
     }
 

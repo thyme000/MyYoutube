@@ -32,8 +32,10 @@ public class ChatContent {
     private Long contentId;
     private String mediaType;
     private String title;
+
     @JsonIgnore
     private String coverObjectKey;
+
     @Transient
     private String coverUrl;
 }

@@ -5,7 +5,13 @@ import com.google.gson.JsonObject;
 
 public record ReviewVerdict(String decision, double riskScore, double confidence, String reason,
                             JsonArray evidence, String model, String rulesVersion) {
-    public ReviewVerdict(String decision, double riskScore, double confidence, String reason, JsonArray evidence, String model) {
+    public ReviewVerdict(
+            String decision,
+            double riskScore,
+            double confidence,
+            String reason,
+            JsonArray evidence,
+            String model) {
         this(decision, riskScore, confidence, reason, evidence, model, null);
     }
     public boolean passes(double maxRisk, double minConfidence) {
@@ -26,9 +32,19 @@ public record ReviewVerdict(String decision, double riskScore, double confidence
         String reason = json.get("reason").getAsString();
         if (!java.util.List.of("PASS", "REJECT", "UNCERTAIN").contains(decision) || !Double.isFinite(risk)
                 || risk < 0 || risk > 1 || !Double.isFinite(confidence) || confidence < 0 || confidence > 1
-                || reason.isBlank() || reason.length() > 4000 || !json.has("evidence") || !json.get("evidence").isJsonArray())
+                || reason.isBlank()
+                || reason.length() > 4000
+                || !json.has("evidence")
+                || !json.get("evidence").isJsonArray())
             throw new IllegalArgumentException("审核输出不合法");
-        return new ReviewVerdict(decision, risk, confidence, reason, json.getAsJsonArray("evidence"), model, rulesVersion);
+        return new ReviewVerdict(
+                decision,
+                risk,
+                confidence,
+                reason,
+                json.getAsJsonArray("evidence"),
+                model,
+                rulesVersion);
     }
     private static boolean string(JsonObject json, String key) {
         return json.has(key) && json.get(key).isJsonPrimitive() && json.getAsJsonPrimitive(key).isString();

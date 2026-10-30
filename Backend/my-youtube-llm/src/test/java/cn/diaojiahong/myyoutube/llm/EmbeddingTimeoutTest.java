@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.llm;
 import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
 import cn.diaojiahong.myyoutube.llm.embedding.OpenAiCompatEmbeddingProvider;
 import com.sun.net.httpserver.HttpServer;
+import java.util.concurrent.ExecutorService;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -17,8 +18,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class EmbeddingTimeoutTest {
     @ParameterizedTest @ValueSource(booleans = {false, true})
     void actualModelRequestUsesSeparateSingleAndBatchTimeouts(boolean batch) throws Exception {
-        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        var executor = Executors.newCachedThreadPool();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        ExecutorService executor = Executors.newCachedThreadPool();
         server.setExecutor(executor);
         server.createContext("/embeddings", exchange -> {
             try {
@@ -28,12 +29,14 @@ class EmbeddingTimeoutTest {
                 exchange.getResponseBody().write(body);
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
-            } finally { exchange.close(); }
+            } finally {
+                exchange.close();
+            }
         });
         server.start();
         try {
             var properties = new LlmProperties();
-            var conf = properties.getEmbedding();
+            LlmProperties.Embedding conf = properties.getEmbedding();
             conf.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
             conf.setModel("timeout-test");
             conf.setSingleTimeoutSeconds(1);
@@ -41,7 +44,9 @@ class EmbeddingTimeoutTest {
             var provider = new OpenAiCompatEmbeddingProvider(properties);
             if (batch) assertNotNull(provider.embed(List.of("first", "second")).get(0));
             else {
-                var failure = assertThrows(ModelUnavailable.class, () -> provider.embed(List.of("single")));
+                ModelUnavailable failure = assertThrows(
+                        ModelUnavailable.class,
+                        () -> provider.embed(List.of("single")));
                 assertInstanceOf(HttpTimeoutException.class, failure.getCause());
             }
         } finally {

@@ -31,9 +31,14 @@ public class KeywordSearchPage {
             try {
                 int size = Math.min(pageSize - result.size(), properties.getRefillMaxCandidates() - checked);
                 RecallBatch batch = keyword.load(context, position, size, excluded);
-                if (batch.ids().isEmpty()) { more = false; break; }
+                if (batch.ids().isEmpty()) {
+                    more = false;
+                    break;
+                }
 
-                List<ContentSummary> rows = summaries.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(batch.ids(), null));
+                List<ContentSummary> rows = summaries.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(
+                        batch.ids(),
+                        null));
                 result.addAll(rows);
 
                 checked += batch.ids().size();

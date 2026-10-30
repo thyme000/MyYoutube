@@ -22,6 +22,7 @@ public class RecallConfig {
         executor.initialize();
         return executor;
     }
+
     @Bean("queryVectorExecutor")
     public ThreadPoolTaskExecutor queryVectorExecutor(
             VectorProperties properties) {

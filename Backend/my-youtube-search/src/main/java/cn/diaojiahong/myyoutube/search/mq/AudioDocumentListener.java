@@ -14,5 +14,9 @@ import org.springframework.stereotype.Component;
         consumerGroup = "search_audio_document", maxReconsumeTimes = 3)
 public class AudioDocumentListener implements RocketMQListener<Sync> {
     private final AudioSearchService service;
-    @Override public void onMessage(Sync message) { service.rebuild(message.audioId()); }
+
+    @Override
+    public void onMessage(Sync message) {
+        service.rebuild(message.audioId());
+    }
 }

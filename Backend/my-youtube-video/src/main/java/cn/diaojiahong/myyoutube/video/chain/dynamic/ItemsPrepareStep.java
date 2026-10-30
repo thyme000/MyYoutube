@@ -48,8 +48,11 @@ public class ItemsPrepareStep extends DynamicPreparationStep {
         if (!StringUtils.hasText(objectKey)) {
             return false;
         }
+
         String[] segments = objectKey.split("/", -1);
-        return objectKey.length() <= 512 && segments.length == 5 && objectKey.startsWith("uploads/picture/" + userId + "/")
+        return objectKey.length() <= 512
+                && segments.length == 5
+                && objectKey.startsWith("uploads/picture/" + userId + "/")
                 && java.util.Arrays.stream(segments).noneMatch(s -> s.isBlank() || s.equals(".") || s.equals(".."));
     }
 

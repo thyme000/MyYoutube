@@ -16,7 +16,15 @@ import java.util.List;
  */
 public interface ContentLikeMapper extends BaseMapper<ContentLike> {
 
-    List<Long> selectListByUserId(@Param("userId") Long userId, @Param("viewerId") Long viewerId, @Param("type") String type, @Param("offset") int offset, @Param("size") int size);
+    List<Long> selectListByUserId(
+            @Param("userId") Long userId,
+            @Param("viewerId") Long viewerId,
+            @Param("type") String type,
+            @Param("offset") int offset,
+            @Param("size") int size);
 
-    int selectUserLikedCount(@Param("userId") Long userId, @Param("viewerId") Long viewerId, @Param("type") String type);
+    int selectUserLikedCount(
+            @Param("userId") Long userId,
+            @Param("viewerId") Long viewerId,
+            @Param("type") String type);
 }

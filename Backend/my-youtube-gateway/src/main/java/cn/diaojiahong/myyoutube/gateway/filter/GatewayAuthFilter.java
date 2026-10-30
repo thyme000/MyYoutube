@@ -68,7 +68,10 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
         return switch (ctx.getDecision()) {
             case SKIP -> chain.filter(exchange);
             case AUTHENTICATED -> {
-                ServerHttpRequest request = buildDownstreamRequest(exchange, String.valueOf(ctx.getPrincipalUserId()), ctx.isConnectionPath());
+                ServerHttpRequest request = buildDownstreamRequest(
+                        exchange,
+                        String.valueOf(ctx.getPrincipalUserId()),
+                        ctx.isConnectionPath());
                 yield chain.filter(exchange.mutate().request(request).build());
             }
             // REJECT 与"链走完仍无凭证"统一 401, 不区分原因避免给探测者提供信息
@@ -76,7 +79,10 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
         };
     }
 
-    private ServerHttpRequest buildDownstreamRequest(ServerWebExchange exchange, String userId, boolean connectionPath) {
+    private ServerHttpRequest buildDownstreamRequest(
+            ServerWebExchange exchange,
+            String userId,
+            boolean connectionPath) {
         ServerHttpRequest.Builder builder = exchange.getRequest().mutate()
                 .header(AuthConstants.USER_ID_HEADER, userId);
         if (!internalToken.isBlank()) {
@@ -94,6 +100,7 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
         if (rawQuery == null || rawQuery.isEmpty()) {
             return uri;
         }
+
         String stripped = Arrays.stream(rawQuery.split("&"))
                 .filter(p -> CONNECTION_CREDENTIAL_PARAMS.stream()
                         .noneMatch(n -> p.equals(n) || p.startsWith(n + "=")))

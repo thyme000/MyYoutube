@@ -17,7 +17,9 @@ public class AdminContentVectorDeadLetterController {
     private final AdminAuthorization authorization;
 
     @GetMapping("/messages")
-    public Result<Page> query(@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") Integer size) {
+    public Result<Page> query(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") Integer size) {
         authorization.requireAdmin();
 
         return Result.success(port.query(cursor, size));

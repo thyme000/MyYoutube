@@ -48,10 +48,12 @@ public class UserSummaryCache {
         if (id == null) {
             return null;
         }
+
         Map<String, String> fields = read(id);
         if (fields != null) {
             return fields.containsKey(F_NOT_FOUND) ? null : toSummary(fields);
         }
+
         UserSummary loaded = loader.apply(id);
         write(List.of(id), loaded == null ? Map.of() : Map.of(id, loaded));
         return loaded;
@@ -61,6 +63,7 @@ public class UserSummaryCache {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
+
         List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
         Map<Long, Map<String, String>> cached = readAll(distinct);
         List<Long> misses = distinct.stream().filter(id -> !cached.containsKey(id)).toList();

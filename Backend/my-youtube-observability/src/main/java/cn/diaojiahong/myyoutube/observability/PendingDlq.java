@@ -11,23 +11,33 @@ import java.util.HexFormat;
 final class PendingDlq {
     private final Path directory;
     private final String group;
+
     PendingDlq(Path directory, String group) throws IOException {
         this.directory = directory.toAbsolutePath();
         this.group = group;
         Files.createDirectories(this.directory);
     }
+
     Path key(byte[] body) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(group.getBytes(StandardCharsets.UTF_8));
             digest.update((byte) 0);
             return directory.resolve(HexFormat.of().formatHex(digest.digest(body)) + ".pending");
-        } catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
+
     boolean contains(byte[] body) throws IOException {
-        try { Files.readAttributes(key(body), java.nio.file.attribute.BasicFileAttributes.class); return true; }
-        catch (NoSuchFileException absent) { return false; }
+        try {
+            Files.readAttributes(key(body), java.nio.file.attribute.BasicFileAttributes.class);
+            return true;
+        } catch (NoSuchFileException absent) {
+            return false;
+        }
     }
+
     void save(byte[] body, IngestFailure.Reason reason) throws IOException {
         Path temporary = Files.createTempFile(directory, ".pending-", ".tmp");
         try {
@@ -38,10 +48,19 @@ final class PendingDlq {
             }
             Files.move(temporary, key(body), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             syncDirectory();
-        } finally { Files.deleteIfExists(temporary); }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
-    void remove(byte[] body) throws IOException { Files.deleteIfExists(key(body)); syncDirectory(); }
+
+    void remove(byte[] body) throws IOException {
+        Files.deleteIfExists(key(body));
+        syncDirectory();
+    }
+
     private void syncDirectory() throws IOException {
-        try (FileChannel directoryChannel = FileChannel.open(directory, StandardOpenOption.READ)) { directoryChannel.force(true); }
+        try (FileChannel directoryChannel = FileChannel.open(directory, StandardOpenOption.READ)) {
+            directoryChannel.force(true);
+        }
     }
 }

@@ -33,33 +33,53 @@ public class AudioContentBanRecovery {
             AudioCascadeProperties properties, RedissonClient redisson, MeterRegistry metrics) {
         this(contents, decisions, properties, redisson, metrics, System::nanoTime);
     }
+
     AudioContentBanRecovery(ContentMapper contents, ReviewDecisionService decisions,
             AudioCascadeProperties properties, RedissonClient redisson, MeterRegistry metrics, LongSupplier ticker) {
-        this.contents = contents; this.decisions = decisions; this.properties = properties;
-        this.redisson = redisson; this.metrics = metrics; this.ticker = ticker;
+        this.contents = contents;
+        this.decisions = decisions;
+        this.properties = properties;
+        this.redisson = redisson;
+        this.metrics = metrics;
+        this.ticker = ticker;
     }
 
-    @Scheduled(fixedDelayString = "#{@audioCascadeProperties.scanIntervalMs}", initialDelayString = "#{@audioCascadeProperties.scanIntervalMs}")
+    @Scheduled(
+            fixedDelayString = "#{@audioCascadeProperties.scanIntervalMs}",
+            initialDelayString = "#{@audioCascadeProperties.scanIntervalMs}")
     public void recover() {
         RLock lock = redisson.getLock("content:audio-ban-recovery");
         if (!lock.tryLock()) return;
         try {
             long deadline = ticker.getAsLong() + TimeUnit.MILLISECONDS.toNanos(properties.getRoundBudgetMs());
             List<AudioContentBanMessage> page = contents.pendingAudioBans(cursor, properties.getBatchSize());
-            if (page.isEmpty()) { cursor = 0; return; }
+            if (page.isEmpty()) {
+                cursor = 0;
+                return;
+            }
             for (AudioContentBanMessage message : page) {
                 if (ticker.getAsLong() - deadline >= 0) return;
-                try { decisions.banByAudio(message); }
-                catch (Exception error) { failed(message.contentId(), "record", error); }
+                try {
+                    decisions.banByAudio(message);
+                } catch (Exception error) {
+                    failed(message.contentId(), "record", error);
+                }
                 cursor = message.contentId();
             }
             if (page.size() < properties.getBatchSize()) cursor = 0;
-        } catch (Exception error) { failed(null, "scan", error); }
-        finally { lock.unlock(); }
+        } catch (Exception error) {
+            failed(null, "scan", error);
+        } finally {
+            lock.unlock();
+        }
     }
 
     private void failed(Long contentId, String scope, Exception error) {
         metrics.counter(MetricNames.AUDIO_CASCADE_RECOVERY_FAILED, "scope", scope).increment();
-        log.warn("Audio cascade recovery deferred contentId={} scope={} reason={}", contentId, scope, error.getClass().getSimpleName());
+        log.warn(
+                "Audio cascade recovery deferred contentId={} scope={} reason={}",
+                contentId,
+                scope,
+                error.getClass().getSimpleName());
     }
 }

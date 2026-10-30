@@ -15,15 +15,24 @@ import static cn.diaojiahong.myyoutube.common.constants.MqConstants.*;
 @ConditionalOnProperty(name="my-youtube.monitor.enabled", havingValue="true")
 @Import(DeadLetterMetrics.class)
 public class MonitoringConfiguration {
-    @Bean(initMethod="start", destroyMethod="shutdown") DefaultMQProducer monitoringAdmin(IngestProperties properties) {
+    @Bean(initMethod="start", destroyMethod="shutdown")
+    DefaultMQProducer monitoringAdmin(IngestProperties properties) {
         var admin = new DefaultMQProducer("pipeline_monitor_" + ProcessHandle.current().pid());
-        admin.setNamesrvAddr(properties.getNameserver()); admin.setVipChannelEnabled(false);
+        admin.setNamesrvAddr(properties.getNameserver());
+        admin.setVipChannelEnabled(false);
         return admin;
     }
-    @Bean MqMetrics mqMetrics(MonitorProperties properties, IngestProperties ingest, DefaultMQProducer monitoringAdmin, MeterRegistry registry) {
+
+    @Bean
+    MqMetrics mqMetrics(
+            MonitorProperties properties,
+            IngestProperties ingest,
+            DefaultMQProducer monitoringAdmin,
+            MeterRegistry registry) {
         if (properties.getGroups().isEmpty()) properties.setGroups(defaultGroups(ingest.getGroup()));
         return new MqMetrics(properties, monitoringAdmin, registry);
     }
+
     static Map<String, String> defaultGroups(String ingestGroup) {
         return Map.ofEntries(
                 Map.entry(ingestGroup, TOPIC_PIPELINE_EVENTS),
@@ -40,6 +49,7 @@ public class MonitoringConfiguration {
                 Map.entry("video_publication_notice", TOPIC_PUBLICATION_EFFECT),
                 Map.entry("video_publication_audio_count", TOPIC_PUBLICATION_EFFECT));
     }
+
     @Bean
     @ConditionalOnProperty(name="my-youtube.monitor.logs-enabled", havingValue="true", matchIfMissing=true)
     FilebeatMetrics filebeatMetrics(MonitorProperties monitor, IngestProperties ingest, MeterRegistry registry) {

@@ -5,4 +5,5 @@ import org.springframework.context.annotation.*;
 
 @Configuration
 @Import(PipelineObservationConfiguration.class)
-public class PipelineObservationConfig {}
+public class PipelineObservationConfig {
+}

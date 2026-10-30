@@ -1,7 +1,12 @@
 package cn.diaojiahong.myyoutube.transcode.cover;
 
+import cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings;
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts;
+import cn.diaojiahong.myyoutube.common.media.VideoFrameSampling;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.transcode.ffmpeg.FFmpegUtil;
+import cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,36 +36,46 @@ public class VideoCoverGenerator {
     private final cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings frameSettings;
 
     public String selectPrepared(cn.diaojiahong.myyoutube.common.media.PreparationContracts.Manifest manifest) {
-        var settings = frameSettings.snapshot();
-        var frames = cn.diaojiahong.myyoutube.common.media.PreparedMedia.videoFrames(manifest);
+        FrameProcessingSettings.Snapshot settings = frameSettings.snapshot();
+        List<PreparationContracts.Item> frames = cn.diaojiahong.myyoutube.common.media.PreparedMedia.videoFrames(manifest);
         Path work = null;
         try {
             work = Files.createTempDirectory("prepared-cover-");
             var budget = new cn.diaojiahong.myyoutube.transcode.preparation.MediaPreparationProperties();
-            budget.setLongEdge(512); budget.setOutputPixels(512L * 512);
+            budget.setLongEdge(512);
+            budget.setOutputPixels(512L * 512);
             var previews = new cn.diaojiahong.myyoutube.transcode.preparation.PreparedImageWriter(budget);
             var candidates = new java.util.ArrayList<FFmpegUtil.FrameScore>();
             var keys = new java.util.HashMap<Path, String>();
-            for (var frame : frames) {
-                Path downloaded = work.resolve("input.jpg"), preview = work.resolve("preview-" + frame.index() + ".jpg");
-                var source = preparedStorage.inspect(frame.objectKey());
+            for (PreparationContracts.Item frame : frames) {
+                Path downloaded = work.resolve("input.jpg"),
+                preview = work.resolve("preview-" + frame.index() + ".jpg");
+                PreparationStorage.Source source = preparedStorage.inspect(frame.objectKey());
                 preparedStorage.download(source, downloaded, budget.getSourceBytes());
                 previews.write(downloaded, preview);
                 Files.deleteIfExists(downloaded);
-                var score = FFmpegUtil.scoreFrame(preview, frame.timeMs() / 1000.0);
+                FFmpegUtil.FrameScore score = FFmpegUtil.scoreFrame(preview, frame.timeMs() / 1000.0);
                 if (score == null) throw new IllegalStateException("Prepared cover frame cannot be scored");
-                candidates.add(score); keys.put(preview, frame.objectKey());
+                candidates.add(score);
+                keys.put(preview, frame.objectKey());
             }
             return keys.get(selectBest(candidates, new FFmpegUtil.Options(), settings.coverMaxCandidates()).framePath());
         } catch (cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable | cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure e) {
             throw e;
-        } catch (Exception e) { throw new IllegalStateException("Prepared cover selection failed", e); }
-        finally {
-            if (work != null) try (var paths = Files.walk(work)) {
-                for (var path : paths.sorted(Comparator.reverseOrder()).toList()) {
-                    try { Files.deleteIfExists(path); } catch (IOException e) { log.warn("Prepared cover cleanup failed", e); }
+        } catch (Exception e) {
+            throw new IllegalStateException("Prepared cover selection failed", e);
+        } finally {
+            if (work != null) try (Stream<Path> paths = Files.walk(work)) {
+                for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (IOException e) {
+                        log.warn("Prepared cover cleanup failed", e);
+                    }
                 }
-            } catch (IOException e) { log.warn("Prepared cover directory cleanup failed", e); }
+            } catch (IOException e) {
+                log.warn("Prepared cover directory cleanup failed", e);
+            }
         }
     }
 
@@ -68,10 +83,11 @@ public class VideoCoverGenerator {
      * 生成真实封面并上传；技术失败交给任务调度器重试
      */
     public String generate(Long refId, Long userId, String videoObjectKey) {
-        var settings = frameSettings.snapshot();
+        FrameProcessingSettings.Snapshot settings = frameSettings.snapshot();
         if (videoObjectKey == null || videoObjectKey.isBlank()) {
             throw new IllegalStateException("封面输入或抽帧失败");
         }
+
         Path taskDir = null;
         try {
             String taskId = UUID.randomUUID().toString().replace("-", "");
@@ -84,7 +100,7 @@ public class VideoCoverGenerator {
 
             FFmpegUtil.Options opt = new FFmpegUtil.Options();
             opt.commandTimeout = Duration.ofSeconds(60);
-            var plan = settings.plan(FFmpegUtil.probeVideo(source, opt).durationMs(), 0);
+            VideoFrameSampling.Plan plan = settings.plan(FFmpegUtil.probeVideo(source, opt).durationMs(), 0);
             opt.sampleCount = plan.targetCount();
 
             List<FFmpegUtil.FrameScore> candidates = FFmpegUtil.extractAndScoreCandidates(source, taskDir, opt);
@@ -107,7 +123,10 @@ public class VideoCoverGenerator {
                 try (java.util.stream.Stream<Path> s = Files.walk(taskDir)) {
                     s.sorted(java.util.Comparator.reverseOrder())
                             .forEach(p -> {
-                                try {Files.deleteIfExists(p); } catch (Exception ignore) {}
+                                try {
+                                    Files.deleteIfExists(p);
+                                } catch (Exception ignore) {
+                                }
                             });
                     deleteIfEmpty(taskDir.getParent());
                 } catch (Exception ignore) {
@@ -118,12 +137,16 @@ public class VideoCoverGenerator {
     }
 
     /** 关闭视觉模型时取质量最高分；开启后的调用失败交由任务重试 */
-    private FFmpegUtil.FrameScore selectBest(List<FFmpegUtil.FrameScore> candidates, FFmpegUtil.Options opt, int maxCandidates) {
+    private FFmpegUtil.FrameScore selectBest(
+            List<FFmpegUtil.FrameScore> candidates,
+            FFmpegUtil.Options opt,
+            int maxCandidates) {
         List<FFmpegUtil.FrameScore> survivors = candidates.stream()
                 .filter(c -> FFmpegUtil.passesPrefilter(c, opt))
                 .toList();
         List<FFmpegUtil.FrameScore> pool = survivors.isEmpty() ? candidates : survivors;
-        if (pool.size() > maxCandidates) pool = pool.stream().sorted(Comparator.comparingDouble(FFmpegUtil.FrameScore::totalScore).reversed())
+        if (pool.size() > maxCandidates) pool = pool.stream()
+                .sorted(Comparator.comparingDouble(FFmpegUtil.FrameScore::totalScore).reversed())
                 .limit(maxCandidates).sorted(Comparator.comparingDouble(FFmpegUtil.FrameScore::second)).toList();
         Integer picked = coverVisionSelector.pickBest(pool);
         if (picked != null) {
@@ -139,7 +162,7 @@ public class VideoCoverGenerator {
         if (dir == null || !Files.isDirectory(dir)) {
             return;
         }
-        try (var stream = Files.list(dir)) {
+        try (Stream<Path> stream = Files.list(dir)) {
             if (stream.findAny().isPresent()) {
                 return; // 非空，不删
             }

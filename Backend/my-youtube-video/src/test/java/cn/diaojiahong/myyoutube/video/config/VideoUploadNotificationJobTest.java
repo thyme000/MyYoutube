@@ -2,10 +2,12 @@ package cn.diaojiahong.myyoutube.video.config;
 
 import cn.diaojiahong.myyoutube.common.properties.S3Properties;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.Event;
 import software.amazon.awssdk.services.s3.model.GetBucketNotificationConfigurationRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketNotificationConfigurationResponse;
+import software.amazon.awssdk.services.s3.model.NotificationConfiguration;
 import software.amazon.awssdk.services.s3.model.PutBucketNotificationConfigurationRequest;
 import software.amazon.awssdk.services.s3.model.QueueConfiguration;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -19,7 +21,9 @@ import static org.mockito.Mockito.*;
 class VideoUploadNotificationJobTest {
 
     private static final String QUEUE_ARN = "arn:rustfs:sqs::primary:webhook";
+
     private final S3Client client = mock(S3Client.class);
+
     private final S3Properties properties = new S3Properties();
     private final VideoUploadNotificationJob job;
 
@@ -30,9 +34,11 @@ class VideoUploadNotificationJobTest {
 
     @Test
     void installsRuleWithoutRemovingOtherNotifications() {
-        var otherQueue = QueueConfiguration.builder().id("other").queueArn("arn:rustfs:sqs::other:webhook")
+        QueueConfiguration otherQueue = QueueConfiguration.builder()
+                .id("other")
+                .queueArn("arn:rustfs:sqs::other:webhook")
                 .events(Event.S3_OBJECT_REMOVED).build();
-        var topic = TopicConfiguration.builder().id("topic").topicArn("arn:aws:sns:::topic")
+        TopicConfiguration topic = TopicConfiguration.builder().id("topic").topicArn("arn:aws:sns:::topic")
                 .events(Event.S3_OBJECT_REMOVED).build();
         when(client.getBucketNotificationConfiguration(any(GetBucketNotificationConfigurationRequest.class)))
                 .thenReturn(GetBucketNotificationConfigurationResponse.builder()
@@ -40,17 +46,18 @@ class VideoUploadNotificationJobTest {
 
         job.reconcile();
 
-        var request = capturePut();
-        var config = request.notificationConfiguration();
+        PutBucketNotificationConfigurationRequest request = capturePut();
+        NotificationConfiguration config = request.notificationConfiguration();
         assertEquals("myyoutube", request.bucket());
         assertEquals(topic, config.topicConfigurations().get(0));
         assertEquals(otherQueue, config.queueConfigurations().get(0));
-        var rule = config.queueConfigurations().get(1);
+        QueueConfiguration rule = config.queueConfigurations().get(1);
         assertEquals("video-upload", rule.id());
         assertEquals(QUEUE_ARN, rule.queueArn());
         assertEquals("s3:ObjectCreated:*", rule.eventsAsStrings().get(0));
         assertEquals("uploads/video/", rule.filter().key().filterRules().get(0).value());
-        assertEquals(List.of("uploads/video/", "uploads/audio/", "uploads/audio-cover/"), config.queueConfigurations().stream()
+        assertEquals(List.of("uploads/video/", "uploads/audio/", "uploads/audio-cover/"), config.queueConfigurations()
+                .stream()
                 .filter(r -> !"other".equals(r.id())).map(r -> r.filter().key().filterRules().get(0).value()).toList());
     }
 
@@ -59,21 +66,28 @@ class VideoUploadNotificationJobTest {
         when(client.getBucketNotificationConfiguration(any(GetBucketNotificationConfigurationRequest.class)))
                 .thenReturn(GetBucketNotificationConfigurationResponse.builder().build());
         job.reconcile();
-        var installed = capturePut().notificationConfiguration().queueConfigurations();
+        List<QueueConfiguration> installed = capturePut().notificationConfiguration().queueConfigurations();
         clearInvocations(client);
         when(client.getBucketNotificationConfiguration(any(GetBucketNotificationConfigurationRequest.class)))
-                .thenReturn(GetBucketNotificationConfigurationResponse.builder().queueConfigurations(installed).build());
+                .thenReturn(GetBucketNotificationConfigurationResponse.builder()
+                .queueConfigurations(installed)
+                .build());
 
         job.reconcile();
 
-        verify(client, never()).putBucketNotificationConfiguration(any(PutBucketNotificationConfigurationRequest.class));
+        verify(client, never())
+                .putBucketNotificationConfiguration(any(PutBucketNotificationConfigurationRequest.class));
     }
 
     @Test
     void replacesOnlyOutdatedOwnedRule() {
-        var oldRule = QueueConfiguration.builder().id("video-upload").queueArn("arn:rustfs:sqs::old:webhook")
+        QueueConfiguration oldRule = QueueConfiguration.builder()
+                .id("video-upload")
+                .queueArn("arn:rustfs:sqs::old:webhook")
                 .events(Event.S3_OBJECT_CREATED).build();
-        var otherRule = QueueConfiguration.builder().id("other").queueArn("arn:rustfs:sqs::other:webhook")
+        QueueConfiguration otherRule = QueueConfiguration.builder()
+                .id("other")
+                .queueArn("arn:rustfs:sqs::other:webhook")
                 .events(Event.S3_OBJECT_REMOVED).build();
         when(client.getBucketNotificationConfiguration(any(GetBucketNotificationConfigurationRequest.class)))
                 .thenReturn(GetBucketNotificationConfigurationResponse.builder()
@@ -81,7 +95,7 @@ class VideoUploadNotificationJobTest {
 
         job.reconcile();
 
-        var rules = capturePut().notificationConfiguration().queueConfigurations();
+        List<QueueConfiguration> rules = capturePut().notificationConfiguration().queueConfigurations();
         assertEquals(4, rules.size());
         assertEquals(otherRule, rules.get(0));
         assertEquals(QUEUE_ARN, rules.get(1).queueArn());
@@ -101,7 +115,7 @@ class VideoUploadNotificationJobTest {
     }
 
     private PutBucketNotificationConfigurationRequest capturePut() {
-        var captor = org.mockito.ArgumentCaptor.forClass(PutBucketNotificationConfigurationRequest.class);
+        ArgumentCaptor<PutBucketNotificationConfigurationRequest> captor = org.mockito.ArgumentCaptor.forClass(PutBucketNotificationConfigurationRequest.class);
         verify(client).putBucketNotificationConfiguration(captor.capture());
         return captor.getValue();
     }

@@ -38,26 +38,44 @@ import static org.mockito.Mockito.*;
 
 class ContentSearchAccessTest {
     final SearchContentSummaryClient summaries = mock(SearchContentSummaryClient.class);
+
     final ElasticsearchClient client = mock(ElasticsearchClient.class);
+
     final ElasticsearchOperations operations = mock(ElasticsearchOperations.class);
+
     final ContentSearchPage pages = mock(ContentSearchPage.class);
+
     final FollowPort follows = mock(FollowPort.class);
+
     final HotSearchService hot = mock(HotSearchService.class);
+
     final SearchServiceImpl search = new SearchServiceImpl(operations, follows, mock(ContentInternalPort.class),
             summaries, mock(UserPort.class), mock(S3StorageUtil.class), hot, client, pages);
 
-    @BeforeEach void user() { UserContext.setUser("7"); }
-    @AfterEach void clear() { UserContext.removeUser(); }
+    @BeforeEach
+    void user() {
+        UserContext.setUser("7");
+    }
+
+    @AfterEach
+    void clear() {
+        UserContext.removeUser();
+    }
 
     ContentSummary summary(long id) {
         ContentSummary result = new ContentSummary();
-        result.setId(id); result.setTitle("标题" + id); result.setAuthorId(7L); result.setType("dynamic");
+        result.setId(id);
+        result.setTitle("标题" + id);
+        result.setAuthorId(7L);
+        result.setType("dynamic");
         return result;
     }
 
-    @Test void recordsOnlySuccessfulNonemptyFirstRequests() {
+    @Test
+    void recordsOnlySuccessfulNonemptyFirstRequests() {
         when(pages.search(any())).thenReturn(new CursorPage<>(List.of(summary(1)), "next"));
-        ContentSearchCursorQuery query = new ContentSearchCursorQuery(); query.setKeyword("  搜索词  ");
+        ContentSearchCursorQuery query = new ContentSearchCursorQuery();
+        query.setKeyword("  搜索词  ");
         search.searchVideo(query);
         verify(hot).record(7L, "  搜索词  ");
 
@@ -75,12 +93,14 @@ class ContentSearchAccessTest {
         verifyNoInteractions(hot);
     }
 
-    @Test void hotEndpointDelegatesToSnapshot() {
+    @Test
+    void hotEndpointDelegatesToSnapshot() {
         when(hot.hot()).thenReturn(List.of("组名"));
         assertEquals(List.of("组名"), search.hot());
     }
 
-    @Test void contentResultsForwardTheCursorWithoutApplyingAnOffset() {
+    @Test
+    void contentResultsForwardTheCursorWithoutApplyingAnOffset() {
         when(pages.search(any())).thenReturn(new CursorPage<>(List.of(summary(3), summary(2)), "next"));
         CursorPage<?, String> result = search.searchVideo(new ContentSearchCursorQuery());
         assertEquals("next", result.nextCursor());
@@ -91,21 +111,28 @@ class ContentSearchAccessTest {
     @ValueSource(booleans = {false, true})
     void allSortsShareTheRequiredFollowSnapshot(boolean latest) {
         when(follows.getFollowIds(7L)).thenReturn(List.of(7L));
-        ContentSummary other = summary(2); other.setAuthorId(8L);
+        ContentSummary other = summary(2);
+        other.setAuthorId(8L);
         when(pages.search(any())).thenAnswer(call -> {
             SearchContext context = call.getArgument(0);
             assertEquals(List.of(7L), context.getFollowIds());
             return new CursorPage<>(List.of(summary(1), other), null);
         });
-        ContentSearchCursorQuery query = new ContentSearchCursorQuery(); query.setSortByLatest(latest);
-        assertEquals(List.of(true, false), search.searchVideo(query).items().stream().map(item -> item.getIsFollow()).toList());
+        ContentSearchCursorQuery query = new ContentSearchCursorQuery();
+        query.setSortByLatest(latest);
+        assertEquals(
+                List.of(true, false),
+                search.searchVideo(query).items().stream().map(item -> item.getIsFollow()).toList());
         verify(follows, times(1)).getFollowIds(7L);
     }
 
-    @Test void failedOrMissingFollowLookupFailsBeforeSearch() {
+    @Test
+    void failedOrMissingFollowLookupFailsBeforeSearch() {
         IllegalStateException failure = new IllegalStateException("follow unavailable");
         when(follows.getFollowIds(7L)).thenThrow(failure);
-        assertSame(failure, assertThrows(IllegalStateException.class, () -> search.searchVideo(new ContentSearchCursorQuery())));
+        assertSame(
+                failure,
+                assertThrows(IllegalStateException.class, () -> search.searchVideo(new ContentSearchCursorQuery())));
         doReturn(null).when(follows).getFollowIds(7L);
         assertThrows(NullPointerException.class, () -> search.searchVideo(new ContentSearchCursorQuery()));
         verifyNoInteractions(pages, summaries);
@@ -116,7 +143,9 @@ class ContentSearchAccessTest {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         when(follows.getFollowIds(7L)).thenAnswer(call -> {
-            entered.countDown(); assertTrue(release.await(2, TimeUnit.SECONDS)); return List.of(7L);
+            entered.countDown();
+            assertTrue(release.await(2, TimeUnit.SECONDS));
+            return List.of(7L);
         });
         when(pages.search(any())).thenReturn(new CursorPage<>(List.of(summary(1)), null));
         ThreadPoolTaskExecutor caller = new ThreadPoolTaskExecutor();
@@ -124,18 +153,25 @@ class ContentSearchAccessTest {
         try {
             Future<CursorPage<SearchVideoVO, String>> response = caller.submit(() -> {
                 UserContext.setUser("7");
-                try { return search.searchVideo(new ContentSearchCursorQuery()); }
-                finally { UserContext.removeUser(); }
+                try {
+                    return search.searchVideo(new ContentSearchCursorQuery());
+                } finally {
+                    UserContext.removeUser();
+                }
             });
             assertTrue(entered.await(1, TimeUnit.SECONDS));
             assertFalse(response.isDone());
             verifyNoInteractions(pages);
             release.countDown();
             assertEquals(Boolean.TRUE, response.get(2, TimeUnit.SECONDS).items().get(0).getIsFollow());
-        } finally { release.countDown(); caller.shutdown(); }
+        } finally {
+            release.countDown();
+            caller.shutdown();
+        }
     }
 
-    @Test void tagResultsUseCursorPage() {
+    @Test
+    void tagResultsUseCursorPage() {
         when(pages.search(any())).thenAnswer(call -> {
             SearchContext context = call.getArgument(0);
             assertTrue(context.isTagSearch());
@@ -144,14 +180,16 @@ class ContentSearchAccessTest {
             return new CursorPage<>(List.of(summary(12)), "next");
         });
         TagSearchCursorQuery query = new TagSearchCursorQuery();
-        query.setCursor("previous"); query.setPageSize(20);
+        query.setCursor("previous");
+        query.setPageSize(20);
         CursorPage<?, String> result = search.searchByTag(query);
         assertEquals("next", result.nextCursor());
         assertEquals(1, result.items().size());
         verifyNoInteractions(hot);
     }
 
-    @Test void stalePrivateContentCannotLeakThroughCompletionSuggestions() throws Exception {
+    @Test
+    void stalePrivateContentCannotLeakThroughCompletionSuggestions() throws Exception {
         SearchResponse<Void> content = response("video_suggest", List.of(option("1", "公开标题"), option("2", "已私密标题")));
         SearchResponse<Void> user = response("user_suggest", List.of(option("7", "公开用户")));
         when(client.search(any(Function.class), eq(Void.class))).thenReturn(content, user);

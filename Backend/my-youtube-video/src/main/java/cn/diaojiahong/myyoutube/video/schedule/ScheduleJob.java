@@ -77,6 +77,7 @@ public class ScheduleJob {
         if (entries.isEmpty()) {
             return;
         }
+
         for (Object contentId : entries.keySet()) {
             String claimed = redisTemplate.execute(CLAIM_PLAY_COUNT_SCRIPT,
                     List.of(redisHashKey), contentId.toString());
@@ -100,7 +101,9 @@ public class ScheduleJob {
     @Scheduled(cron = "0 0 3 * * 0")
     public void cleanUserExpiredVideoRecord() {
         long end = System.currentTimeMillis() - 30L * 24 * 3600 * 1000;
-        ScanOptions options = ScanOptions.scanOptions().match(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + "*").build();
+        ScanOptions options = ScanOptions.scanOptions()
+                .match(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + "*")
+                .build();
         try (Cursor<String> cursor = redisTemplate.scan(options)) {
             while (cursor.hasNext()) {
                 String zsetKey = cursor.next();
@@ -162,6 +165,7 @@ public class ScheduleJob {
         if (v == null || v.isBlank()) {
             return 0L;
         }
+
         try {
             return Long.parseLong(v.trim());
         } catch (NumberFormatException e) {

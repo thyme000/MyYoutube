@@ -10,11 +10,15 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
-@RocketMQMessageListener(topic = MqConstants.TOPIC_DRAFT_PUBLICATION, consumerGroup = "video_draft_publication", maxReconsumeTimes = 3)
+@RocketMQMessageListener(
+        topic = MqConstants.TOPIC_DRAFT_PUBLICATION,
+        consumerGroup = "video_draft_publication",
+        maxReconsumeTimes = 3)
 public class DraftPublicationListener implements RocketMQListener<DraftPublicationMessage> {
     private final DraftPublicationService publications;
 
-    @Override public void onMessage(DraftPublicationMessage message) {
+    @Override
+    public void onMessage(DraftPublicationMessage message) {
         publications.consume(message);
     }
 }

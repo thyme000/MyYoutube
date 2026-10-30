@@ -6,9 +6,11 @@ import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import cn.hutool.core.bean.BeanUtil;
 
 public final class ContentCards {
-    private ContentCards() {}
+    private ContentCards() {
+    }
+
     public static ContentSummary summary(Content c, ContentMedia media) {
-        var summary = BeanUtil.copyProperties(c, ContentSummary.class);
+        ContentSummary summary = BeanUtil.copyProperties(c, ContentSummary.class);
         summary.setType(c.getType().getCode());
         summary.setStatus(c.getStatus().getCode());
         summary.setCoverUrl(c.getCoverObjectKey());

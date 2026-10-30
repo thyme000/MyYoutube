@@ -16,8 +16,11 @@ import org.springframework.stereotype.Component;
 public class AudioCountPublicationListener implements RocketMQListener<PublicationEffectMessage> {
     private final PublicationEffectsService effects;
 
-    @Override public void onMessage(PublicationEffectMessage message) {
-        if (message.branch() != PublicationBranch.AUDIO_COUNT) throw new IllegalArgumentException("Publication branch mismatch");
+    @Override
+    public void onMessage(PublicationEffectMessage message) {
+        if (message.branch() != PublicationBranch.AUDIO_COUNT) {
+            throw new IllegalArgumentException("Publication branch mismatch");
+        }
         effects.apply(message);
     }
 }

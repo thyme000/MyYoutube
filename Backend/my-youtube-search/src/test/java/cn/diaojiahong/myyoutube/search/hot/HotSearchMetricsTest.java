@@ -22,45 +22,67 @@ import static org.mockito.Mockito.*;
 
 class HotSearchMetricsTest {
     final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
     final HotSearchMetrics metrics = new HotSearchMetrics(registry);
+
     final HotSearchStore store = mock(HotSearchStore.class);
+
     final HotSearchProperties properties = new HotSearchProperties();
+
     final PipelineObservationProperties observation = new PipelineObservationProperties();
+
     final AtomicLong now = new AtomicLong(Instant.parse("2026-10-21T20:00:00Z").toEpochMilli());
 
     Clock clock() {
-        var clock = mock(Clock.class);
+        Clock clock = mock(Clock.class);
         when(clock.millis()).thenAnswer(call -> now.get());
         when(clock.instant()).thenAnswer(call -> Instant.ofEpochMilli(now.get()));
         return clock;
     }
 
-    @Test void observationFailurePreservesBothBusinessResultAndOriginalException() {
+    @Test
+    void observationFailurePreservesBothBusinessResultAndOriginalException() {
         var unavailable = new HotSearchMetrics(mock(MeterRegistry.class));
         var error = new IllegalStateException("private search text");
         assertEquals("result", unavailable.call(HISTORY_WRITE, () -> "result"));
-        assertSame(error, assertThrows(IllegalStateException.class, () -> unavailable.run(SUMMARY, () -> { throw error; })));
+        assertSame(error, assertThrows(IllegalStateException.class, () -> unavailable.run(SUMMARY, () -> {
+            throw error;
+        })));
         assertDoesNotThrow(() -> unavailable.record(HotSearchMetrics.RecordResult.ACCEPTED));
     }
 
-    @Test void partialModelsAndOperationFailuresRemainDistinctWithoutRecordingSensitiveLabels() {
+    @Test
+    void partialModelsAndOperationFailuresRemainDistinctWithoutRecordingSensitiveLabels() {
         metrics.modelItems(EMBEDDING, 5, 3);
         var error = new IllegalStateException("private search text");
-        assertSame(error, assertThrows(IllegalStateException.class, () -> metrics.run(EMBEDDING, () -> { throw error; })));
-        assertEquals(2, registry.get(MetricNames.HOT_SEARCH_MODEL_ITEMS).tags("operation", "embedding", "outcome", "unassigned").counter().count());
-        assertEquals(1, registry.get(MetricNames.HOT_SEARCH_DURATION).tags("operation", "embedding", "outcome", "failure").timer().count());
+        assertSame(error, assertThrows(IllegalStateException.class, () -> metrics.run(EMBEDDING, () -> {
+            throw error;
+        })));
+        assertEquals(2, registry.get(MetricNames.HOT_SEARCH_MODEL_ITEMS)
+                .tags("operation", "embedding", "outcome", "unassigned")
+                .counter()
+                .count());
+        assertEquals(1, registry.get(MetricNames.HOT_SEARCH_DURATION)
+                .tags("operation", "embedding", "outcome", "failure")
+                .timer()
+                .count());
         registry.getMeters().forEach(meter -> {
             assertFalse(meter.getId().toString().contains("private"));
-            assertTrue(meter.getId().getTags().stream().allMatch(tag -> List.of("operation", "outcome", "kind", "le").contains(tag.getKey())));
+            assertTrue(meter.getId()
+                    .getTags()
+                    .stream()
+                    .allMatch(tag -> List.of("operation", "outcome", "kind", "le").contains(tag.getKey())));
         });
     }
 
-    @Test void prometheusExportKeepsUniformLabelKeysAndNoTrafficIsNotAPublishedEmptySnapshot() {
+    @Test
+    void prometheusExportKeepsUniformLabelKeysAndNoTrafficIsNotAPublishedEmptySnapshot() {
         var prometheus = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
         try {
             var exported = new HotSearchMetrics(prometheus);
             assertTrue(Double.isNaN(prometheus.get(MetricNames.HOT_SEARCH_LAST_PUBLISH_SECONDS).gauge().value()));
-            exported.run(PUBLISH, () -> {});
+            exported.run(PUBLISH, () -> {
+            });
             exported.published(0, 0, now.get());
             exported.read(HotSearchMetrics.ReadKind.HOT, HotSearchMetrics.ReadResult.MISS);
             String text = prometheus.scrape();
@@ -68,10 +90,13 @@ class HotSearchMetricsTest {
             assertTrue(text.contains("myyoutube_hot_search_cache_reads_total"));
             assertFalse(text.contains("NaN"));
             assertEquals(0, prometheus.get(MetricNames.HOT_SEARCH_DISPLAYED).gauge().value());
-        } finally { prometheus.close(); }
+        } finally {
+            prometheus.close();
+        }
     }
 
-    @Test void stockSamplingIsOffByDefaultAndNeverQueriesRedisDuringGaugeReads() {
+    @Test
+    void stockSamplingIsOffByDefaultAndNeverQueriesRedisDuringGaugeReads() {
         var sampler = new HotSearchMetricsSampler(store, properties, observation, registry, clock());
         sampler.sample();
         registry.getMeters().stream().filter(meter -> meter instanceof io.micrometer.core.instrument.Gauge)
@@ -81,11 +106,18 @@ class HotSearchMetricsTest {
         assertTrue(Double.isNaN(gauge(MetricNames.HOT_SEARCH_PENDING)));
     }
 
-    @Test void failedSamplesRetainDataButBecomeUnhealthyAndAgeInsteadOfReportingZero() {
+    @Test
+    void failedSamplesRetainDataButBecomeUnhealthyAndAgeInsteadOfReportingZero() {
         observation.getMonitoring().setEnabled(true);
         var sampler = new HotSearchMetricsSampler(store, properties, observation, registry, clock());
-        var closed = LocalDate.of(2026, 10, 20);
-        when(store.stats(now.get())).thenReturn(new HotSearchStore.Stats(5, now.get() - 60_000, 1, closed, closed, 5000));
+        LocalDate closed = LocalDate.of(2026, 10, 20);
+        when(store.stats(now.get())).thenReturn(new HotSearchStore.Stats(
+                5,
+                now.get() - 60_000,
+                1,
+                closed,
+                closed,
+                5000));
         sampler.sample();
         assertEquals(5, gauge(MetricNames.HOT_SEARCH_PENDING));
         assertEquals(60, gauge(MetricNames.HOT_SEARCH_PENDING_OLDEST_SECONDS));
@@ -100,11 +132,18 @@ class HotSearchMetricsTest {
         verify(store, times(2)).stats(anyLong());
     }
 
-    @Test void archiveLagChangesAtFourAndAValidEmptySnapshotIsDifferentFromMissingOne() {
+    @Test
+    void archiveLagChangesAtFourAndAValidEmptySnapshotIsDifferentFromMissingOne() {
         observation.getMonitoring().setEnabled(true);
         now.set(Instant.parse("2026-10-21T19:59:00Z").toEpochMilli());
         var sampler = new HotSearchMetricsSampler(store, properties, observation, registry, clock());
-        when(store.stats(anyLong())).thenReturn(new HotSearchStore.Stats(0, null, 0, null, LocalDate.of(2026, 10, 20), 900_000));
+        when(store.stats(anyLong())).thenReturn(new HotSearchStore.Stats(
+                0,
+                null,
+                0,
+                null,
+                LocalDate.of(2026, 10, 20),
+                900_000));
         sampler.sample();
         assertEquals(0, gauge(MetricNames.HOT_SEARCH_ARCHIVE_LAG_DAYS));
         assertEquals(0, gauge(MetricNames.HOT_SEARCH_PENDING_OLDEST_SECONDS));
@@ -117,5 +156,7 @@ class HotSearchMetricsTest {
         assertEquals(0, gauge(MetricNames.PIPELINE_METRICS_SAMPLE_ENABLED));
     }
 
-    double gauge(String name) { return registry.get(name).gauge().value(); }
+    double gauge(String name) {
+        return registry.get(name).gauge().value();
+    }
 }

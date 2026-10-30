@@ -28,14 +28,18 @@ import java.util.UUID;
 @Component
 public class ContentVectorDeadLetters {
     private static final String TOPIC = "%DLQ%" + MqConstants.GROUP_CONTENT_VECTOR;
+
     private static final CursorCodec<Reference> CURSOR = new CursorCodec<>(Reference.class, 2048, "无效游标");
     private final DefaultMQPullConsumer consumer;
     private final ObjectMapper mapper;
     private boolean started;
 
     record Entry(Reference reference, String messageId, Long contentId, long storedAt, int reconsumeTimes,
-                 String targetVersion, String failureReason) {}
-    record Page(List<Entry> entries, String nextCursor) {}
+                 String targetVersion, String failureReason) {
+    }
+
+    record Page(List<Entry> entries, String nextCursor) {
+    }
 
     @Autowired
     public ContentVectorDeadLetters(@Value("${rocketmq.name-server}") String nameServer, ObjectMapper mapper) {
@@ -51,7 +55,9 @@ public class ContentVectorDeadLetters {
     }
 
     Page query(String cursor, Integer size) {
-        if (size == null || size < 1 || size > 50) throw new BizException(ErrorCode.INVALID_ARGUMENT, "size 必须在 1 到 50 之间");
+        if (size == null
+                || size < 1
+                || size > 50) throw new BizException(ErrorCode.INVALID_ARGUMENT, "size 必须在 1 到 50 之间");
         Reference start = cursor == null ? null : decode(cursor);
         try {
             List<MessageQueue> queues = queues();
@@ -75,7 +81,8 @@ public class ContentVectorDeadLetters {
                     }
                     offset = result.getNextBeginOffset();
                     if (entries.size() >= size) {
-                        String next = offset < max || i + 1 < queues.size() ? CURSOR.encode(reference(queue, offset)) : null;
+                        String next = offset < max
+                                || i + 1 < queues.size() ? CURSOR.encode(reference(queue, offset)) : null;
                         return new Page(entries, next);
                     }
                 }
@@ -110,10 +117,12 @@ public class ContentVectorDeadLetters {
         start();
         try {
             return consumer.fetchSubscribeMessageQueues(TOPIC).stream()
-                    .sorted(Comparator.comparing(MessageQueue::getBrokerName).thenComparingInt(MessageQueue::getQueueId)).toList();
+                    .sorted(Comparator.comparing(MessageQueue::getBrokerName).thenComparingInt(MessageQueue::getQueueId))
+                    .toList();
         } catch (MQClientException error) {
             for (Throwable cause = error; cause != null; cause = cause.getCause()) {
-                if (cause instanceof MQClientException clientError && clientError.getResponseCode() == ResponseCode.TOPIC_NOT_EXIST) {
+                if (cause instanceof MQClientException clientError
+                        && clientError.getResponseCode() == ResponseCode.TOPIC_NOT_EXIST) {
                     return List.of();
                 }
             }
@@ -155,7 +164,8 @@ public class ContentVectorDeadLetters {
     private void validate(Reference reference) {
         if (reference == null || reference.brokerName() == null || reference.brokerName().isBlank()
                 || reference.brokerName().length() > 255 || reference.queueId() == null || reference.queueId() < 0
-                || reference.offset() == null || reference.offset() < 0) throw new BizException(ErrorCode.INVALID_ARGUMENT, "无效死信定位信息");
+                || reference.offset() == null
+                || reference.offset() < 0) throw new BizException(ErrorCode.INVALID_ARGUMENT, "无效死信定位信息");
     }
 
     private MessageQueue queue(Reference reference) {

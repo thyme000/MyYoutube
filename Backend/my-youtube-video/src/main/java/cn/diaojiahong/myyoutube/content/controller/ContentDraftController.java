@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.controller;
 
+import cn.diaojiahong.myyoutube.common.media.DynamicMedia;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -29,7 +30,9 @@ public class ContentDraftController {
     }
 
     @PostMapping("/{draftId}/submit")
-    public Result<DraftPublicationService.Receipt> submit(@PathVariable Long draftId, @RequestBody DraftPublicationService.Request request) {
+    public Result<DraftPublicationService.Receipt> submit(
+            @PathVariable Long draftId,
+            @RequestBody DraftPublicationService.Request request) {
         return Result.success(publications.request(draftId, userId(), request.revision()));
     }
 
@@ -39,12 +42,16 @@ public class ContentDraftController {
     }
 
     @PostMapping("/{draftId}/submission/retry")
-    public Result<DraftPublicationService.Receipt> retrySubmission(@PathVariable Long draftId, @RequestBody DraftPublicationService.Request request) {
+    public Result<DraftPublicationService.Receipt> retrySubmission(
+            @PathVariable Long draftId,
+            @RequestBody DraftPublicationService.Request request) {
         return Result.success(publications.retry(draftId, userId(), request.revision()));
     }
 
     @PostMapping("/{draftId}/submission/cancel")
-    public Result<ContentDraftVO> cancelSubmission(@PathVariable Long draftId, @RequestBody DraftPublicationService.Request request) {
+    public Result<ContentDraftVO> cancelSubmission(
+            @PathVariable Long draftId,
+            @RequestBody DraftPublicationService.Request request) {
         return Result.success(publications.cancel(draftId, userId(), request.revision()));
     }
 
@@ -70,9 +77,9 @@ public class ContentDraftController {
 
     @GetMapping("/{draftId}/previews")
     public Result<java.util.Map<String, String>> previews(@PathVariable Long draftId) {
-        var draft = drafts.get(draftId, userId());
+        ContentDraftVO draft = drafts.get(draftId, userId());
         var urls = new java.util.LinkedHashMap<String, String>();
-        if (draft.dynamic() != null) for (var image : draft.dynamic().items())
+        if (draft.dynamic() != null) for (DynamicMedia.Image image : draft.dynamic().items())
             urls.put(image.imageObjectKey(), storage.signGetUrl(image.imageObjectKey(), 1200));
         return Result.success(urls);
     }

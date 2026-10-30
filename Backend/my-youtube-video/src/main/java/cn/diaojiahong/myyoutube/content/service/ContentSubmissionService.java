@@ -36,7 +36,8 @@ public class ContentSubmissionService {
     private final TransactionTemplate transaction;
     private final ContentSubmissionRules rules;
 
-    public record Receipt(Long contentId, Long pipelineId, String draftStatus) {}
+    public record Receipt(Long contentId, Long pipelineId, String draftStatus) {
+    }
 
     @ObservedBusiness(BusinessOperation.SUBMIT_CONTENT)
     public Receipt submitRequested(Long draftId, Long userId, Integer revision, LocalDateTime lease) {
@@ -51,15 +52,20 @@ public class ContentSubmissionService {
                 || !java.util.Objects.equals(draft.getRevision(), revision)
                 || !java.util.Objects.equals(draft.getSubmissionAfter(), lease))
             throw new BizException(ErrorCode.STATE_CONFLICT, "发布请求已取消或被其他任务接管");
-        if (draft.getStatus() != MediaDraftStatusEnum.READY) throw new BizException(ErrorCode.STATE_CONFLICT, "草稿尚未准备完成");
+        if (draft.getStatus() != MediaDraftStatusEnum.READY) throw new BizException(
+                ErrorCode.STATE_CONFLICT,
+                "草稿尚未准备完成");
         if (!java.util.Objects.equals(draft.getSubmissionRevision(), draft.getRevision()))
             throw new BizException(ErrorCode.STATE_CONFLICT, "发布请求与草稿版本不一致");
-        var content = new Content().setId(draftId).setType(draft.getType()).setAuthorId(userId)
+        Content content = new Content().setId(draftId).setType(draft.getType()).setAuthorId(userId)
                 .setTitle(rules.title(draft.getTitle()))
                 .setDescription(rules.description(draft.getDescription()))
                 .setVisibility(ContentVisibilityEnum.PUBLIC.getCode())
                 .setAllowComment(rules.allowComment(draft.getAllowComment()))
-                .setCoverObjectKey(draft.getPreparedCoverObjectKey()).setStatus(ContentStatusEnum.REVIEW).setIsDelete(0).setCreateTime(BusinessTime.now());
+                .setCoverObjectKey(draft.getPreparedCoverObjectKey())
+                .setStatus(ContentStatusEnum.REVIEW)
+                .setIsDelete(0)
+                .setCreateTime(BusinessTime.now());
         ContentTypeStrategy strategy = strategies.get(draft.getType());
         if (strategy == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "不支持的内容类型");
         ContentMedia media = strategy.prepare(draft);
@@ -67,10 +73,15 @@ public class ContentSubmissionService {
         try {
             Receipt receipt = transaction.execute(tx -> {
                 strategy.validateSubmission(media, userId);
-                if (!drafts.submit(draft, media.durationMs())) throw new BizException(ErrorCode.STATE_CONFLICT, "发布状态已变化，本次提交未生效");
+                if (!drafts.submit(draft, media.durationMs())) throw new BizException(
+                        ErrorCode.STATE_CONFLICT,
+                        "发布状态已变化，本次提交未生效");
                 contents.insert(content);
                 strategy.persist(draftId, media);
-                return new Receipt(draftId, understanding.enroll(content, media), MediaDraftStatusEnum.SUBMITTED.getCode());
+                return new Receipt(
+                        draftId,
+                        understanding.enroll(content, media),
+                        MediaDraftStatusEnum.SUBMITTED.getCode());
             });
             log.info("Content submit accepted draftId={} contentId={} pipelineId={} userId={} media={} durationMs={}",
                     draftId, receipt.contentId(), receipt.pipelineId(), userId, draft.getType(), media.durationMs());

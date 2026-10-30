@@ -14,6 +14,7 @@ public class StoragePresignVO {
     private Map<String, String> formFields;
     // 上传成功后入库的对象键
     private String objectKey;
+
     // URL 有效期(秒)
     private Long expireSeconds;
     // work 业务: presign 时创建的视频草稿ID

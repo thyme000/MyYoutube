@@ -87,14 +87,18 @@ public class AudioController {
 
     @GetMapping("/{id}/contents")
     @Operation(summary = "游标查询使用音频的公开内容，支持最新或最多点赞排序，不返回总数")
-    public Result<CursorPage<ContentFeedVO, String>> contents(@PathVariable Long id, @ModelAttribute AudioContentQuery query) {
+    public Result<CursorPage<ContentFeedVO, String>> contents(
+            @PathVariable Long id,
+            @ModelAttribute AudioContentQuery query) {
         String viewer = UserContext.getUserId();
         return Result.success(contents.list(id, viewer == null ? null : Long.valueOf(viewer), query));
     }
 
     @GetMapping("/mine/search")
     @Operation(summary = "按名称搜索本人的音频")
-    public Result<AudioPage> searchMine(@RequestParam(required = false) String keyword, @ModelAttribute PageQuery page) {
+    public Result<AudioPage> searchMine(
+            @RequestParam(required = false) String keyword,
+            @ModelAttribute PageQuery page) {
         return Result.success(audioService.searchMine(keyword, page));
     }
 

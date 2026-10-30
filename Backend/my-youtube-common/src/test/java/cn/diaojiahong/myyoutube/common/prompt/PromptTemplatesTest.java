@@ -13,8 +13,9 @@ class PromptTemplatesTest {
         return new ClassPathResource("prompts/model-prompts.yaml").getContentAsString(StandardCharsets.UTF_8);
     }
 
-    @Test void rendersJsonAndLiteralValuesWithoutRecursiveExpansion() {
-        var snapshot = new PromptTemplates().snapshot();
+    @Test
+    void rendersJsonAndLiteralValuesWithoutRecursiveExpansion() {
+        PromptTemplates.Snapshot snapshot = new PromptTemplates().snapshot();
         String pool = "美元$1、路径\\abc、{{categories}}";
         String rendered = snapshot.render("tagging-system", Map.of("categories", "TECH(科技)", "tagPool", pool));
         assertTrue(rendered.contains("\"category\":\"CODE\""));
@@ -23,21 +24,25 @@ class PromptTemplatesTest {
         assertThrows(IllegalArgumentException.class, () -> snapshot.render("unknown"));
     }
 
-    @Test void updateIsAtomicAndExistingSnapshotKeepsItsVersion() throws Exception {
+    @Test
+    void updateIsAtomicAndExistingSnapshotKeepsItsVersion() throws Exception {
         var registry = new PromptTemplates();
-        var before = registry.snapshot();
+        PromptTemplates.Snapshot before = registry.snapshot();
         registry.replace(defaults().replace("你是内容归纳器", "请精确归纳内容"));
-        var after = registry.snapshot();
+        PromptTemplates.Snapshot after = registry.snapshot();
         assertNotEquals(before.version(), after.version());
-        assertTrue(before.render("summary-system", Map.of("summaryLimit", 600, "chapterRule", "")).startsWith("你是内容归纳器"));
-        assertTrue(after.render("summary-system", Map.of("summaryLimit", 600, "chapterRule", "")).startsWith("请精确归纳内容"));
+        assertTrue(before.render("summary-system", Map.of("summaryLimit", 600, "chapterRule", ""))
+                .startsWith("你是内容归纳器"));
+        assertTrue(after.render("summary-system", Map.of("summaryLimit", 600, "chapterRule", ""))
+                .startsWith("请精确归纳内容"));
         registry.replace(defaults());
         assertEquals(before.version(), registry.snapshot().version());
     }
 
-    @Test void rejectsInvalidBundleAndRetainsEveryPreviousTemplate() throws Exception {
+    @Test
+    void rejectsInvalidBundleAndRetainsEveryPreviousTemplate() throws Exception {
         var registry = new PromptTemplates();
-        var before = registry.snapshot();
+        PromptTemplates.Snapshot before = registry.snapshot();
         String yaml = defaults();
         for (String invalid : List.of("", "templates: {}", "templates: [", yaml + "templates: {}\n",
                 yaml.replace("{{summaryLimit}}", "{{typo}}"), yaml.replace("{{chapterRule}}", ""),
@@ -51,15 +56,16 @@ class PromptTemplatesTest {
         assertThrows(IllegalArgumentException.class, () -> registry.replace(null));
     }
 
-    @Test void concurrentReadersNeverSeeMixedTemplateVersions() throws Exception {
+    @Test
+    void concurrentReadersNeverSeeMixedTemplateVersions() throws Exception {
         var registry = new PromptTemplates();
         String old = defaults();
         String updated = old.replace("你是内容归纳器", "新版归纳器").replace("本阶段 chapters", "新版阶段 chapters");
-        var writer = CompletableFuture.runAsync(() -> {
+        CompletableFuture<Void> writer = CompletableFuture.runAsync(() -> {
             for (int i = 0; i < 100; i++) registry.replace(i % 2 == 0 ? updated : old);
         });
         for (int i = 0; i < 10000; i++) {
-            var snapshot = registry.snapshot();
+            PromptTemplates.Snapshot snapshot = registry.snapshot();
             String instruction = snapshot.render("summary-system", Map.of("summaryLimit", 600,
                     "chapterRule", snapshot.render("summary-no-chapters")));
             assertEquals(instruction.startsWith("新版"), instruction.contains("新版阶段"));
@@ -67,9 +73,10 @@ class PromptTemplatesTest {
         writer.join();
     }
 
-    @Test void hotSearchGroupingRequiresItsTemplateAndRejectsVariables() throws Exception {
+    @Test
+    void hotSearchGroupingRequiresItsTemplateAndRejectsVariables() throws Exception {
         var registry = new PromptTemplates();
-        var before = registry.snapshot();
+        PromptTemplates.Snapshot before = registry.snapshot();
         String yaml = defaults();
         assertTrue(before.render("hot-search-group-system").contains("中文查询必须用中文"));
         String withoutHotSearch = yaml.substring(0, yaml.indexOf("  hot-search-group-system:"));

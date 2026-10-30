@@ -33,7 +33,7 @@ public class BusinessContextFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
-        try (var ignored = BusinessContext.open(fields)) {
+        try (BusinessContext ignored = BusinessContext.open(fields)) {
             chain.doFilter(request, response);
         }
     }

@@ -37,11 +37,16 @@ public class IdempotentAspect {
     public Object around(ProceedingJoinPoint pjp) throws Throwable {
         Idempotent idempotent = ((MethodSignature) pjp.getSignature()).getMethod()
                 .getAnnotation(Idempotent.class);
-        if (idempotent.ttl() < 0) throw new IllegalArgumentException("幂等完成缓存期限不能为负数");
+        if (idempotent.ttl() < 0) {
+            throw new IllegalArgumentException("幂等完成缓存期限不能为负数");
+        }
+
         String key = buildKey(pjp, idempotent);
-        try (var lease = guard.acquire(key, idempotent.leaseSeconds())) {
-            if (!lease.acquired()) return handleDuplicate(pjp, key, idempotent, lease.cachedValue());
-            var previous = guard.enter(lease);
+        try (IdempotentGuard.Lease lease = guard.acquire(key, idempotent.leaseSeconds())) {
+            if (!lease.acquired()) {
+                return handleDuplicate(pjp, key, idempotent, lease.cachedValue());
+            }
+            IdempotentGuard.Lease previous = guard.enter(lease);
             try {
                 Object result = pjp.proceed();
                 String value = idempotent.ttl() > 0 && idempotent.policy() == DuplicatePolicy.REPLAY
@@ -84,6 +89,7 @@ public class IdempotentAspect {
         if (!StringUtils.hasText(key)) {
             throw new IllegalStateException("幂等 key 解析为空, 拒绝执行以防全量误判: " + idempotent.key());
         }
+
         return key;
     }
 }

@@ -33,6 +33,7 @@ public class InternalLlmController {
         if (request == null || request.getMessages() == null || request.getMessages().isEmpty()) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "messages 不能为空");
         }
+
         List<LlmClient.Message> messages = request.getMessages().stream()
                 .filter(m -> m != null && StringUtils.hasText(m.getRole()))
                 .map(this::toClientMessage)
@@ -40,7 +41,10 @@ public class InternalLlmController {
         if (messages.isEmpty()) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "messages 不能为空");
         }
-        return metrics.record("chat", () -> llmClient.chatDetailed(messages, request.getModel(), request.getTemperature(),
+
+        return metrics.record(
+                "chat",
+                () -> llmClient.chatDetailed(messages, request.getModel(), request.getTemperature(),
                 request.getMaxTokens(), request.getResponseFormat()));
     }
 
@@ -49,12 +53,17 @@ public class InternalLlmController {
         if (request == null || request.getTexts() == null || request.getTexts().isEmpty()) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "texts 不能为空");
         }
+
         return metrics.record("embeddings", () -> embed(request.getTexts()));
     }
 
     private LlmPort.EmbeddingsResponse embed(List<String> texts) {
         EmbeddingOrchestrator.EmbeddingResult result = embeddingOrchestrator.embedAll(texts);
-        return new LlmPort.EmbeddingsResponse(result.items(), result.dims(), result.version(), result.unavailableReason());
+        return new LlmPort.EmbeddingsResponse(
+                result.items(),
+                result.dims(),
+                result.version(),
+                result.unavailableReason());
     }
 
     private LlmClient.Message toClientMessage(LlmPort.Message m) {
@@ -62,6 +71,7 @@ public class InternalLlmController {
         if (!hasParts) {
             return LlmClient.Message.text(m.getRole(), m.getContent() == null ? "" : m.getContent());
         }
+
         List<LlmClient.Message.Part> parts = m.getParts().stream()
                 .filter(p -> p != null && StringUtils.hasText(p.getType()))
                 .map(p -> new LlmClient.Message.Part(p.getType(), p.getText(),
@@ -70,6 +80,7 @@ public class InternalLlmController {
         if (!StringUtils.hasText(m.getContent()) && parts.isEmpty()) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "消息缺少内容");
         }
+
         return new LlmClient.Message(m.getRole(), m.getContent(), parts);
     }
 }

@@ -10,8 +10,10 @@ import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import jakarta.json.stream.JsonGenerator;
 import lombok.RequiredArgsConstructor;
 import org.apache.http.util.EntityUtils;
+import org.elasticsearch.client.Cancellable;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.ResponseListener;
 import org.elasticsearch.client.RestClient;
@@ -75,27 +77,36 @@ public class RecallSearchClient {
     private JsonArray hits(SearchRequest search) throws Exception {
         var request = new org.elasticsearch.client.Request("POST", "/content/_search");
         var json = new StringWriter();
-        try (var generator = JSON.jsonProvider().createGenerator(json)) {
+        try (JsonGenerator generator = JSON.jsonProvider().createGenerator(json)) {
             search.serialize(generator, JSON);
         }
         request.setJsonEntity(json.toString());
         request.addParameter("timeout", properties.getEsTimeoutMillis() + "ms");
         var result = new CompletableFuture<JsonArray>();
         // 单次 ES 调用达到固定超时时，使用底层句柄关闭仍在进行的 HTTP 请求。
-        var pending = restClient.performRequestAsync(request, new ResponseListener() {
-            @Override public void onSuccess(Response response) {
+        Cancellable pending = restClient.performRequestAsync(request, new ResponseListener() {
+            @Override
+            public void onSuccess(Response response) {
                 try {
-                    JsonObject body = JsonUtil.GSON.fromJson(EntityUtils.toString(response.getEntity()), JsonObject.class);
-                    if (body.has("timed_out") && body.get("timed_out").getAsBoolean()) throw new TimeoutException("ES 查询超时");
+                    JsonObject body = JsonUtil.GSON.fromJson(
+                            EntityUtils.toString(response.getEntity()),
+                            JsonObject.class);
+                    if (body.has("timed_out")
+                            && body.get("timed_out").getAsBoolean()) throw new TimeoutException("ES 查询超时");
                     if (body.has("_shards") && body.getAsJsonObject("_shards").get("failed").getAsInt() > 0)
                         throw new DependencyException(
                             ErrorCode.DEPENDENCY_FAILURE, "ES 查询分片失败", null);
-                    JsonArray hits = body
-                            .getAsJsonObject("hits").getAsJsonArray("hits");
+                    JsonArray hits = body.getAsJsonObject("hits").getAsJsonArray("hits");
                     result.complete(hits);
-                } catch (Exception error) { result.completeExceptionally(error); }
+                } catch (Exception error) {
+                    result.completeExceptionally(error);
+                }
             }
-            @Override public void onFailure(Exception error) { result.completeExceptionally(error); }
+
+            @Override
+            public void onFailure(Exception error) {
+                result.completeExceptionally(error);
+            }
         });
         try {
             return result.get(properties.getEsTimeoutMillis(), TimeUnit.MILLISECONDS);

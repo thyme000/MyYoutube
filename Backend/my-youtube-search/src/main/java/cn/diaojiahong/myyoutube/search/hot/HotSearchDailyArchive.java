@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
+import java.time.ZonedDateTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -27,9 +28,9 @@ public class HotSearchDailyArchive {
             initialDelayString = "${my-youtube.search.hot.refresh-millis:300000}")
     public void run() {
         if (!properties.isEnabled()) return;
-        try (var lease = guard.acquire("{hot-search}:refresh", IdempotentGuard.DEFAULT_LEASE_SECONDS)) {
+        try (IdempotentGuard.Lease lease = guard.acquire("{hot-search}:refresh", IdempotentGuard.DEFAULT_LEASE_SECONDS)) {
             if (!lease.acquired()) return;
-            var now = clock.instant().atZone(HotSearchStore.STAT_ZONE);
+            ZonedDateTime now = clock.instant().atZone(HotSearchStore.STAT_ZONE);
             LocalDate dueThrough = now.toLocalDate().minusDays(now.getHour() >= 4 ? 1 : 2);
             LocalDate closedThrough = store.closedThrough();
             if (closedThrough == null) closedThrough = store.initializeArchive(dueThrough.minusDays(1));
@@ -46,7 +47,10 @@ public class HotSearchDailyArchive {
         try {
             service.finishDay(date, lease, started + TimeUnit.SECONDS.toNanos(properties.getRoundBudgetSeconds()));
         } catch (RuntimeException error) {
-            log.warn("Hot search daily final pass incomplete date={} errorType={}", date, error.getClass().getSimpleName());
+            log.warn(
+                    "Hot search daily final pass incomplete date={} errorType={}",
+                    date,
+                    error.getClass().getSimpleName());
         }
         // 模型或写库失败仍顺延；租约失效则不能推进日期。
         lease.assertOwned();

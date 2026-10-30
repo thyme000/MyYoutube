@@ -3,9 +3,11 @@ package cn.diaojiahong.myyoutube.search.vector;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
 import lombok.RequiredArgsConstructor;
+import org.apache.rocketmq.client.producer.SendResult;
 import org.apache.rocketmq.client.producer.SendStatus;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.apache.rocketmq.spring.support.RocketMQHeaders;
+import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 
@@ -27,9 +29,9 @@ public class ContentVectorPublisher {
     }
 
     private void send(ContentVectorMessage payload) {
-        var message = MessageBuilder.withPayload(payload)
+        Message<ContentVectorMessage> message = MessageBuilder.withPayload(payload)
                 .setHeader(RocketMQHeaders.KEYS, payload.contentId().toString()).build();
-        var result = mq.syncSend(MqConstants.TOPIC_CONTENT_VECTOR, message);
+        SendResult result = mq.syncSend(MqConstants.TOPIC_CONTENT_VECTOR, message);
         if (result == null || result.getSendStatus() != SendStatus.SEND_OK) {
             throw new IllegalStateException("向量任务未获 Broker 成功确认, contentId=" + payload.contentId());
         }

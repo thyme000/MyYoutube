@@ -53,17 +53,26 @@ public class TagResultMapper {
      * @param rawTagJson TAG 任务 resultJson
      */
     public static void validate(String rawTagJson) {
-        var root = cn.diaojiahong.myyoutube.common.media.StructuredJson.object(rawTagJson);
-        if (!root.has("category") || !root.has("tags") || !root.get("tags").isJsonArray()) throw new IllegalArgumentException("Incomplete tag result");
-        if (java.util.Arrays.stream(VideoCategoryEnum.values()).noneMatch(c -> c.getCode().equals(root.get("category").getAsString())))
+        JsonObject root = cn.diaojiahong.myyoutube.common.media.StructuredJson.object(rawTagJson);
+        if (!root.has("category")
+                || !root.has("tags")
+                || !root.get("tags").isJsonArray()) {
+            throw new IllegalArgumentException("Incomplete tag result");
+        }
+        if (java.util.Arrays.stream(VideoCategoryEnum.values())
+                .noneMatch(c -> c.getCode().equals(root.get("category").getAsString())))
             throw new IllegalArgumentException("Invalid tag category");
-        for (var value : root.getAsJsonArray("tags")) {
-            var tag = value.getAsJsonObject();
+        for (JsonElement value : root.getAsJsonArray("tags")) {
+            JsonObject tag = value.getAsJsonObject();
             double confidence = tag.get("confidence").getAsDouble();
-            if (tag.get("name").getAsString().isBlank() || !Double.isFinite(confidence) || confidence < 0 || confidence > 1)
+            if (tag.get("name").getAsString().isBlank()
+                    || !Double.isFinite(confidence)
+                    || confidence < 0
+                    || confidence > 1)
                 throw new IllegalArgumentException("Invalid tag value");
         }
     }
+
     public Mapped map(String rawTagJson) {
         validate(rawTagJson);
         String categoryCode = VideoCategoryEnum.OTHER.getCode();
@@ -78,7 +87,8 @@ public class TagResultMapper {
                     JsonArray arr = root.getAsJsonArray("tags");
                     for (JsonElement e : arr) {
                         JsonObject o = e.getAsJsonObject();
-                        String name = o.has("name") && !o.get("name").isJsonNull() ? o.get("name").getAsString().trim() : "";
+                        String name = o.has("name")
+                                && !o.get("name").isJsonNull() ? o.get("name").getAsString().trim() : "";
                         double conf = o.has("confidence") && !o.get("confidence").isJsonNull()
                                 ? o.get("confidence").getAsDouble() : 0;
                         if (!name.isEmpty()) {
@@ -116,17 +126,22 @@ public class TagResultMapper {
                 }
                 tag = new Tag().setName(c.name()).setSlug(slug)
                         .setCategoryCode(categoryCode).setStatus(1).setSortOrder(0);
-                try { tagService.save(tag); }
-                catch (org.springframework.dao.DuplicateKeyException duplicate) {
+                try {
+                    tagService.save(tag);
+                } catch (org.springframework.dao.DuplicateKeyException duplicate) {
                     tag = tagService.lambdaQuery().eq(Tag::getSlug, slug).one();
                     if (tag == null) throw duplicate;
                 }
                 Tag committed = tag;
                 org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                         new org.springframework.transaction.support.TransactionSynchronization() {
-                            @Override public void afterCommit() {
-                                try { tagPoolHolder.register(committed, 0); }
-                                catch (Exception error) { log.warn("Tag pool sync deferred tagId={}", committed.getId(), error); }
+                            @Override
+                            public void afterCommit() {
+                                try {
+                                    tagPoolHolder.register(committed, 0);
+                                } catch (Exception error) {
+                                    log.warn("Tag pool sync deferred tagId={}", committed.getId(), error);
+                                }
                             }
                         });
                 newCount++;

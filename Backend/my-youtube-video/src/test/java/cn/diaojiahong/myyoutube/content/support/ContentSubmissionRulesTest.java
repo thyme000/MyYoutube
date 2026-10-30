@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ContentSubmissionRulesTest {
     final ContentSubmissionRules rules = new ContentSubmissionRules("content-moderation/blocked.txt");
+
     @TempDir Path directory;
 
     @ParameterizedTest
@@ -40,7 +41,8 @@ class ContentSubmissionRulesTest {
         assertEquals(text, rules.description(text));
     }
 
-    @Test void preservesUserTextAndExistingWhitespaceContractWithoutHotSearchQualityLimits() {
+    @Test
+    void preservesUserTextAndExistingWhitespaceContractWithoutHotSearchQualityLimits() {
         String title = "反诈 ＡＢＣ\u200b  ２０２６";
         String description = "简介 Ｃ＋＋\u200b  中文\n原始第二行";
         assertEquals(title, rules.title(title));
@@ -56,7 +58,8 @@ class ContentSubmissionRulesTest {
         assertThrows(BizException.class, () -> rules.description("字".repeat(513)));
     }
 
-    @Test void customPhraseRulesNormalizeTemporaryCopyAndDoNotJoinFields() throws Exception {
+    @Test
+    void customPhraseRulesNormalizeTemporaryCopyAndDoNotJoinFields() throws Exception {
         Path file = directory.resolve("custom.txt");
         Files.writeString(file, "exact: ＡＢＣ １２３\nphrase: 禁止短语\nphrase: 跨字段\n");
         var custom = new ContentSubmissionRules(file.toUri().toString());
@@ -67,8 +70,9 @@ class ContentSubmissionRulesTest {
         assertEquals("段", custom.description("段"));
     }
 
-    @Test void springLoadsDefaultDictionaryAndRejectsInvalidConfiguredDictionaries() throws Exception {
-        var context = new ApplicationContextRunner().withUserConfiguration(Config.class);
+    @Test
+    void springLoadsDefaultDictionaryAndRejectsInvalidConfiguredDictionaries() throws Exception {
+        ApplicationContextRunner context = new ApplicationContextRunner().withUserConfiguration(Config.class);
         context.run(c -> {
             assertNull(c.getStartupFailure());
             assertThrows(BizException.class, () -> c.getBean(ContentSubmissionRules.class).title("裸聊加微信"));
@@ -87,5 +91,6 @@ class ContentSubmissionRulesTest {
 
     @Configuration(proxyBeanMethods = false)
     @Import(ContentSubmissionRules.class)
-    static class Config {}
+    static class Config {
+    }
 }

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
+import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.springframework.stereotype.Component;
@@ -13,7 +14,7 @@ public class GlobalBannedStep extends MessageSendStep {
 
     @Override
     public void apply(MessageSendContext ctx) {
-        var conversation = ctx.getConversationDoc();
+        ChatConversationDoc conversation = ctx.getConversationDoc();
         // 全员禁言只拦普通成员, 创建人不受限
         if (Boolean.TRUE.equals(conversation.getBanned())
                 && !conversation.getCreatedBy().equals(Long.valueOf(ctx.getUserId()))) {

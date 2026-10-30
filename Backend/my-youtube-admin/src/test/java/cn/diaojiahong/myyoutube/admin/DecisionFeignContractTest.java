@@ -14,6 +14,7 @@ import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
+import java.io.OutputStream;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -40,15 +41,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class DecisionFeignContractTest {
     final long id = 9_007_199_254_740_993L;
+
     final AtomicReference<Object> reply = new AtomicReference<>();
+
     final AtomicReference<JsonNode> input = new AtomicReference<>();
+
     final AtomicReference<String> path = new AtomicReference<>();
+
     final AtomicReference<String> internalToken = new AtomicReference<>();
+
     final AtomicInteger calls = new AtomicInteger();
     ObjectMapper mapper;
     HttpServer server;
 
-    @BeforeEach void start() throws Exception {
+    @BeforeEach
+    void start() throws Exception {
         var builder = new Jackson2ObjectMapperBuilder();
         new JacksonConfig().jackson2ObjectMapperBuilderCustomizer().customize(builder);
         mapper = builder.build();
@@ -61,14 +68,20 @@ class DecisionFeignContractTest {
             byte[] body = mapper.writeValueAsBytes(reply.get());
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
-            try (var output = exchange.getResponseBody()) { output.write(body); }
+            try (OutputStream output = exchange.getResponseBody()) {
+                output.write(body);
+            }
             exchange.close();
         });
         server.start();
         UserContext.setUser("1");
     }
 
-    @AfterEach void stop() { UserContext.removeUser(); server.stop(0); }
+    @AfterEach
+    void stop() {
+        UserContext.removeUser();
+        server.stop(0);
+    }
 
     ApplicationContextRunner runner() {
         String url = "http://127.0.0.1:" + server.getAddress().getPort();
@@ -83,14 +96,34 @@ class DecisionFeignContractTest {
         return MockMvcBuilders.standaloneSetup(new AdminMediaRetryController(retries, AuthorizationFixture.authorization()),
                         new AdminContentVectorDeadLetterController(deadLetters, AuthorizationFixture.authorization()))
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
-                .setControllerAdvice(new GlobalExceptionHandler(), new FeignExceptionHandler(), new UnexpectedExceptionHandler()).build();
+                .setControllerAdvice(
+                        new GlobalExceptionHandler(),
+                        new FeignExceptionHandler(),
+                        new UnexpectedExceptionHandler())
+                .build();
     }
 
-    @Test void admissionKeepsAcceptedAndBusyDecisionsAcrossTheHttpBoundary() {
-        var batch = new MediaRetryPort.Batch(id, MediaRetryBatchStatus.RUNNING, 1, 0, 1, 0, 0, 0, 1, 1, null, null, null);
+    @Test
+    void admissionKeepsAcceptedAndBusyDecisionsAcrossTheHttpBoundary() {
+        var batch = new MediaRetryPort.Batch(
+                id,
+                MediaRetryBatchStatus.RUNNING,
+                1,
+                0,
+                1,
+                0,
+                0,
+                0,
+                1,
+                1,
+                null,
+                null,
+                null);
         runner().run(context -> {
             assertThat(context).hasNotFailed();
-            var mvc = mvc(context.getBean(MediaRetryPort.class), context.getBean(ContentVectorDeadLetterPort.class));
+            MockMvc mvc = mvc(
+                    context.getBean(MediaRetryPort.class),
+                    context.getBean(ContentVectorDeadLetterPort.class));
             for (boolean accepted : new boolean[]{true, false}) {
                 String code = accepted ? "RETRY_BATCH_CREATED" : "RETRY_BATCH_RUNNING";
                 reply.set(new MediaRetryPort.Admission(accepted, code, "补跑决策", batch));
@@ -136,5 +169,6 @@ class DecisionFeignContractTest {
 
     @Configuration(proxyBeanMethods = false)
     @EnableFeignClients(clients = {MediaRetryPort.class, ContentVectorDeadLetterPort.class}, defaultConfiguration = InternalFeignConfiguration.class)
-    static class Clients {}
+    static class Clients {
+    }
 }

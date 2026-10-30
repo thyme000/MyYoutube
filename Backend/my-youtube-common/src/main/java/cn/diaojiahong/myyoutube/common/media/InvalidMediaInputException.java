@@ -13,21 +13,37 @@ public final class InvalidMediaInputException extends IllegalArgumentException {
         INVALID_IMAGE("图片格式或尺寸无效，请更换图片");
 
         private final String publicMessage;
-        Reason(String publicMessage) { this.publicMessage = publicMessage; }
-        public String code() { return "MEDIA_INPUT_" + name(); }
+
+        Reason(String publicMessage) {
+            this.publicMessage = publicMessage;
+        }
+
+        public String code() {
+            return "MEDIA_INPUT_" + name();
+        }
     }
 
     private final Reason reason;
 
-    public InvalidMediaInputException(Reason reason) { this(reason, null); }
+    public InvalidMediaInputException(Reason reason) {
+        this(reason, null);
+    }
+
     public InvalidMediaInputException(Reason reason, Throwable cause) {
         super(Objects.requireNonNull(reason).publicMessage, cause);
         this.reason = reason;
     }
-    public Reason reason() { return reason; }
+
+    public Reason reason() {
+        return reason;
+    }
 
     public static String publicMessage(String failureCode) {
-        for (var reason : Reason.values()) if (reason.code().equals(failureCode)) return reason.publicMessage;
+        for (Reason reason : Reason.values()) {
+            if (reason.code().equals(failureCode)) {
+                return reason.publicMessage;
+            }
+        }
         return "音频处理失败，请重试";
     }
 }

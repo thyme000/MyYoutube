@@ -34,7 +34,9 @@ public record HotSearchGroup(String id, String name, List<Float> vector, String 
                 return Double.NaN;
             }
             double a = leftValue, b = rightValue;
-            dot += a * b; left += a * a; right += b * b;
+            dot += a * b;
+            left += a * a;
+            right += b * b;
         }
         double denominator = Math.sqrt(left * right);
         return denominator > 0 ? dot / denominator : Double.NaN;

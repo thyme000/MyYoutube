@@ -2,7 +2,9 @@ package cn.diaojiahong.myyoutube.search.hot;
 
 import cn.diaojiahong.myyoutube.common.config.MybatisPlusConfig;
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.llm.api.QueryEmbeddingPort;
+import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort;
 import cn.diaojiahong.myyoutube.search.mapper.HotSearchHistoryMapper;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort.*;
 import cn.diaojiahong.myyoutube.search.controller.HotSearchHistoryController;
@@ -12,6 +14,7 @@ import cn.diaojiahong.myyoutube.common.config.JacksonConfig;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
+import java.util.Set;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,13 +77,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Timeout(20)
 class HotSearchHistoryMysqlTest {
     private static final LocalDate DAY = LocalDate.of(2026, 10, 20);
+
     private static final long NINE = OffsetDateTime.parse("2026-10-20T09:10:00+08:00").toInstant().toEpochMilli();
     private String url;
     private JdbcTemplate jdbc;
     private HotSearchHistoryStore store;
     private HotSearchHistoryMapper mapper;
 
-    @BeforeEach void setup() throws Exception {
+    @BeforeEach
+    void setup() throws Exception {
         url = System.getProperty("hot.mysql.url");
         assertTrue(URI.create(url.substring(5)).getPort() > 10000, "仅使用隔离测试 MySQL");
         var dataSource = new DriverManagerDataSource(url, "root", "");
@@ -95,7 +100,9 @@ class HotSearchHistoryMysqlTest {
         factory.setDataSource(dataSource);
         factory.setMapperLocations(new ClassPathResource("mapper/HotSearchHistoryMapper.xml"));
         mapper = new SqlSessionTemplate(factory.getObject()).getMapper(HotSearchHistoryMapper.class);
-        store = new HotSearchHistoryStore(mapper, new TransactionTemplate(new DataSourceTransactionManager(dataSource)));
+        store = new HotSearchHistoryStore(
+                mapper,
+                new TransactionTemplate(new DataSourceTransactionManager(dataSource)));
     }
 
     @Test
@@ -103,9 +110,11 @@ class HotSearchHistoryMysqlTest {
     void duplicateEventCannotChangeItsOriginalDateUserTextOrGroup(CapturedOutput output) {
         store.append(List.of(event("same", DAY, 1, NINE, "  C++  ", "group-a")));
         store.append(List.of(event("same", DAY.plusDays(1), 9, NINE + 1000, "C#", "group-b")));
-        var row = jdbc.queryForMap("SELECT * FROM hot_search_event WHERE event_id = 'same'");
+        Map<String,Object> row = jdbc.queryForMap("SELECT * FROM hot_search_event WHERE event_id = 'same'");
         assertEquals(1L, count("hot_search_event"));
-        assertEquals(DAY, row.get("stat_date") instanceof java.sql.Date date ? date.toLocalDate() : row.get("stat_date"));
+        assertEquals(
+                DAY,
+                row.get("stat_date") instanceof java.sql.Date date ? date.toLocalDate() : row.get("stat_date"));
         assertEquals(1L, ((Number) row.get("user_id")).longValue());
         assertEquals(NINE, ((Number) row.get("happened_at")).longValue());
         assertEquals("  C++  ", row.get("raw_keyword"));
@@ -122,16 +131,18 @@ class HotSearchHistoryMysqlTest {
                 event("c", DAY, 1, NINE + 3_600_000, "Java", "a"),
                 event("d", DAY, 2, NINE, "Java", "a")));
         store.rebuildDay(DAY);
-        var row = jdbc.queryForMap("SELECT * FROM hot_search_daily_group");
+        Map<String,Object> row = jdbc.queryForMap("SELECT * FROM hot_search_daily_group");
         assertEquals(4L, ((Number) row.get("search_count")).longValue());
         assertEquals(2L, ((Number) row.get("user_count")).longValue());
         assertEquals(3L, ((Number) row.get("score")).longValue());
         assertTrue(output.getAll().contains("Hot search history append completed batchSize=4 elapsedMs="));
         assertTrue(output.getAll().contains("Hot search history rebuild started date=2026-10-20"));
-        assertTrue(output.getAll().contains("Hot search history rebuild completed date=2026-10-20 groups=1 elapsedMs="));
+        assertTrue(output.getAll()
+                .contains("Hot search history rebuild completed date=2026-10-20 groups=1 elapsedMs="));
     }
 
-    @Test void allGroupsAreRankedWithStableTiesWithoutTopSevenOrUserThresholdFiltering() {
+    @Test
+    void allGroupsAreRankedWithStableTiesWithoutTopSevenOrUserThresholdFiltering() {
         store.append(IntStream.range(0, 9).mapToObj(i -> event("event-" + i, DAY, 1, NINE, "词" + i, "group-" + i)).toList());
         store.rebuildDay(DAY);
         assertEquals(9L, count("hot_search_daily_group"));
@@ -141,7 +152,8 @@ class HotSearchHistoryMysqlTest {
                 jdbc.queryForList("SELECT rank_no FROM hot_search_daily_group ORDER BY rank_no", Long.class));
     }
 
-    @Test void rebuildReplacesAbsoluteCountsRemovesStaleGroupsAndLeavesOtherDaysUntouched() {
+    @Test
+    void rebuildReplacesAbsoluteCountsRemovesStaleGroupsAndLeavesOtherDaysUntouched() {
         store.append(List.of(event("a", DAY, 1, NINE, "Java", "a"),
                 event("b", DAY, 2, NINE, "Java", "a"),
                 event("c", DAY.plusDays(1), 3, NINE, "Java", "a")));
@@ -150,8 +162,18 @@ class HotSearchHistoryMysqlTest {
         jdbc.update("DELETE FROM hot_search_event WHERE event_id = 'b'");
         store.rebuildDay(DAY);
         store.rebuildDay(DAY);
-        assertEquals(1L, jdbc.queryForObject("SELECT search_count FROM hot_search_daily_group WHERE stat_date = ?", Long.class, DAY));
-        assertEquals(1L, jdbc.queryForObject("SELECT search_count FROM hot_search_daily_group WHERE stat_date = ?", Long.class, DAY.plusDays(1)));
+        assertEquals(
+                1L,
+                jdbc.queryForObject(
+                        "SELECT search_count FROM hot_search_daily_group WHERE stat_date = ?",
+                        Long.class,
+                        DAY));
+        assertEquals(
+                1L,
+                jdbc.queryForObject(
+                        "SELECT search_count FROM hot_search_daily_group WHERE stat_date = ?",
+                        Long.class,
+                        DAY.plusDays(1)));
         jdbc.update("DELETE FROM hot_search_event WHERE stat_date = ?", DAY);
         store.rebuildDay(DAY);
         assertEquals(List.of(DAY.plusDays(1).toString()), jdbc.queryForList(
@@ -181,7 +203,8 @@ class HotSearchHistoryMysqlTest {
         try {
             assertThrows(DataAccessException.class, () -> store.rebuildDay(DAY));
             assertEquals(1L, jdbc.queryForObject("SELECT search_count FROM hot_search_daily_group", Long.class));
-            String failedAttempt = output.getAll().substring(output.getAll().lastIndexOf("Hot search history rebuild started"));
+            String failedAttempt = output.getAll()
+                    .substring(output.getAll().lastIndexOf("Hot search history rebuild started"));
             assertTrue(failedAttempt.contains("Hot search history rebuild failed date=2026-10-20 elapsedMs="));
             assertTrue(failedAttempt.contains("errorType="));
             assertFalse(failedAttempt.contains("Hot search history rebuild completed"));
@@ -203,10 +226,13 @@ class HotSearchHistoryMysqlTest {
             assertTrue(flow.pending.pending(flow.now).isEmpty());
             assertEquals(3L, count("hot_search_event"));
             assertEquals(List.of("  C++ 入门  ", " C++ 入门 ", "C++ 入门").stream().sorted().toList(),
-                    jdbc.queryForList("SELECT raw_keyword FROM hot_search_event", String.class).stream().sorted().toList());
+                    jdbc.queryForList("SELECT raw_keyword FROM hot_search_event", String.class)
+                            .stream()
+                            .sorted()
+                            .toList());
             assertEquals(1L, jdbc.queryForObject("SELECT COUNT(DISTINCT group_id) FROM hot_search_event", Long.class));
             store.rebuildDay(flow.date);
-            var summary = jdbc.queryForMap("SELECT * FROM hot_search_daily_group");
+            Map<String,Object> summary = jdbc.queryForMap("SELECT * FROM hot_search_daily_group");
             assertEquals(3L, ((Number) summary.get("search_count")).longValue());
             assertEquals(2L, ((Number) summary.get("user_count")).longValue());
             assertEquals(2L, ((Number) summary.get("score")).longValue());
@@ -224,7 +250,7 @@ class HotSearchHistoryMysqlTest {
             try {
                 flow.service.refresh();
                 assertEquals(List.of("C++ 入门"), flow.service.hot());
-                var inputs = flow.pending.pending(flow.now);
+                List<HotSearchStore.Event> inputs = flow.pending.pending(flow.now);
                 assertEquals(1, inputs.size());
                 assertEquals("C++ 入门", flow.pending.assignment(inputs.get(0)).groupName());
             } finally {
@@ -247,7 +273,7 @@ class HotSearchHistoryMysqlTest {
     @Test
     @EnabledIfSystemProperty(named = "hot.redis.port", matches = "[0-9]+")
     void dailyClosingKeepsYesterdayAndTodaysMidnightSeparate() throws Exception {
-        var today = LocalDate.now(HotSearchStore.STAT_ZONE);
+        LocalDate today = LocalDate.now(HotSearchStore.STAT_ZONE);
         long four = today.atTime(4, 0).atZone(HotSearchStore.STAT_ZONE).toInstant().toEpochMilli();
         try (var flow = new LiveFlow(four)) {
             long midnight = today.atStartOfDay(HotSearchStore.STAT_ZONE).toInstant().toEpochMilli();
@@ -262,12 +288,16 @@ class HotSearchHistoryMysqlTest {
             assertEquals(today.minusDays(1), flow.pending.closedThrough());
             assertEquals(List.of(current), flow.pending.pending(four));
             assertEquals(1L, count("hot_search_event"));
-            assertEquals(today.minusDays(1).toString(), jdbc.queryForObject("SELECT CAST(stat_date AS CHAR) FROM hot_search_event", String.class));
+            assertEquals(
+                    today.minusDays(1).toString(),
+                    jdbc.queryForObject("SELECT CAST(stat_date AS CHAR) FROM hot_search_event", String.class));
             assertEquals(1L, jdbc.queryForObject("SELECT search_count FROM hot_search_daily_group", Long.class));
             assertNull(flow.pending.nextSummaryDate());
             flow.service.refresh();
             assertEquals(2L, count("hot_search_event"));
-            assertEquals(today.toString(), jdbc.queryForObject("SELECT CAST(stat_date AS CHAR) FROM hot_search_event WHERE event_id='current'", String.class));
+            assertEquals(today.toString(), jdbc.queryForObject(
+                            "SELECT CAST(stat_date AS CHAR) FROM hot_search_event WHERE event_id='current'",
+                            String.class));
             clearInvocations(flow.model);
             flow.archive().run();
             verifyNoInteractions(flow.model);
@@ -277,7 +307,7 @@ class HotSearchHistoryMysqlTest {
     @Test
     @EnabledIfSystemProperty(named = "hot.redis.port", matches = "[0-9]+")
     void failedGroupingAndWritesCarryTogetherButCommittedEventsKeepTheirOriginalDate() throws Exception {
-        var today = LocalDate.now(HotSearchStore.STAT_ZONE);
+        LocalDate today = LocalDate.now(HotSearchStore.STAT_ZONE);
         long four = today.atTime(4, 0).atZone(HotSearchStore.STAT_ZONE).toInstant().toEpochMilli();
         try (var flow = new LiveFlow(four)) {
             long at = today.atStartOfDay(HotSearchStore.STAT_ZONE).toInstant().toEpochMilli() - 1000;
@@ -286,8 +316,10 @@ class HotSearchHistoryMysqlTest {
             var c = new HotSearchStore.Event("c", "已经保存搜索", "已经保存搜索", 9, at);
             var fixed = new HotSearchGroup("fixed", "固定归属", List.of(1f, 0f), "v1");
             var original = new HotSearchGroup("original", "原始归属", List.of(1f, 0f), "v1");
-            for (var input : List.of(a, b, c)) assertTrue(flow.pending.record(input));
-            assertEquals(3L, List.of(a, b, c).stream().map(input -> flow.pending.partition(input.token())).distinct().count());
+            for (HotSearchStore.Event input : List.of(a, b, c)) assertTrue(flow.pending.record(input));
+            assertEquals(
+                    3L,
+                    List.of(a, b, c).stream().map(input -> flow.pending.partition(input.token())).distinct().count());
             flow.pending.assign(b, fixed, four);
             flow.pending.assign(c, original, four);
             // 模拟数据库已提交、进程在 Redis ACK 前退出的状态。
@@ -307,15 +339,26 @@ class HotSearchHistoryMysqlTest {
 
             flow.service.refresh();
             assertEquals(List.of(a), flow.pending.pending(four));
-            assertEquals(today.toString(), jdbc.queryForObject("SELECT CAST(stat_date AS CHAR) FROM hot_search_event WHERE event_id='b'", String.class));
-            assertEquals(today.minusDays(1).toString(), jdbc.queryForObject("SELECT CAST(stat_date AS CHAR) FROM hot_search_event WHERE event_id='c'", String.class));
-            assertEquals(original.id(), jdbc.queryForObject("SELECT group_id FROM hot_search_event WHERE event_id='c'", String.class));
+            assertEquals(today.toString(), jdbc.queryForObject(
+                            "SELECT CAST(stat_date AS CHAR) FROM hot_search_event WHERE event_id='b'",
+                            String.class));
+            assertEquals(today.minusDays(1)
+                    .toString(), jdbc.queryForObject(
+                            "SELECT CAST(stat_date AS CHAR) FROM hot_search_event WHERE event_id='c'",
+                            String.class));
+            assertEquals(
+                    original.id(),
+                    jdbc.queryForObject("SELECT group_id FROM hot_search_event WHERE event_id='c'", String.class));
             doReturn(new QueryEmbeddingPort.Info("v1", 2)).when(flow.model).info();
             flow.service.refresh();
             assertTrue(flow.pending.pending(four).isEmpty());
             assertEquals(3L, count("hot_search_event"));
-            assertEquals(today.toString(), jdbc.queryForObject("SELECT CAST(stat_date AS CHAR) FROM hot_search_event WHERE event_id='a'", String.class));
-            assertEquals(1L, jdbc.queryForObject("SELECT COUNT(DISTINCT happened_at) FROM hot_search_event", Long.class));
+            assertEquals(today.toString(), jdbc.queryForObject(
+                            "SELECT CAST(stat_date AS CHAR) FROM hot_search_event WHERE event_id='a'",
+                            String.class));
+            assertEquals(
+                    1L,
+                    jdbc.queryForObject("SELECT COUNT(DISTINCT happened_at) FROM hot_search_event", Long.class));
             assertEquals(at, jdbc.queryForObject("SELECT MIN(happened_at) FROM hot_search_event", Long.class));
             assertEquals(3L, jdbc.queryForObject("SELECT COUNT(DISTINCT user_id) FROM hot_search_event", Long.class));
             clearInvocations(flow.model);
@@ -332,10 +375,14 @@ class HotSearchHistoryMysqlTest {
         final LettuceConnectionFactory connection;
         final StringRedisTemplate redis;
         final HotSearchStore pending;
+
         final HotSearchModel model = mock(HotSearchModel.class);
+
         final ThreadPoolTaskExecutor executor = new HotSearchConfiguration().hotSearchCacheExecutor();
+
         final ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         final HotSearchService service;
+
         final HotSearchProperties properties = new HotSearchProperties();
         final IdempotentGuard guard;
 
@@ -359,42 +406,55 @@ class HotSearchHistoryMysqlTest {
             when(model.info()).thenReturn(info);
             when(model.vectors(anyList(), any())).thenAnswer(call -> ((List<String>) call.getArgument(0)).stream()
                     .collect(Collectors.toMap(text -> text, text -> List.of(1f, 0f))));
-            when(model.group(anyList())).thenAnswer(call -> List.of(new HotSearchModel.Grouping("C++ 入门", call.getArgument(0))));
+            when(model.group(anyList())).thenAnswer(call -> List.of(new HotSearchModel.Grouping(
+                    "C++ 入门",
+                    call.getArgument(0))));
             guard = new IdempotentGuard(redis, scheduler);
             service = new HotSearchService(pending, store, model, new HotSearchFilter(properties), properties,
-                    guard, executor, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC), new HotSearchMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+                    guard,
+                    executor,
+                    Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC),
+                    new HotSearchMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         }
 
         HotSearchDailyArchive archive() {
             return new HotSearchDailyArchive(pending, service, store, properties, guard,
-                    Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC), new HotSearchMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+                    Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC),
+                    new HotSearchMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         }
 
         void record(long user, String raw) throws InterruptedException {
             var captured = new CountDownLatch(1);
             doAnswer(call -> {
-                Object result = call.callRealMethod(); captured.countDown(); return result;
+                Object result = call.callRealMethod();
+                captured.countDown();
+                return result;
             }).when(pending).record(any());
             service.record(user, raw);
             assertTrue(captured.await(3, TimeUnit.SECONDS));
         }
 
         void clean() {
-            var keys = redis.keys(HotSearchStore.PREFIX + "*");
+            Set<String> keys = redis.keys(HotSearchStore.PREFIX + "*");
             if (keys != null && !keys.isEmpty()) redis.delete(keys);
-            var partitioned = redis.keys("{hs:*");
+            Set<String> partitioned = redis.keys("{hs:*");
             if (partitioned != null) partitioned.forEach(redis::delete);
-            var names = redis.keys("hs:name:*");
+            Set<String> names = redis.keys("hs:name:*");
             if (names != null) names.forEach(redis::delete);
             redis.delete("idempotent:{hot-search}:refresh");
         }
 
-        @Override public void close() {
-            executor.shutdown(); scheduler.shutdown(); clean(); connection.destroy();
+        @Override
+        public void close() {
+            executor.shutdown();
+            scheduler.shutdown();
+            clean();
+            connection.destroy();
         }
     }
 
-    @Test void rawKeywordGroupingPreservesCasePunctuationWhitespaceAndUnicode() {
+    @Test
+    void rawKeywordGroupingPreservesCasePunctuationWhitespaceAndUnicode() {
         store.append(List.of(event("a", DAY, 1, NINE, "Java", "a"),
                 event("b", DAY, 2, NINE, "java", "a"),
                 event("c", DAY, 3, NINE, "Java ", "a"),
@@ -402,12 +462,17 @@ class HotSearchHistoryMysqlTest {
                 event("e", DAY, 5, NINE, "C#", "a"),
                 event("f", DAY, 6, NINE, "猫🐈", "a")));
         assertEquals(6L, jdbc.queryForObject("SELECT COUNT(DISTINCT raw_keyword) FROM hot_search_event", Long.class));
-        assertEquals("猫🐈", jdbc.queryForObject("SELECT raw_keyword FROM hot_search_event WHERE event_id = 'f'", String.class));
+        assertEquals(
+                "猫🐈",
+                jdbc.queryForObject("SELECT raw_keyword FROM hot_search_event WHERE event_id = 'f'", String.class));
     }
 
-    @Test void originalHourIsPreservedWhenArchiveDateIsCarriedToTheNextDay() {
+    @Test
+    void originalHourIsPreservedWhenArchiveDateIsCarriedToTheNextDay() {
         store.append(List.of(event("carried", DAY.plusDays(1), 1, NINE, "Java", "a")));
-        assertEquals(Math.floorDiv(NINE, 3_600_000L), jdbc.queryForObject("SELECT event_hour FROM hot_search_event", Long.class));
+        assertEquals(
+                Math.floorDiv(NINE, 3_600_000L),
+                jdbc.queryForObject("SELECT event_hour FROM hot_search_event", Long.class));
         store.rebuildDay(DAY);
         assertEquals(0L, count("hot_search_daily_group"));
         store.rebuildDay(DAY.plusDays(1));
@@ -416,23 +481,33 @@ class HotSearchHistoryMysqlTest {
 
     @Configuration(proxyBeanMethods = false)
     @Import({HotSearchHistoryStore.class, MybatisPlusConfig.class})
-    static class Config {}
+    static class Config {
+    }
 
-    @Test void applicationConfigurationCreatesMapperStorageUsingTheSearchDatabaseName() {
+    @Test
+    void applicationConfigurationCreatesMapperStorageUsingTheSearchDatabaseName() {
         new ApplicationContextRunner().withInitializer(new ConfigDataApplicationContextInitializer())
                 .withConfiguration(AutoConfigurations.of(DataSourceAutoConfiguration.class,
                         JdbcTemplateAutoConfiguration.class, DataSourceTransactionManagerAutoConfiguration.class,
                         TransactionAutoConfiguration.class, MybatisPlusAutoConfiguration.class))
                 .withUserConfiguration(Config.class)
-                .withPropertyValues("spring.datasource.url=" + url, "spring.datasource.username=root", "spring.datasource.password=")
+                .withPropertyValues(
+                        "spring.datasource.url=" + url,
+                        "spring.datasource.username=root",
+                        "spring.datasource.password=")
                 .run(context -> {
                     assertNull(context.getStartupFailure());
                     assertEquals("search_db", context.getEnvironment().getProperty("my-youtube.db-name"));
                     assertEquals(3, context.getBean(com.zaxxer.hikari.HikariDataSource.class).getMaximumPoolSize());
-                    assertEquals(1000, context.getBean(com.zaxxer.hikari.HikariDataSource.class).getConnectionTimeout());
-                    assertEquals("5000", context.getBean(com.zaxxer.hikari.HikariDataSource.class).getDataSourceProperties().getProperty("socketTimeout"));
+                    assertEquals(
+                            1000,
+                            context.getBean(com.zaxxer.hikari.HikariDataSource.class).getConnectionTimeout());
+                    assertEquals("5000", context.getBean(com.zaxxer.hikari.HikariDataSource.class)
+                            .getDataSourceProperties()
+                            .getProperty("socketTimeout"));
                     assertNotNull(context.getBean(HotSearchHistoryMapper.class));
-                    context.getBean(HotSearchHistoryStore.class).append(List.of(event("wired", DAY, 1, NINE, "Java", "a")));
+                    context.getBean(HotSearchHistoryStore.class)
+                            .append(List.of(event("wired", DAY, 1, NINE, "Java", "a")));
                     assertEquals(1L, count("hot_search_event"));
                 });
     }
@@ -440,11 +515,14 @@ class HotSearchHistoryMysqlTest {
     private HotSearchHistoryQueryService queries() {
         var properties = new HotSearchProperties();
         properties.setMinUsers(2);
-        var clock = Clock.fixed(DAY.plusDays(1).atTime(12, 0).atZone(HotSearchStore.STAT_ZONE).toInstant(), ZoneOffset.UTC);
+        Clock clock = Clock.fixed(
+                DAY.plusDays(1).atTime(12, 0).atZone(HotSearchStore.STAT_ZONE).toInstant(),
+                ZoneOffset.UTC);
         return new HotSearchHistoryQueryService(mapper, new HotSearchFilter(properties), properties, clock);
     }
 
-    @Test void historyQueriesKeepAllAdminGroupsButFilterAndDeduplicateThePublicTopSeven() throws Exception {
+    @Test
+    void historyQueriesKeepAllAdminGroupsButFilterAndDeduplicateThePublicTopSeven() throws Exception {
         var events = new ArrayList<HotSearchHistoryStore.GroupedEvent>();
         for (int i = 0; i < 12; i++) {
             String name = i == 0 ? "1111" : i == 1 || i == 2 ? "共同主题" : "主题" + i;
@@ -456,23 +534,24 @@ class HotSearchHistoryMysqlTest {
         store.append(events);
         store.append(List.of(event("earlier", DAY.minusDays(1), 1, NINE, "Java", "earlier"),
                 event("today", DAY.plusDays(1), 1, NINE, "Java", "today")));
-        for (var date : List.of(DAY.minusDays(1), DAY, DAY.plusDays(1))) store.rebuildDay(date);
-        var query = queries();
-        var firstDate = query.dates(null, 1);
+        for (LocalDate date : List.of(DAY.minusDays(1), DAY, DAY.plusDays(1))) store.rebuildDay(date);
+        HotSearchHistoryQueryService query = queries();
+        CursorPage<HotSearchHistoryPort.Day,String> firstDate = query.dates(null, 1);
         assertEquals(DAY, firstDate.items().get(0).statDate());
         assertNotNull(firstDate.items().get(0).updatedAt());
         assertEquals(DAY.minusDays(1), query.dates(firstDate.nextCursor(), 1).items().get(0).statDate());
         var groups = new ArrayList<Group>();
         String cursor = null;
         do {
-            var page = query.groups(DAY.toString(), cursor, 5);
-            groups.addAll(page.items()); cursor = page.nextCursor();
+            CursorPage<HotSearchHistoryPort.Group,String> page = query.groups(DAY.toString(), cursor, 5);
+            groups.addAll(page.items());
+            cursor = page.nextCursor();
         } while (cursor != null);
         assertEquals(12, groups.size());
         assertEquals(12, groups.get(11).rankNo());
         assertEquals(1, groups.get(11).userCount());
         assertEquals(List.of("共同主题", "主题3", "主题4", "主题5", "主题6", "主题7", "主题8"), query.hot(DAY.toString()));
-        var mvc = historyMvc(query);
+        MockMvc mvc = historyMvc(query);
         mvc.perform(get("/search/hot/history").param("date", DAY.toString())).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(7)).andExpect(jsonPath("$.data[0]").value("共同主题"));
         mvc.perform(get("/internal/hot-search/history/groups").param("date", DAY.toString()).param("size", "5"))
@@ -480,55 +559,82 @@ class HotSearchHistoryMysqlTest {
                 .andExpect(jsonPath("$.items[0].rankNo").value("1")).andExpect(jsonPath("$.nextCursor").value("5"));
     }
 
-    @Test void keywordAndUserPagesPreserveExactRawTextAndCountRepeatedSearches() throws Exception {
+    @Test
+    void keywordAndUserPagesPreserveExactRawTextAndCountRepeatedSearches() throws Exception {
         long user = 2_000_000_000_000_000_007L;
-        var texts = List.of("Java", "java", "Java ", "C++", "C#", "猫🐈", "  Java  ");
+        List<String> texts = List.of("Java", "java", "Java ", "C++", "C#", "猫🐈", "  Java  ");
         var events = new ArrayList<HotSearchHistoryStore.GroupedEvent>();
         for (int i = 0; i < texts.size(); i++) events.add(event("text" + i, DAY, user, NINE, texts.get(i), "g"));
         events.add(event("repeat", DAY, user, NINE + 1000, "Java", "g"));
         events.add(event("second-user", DAY, user + 1, NINE + 3_600_000L, "Java", "g"));
         events.add(event("other-group", DAY, user + 2, NINE, "Java", "other"));
-        store.append(events); store.rebuildDay(DAY);
-        var query = queries();
+        store.append(events);
+        store.rebuildDay(DAY);
+        HotSearchHistoryQueryService query = queries();
         var keywords = new ArrayList<Keyword>();
         String cursor = null;
         do {
-            var page = query.keywords(DAY.toString(), "g", cursor, 2);
-            keywords.addAll(page.items()); cursor = page.nextCursor();
+            CursorPage<HotSearchHistoryPort.Keyword,String> page = query.keywords(DAY.toString(), "g", cursor, 2);
+            keywords.addAll(page.items());
+            cursor = page.nextCursor();
         } while (cursor != null);
         assertEquals(texts, keywords.stream().map(Keyword::rawKeyword).toList());
-        var javaKeyword = keywords.get(0);
+        HotSearchHistoryPort.Keyword javaKeyword = keywords.get(0);
         assertEquals(3, javaKeyword.searchCount());
         assertEquals(2, javaKeyword.userCount());
-        var first = query.users(DAY.toString(), "g", javaKeyword.keywordId(), null, 1);
+        CursorPage<HotSearchHistoryPort.User,String> first = query.users(
+                DAY.toString(),
+                "g",
+                javaKeyword.keywordId(),
+                null,
+                1);
         assertEquals(user, first.items().get(0).userId());
         assertEquals(2, first.items().get(0).searchCount());
         assertEquals(NINE, first.items().get(0).firstHappenedAt());
         assertEquals(NINE + 1000, first.items().get(0).lastHappenedAt());
-        var second = query.users(DAY.toString(), "g", javaKeyword.keywordId(), first.nextCursor(), 1);
+        CursorPage<HotSearchHistoryPort.User,String> second = query.users(
+                DAY.toString(),
+                "g",
+                javaKeyword.keywordId(),
+                first.nextCursor(),
+                1);
         assertEquals(user + 1, second.items().get(0).userId());
         assertNull(second.nextCursor());
-        assertThrows(IllegalArgumentException.class, () -> query.users(DAY.toString(), "other", javaKeyword.keywordId(), null, 20));
-        assertThrows(IllegalArgumentException.class, () -> query.users(DAY.minusDays(1).toString(), "g", javaKeyword.keywordId(), null, 20));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> query.users(DAY.toString(), "other", javaKeyword.keywordId(), null, 20));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> query.users(DAY.minusDays(1).toString(), "g", javaKeyword.keywordId(), null, 20));
         assertEquals(2, query.groups(DAY.toString(), null, 20).items().get(0).userCount());
         historyMvc(query).perform(get("/internal/hot-search/history/users").param("date", DAY.toString())
-                        .param("groupId", "g").param("keywordId", Long.toString(javaKeyword.keywordId())).param("size", "1"))
+                        .param("groupId", "g")
+                        .param("keywordId", Long.toString(javaKeyword.keywordId()))
+                        .param("size", "1"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].userId").value(Long.toString(user)))
                 .andExpect(jsonPath("$.items[0].searchCount").value("2"));
     }
 
-    @Test void detailPagesUseTimeAndIdAndKeepOriginalHoursForCarriedEvents() {
+    @Test
+    void detailPagesUseTimeAndIdAndKeepOriginalHoursForCarriedEvents() {
         store.append(List.of(event("later", DAY, 1, NINE + 1000, "Java", "g"),
                 event("tie-a", DAY, 1, NINE, "Java", "g"), event("tie-b", DAY, 1, NINE, "Java", "g"),
                 event("other-user", DAY, 2, NINE + 2000, "Java", "g"), event("spaces", DAY, 1, NINE, "Java ", "g"),
                 event("carried", DAY, 1, NINE - 86_400_000L, "Java", "g")));
-        var query = queries();
+        HotSearchHistoryQueryService query = queries();
         long keywordId = query.keywords(DAY.toString(), "g", null, 20).items().get(0).keywordId();
         var details = new ArrayList<Event>();
         String cursor = null;
         do {
-            var page = query.events(DAY.toString(), "g", keywordId, 1L, cursor, 1);
-            details.addAll(page.items()); cursor = page.nextCursor();
+            CursorPage<HotSearchHistoryPort.Event,String> page = query.events(
+                    DAY.toString(),
+                    "g",
+                    keywordId,
+                    1L,
+                    cursor,
+                    1);
+            details.addAll(page.items());
+            cursor = page.nextCursor();
         } while (cursor != null);
         assertEquals(List.of("carried", "tie-a", "tie-b", "later"), details.stream()
                 .map(Event::eventId).toList());
@@ -537,9 +643,10 @@ class HotSearchHistoryMysqlTest {
         assertEquals(5, query.events(DAY.toString(), "g", keywordId, null, null, 20).items().size());
     }
 
-    @Test void realDatabaseQueryFailureIsReturnedAs503ThroughTheHistoryControllers() throws Exception {
-        var query = queries();
-        var mvc = historyMvc(query);
+    @Test
+    void realDatabaseQueryFailureIsReturnedAs503ThroughTheHistoryControllers() throws Exception {
+        HotSearchHistoryQueryService query = queries();
+        MockMvc mvc = historyMvc(query);
         jdbc.execute("RENAME TABLE hot_search_daily_group TO hot_search_daily_group_paused");
         try {
             for (String path : List.of("/search/hot/history", "/internal/hot-search/history/groups")) {
@@ -554,7 +661,9 @@ class HotSearchHistoryMysqlTest {
     private MockMvc historyMvc(HotSearchHistoryQueryService query) {
         var builder = new Jackson2ObjectMapperBuilder();
         new JacksonConfig().jackson2ObjectMapperBuilderCustomizer().customize(builder);
-        return MockMvcBuilders.standaloneSetup(new HotSearchHistoryController(query), new InternalHotSearchHistoryController(query))
+        return MockMvcBuilders.standaloneSetup(
+                new HotSearchHistoryController(query),
+                new InternalHotSearchHistoryController(query))
                 .setControllerAdvice(new HotSearchHistoryExceptionHandler(), new GlobalExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(builder.build())).build();
     }
@@ -563,7 +672,13 @@ class HotSearchHistoryMysqlTest {
         return jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
     }
 
-    private HotSearchHistoryStore.GroupedEvent event(String id, LocalDate date, long user, long time, String raw, String group) {
+    private HotSearchHistoryStore.GroupedEvent event(
+            String id,
+            LocalDate date,
+            long user,
+            long time,
+            String raw,
+            String group) {
         return new HotSearchHistoryStore.GroupedEvent(id, date, time, user, raw, raw.strip(), group, "Java 入门", "v1");
     }
 }

@@ -53,6 +53,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         if (userId == null) {
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         return Long.parseLong(userId);
     }
 
@@ -84,6 +85,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         if (content.isEmpty()) {
             return PageResult.of(0, 0, List.of());
         }
+
         List<String> list = content.stream().map(ChatUserConversationDoc::getConversationId).toList();
         Query q = Query.query(Criteria.where("id").in(list));
         List<ChatConversationDoc> chatConversationDocList = mongoTemplate.find(q, ChatConversationDoc.class);
@@ -105,7 +107,9 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                         vo.setConversationName(user.getNickname());
                     } else {
                         // 需要展示的是群聊名称
-                        vo.setConversationAvatar(storageUtil.signGetUrl(conversationDoc.getAvatar(), STORAGE_EXPIRE_TIME));
+                        vo.setConversationAvatar(storageUtil.signGetUrl(
+                                conversationDoc.getAvatar(),
+                                STORAGE_EXPIRE_TIME));
                         vo.setConversationName(conversationDoc.getName() == null ? conversationDoc.getId() : conversationDoc.getName());
                     }
                     vo.setConversationType(conversationDoc.getType());
@@ -144,6 +148,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         if (result == null) {
             return 0L;
         }
+
         Object raw = result.get("totalUnread");
         return raw instanceof Number ? ((Number) raw).longValue() : 0L;
     }
@@ -156,13 +161,16 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         if (chatConversationDoc == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "会话不存在");
         }
+
         // 读取群公告
         if (chatConversationDoc.getAnnouncement() == null) {
             return;
         }
+
         if (!chatConversationDoc.getMemberIds().contains(userId)) {
             throw new BizException(ErrorCode.FORBIDDEN, "用户不是群成员");
         }
+
         c = Criteria.where("conversationId").is(conversationId).and("userId").is(userId);
         Update update = new Update().set("lastSeenAnnouncementVersion", chatConversationDoc.getAnnouncementVersion());
         mongoTemplate.updateFirst(Query.query(c), update, ChatUserConversationDoc.class);
@@ -187,6 +195,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
         if (content.isEmpty()) {
             return PageResult.of(0, 0, List.of());
         }
+
         List<String> list = new java.util.ArrayList<>(content.stream()
                 .map(ChatUserConversationDoc::getConversationId).toList());
         // 排除掉全员禁言的群聊,但群主不排除
@@ -209,7 +218,9 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                     vo.setConversationId(v.getConversationId());
                     vo.setConversationName(collect.get(v.getConversationId()).getName());
                     vo.setConversationType(collect.get(v.getConversationId()).getType());
-                    vo.setConversationAvatar(storageUtil.signGetUrl(collect.get(v.getConversationId()).getAvatar(), 60 * 5));
+                    vo.setConversationAvatar(storageUtil.signGetUrl(
+                            collect.get(v.getConversationId()).getAvatar(),
+                            60 * 5));
                     return vo;
                 })
                 .toList();

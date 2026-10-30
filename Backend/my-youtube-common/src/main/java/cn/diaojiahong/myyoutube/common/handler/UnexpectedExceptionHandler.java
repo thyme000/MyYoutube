@@ -19,7 +19,10 @@ public class UnexpectedExceptionHandler {
     public ResponseEntity<Result<?>> failure(Exception error, WebRequest request) {
         log.error("Unexpected request failure", error);
         if (request instanceof ServletWebRequest servlet && servlet.getResponse() != null
-                && servlet.getResponse().isCommitted()) return null;
-        return ResponseEntity.status(ErrorCode.INTERNAL_ERROR.getHttpStatus()).body(Result.fail(ErrorCode.INTERNAL_ERROR));
+                && servlet.getResponse().isCommitted()) {
+            return null;
+        }
+        return ResponseEntity.status(ErrorCode.INTERNAL_ERROR.getHttpStatus())
+                .body(Result.fail(ErrorCode.INTERNAL_ERROR));
     }
 }

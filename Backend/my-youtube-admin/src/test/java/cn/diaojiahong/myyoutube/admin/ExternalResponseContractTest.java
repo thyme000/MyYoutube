@@ -29,28 +29,38 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ExternalResponseContractTest {
     final MediaRetryPort retries = mock(MediaRetryPort.class);
+
     final HotSearchHistoryPort history = mock(HotSearchHistoryPort.class);
+
     final ContentVectorDeadLetterPort deadLetters = mock(ContentVectorDeadLetterPort.class);
     final long id = 9_007_199_254_740_993L;
     MockMvc mvc;
 
-    @BeforeEach void setup() {
+    @BeforeEach
+    void setup() {
         var builder = new Jackson2ObjectMapperBuilder();
         new JacksonConfig().jackson2ObjectMapperBuilderCustomizer().customize(builder);
         mvc = MockMvcBuilders.standaloneSetup(new AdminMediaRetryController(retries, AuthorizationFixture.authorization()),
-                        new AdminHotSearchHistoryController(history, AuthorizationFixture.authorization()), new AdminContentVectorDeadLetterController(deadLetters, AuthorizationFixture.authorization()))
+                        new AdminHotSearchHistoryController(history, AuthorizationFixture.authorization()),
+                        new AdminContentVectorDeadLetterController(
+                                        deadLetters,
+                                        AuthorizationFixture.authorization()))
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(builder.build()))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         UserContext.setUser("1");
     }
 
-    @AfterEach void clear() { UserContext.removeUser(); }
+    @AfterEach
+    void clear() {
+        UserContext.removeUser();
+    }
 
     MediaRetryPort.Batch batch() {
         return new MediaRetryPort.Batch(id, MediaRetryBatchStatus.RUNNING, 1, 0, 1, 0, 0, 0, 1, 1, null, null, null);
     }
 
-    @Test void acceptedAndRejectedAdmissionsRetainTheFullDecisionAndLargeBatchId() throws Exception {
+    @Test
+    void acceptedAndRejectedAdmissionsRetainTheFullDecisionAndLargeBatchId() throws Exception {
         when(retries.create(any(), eq(1L))).thenReturn(
                 new MediaRetryPort.Admission(true, "RETRY_BATCH_CREATED", "已登记", batch()),
                 new MediaRetryPort.Admission(false, "RETRY_BATCH_RUNNING", "当前已有批次在运行", batch()));
@@ -68,7 +78,8 @@ class ExternalResponseContractTest {
                 .andExpect(jsonPath("$.data.batch.batchId").value(Long.toString(id)));
     }
 
-    @Test void retryQueriesKeepEmptyPagesWithAContinuationAndNullCurrentBatch() throws Exception {
+    @Test
+    void retryQueriesKeepEmptyPagesWithAContinuationAndNullCurrentBatch() throws Exception {
         when(retries.query(any())).thenReturn(new CursorPage<>(List.of(), id));
         when(retries.history(id, 20)).thenReturn(new CursorPage<>(List.of(batch()), null));
         mvc.perform(get("/admin/media-tasks")).andExpect(status().isOk())
@@ -81,19 +92,33 @@ class ExternalResponseContractTest {
                 .andExpect(content().json("{\"code\":200,\"message\":\"操作成功\",\"data\":null}"));
     }
 
-    @Test void retryDetailRoutesWrapObjectsAndListsOnce() throws Exception {
+    @Test
+    void retryDetailRoutesWrapObjectsAndListsOnce() throws Exception {
         when(retries.batch(id)).thenReturn(batch());
-        when(retries.affected(id)).thenReturn(List.of(new MediaRetryPort.Affected(id, MediaTaskStatus.RUNNING, 1, null)));
-        when(retries.items(id)).thenReturn(List.of(new MediaRetryPort.Item(id, MediaRetryItemState.RUNNING, 0, 1, null)));
-        var path = "/admin/media-retry-batches/" + id;
-        mvc.perform(get(path)).andExpect(status().isOk()).andExpect(jsonPath("$.data.batchId").value(Long.toString(id)));
+        when(retries.affected(id)).thenReturn(List.of(new MediaRetryPort.Affected(
+                id,
+                MediaTaskStatus.RUNNING,
+                1,
+                null)));
+        when(retries.items(id)).thenReturn(List.of(new MediaRetryPort.Item(
+                id,
+                MediaRetryItemState.RUNNING,
+                0,
+                1,
+                null)));
+        String path = "/admin/media-retry-batches/" + id;
+        mvc.perform(get(path))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.batchId").value(Long.toString(id)));
         for (String suffix : List.of("tasks", "items")) {
             mvc.perform(get(path + "/" + suffix)).andExpect(status().isOk())
-                    .andExpect(jsonPath("$.code").value(200)).andExpect(jsonPath("$.data[0].taskId").value(Long.toString(id)));
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data[0].taskId").value(Long.toString(id)));
         }
     }
 
-    @Test void historyKeepsOpaqueCursorAndDeadLetterPageKeepsItsEnabledFlag() throws Exception {
+    @Test
+    void historyKeepsOpaqueCursorAndDeadLetterPageKeepsItsEnabledFlag() throws Exception {
         when(history.events("2026-10-20", "g", id, null, "100.5", 20))
                 .thenReturn(new CursorPage<>(List.of(), "100." + id));
         mvc.perform(get("/admin/hot-search/events").param("date", "2026-10-20").param("groupId", "g")

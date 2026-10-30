@@ -30,6 +30,7 @@ public enum ContentVisibilityEnum {
         if (code == null || code.isBlank()) {
             return null;
         }
+
         for (ContentVisibilityEnum visibility : values()) {
             if (visibility.getCode().equals(code)) {
                 return visibility;
@@ -45,6 +46,7 @@ public enum ContentVisibilityEnum {
         if (name == null || name.isBlank()) {
             return null;
         }
+
         for (ContentVisibilityEnum visibility : values()) {
             if (visibility.getName().equals(name)) {
                 return visibility;

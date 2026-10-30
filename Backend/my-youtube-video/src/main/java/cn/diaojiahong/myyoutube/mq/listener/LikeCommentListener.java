@@ -36,7 +36,9 @@ public class LikeCommentListener implements RocketMQListener<LikeCommentMessage>
         log.debug("Comment like notification received commentId={} senderId={}", lc.getCommentId(), lc.getSenderId());
 
         ContentComment one = videoCommentService.lambdaQuery()
-                .eq(ContentComment::getId, lc.getCommentId()).eq(ContentComment::getStatus, CommentStatusEnum.VISIBLE).one();
+                .eq(ContentComment::getId, lc.getCommentId())
+                .eq(ContentComment::getStatus, CommentStatusEnum.VISIBLE)
+                .one();
         if (one == null) {
             // 评论不存在说明可能被删除了
             log.debug("Comment like notification dropped: comment not visible commentId={}", lc.getCommentId());

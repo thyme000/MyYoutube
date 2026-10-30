@@ -22,6 +22,7 @@ public class AdminAuthorization {
         if (!identity.role().isAdmin()) {
             throw new BizException(ErrorCode.FORBIDDEN, "需要管理员权限");
         }
+
         return identity.userId();
     }
 
@@ -30,13 +31,16 @@ public class AdminAuthorization {
         if (identity.role() != UserRole.SUPER_ADMIN) {
             throw new BizException(ErrorCode.SUPER_ADMIN_REQUIRED);
         }
+
         return identity.userId();
     }
 
     private Identity identity() {
         Long userId = UserContext.requireUserId();
         RequestAttributes request = RequestContextHolder.getRequestAttributes();
-        Object cached = request == null ? null : request.getAttribute(CURRENT_IDENTITY, RequestAttributes.SCOPE_REQUEST);
+        Object cached = request == null ? null : request.getAttribute(
+                CURRENT_IDENTITY,
+                RequestAttributes.SCOPE_REQUEST);
         if (cached instanceof Identity identity && identity.userId().equals(userId)) {
             return identity;
         }
@@ -62,5 +66,6 @@ public class AdminAuthorization {
         return identity;
     }
 
-    private record Identity(Long userId, UserRole role) {}
+    private record Identity(Long userId, UserRole role) {
+    }
 }

@@ -37,6 +37,7 @@ public enum ContentSortEnum {
         if (field == null || field.isBlank()) {
             return null;
         }
+
         for (ContentSortEnum sort : values()) {
             if (sort.getField().equals(field)) {
                 return sort;
@@ -52,6 +53,7 @@ public enum ContentSortEnum {
         if (name == null || name.isBlank()) {
             return null;
         }
+
         for (ContentSortEnum sort : values()) {
             if (sort.getName().equals(name)) {
                 return sort;

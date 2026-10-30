@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.media;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -13,7 +14,8 @@ class VideoFrameSamplingTest {
         assertEquals(count, VideoFrameSampling.count(duration, 0));
     }
 
-    @Test void knownSourceFrameCountLimitsDuplicateSampling() {
+    @Test
+    void knownSourceFrameCountLimitsDuplicateSampling() {
         assertEquals(1, VideoFrameSampling.count(60000, 1));
         assertEquals(3, VideoFrameSampling.count(60000, 3));
         assertThrows(IllegalArgumentException.class, () -> VideoFrameSampling.count(0, 0));
@@ -25,22 +27,30 @@ class VideoFrameSamplingTest {
         assertEquals(minimum, VideoFrameSampling.plan(target, 80).minimumCount());
     }
 
-    @Test void countCoverageAndSlotIdentityMustAllPass() {
-        var plan = VideoFrameSampling.plan(10, 80);
-        var accepted = java.util.stream.IntStream.range(0, 10).filter(i -> i != 2 && i != 7).boxed().toList();
+    @Test
+    void countCoverageAndSlotIdentityMustAllPass() {
+        VideoFrameSampling.Plan plan = VideoFrameSampling.plan(10, 80);
+        List<Integer> accepted = java.util.stream.IntStream.range(0, 10).filter(i -> i != 2 && i != 7).boxed().toList();
         assertDoesNotThrow(() -> plan.validate(accepted));
         assertEquals(java.util.List.of(2, 7), plan.missing(accepted));
         assertThrows(IllegalArgumentException.class, () -> plan.validate(accepted.subList(0, 7)));
         assertThrows(IllegalArgumentException.class, () -> plan.validate(java.util.List.of(0, 1, 4, 5, 6, 7, 8, 9)));
-        assertThrows(IllegalArgumentException.class, () -> plan.validate(java.util.List.of(0, 0, 2, 3, 4, 5, 6, 7, 8, 9)));
-        assertThrows(IllegalArgumentException.class, () -> plan.validate(java.util.List.of(1, 0, 2, 3, 4, 5, 6, 7, 8, 9)));
-        assertThrows(IllegalArgumentException.class, () -> plan.validate(java.util.List.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 10)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> plan.validate(java.util.List.of(0, 0, 2, 3, 4, 5, 6, 7, 8, 9)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> plan.validate(java.util.List.of(1, 0, 2, 3, 4, 5, 6, 7, 8, 9)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> plan.validate(java.util.List.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 10)));
         assertThrows(IllegalArgumentException.class, () -> new VideoFrameSampling.Plan(10, 7, 80));
         assertThrows(IllegalArgumentException.class, () -> VideoFrameSampling.plan(10, 0));
         assertThrows(IllegalArgumentException.class, () -> VideoFrameSampling.plan(65, 80));
     }
 
-    @Test void cappedSamplesCoverBothEndsAndEqualIntervalsAcrossWholeVideo() {
+    @Test
+    void cappedSamplesCoverBothEndsAndEqualIntervalsAcrossWholeVideo() {
         assertEquals(0.5, VideoFrameSampling.ratio(0, 1));
         assertEquals(0, VideoFrameSampling.ratio(0, 64));
         assertEquals(1, VideoFrameSampling.ratio(63, 64));

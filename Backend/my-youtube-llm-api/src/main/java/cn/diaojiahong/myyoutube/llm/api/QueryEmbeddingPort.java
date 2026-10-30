@@ -4,6 +4,7 @@ import feign.Client;
 import feign.Request;
 import feign.Response;
 import feign.Retryer;
+import java.util.concurrent.CompletableFuture;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,14 +32,22 @@ public interface QueryEmbeddingPort {
     @GetMapping("/embedding-info")
     Info info(Request.Options options);
 
-    record Info(String version, int dims) {}
-    record Query(String text, long deadlineEpochMillis) {}
+    record Info(String version, int dims) {
+    }
+
+    record Query(String text, long deadlineEpochMillis) {
+    }
 
     class Configuration {
         @Bean
-        public Client queryEmbeddingClient() { return new CancellableClient(); }
+        public Client queryEmbeddingClient() {
+            return new CancellableClient();
+        }
+
         @Bean
-        public Retryer queryEmbeddingRetryer() { return Retryer.NEVER_RETRY; }
+        public Retryer queryEmbeddingRetryer() {
+            return Retryer.NEVER_RETRY;
+        }
     }
 
     // Feign 默认传输不能靠线程中断取消 socket 读取，查询端独立使用可取消的 HTTP 调用。
@@ -47,16 +56,18 @@ public interface QueryEmbeddingPort {
 
         @Override
         public Response execute(Request request, Request.Options options) throws IOException {
-            var builder = HttpRequest.newBuilder(URI.create(request.url()))
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(request.url()))
                     .timeout(Duration.ofMillis(options.readTimeoutMillis()));
             request.headers().forEach((name, values) -> {
                 if (!name.equalsIgnoreCase("Content-Length")) values.forEach(value -> builder.header(name, value));
             });
             builder.method(request.httpMethod().name(), request.body() == null
                     ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(request.body()));
-            var pending = http.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+            CompletableFuture<HttpResponse<byte[]>> pending = http.sendAsync(
+                    builder.build(),
+                    HttpResponse.BodyHandlers.ofByteArray());
             try {
-                var response = pending.get(options.readTimeoutMillis(), TimeUnit.MILLISECONDS);
+                HttpResponse<byte[]> response = pending.get(options.readTimeoutMillis(), TimeUnit.MILLISECONDS);
                 return Response.builder().request(request).status(response.statusCode()).reason("")
                         .headers(new java.util.HashMap<>(response.headers().map())).body(response.body()).build();
             } catch (InterruptedException error) {

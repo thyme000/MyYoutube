@@ -36,14 +36,18 @@ public final class FFmpegUtil {
         public String ffprobeCommand = "ffprobe";
         /** 候选帧数量 */
         public int sampleCount = 8;
+
         /** 采样起始比例(跳过片头) */
         public double sampleStartRatio = 0.10;
+
         /** 采样结束比例(跳过片尾) */
         public double sampleEndRatio = 0.90;
         /** 单次外部命令超时 */
         public Duration commandTimeout = Duration.ofSeconds(30);
+
         /** ffmpeg 输出 jpg 质量(1 最好, 31 最差) */
         public int jpegQuality = 4;
+
         /** 候选帧长边上限(横屏钳宽/竖屏钳高), 源更小不放大 */
         public int candidateMaxLongEdge = 640;
         /** 成品封面长边上限 */
@@ -82,6 +86,7 @@ public final class FFmpegUtil {
         if (seconds == null || seconds <= 0) {
             throw new IllegalStateException("ffprobe 无法探测到有效时长");
         }
+
         List<String> dimsCmd = List.of(
                 options.ffprobeCommand,
                 "-v", "error",
@@ -110,7 +115,12 @@ public final class FFmpegUtil {
     /**
      * 标准化转码: 长边钳制 H.264/AAC mp4, faststart 便于流式播放。源更小不放大。
      */
-    public static void transcodeStandard(String source, Path output, int maxLongEdge, Options options, Duration timeout) {
+    public static void transcodeStandard(
+            String source,
+            Path output,
+            int maxLongEdge,
+            Options options,
+            Duration timeout) {
         List<String> cmd = List.of(
                 options.ffmpegCommand, "-y",
                 "-i", source,
@@ -148,8 +158,11 @@ public final class FFmpegUtil {
             Path framePath = outputDir.resolve(candidateName(i));
             FrameScore frame = isReadableFile(framePath) ? scoreFrame(framePath, sampleSeconds.get(i)) : null;
             if (frame == null) {
-                try { Files.deleteIfExists(framePath); }
-                catch (IOException e) { throw new IllegalStateException("清理失败采样帧失败", e); }
+                try {
+                    Files.deleteIfExists(framePath);
+                } catch (IOException e) {
+                    throw new IllegalStateException("清理失败采样帧失败", e);
+                }
                 if (extractFrameAt(source, sampleSeconds.get(i), framePath, options.candidateMaxLongEdge, options))
                     frame = scoreFrame(framePath, sampleSeconds.get(i));
             }
@@ -162,7 +175,12 @@ public final class FFmpegUtil {
      * 在指定时间点抽取单帧, 分辨率按长边 maxLongEdge 钳制。
      * 用于选定候选后高清重抽成品, 或多路抽取的缺帧补抽。
      */
-    public static boolean extractFrameAt(String source, double second, Path frameOut, int maxLongEdge, Options options) {
+    public static boolean extractFrameAt(
+            String source,
+            double second,
+            Path frameOut,
+            int maxLongEdge,
+            Options options) {
         String sec = String.format(Locale.US, "%.3f", second);
         List<String> cmd = new ArrayList<>();
         cmd.add(options.ffmpegCommand);
@@ -247,7 +265,7 @@ public final class FFmpegUtil {
     }
 
     public static int candidateIndex(FrameScore frame) {
-        var name = frame.framePath().getFileName().toString();
+        String name = frame.framePath().getFileName().toString();
         if (!name.matches("cover-candidate-[0-9]+\\.jpg")) throw new IllegalArgumentException("Invalid sampled frame path");
         return Integer.parseInt(name.substring("cover-candidate-".length(), name.length() - 4));
     }
@@ -256,7 +274,10 @@ public final class FFmpegUtil {
         String output = result.output().toLowerCase(Locale.ROOT);
         return result.exitCode() < 0 || result.exitCode() != 0 && List.of("error opening input", "error opening output",
                 "no such file or directory", "permission denied", "input/output error", "server returned",
-                "connection refused", "connection timed out", "network is unreachable", "invalid data found when processing input")
+                "connection refused",
+                "connection timed out",
+                "network is unreachable",
+                "invalid data found when processing input")
                 .stream().anyMatch(output::contains);
     }
 
@@ -273,7 +294,11 @@ public final class FFmpegUtil {
         }
     }
 
-    private static List<Double> buildSampleSeconds(double durationSec, int sampleCount, double startRatio, double endRatio) {
+    private static List<Double> buildSampleSeconds(
+            double durationSec,
+            int sampleCount,
+            double startRatio,
+            double endRatio) {
         int count = Math.max(1, sampleCount);
         if (count == 1) return List.of(durationSec * (startRatio + endRatio) / 2);
         List<Double> seconds = new ArrayList<>(count);
@@ -306,6 +331,7 @@ public final class FFmpegUtil {
         if (text.isEmpty()) {
             return null;
         }
+
         try {
             return Double.parseDouble(text);
         } catch (NumberFormatException e) {
@@ -387,9 +413,11 @@ public final class FFmpegUtil {
         if (v <= low) {
             return 0.0;
         }
+
         if (v >= high) {
             return 1.0;
         }
+
         return (v - low) / (high - low);
     }
 
@@ -441,16 +469,18 @@ public final class FFmpegUtil {
         if (output == null || output.isBlank()) {
             return "(无输出)";
         }
+
         String[] lines = output.strip().split("\n");
         return lines.length <= 3 ? output.strip() : String.join("\n", lines[lines.length - 3]);
     }
 
     public static CommandOutput runBoundedCommand(List<String> command, Duration timeout) {
-        var result = runCommand(command, timeout);
+        FFmpegUtil.CommandResult result = runCommand(command, timeout);
         return new CommandOutput(result.exitCode(), result.output());
     }
 
-    public record CommandOutput(int exitCode, String output) {}
+    public record CommandOutput(int exitCode, String output) {
+    }
 
     private record CommandResult(int exitCode, String output) {
     }

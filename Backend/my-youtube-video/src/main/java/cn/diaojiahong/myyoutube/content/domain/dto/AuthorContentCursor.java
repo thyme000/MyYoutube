@@ -5,7 +5,12 @@ import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
-public record AuthorContentCursor(long authorId, Long viewerId, ContentTypeEnum type, LocalDateTime createTime, long contentId) {
+public record AuthorContentCursor(
+        long authorId,
+        Long viewerId,
+        ContentTypeEnum type,
+        LocalDateTime createTime,
+        long contentId) {
     private static final CursorCodec<AuthorContentCursor> CODEC = new CursorCodec<>(
             AuthorContentCursor.class, 1024, "作者作品游标无效，请重新加载");
 

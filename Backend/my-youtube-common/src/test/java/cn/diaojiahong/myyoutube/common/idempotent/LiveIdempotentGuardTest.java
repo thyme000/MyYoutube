@@ -2,6 +2,8 @@ package cn.diaojiahong.myyoutube.common.idempotent;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,9 +33,11 @@ class LiveIdempotentGuardTest {
     StringRedisTemplate redis;
     ThreadPoolTaskScheduler scheduler;
     IdempotentGuard guard;
+
     final List<String> extraKeys = new ArrayList<>();
 
-    @BeforeEach void setup() {
+    @BeforeEach
+    void setup() {
         connection = new LettuceConnectionFactory("127.0.0.1", Integer.getInteger("idempotent.redis.port"));
         connection.afterPropertiesSet();
         redis = new StringRedisTemplate(connection);
@@ -43,21 +47,23 @@ class LiveIdempotentGuardTest {
         guard = new IdempotentGuard(redis, scheduler);
     }
 
-    @AfterEach void cleanup() {
+    @AfterEach
+    void cleanup() {
         scheduler.shutdown();
         redis.delete(RedisConstants.IDEMPOTENT + key);
         if (!extraKeys.isEmpty()) redis.delete(extraKeys);
         connection.destroy();
     }
 
-    @Test void twoInstancesAllowOnlyOneOwnerAndCacheCompletedResult() throws Exception {
+    @Test
+    void twoInstancesAllowOnlyOneOwnerAndCacheCompletedResult() throws Exception {
         var second = new IdempotentGuard(redis, scheduler);
-        var pool = Executors.newFixedThreadPool(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
         var acquired = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         try {
-            var first = pool.submit(() -> {
-                try (var lease = guard.acquire(key, 1)) {
+            Future<Object> first = pool.submit(() -> {
+                try (IdempotentGuard.Lease lease = guard.acquire(key, 1)) {
                     acquired.countDown();
                     assertTrue(release.await(5, TimeUnit.SECONDS));
                     lease.complete(IdempotentGuard.DONE, 10);
@@ -68,7 +74,7 @@ class LiveIdempotentGuardTest {
             assertThrows(BizException.class, () -> second.acquire(key, 1));
             release.countDown();
             first.get(5, TimeUnit.SECONDS);
-            try (var duplicate = second.acquire(key, 1)) {
+            try (IdempotentGuard.Lease duplicate = second.acquire(key, 1)) {
                 assertFalse(duplicate.acquired());
                 assertEquals(IdempotentGuard.DONE, duplicate.cachedValue());
             }
@@ -79,8 +85,9 @@ class LiveIdempotentGuardTest {
         }
     }
 
-    @Test void autoRenewalKeepsOccupancyPastInitialLease() throws Exception {
-        try (var lease = guard.acquire(key, 1)) {
+    @Test
+    void autoRenewalKeepsOccupancyPastInitialLease() throws Exception {
+        try (IdempotentGuard.Lease lease = guard.acquire(key, 1)) {
             Thread.sleep(1600);
             assertThrows(BizException.class, () -> guard.acquire(key, 1));
             lease.complete(IdempotentGuard.DONE, 0);
@@ -89,35 +96,42 @@ class LiveIdempotentGuardTest {
         assertEquals(0, scheduler.getScheduledThreadPoolExecutor().getQueue().size());
     }
 
-    @Test void failedExecutionReleasesAndCanBeRetried() {
+    @Test
+    void failedExecutionReleasesAndCanBeRetried() {
         assertThrows(IllegalStateException.class, () -> {
-            try (var lease = guard.acquire(key, 1)) {
+            try (IdempotentGuard.Lease lease = guard.acquire(key, 1)) {
                 assertTrue(lease.acquired());
                 throw new IllegalStateException("failed");
             }
         });
-        try (var retry = guard.acquire(key, 1)) { assertTrue(retry.acquired()); }
+        try (IdempotentGuard.Lease retry = guard.acquire(key, 1)) {
+            assertTrue(retry.acquired());
+        }
     }
 
-    @Test void expiredOwnerCannotCompleteOrDeleteNewOwnersOccupancy() throws Exception {
+    @Test
+    void expiredOwnerCannotCompleteOrDeleteNewOwnersOccupancy() throws Exception {
         ThreadPoolTaskScheduler paused = mock(ThreadPoolTaskScheduler.class);
         when(paused.scheduleWithFixedDelay(any(Runnable.class), any(Instant.class), any(Duration.class)))
                 .thenReturn(mock(ScheduledFuture.class));
-        var old = new IdempotentGuard(redis, paused).acquire(key, 1);
+        IdempotentGuard.Lease old = new IdempotentGuard(redis, paused).acquire(key, 1);
         try {
             Thread.sleep(1100);
-            try (var current = guard.acquire(key, 2)) {
+            try (IdempotentGuard.Lease current = guard.acquire(key, 2)) {
                 String token = redis.opsForValue().get(RedisConstants.IDEMPOTENT + key);
                 assertThrows(IllegalStateException.class, () -> old.complete(IdempotentGuard.DONE, 20));
                 old.close();
                 assertEquals(token, redis.opsForValue().get(RedisConstants.IDEMPOTENT + key));
                 current.complete(IdempotentGuard.DONE, 20);
             }
-        } finally { old.close(); }
+        } finally {
+            old.close();
+        }
     }
 
-    @Test void lostOwnershipFailsChecksAndCancelsRenewal() {
-        try (var lease = guard.acquire(key, 1)) {
+    @Test
+    void lostOwnershipFailsChecksAndCancelsRenewal() {
+        try (IdempotentGuard.Lease lease = guard.acquire(key, 1)) {
             redis.opsForValue().set(RedisConstants.IDEMPOTENT + key, "RUNNING:replacement", Duration.ofSeconds(10));
             assertThrows(IllegalStateException.class, lease::assertOwned);
             assertThrows(IllegalStateException.class, () -> lease.complete(IdempotentGuard.DONE, 10));
@@ -126,7 +140,8 @@ class LiveIdempotentGuardTest {
         assertEquals(0, scheduler.getScheduledThreadPoolExecutor().getQueue().size());
     }
 
-    @Test void schedulingFailureReleasesOccupancy() {
+    @Test
+    void schedulingFailureReleasesOccupancy() {
         ThreadPoolTaskScheduler stopped = mock(ThreadPoolTaskScheduler.class);
         when(stopped.scheduleWithFixedDelay(any(Runnable.class), any(Instant.class), any(Duration.class)))
                 .thenThrow(new IllegalStateException("stopped"));
@@ -134,32 +149,41 @@ class LiveIdempotentGuardTest {
         assertNull(redis.opsForValue().get(RedisConstants.IDEMPOTENT + key));
     }
 
-    @Test void renewFailureDoesNotAcknowledgeExecutionOrOverwriteAnotherOwner() {
+    @Test
+    void renewFailureDoesNotAcknowledgeExecutionOrOverwriteAnotherOwner() {
         ThreadPoolTaskScheduler controlled = mock(ThreadPoolTaskScheduler.class);
         var callback = new java.util.concurrent.atomic.AtomicReference<Runnable>();
         when(controlled.scheduleWithFixedDelay(any(Runnable.class), any(Instant.class), any(Duration.class)))
-                .thenAnswer(call -> { callback.set(call.getArgument(0)); return mock(ScheduledFuture.class); });
-        var template = spy(redis);
-        try (var lease = new IdempotentGuard(template, controlled).acquire(key, 1)) {
+                .thenAnswer(call -> {
+                    callback.set(call.getArgument(0));
+                    return mock(ScheduledFuture.class);
+                });
+        StringRedisTemplate template = spy(redis);
+        try (IdempotentGuard.Lease lease = new IdempotentGuard(template, controlled).acquire(key, 1)) {
             doThrow(new IllegalStateException("Redis unavailable")).when(template)
-                    .execute(any(org.springframework.data.redis.core.script.RedisScript.class), anyList(), any(Object[].class));
+                    .execute(
+                            any(org.springframework.data.redis.core.script.RedisScript.class),
+                            anyList(),
+                            any(Object[].class));
             callback.get().run();
             assertThrows(IllegalStateException.class, () -> lease.complete(IdempotentGuard.DONE, 10));
         }
         assertTrue(redis.opsForValue().get(RedisConstants.IDEMPOTENT + key).startsWith("RUNNING:"));
     }
 
-    @Test void invalidLeaseDoesNotCreateOccupancy() {
+    @Test
+    void invalidLeaseDoesNotCreateOccupancy() {
         assertThrows(IllegalArgumentException.class, () -> guard.acquire(key, 0));
         assertThrows(IllegalArgumentException.class, () -> guard.acquire(" ", 1));
         assertNull(redis.opsForValue().get(RedisConstants.IDEMPOTENT + key));
     }
 
-    @Test void fiftyKeysUseOneAcquireAndOneRenewalTask() {
+    @Test
+    void fiftyKeysUseOneAcquireAndOneRenewalTask() {
         List<String> keys = java.util.stream.IntStream.range(0, 50).mapToObj(i -> key + ":" + i).toList();
         keys.forEach(item -> extraKeys.add(RedisConstants.IDEMPOTENT + item));
-        var template = spy(redis);
-        try (var lease = new IdempotentGuard(template, scheduler).acquireAll(keys, 30)) {
+        StringRedisTemplate template = spy(redis);
+        try (IdempotentGuard.Lease lease = new IdempotentGuard(template, scheduler).acquireAll(keys, 30)) {
             assertTrue(lease.acquired());
             verify(template, times(1)).execute(any(org.springframework.data.redis.core.script.RedisScript.class),
                     anyList(), any(Object[].class));
@@ -170,20 +194,22 @@ class LiveIdempotentGuardTest {
         assertTrue(extraKeys.stream().allMatch(item -> !Boolean.TRUE.equals(redis.hasKey(item))));
     }
 
-    @Test void batchConflictDoesNotLeaveEarlierKeysClaimed() {
+    @Test
+    void batchConflictDoesNotLeaveEarlierKeysClaimed() {
         String second = key + ":second";
         extraKeys.add(RedisConstants.IDEMPOTENT + second);
-        try (var existing = guard.acquire(second, 30)) {
+        try (IdempotentGuard.Lease existing = guard.acquire(second, 30)) {
             assertThrows(BizException.class, () -> guard.acquireAll(List.of(key, second), 30));
             assertNull(redis.opsForValue().get(RedisConstants.IDEMPOTENT + key));
             assertEquals(existing.token(), redis.opsForValue().get(RedisConstants.IDEMPOTENT + second));
         }
     }
 
-    @Test void lostBatchKeyStopsRenewalButReleasesOnlyOwnedKeys() {
+    @Test
+    void lostBatchKeyStopsRenewalButReleasesOnlyOwnedKeys() {
         String second = key + ":second";
         extraKeys.add(RedisConstants.IDEMPOTENT + second);
-        try (var lease = guard.acquireAll(List.of(key, second), 30)) {
+        try (IdempotentGuard.Lease lease = guard.acquireAll(List.of(key, second), 30)) {
             redis.opsForValue().set(RedisConstants.IDEMPOTENT + second, "RUNNING:other", Duration.ofSeconds(10));
             assertThrows(IllegalStateException.class, lease::assertOwned);
         }
@@ -191,8 +217,9 @@ class LiveIdempotentGuardTest {
         assertEquals("RUNNING:other", redis.opsForValue().get(RedisConstants.IDEMPOTENT + second));
     }
 
-    @Test void unknownAcquireOutcomeCleansOnlyItsOwnToken() {
-        var template = spy(redis);
+    @Test
+    void unknownAcquireOutcomeCleansOnlyItsOwnToken() {
+        StringRedisTemplate template = spy(redis);
         doAnswer(call -> {
             List<?> result = (List<?>) call.callRealMethod();
             assertEquals("ACQUIRED", result.get(0));
@@ -202,7 +229,8 @@ class LiveIdempotentGuardTest {
         assertNull(redis.opsForValue().get(RedisConstants.IDEMPOTENT + key));
     }
 
-    @Test void annotationExposesOwnershipDuringInvocationAndAlwaysClearsThreadContext() {
+    @Test
+    void annotationExposesOwnershipDuringInvocationAndAlwaysClearsThreadContext() {
         var factory = new org.springframework.aop.aspectj.annotation.AspectJProxyFactory(new GuardedWork(guard));
         factory.addAspect(new IdempotentAspect(guard));
         GuardedWork work = factory.getProxy();
@@ -216,7 +244,11 @@ class LiveIdempotentGuardTest {
 
     static class GuardedWork {
         final IdempotentGuard guard;
-        GuardedWork(IdempotentGuard guard) { this.guard = guard; }
+
+        GuardedWork(IdempotentGuard guard) {
+            this.guard = guard;
+        }
+
         @Idempotent(key = "#key", ttl = 0)
         public void run(String key, boolean fail) {
             guard.currentLease().assertOwned();

@@ -4,6 +4,7 @@ import lombok.Data;
 import lombok.experimental.Accessors;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewState;
 import java.time.LocalDateTime;
+
 @Data
 @Accessors(chain = true)
 @TableName("content_understanding")

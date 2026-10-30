@@ -17,7 +17,9 @@ public class QueryEmbeddingController {
     private final LlmRequestMetrics metrics;
 
     @GetMapping("/internal/llm/embedding-info")
-    public QueryEmbeddingPort.Info info() { return queryEmbeddingService.info(); }
+    public QueryEmbeddingPort.Info info() {
+        return queryEmbeddingService.info();
+    }
 
     @PostMapping("/internal/llm/query-embedding")
     public LlmPort.EmbeddingsResponse embed(@RequestBody QueryEmbeddingPort.Query request) {

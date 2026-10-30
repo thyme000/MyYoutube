@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.search.vector.ContentVectorPublisher;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.RefreshPolicy;
@@ -37,8 +38,12 @@ public class ContentDocumentWriter {
         if (message.getContentId() == null || message.getIndexVersion() == null || message.getIndexVersion() < 1)
             throw new IllegalArgumentException("Content index identity and version are required");
         if (message.isDeleted()) {
-            writeDocument(message, Document.from(Map.of("id", message.getContentId(), "indexVersion", message.getIndexVersion(),
-                    "deleted", true, "status", "banned", "visibility", "private", "suggest", Map.of("input", List.of()))));
+            writeDocument(
+                    message,
+                    Document.from(Map.of("id", message.getContentId(), "indexVersion", message.getIndexVersion(),
+                    "deleted", true, "status", "banned", "visibility", "private", "suggest", Map.of(
+                            "input",
+                            List.of()))));
             return;
         }
         List<Long> tagIds = message.getTagIds();
@@ -65,7 +70,7 @@ public class ContentDocumentWriter {
         doc.setCreateTime(message.getCreateTime());
         doc.setVisibility(message.getVisibilityCode());
         doc.setTagNames(list);
-        var author = userPort.getUser(message.getAuthorId());
+        UserSummary author = userPort.getUser(message.getAuthorId());
         doc.setAuthorName(author != null && author.getNickname() != null ? author.getNickname() : "");
         List<String> suggest = new java.util.ArrayList<>(List.of(
                 message.getTitle(),
@@ -75,7 +80,8 @@ public class ContentDocumentWriter {
         if (list != null && !list.isEmpty()) {
             suggest.addAll(list);
         }
-        boolean searchable = "published".equals(message.getStatusCode()) && "public".equals(message.getVisibilityCode());
+        boolean searchable = "published".equals(message.getStatusCode())
+                && "public".equals(message.getVisibilityCode());
         doc.setSuggest(searchable
                 ? new Completion(suggest) : new Completion());
         boolean applied = writeDocument(message, operations.getElasticsearchConverter().mapObject(doc));
@@ -86,7 +92,7 @@ public class ContentDocumentWriter {
 
     private boolean writeDocument(ContentDocMessage message, Document document) {
         // 只合并内容字段，保留独立写入的向量；删除留下版本墓碑以拒绝迟到写入。
-        var update = UpdateQuery.builder(message.getContentId().toString())
+        UpdateQuery update = UpdateQuery.builder(message.getContentId().toString())
                 .withScriptType(ScriptType.INLINE).withLang("painless").withScript(WRITE_SCRIPT)
                 .withParams(Map.of("document", document)).withScriptedUpsert(true).withUpsert(Document.create())
                 .withRetryOnConflict(3).withRefreshPolicy(RefreshPolicy.IMMEDIATE).build();

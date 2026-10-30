@@ -40,6 +40,7 @@ public class InternalTranscodeController {
         if (dto == null || dto.getUserId() == null || dto.getItems() == null || dto.getItems().isEmpty()) {
             return null;
         }
+
         TranscodeTask task;
         try {
             task = taskService.submit(dto);
@@ -60,6 +61,7 @@ public class InternalTranscodeController {
         if (task == null) {
             return null;
         }
+
         if (TranscodeTaskStatus.DONE.equals(task.getStatus())) {
             if (taskService.validCompleted(task.getTaskKey()) == null) {
                 task.setStatus(TranscodeTaskStatus.FAILED);

@@ -15,7 +15,8 @@ public class AdminAudioController {
     private final AudioAdminPort audios;
     private final AdminAuthorization authorization;
 
-    public record Decision(String decision, String reason) {}
+    public record Decision(String decision, String reason) {
+    }
 
     @GetMapping
     public Result<PageResult<AudioAdminPort.Item>> page(@ModelAttribute PageQuery query) {
@@ -32,15 +33,19 @@ public class AdminAudioController {
 
         return Result.success(audios.waiting(query));
     }
+
     @GetMapping("/{id}")
     public Result<AudioAdminPort.Detail> detail(@PathVariable Long id) {
         authorization.requireAdmin();
 
         return Result.success(audios.detail(id));
     }
+
     @PostMapping("/{id}/decision")
     public Result<Boolean> decide(@PathVariable Long id, @RequestBody Decision decision) {
         Long actor = authorization.requireAdmin();
-        return Result.success(audios.decide(id, new AudioAdminPort.Decision(decision.decision(), decision.reason(), actor)));
+        return Result.success(audios.decide(
+                id,
+                new AudioAdminPort.Decision(decision.decision(), decision.reason(), actor)));
     }
 }

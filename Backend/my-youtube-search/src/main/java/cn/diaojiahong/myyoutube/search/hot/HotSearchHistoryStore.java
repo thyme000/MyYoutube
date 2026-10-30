@@ -34,7 +34,10 @@ public class HotSearchHistoryStore {
         long started = System.nanoTime();
         try {
             transaction.executeWithoutResult(status -> mapper.append(events));
-            log.info("Hot search history append completed batchSize={} elapsedMs={}", events.size(), elapsedMillis(started));
+            log.info(
+                    "Hot search history append completed batchSize={} elapsedMs={}",
+                    events.size(),
+                    elapsedMillis(started));
         } catch (RuntimeException error) {
             log.warn("Hot search history append failed batchSize={} elapsedMs={} errorType={}",
                     events.size(), elapsedMillis(started), error.getClass().getSimpleName());
@@ -54,7 +57,11 @@ public class HotSearchHistoryStore {
                 mapper.deleteDay(date);
                 return mapper.rebuildDay(date);
             });
-            log.info("Hot search history rebuild completed date={} groups={} elapsedMs={}", date, groups, elapsedMillis(started));
+            log.info(
+                    "Hot search history rebuild completed date={} groups={} elapsedMs={}",
+                    date,
+                    groups,
+                    elapsedMillis(started));
         } catch (RuntimeException error) {
             log.warn("Hot search history rebuild failed date={} elapsedMs={} errorType={}",
                     date, elapsedMillis(started), error.getClass().getSimpleName());

@@ -18,6 +18,7 @@ public final class UserSummaries {
         if (users == null || users.isEmpty()) {
             return Map.of();
         }
+
         return users.stream()
                 .filter(u -> u.getId() != null)
                 .collect(Collectors.toMap(UserSummary::getId,
@@ -29,6 +30,7 @@ public final class UserSummaries {
         if (users == null || users.isEmpty()) {
             return Map.of();
         }
+
         return users.stream()
                 .filter(u -> u.getId() != null && u.getAvatarUrl() != null)
                 .collect(Collectors.toMap(UserSummary::getId, UserSummary::getAvatarUrl, (a, b) -> a));

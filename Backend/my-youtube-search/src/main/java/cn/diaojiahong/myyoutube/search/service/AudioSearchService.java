@@ -9,7 +9,10 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.*;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.Operator;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.search.Hit;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.elasticsearch.core.IndexOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
@@ -28,7 +31,7 @@ public class AudioSearchService implements AudioSearchPort {
 
     @Override
     public void rebuild(Long id) {
-        var document = source.document(id);
+        AudioDiscoveryContracts.Document document = source.document(id);
         if (document == null) return;
         try {
             ensureIndex();
@@ -41,7 +44,9 @@ public class AudioSearchService implements AudioSearchPort {
                 if (conflict.getResponse().getStatusLine().getStatusCode() != 409) throw conflict;
             }
             source.acknowledge(new Ack(id, document.version()));
-        } catch (IOException error) { throw new IllegalStateException("Audio index write failed", error); }
+        } catch (IOException error) {
+            throw new IllegalStateException("Audio index write failed", error);
+        }
     }
 
     @Override
@@ -49,12 +54,18 @@ public class AudioSearchService implements AudioSearchPort {
         request.validate();
         try {
             ensureIndex();
-            var response = es.search(s -> s.index(INDEX).from((request.pageNo() - 1) * request.pageSize()).size(request.pageSize() + 1)
-                    .query(query(request)).sort(sort -> sort.field(f -> f.field(AudioDoc.Fields.createdAt).order(SortOrder.Desc)))
+            SearchResponse<AudioDoc> response = es.search(s -> s.index(INDEX).from((request.pageNo() - 1) * request.pageSize()).size(request.pageSize() + 1)
+                    .query(query(request))
+                    .sort(sort -> sort.field(f -> f.field(AudioDoc.Fields.createdAt).order(SortOrder.Desc)))
                     .sort(sort -> sort.field(f -> f.field(AudioDoc.Fields.id).order(SortOrder.Desc))), AudioDoc.class);
-            var hits = response.hits().hits();
-            return new Slice(hits.stream().limit(request.pageSize()).map(h -> Objects.requireNonNull(h.source()).getId()).toList(), hits.size() > request.pageSize());
-        } catch (IOException error) { throw new IllegalStateException("Audio search failed", error); }
+            List<Hit<AudioDoc>> hits = response.hits().hits();
+            return new Slice(hits.stream()
+                    .limit(request.pageSize())
+                    .map(h -> Objects.requireNonNull(h.source()).getId())
+                    .toList(), hits.size() > request.pageSize());
+        } catch (IOException error) {
+            throw new IllegalStateException("Audio search failed", error);
+        }
     }
 
     static Query query(AudioDiscoveryContracts.Query request) {
@@ -74,7 +85,7 @@ public class AudioSearchService implements AudioSearchPort {
 
     private void ensureIndex() {
         if (initialized) return;
-        var index = operations.indexOps(AudioDoc.class);
+        IndexOperations index = operations.indexOps(AudioDoc.class);
         if (!index.exists()) {
             try {
                 if (!index.createWithMapping()) throw new IllegalStateException("Audio index creation not acknowledged");

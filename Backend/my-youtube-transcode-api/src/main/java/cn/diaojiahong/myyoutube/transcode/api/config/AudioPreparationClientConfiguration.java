@@ -13,7 +13,12 @@ public class AudioPreparationClientConfiguration {
     public FeignBuilderCustomizer audioPreparationTimeouts(
             @Value("${my-youtube.audio-processing.connect-timeout-ms:500}") int connectMs,
             @Value("${my-youtube.audio-processing.read-timeout-ms:1500}") int readMs) {
-        return builder -> builder.options(new Request.Options(connectMs, TimeUnit.MILLISECONDS, readMs, TimeUnit.MILLISECONDS, false))
+        return builder -> builder.options(new Request.Options(
+                connectMs,
+                TimeUnit.MILLISECONDS,
+                readMs,
+                TimeUnit.MILLISECONDS,
+                false))
                 .retryer(Retryer.NEVER_RETRY);
     }
 }

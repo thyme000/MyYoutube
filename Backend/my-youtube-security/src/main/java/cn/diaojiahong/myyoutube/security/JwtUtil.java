@@ -22,6 +22,7 @@ public final class JwtUtil {
         if (secretStr == null || secretStr.isBlank()) {
             throw new IllegalStateException("JWT 密钥未配置(jwt.secret)");
         }
+
         secret = secretStr.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -41,6 +42,7 @@ public final class JwtUtil {
         if (token == null || token.isBlank()) {
             return null;
         }
+
         try {
             JWT jwt = JWT.of(token).setKey(secret());
             if (!jwt.validate(0)) {
@@ -64,6 +66,7 @@ public final class JwtUtil {
         if (s == null) {
             throw new IllegalStateException("JwtUtil 未初始化");
         }
+
         return s;
     }
 }

@@ -21,5 +21,6 @@ public interface ContentSummaryPort {
     List<ContentSummary> listByIdsOrdered(@RequestBody SummaryQuery query);
 
     /** viewerId 为空时只返回公开内容；身份由调用服务从登录上下文取得。 */
-    record SummaryQuery(List<String> ids, Long viewerId) {}
+    record SummaryQuery(List<String> ids, Long viewerId) {
+    }
 }

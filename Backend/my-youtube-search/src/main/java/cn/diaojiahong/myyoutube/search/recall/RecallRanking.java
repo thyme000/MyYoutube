@@ -17,15 +17,21 @@ import java.util.List;
 public class RecallRanking {
     private final RecallRankingProperties properties;
 
-    public List<String> keywordFields() { return properties.getFields().boostedFields(); }
+    public List<String> keywordFields() {
+        return properties.getFields().boostedFields();
+    }
 
-    public Query keyword(Query query, SearchContext ctx) { return apply(query, ctx, properties.getKeyword()); }
-    public Query vector(Query query, SearchContext ctx) { return apply(query, ctx, properties.getVector()); }
+    public Query keyword(Query query, SearchContext ctx) {
+        return apply(query, ctx, properties.getKeyword());
+    }
+
+    public Query vector(Query query, SearchContext ctx) {
+        return apply(query, ctx, properties.getVector());
+    }
 
     public Query tag(Query query, SearchContext ctx) {
         List<FunctionScore> functions = new ArrayList<>();
-        for (Long author : ctx.getFollowIds()) functions.add(FunctionScore.of(f -> f
-                .filter(q -> q.term(t -> t.field("authorId").value(author))).weight(5.0)));
+        for (Long author : ctx.getFollowIds()) functions.add(FunctionScore.of(f -> f.filter(q -> q.term(t -> t.field("authorId").value(author))).weight(5.0)));
         functions.add(counter("playCount", 1.0));
         functions.add(counter("likeCount", 1.0));
         return Query.of(q -> q.functionScore(f -> f.query(query).functions(functions)
@@ -38,9 +44,7 @@ public class RecallRanking {
         // 保底倍率为 1；未关注、零热度或缺少计数字段都不降低相关性分。
         functions.add(FunctionScore.of(f -> f.weight(1.0)));
         if (weights.getFollow() > 0 && !ctx.getFollowIds().isEmpty()) {
-            functions.add(FunctionScore.of(f -> f
-                    .filter(q -> q.terms(t -> t.field("authorId").terms(v -> v
-                            .value(ctx.getFollowIds().stream().map(FieldValue::of).toList()))))
+            functions.add(FunctionScore.of(f -> f.filter(q -> q.terms(t -> t.field("authorId").terms(v -> v.value(ctx.getFollowIds().stream().map(FieldValue::of).toList()))))
                     .weight(weights.getFollow())));
         }
         if (weights.getPlay() > 0) functions.add(counter("playCount", weights.getPlay()));

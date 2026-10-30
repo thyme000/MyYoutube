@@ -13,6 +13,8 @@ public enum DraftSubmissionState {
     @EnumValue
     private final String code;
 
-    DraftSubmissionState(String code) { this.code = code; }
+    DraftSubmissionState(String code) {
+        this.code = code;
+    }
 
 }

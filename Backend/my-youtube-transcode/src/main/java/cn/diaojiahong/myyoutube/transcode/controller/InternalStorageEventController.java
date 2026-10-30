@@ -50,22 +50,31 @@ public class InternalStorageEventController {
         }
         for (JsonNode record : records) {
             String eventName = record.path("eventName").asText(record.path("EventName").asText(""));
+
             String rawKey = record.path("s3").path("object").path("key").asText("");
+
             if (!eventName.startsWith("s3:ObjectCreated:") || rawKey.isEmpty()) {
                 continue;
             }
+
             String key = URLDecoder.decode(rawKey, StandardCharsets.UTF_8);
-            if (!key.startsWith(VIDEO_KEY_PREFIX) && !key.startsWith("uploads/audio/") && !key.startsWith("uploads/audio-cover/")) {
+
+            if (!key.startsWith(VIDEO_KEY_PREFIX)
+                    && !key.startsWith("uploads/audio/")
+                    && !key.startsWith("uploads/audio-cover/")) {
                 continue;
             }
+
             long size = record.path("s3").path("object").path("size").asLong(0);
             // 归属在消费者侧反查草稿, 事件本身不可信
-            rocketMQTemplate.syncSend(MqConstants.TOPIC_MEDIA_UPLOAD_EVENT, MessageBuilder
-                    .withPayload(MediaUploadEventMessage.builder()
+            rocketMQTemplate.syncSend(
+                    MqConstants.TOPIC_MEDIA_UPLOAD_EVENT,
+                    MessageBuilder.withPayload(MediaUploadEventMessage.builder()
                             .objectKey(key)
                             .fileSize(size)
                             .build())
                     .build());
+
             log.info("已桥接上传事件 key={} size={}", key, size);
         }
     }

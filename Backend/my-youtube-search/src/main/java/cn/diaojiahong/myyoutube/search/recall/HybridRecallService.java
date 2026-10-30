@@ -37,7 +37,8 @@ public class HybridRecallService {
     public FirstPage recall(SearchContext ctx, int size, Function<List<String>, List<String>> readable) {
         List<RecallStrategy> active = strategies.stream().filter(strategy -> strategy.shouldRun(ctx)).toList();
         List<CompletableFuture<RecallResult>> pending = active.stream()
-                .map(strategy -> strategy.firstBatch(ctx).handle((batch, error) -> fallback(strategy, batch, error))).toList();
+                .map(strategy -> strategy.firstBatch(ctx).handle((batch, error) -> fallback(strategy, batch, error)))
+                .toList();
         try {
             CompletableFuture.allOf(pending.toArray(CompletableFuture[]::new)).get();
         } catch (InterruptedException interrupted) {
@@ -91,14 +92,19 @@ public class HybridRecallService {
             if (!active.get(route).supportsPaging()) continue;
             // 回源检查有数量上限，原始召回中仍可能留有未检查候选。
             boolean unchecked = recalls.get(route).stream().anyMatch(id -> !checked.contains(id));
-            boolean undisplayed = recalls.get(route).stream().anyMatch(id -> visible.contains(id) && !displayed.contains(id));
+            boolean undisplayed = recalls.get(route)
+                    .stream()
+                    .anyMatch(id -> visible.contains(id) && !displayed.contains(id));
             more |= batches.get(route).hasMore() || unchecked || undisplayed;
         }
         return new FirstPage(page, more);
     }
 
     private List<List<String>> refill(SearchContext ctx, List<RecallStrategy> active, List<RecallBatch> batches,
-                                      Function<List<String>, List<String>> readable, Set<String> checked, Set<String> visible,
+                                      Function<List<String>,
+                                      List<String>> readable,
+                                      Set<String> checked,
+                                      Set<String> visible,
                                       int target) {
         List<List<String>> recalls = new ArrayList<>();
         for (RecallBatch batch : batches) recalls.add(new ArrayList<>(batch.ids()));
@@ -108,7 +114,9 @@ public class HybridRecallService {
             RecallBatch previous = batches.get(route);
             while (visible.size() < target && previous.hasMore() && rounds < properties.getRefillMaxRounds()
                     && checked.size() < properties.getRefillMaxCandidates()) {
-                int size = Math.min(properties.getRefillBatchSize(), properties.getRefillMaxCandidates() - checked.size());
+                int size = Math.min(
+                        properties.getRefillBatchSize(),
+                        properties.getRefillMaxCandidates() - checked.size());
                 try {
                     RecallBatch next = active.get(route).nextBatch(ctx, previous, size);
                     rounds++;
@@ -137,7 +145,8 @@ public class HybridRecallService {
     }
 
     private static Throwable unwrap(Throwable error) {
-        while ((error instanceof CompletionException || error instanceof ExecutionException) && error.getCause() != null)
+        while ((error instanceof CompletionException || error instanceof ExecutionException)
+                && error.getCause() != null)
             error = error.getCause();
         return error;
     }
@@ -148,8 +157,10 @@ public class HybridRecallService {
                 || error instanceof DependencyException || error instanceof ModelUnavailable;
     }
 
-    private record RecallResult(RecallBatch batch, Throwable failure) {}
+    private record RecallResult(RecallBatch batch, Throwable failure) {
+    }
 
     /** 后续只续查关键词，未展示的纯语义候选不构成下一页。 */
-    public record FirstPage(List<String> ids, boolean hasMore) {}
+    public record FirstPage(List<String> ids, boolean hasMore) {
+    }
 }

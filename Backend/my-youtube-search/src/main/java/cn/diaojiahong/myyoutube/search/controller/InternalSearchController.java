@@ -25,7 +25,9 @@ public class InternalSearchController {
     private final RecommendPortImpl recommendPort;
 
     @PostMapping("/content-doc/rebuild")
-    public void rebuildContent(@RequestParam("contentId") Long contentId) { contentDocPort.rebuildContent(contentId); }
+    public void rebuildContent(@RequestParam("contentId") Long contentId) {
+        contentDocPort.rebuildContent(contentId);
+    }
 
     @PostMapping("/content-doc/delete")
     public void deleteDoc(@RequestParam("contentId") Long contentId) {

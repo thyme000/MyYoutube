@@ -12,7 +12,9 @@ import java.util.*;
 @ConfigurationProperties("my-youtube.monitor")
 public class MonitorProperties {
     private boolean enabled;
+
     @NotNull private URI filebeat = URI.create("http://127.0.0.1:15066");
     private boolean logsEnabled = true;
+
     private Map<String, String> groups = new LinkedHashMap<>();
 }

@@ -21,7 +21,9 @@ public final class DynamicFfmpegComposer {
     }
 
     public static void compose(TranscodeSubmitDTO params, List<Path> imagePaths, Path audioPath,
-                               Path workDir, Path outputMp4, String ffmpegCommand) throws IOException, InterruptedException {
+                               Path workDir,
+                               Path outputMp4,
+                               String ffmpegCommand) throws IOException, InterruptedException {
         if (params == null || params.getItems() == null || imagePaths.size() != params.getItems().size()) {
             throw new IllegalArgumentException("参数与图片数量不一致");
         }
@@ -32,7 +34,9 @@ public final class DynamicFfmpegComposer {
         int h = params.getCanvasH();
         boolean isFade = "fade".equals(params.getTransition());
         long fadeMs = isFade ? params.getFadeMs() == null ? 800 : params.getFadeMs() : 0;
-        var timing = DynamicTimeline.schedule(params.getItems().stream().map(TranscodeItemDTO::getDurationMs).toList(), fadeMs);
+        DynamicTimeline.Schedule timing = DynamicTimeline.schedule(
+                params.getItems().stream().map(TranscodeItemDTO::getDurationMs).toList(),
+                fadeMs);
         if (params.getTotalDurationMs() == null || params.getTotalDurationMs() != timing.exportDurationMs())
             throw new IllegalArgumentException("成片总时长与图片时间轴不一致");
         double fadeSec = fadeMs / 1000.0;
@@ -155,7 +159,8 @@ public final class DynamicFfmpegComposer {
         return String.format(Locale.US, "%.4f", v);
     }
 
-    private static void runFfmpeg(List<String> cmd, Path workDir, Duration timeout) throws IOException, InterruptedException {
+    private static void runFfmpeg(List<String> cmd, Path workDir, Duration timeout) throws IOException,
+    InterruptedException {
         log.info("动态成片 ffmpeg 命令: {}", String.join(" ", cmd));
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(workDir.toFile());

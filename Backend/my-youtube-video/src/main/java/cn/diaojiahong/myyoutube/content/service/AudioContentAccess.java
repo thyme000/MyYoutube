@@ -23,11 +23,14 @@ public class AudioContentAccess {
     private final AfterCommitNotifications notifications;
 
     public Set<Long> blocked(List<Content> contents) {
-        Map<Long, Content> references = contents.stream().filter(c -> c.getAudioId() != null && c.getStatus() != ContentStatusEnum.BANNED)
+        Map<Long, Content> references = contents.stream()
+                .filter(c -> c.getAudioId() != null && c.getStatus() != ContentStatusEnum.BANNED)
                 .collect(Collectors.toMap(Content::getId, c -> c, (first, duplicate) -> first));
         List<Long> audioIds = references.values().stream().map(Content::getAudioId).distinct().toList();
         if (audioIds.isEmpty()) return Set.of();
-        Map<Long, Audio> current = audios.selectBatchIds(audioIds).stream().collect(Collectors.toMap(Audio::getId, a -> a));
+        Map<Long, Audio> current = audios.selectBatchIds(audioIds)
+                .stream()
+                .collect(Collectors.toMap(Audio::getId, a -> a));
         var blocked = new HashSet<Long>();
         for (Content reference : references.values()) {
             Audio audio = current.get(reference.getAudioId());

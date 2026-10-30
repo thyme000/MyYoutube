@@ -11,6 +11,7 @@ public class ContentReviewRecord {
     @TableId(type = IdType.ASSIGN_ID)
     @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.ser.std.ToStringSerializer.class)
     private Long id;
+
     @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.ser.std.ToStringSerializer.class)
     private Long contentId;
     private Long pipelineId;
@@ -23,6 +24,7 @@ public class ContentReviewRecord {
     private String evidenceJson;
     private String model;
     private String rulesVersion;
+
     @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.ser.std.ToStringSerializer.class)
     private Long actorId;
     private java.time.LocalDateTime createTime;

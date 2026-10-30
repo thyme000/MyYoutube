@@ -44,7 +44,9 @@ class UserRoleFeignContractTest {
         UserRolePortAdapter roles = mock(UserRolePortAdapter.class);
         when(roles.getRole(7L)).thenReturn(UserRole.ADMIN);
         when(roles.getRole(8L)).thenThrow(new BizException(ErrorCode.NOT_FOUND));
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new InternalUserRoleController(roles, new InternalApiCredentials("contract-token")))
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new InternalUserRoleController(
+                roles,
+                new InternalApiCredentials("contract-token")))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         var calls = new AtomicInteger();
 
@@ -67,7 +69,9 @@ class UserRoleFeignContractTest {
     void unconfiguredCredentialsAllowLocalRoleLookup() {
         UserRolePortAdapter roles = mock(UserRolePortAdapter.class);
         when(roles.getRole(7L)).thenReturn(UserRole.ADMIN);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new InternalUserRoleController(roles, new InternalApiCredentials("")))
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new InternalUserRoleController(
+                roles,
+                new InternalApiCredentials("")))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         var calls = new AtomicInteger();
 
@@ -82,7 +86,9 @@ class UserRoleFeignContractTest {
     @Test
     void internalCredentialFailureIsADependencyFailureRatherThanUserLogout() {
         UserRolePortAdapter roles = mock(UserRolePortAdapter.class);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new InternalUserRoleController(roles, new InternalApiCredentials("server-token")))
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new InternalUserRoleController(
+                roles,
+                new InternalApiCredentials("server-token")))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         var calls = new AtomicInteger();
 
@@ -126,5 +132,6 @@ class UserRoleFeignContractTest {
 
     @Configuration(proxyBeanMethods = false)
     @EnableFeignClients(clients = UserRolePort.class, defaultConfiguration = InternalFeignConfiguration.class)
-    static class Clients {}
+    static class Clients {
+    }
 }

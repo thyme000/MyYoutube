@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.video.api.enums.RefTypeEnum;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -39,7 +40,8 @@ import java.util.Objects;
  */
 @Service
 @RequiredArgsConstructor
-public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMapper, UserNotification> implements IUserNotificationService {
+public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMapper,
+UserNotification> implements IUserNotificationService {
     private final ContentAccessService access;
 
     private final UserPort userPort;
@@ -75,7 +77,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
             }
             if (contentId != null) {
                 try {
-                    var current = access.readable(contentId, userId);
+                    Content current = access.readable(contentId, userId);
                     vo.setContentId(current.getId());
                     vo.setMediaType(current.getType().getCode());
                 } catch (BizException ignored) {
@@ -109,6 +111,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
 
             throw new BizException(ErrorCode.FORBIDDEN, "不能读取他人通知");
         }
+
         // 是自己的通知,可以正常读取
         notification.setIsRead(1);
         updateById(notification);
@@ -141,6 +144,7 @@ public class UserNotificationServiceImpl extends ServiceImpl<UserNotificationMap
 
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         return Long.valueOf(userId);
     }
 }

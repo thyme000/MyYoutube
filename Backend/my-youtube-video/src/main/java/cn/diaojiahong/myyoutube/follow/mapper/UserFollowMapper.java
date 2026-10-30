@@ -17,11 +17,17 @@ import java.util.List;
  */
 public interface UserFollowMapper extends BaseMapper<UserFollow> {
 
-    int followOrRestore(@Param("id") Long id, @Param("followerId") Long followerId, @Param("followeeId") Long followeeId);
+    int followOrRestore(
+            @Param("id") Long id,
+            @Param("followerId") Long followerId,
+            @Param("followeeId") Long followeeId);
 
     int cancelFollow(@Param("followerId") Long followerId, @Param("followeeId") Long followeeId);
 
-    Boolean interrelated(@Param("userId") Long userId, @Param("memberIds") List<Long> memberIds, @Param("expectedCount") int expectedCount);
+    Boolean interrelated(
+            @Param("userId") Long userId,
+            @Param("memberIds") List<Long> memberIds,
+            @Param("expectedCount") int expectedCount);
 
     Page<Long> selectInterrelatedPage(@Param("page") Page<Long> page, @Param("userId") Long userId);
 }

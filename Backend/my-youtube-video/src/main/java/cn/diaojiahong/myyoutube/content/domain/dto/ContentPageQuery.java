@@ -13,7 +13,7 @@ public class ContentPageQuery extends PageQuery {
     private String type;
 
     public ContentTypeEnum mediaType() {
-        var result = type == null ? null : ContentTypeEnum.fromCode(type);
+        ContentTypeEnum result = type == null ? null : ContentTypeEnum.fromCode(type);
         if (type != null && result == null)
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "内容类型无效");
         validate();

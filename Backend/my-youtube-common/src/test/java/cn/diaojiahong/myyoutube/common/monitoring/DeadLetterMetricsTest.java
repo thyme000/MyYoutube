@@ -18,7 +18,9 @@ import static org.mockito.Mockito.*;
 
 class DeadLetterMetricsTest {
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
     private final DefaultMQPullConsumer consumer = mock(DefaultMQPullConsumer.class);
+
     private final DeadLetterMetrics probe = new DeadLetterMetrics(new MockEnvironment()
             .withProperty("media.monitor.dlq-groups", "transcode_draft_worker,transcode_content_worker"), registry);
 
@@ -31,7 +33,7 @@ class DeadLetterMetricsTest {
     void missingTopicClearsRetainedAndContinuesSampling(boolean wrapped) throws Exception {
         var queue = new MessageQueue("%DLQ%transcode_draft_worker", "broker", 0);
         var absent = new MQClientException(ResponseCode.TOPIC_NOT_EXIST, "No topic route info in name server");
-        var error = wrapped ? new MQClientException("Can not find Message Queue for this topic", absent) : absent;
+        MQClientException error = wrapped ? new MQClientException("Can not find Message Queue for this topic", absent) : absent;
         when(consumer.fetchSubscribeMessageQueues(queue.getTopic()))
                 .thenReturn(Set.of(queue)).thenThrow(error);
         when(consumer.maxOffset(queue)).thenReturn(8L);

@@ -47,7 +47,11 @@ public class AdminServiceImpl implements IAdminService {
     @Override
     public String pass(Long contentId, String reason) {
         checkAdmin();
-        var result = contentAdminPort.markStatus(new ContentAdminPort.MarkStatus(contentId, ContentStatusEnum.PUBLISHED.getCode(), reason, getUserId()));
+        Boolean result = contentAdminPort.markStatus(new ContentAdminPort.MarkStatus(
+                contentId,
+                ContentStatusEnum.PUBLISHED.getCode(),
+                reason,
+                getUserId()));
         requireChanged(result);
         return "审核通过";
     }
@@ -55,7 +59,11 @@ public class AdminServiceImpl implements IAdminService {
     @Override
     public String ban(Long contentId, String reason) {
         checkAdmin();
-        var result = contentAdminPort.markStatus(new ContentAdminPort.MarkStatus(contentId, ContentStatusEnum.BANNED.getCode(), reason, getUserId()));
+        Boolean result = contentAdminPort.markStatus(new ContentAdminPort.MarkStatus(
+                contentId,
+                ContentStatusEnum.BANNED.getCode(),
+                reason,
+                getUserId()));
         requireChanged(result);
         return "审核拒绝或封禁成功";
     }
@@ -72,6 +80,7 @@ public class AdminServiceImpl implements IAdminService {
         if (page.getList().isEmpty()) {
             return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
+
         List<Long> authorIds = page.getList().stream().map(ContentSummary::getAuthorId).toList();
         List<UserSummary> authors = userPort.listByIds(authorIds);
         Map<Long, String> avatars = UserSummaries.toAvatarMap(authors);
@@ -104,6 +113,7 @@ public class AdminServiceImpl implements IAdminService {
         if (data.getList().isEmpty()) {
             return PageResult.of(data.getTotal(), data.getPages(), List.of());
         }
+
         List<AdminCommentVO> voList = data.getList().stream().map(c -> {
             AdminCommentVO vo = new AdminCommentVO();
             vo.setCommentId(c.getCommentId());
@@ -133,6 +143,7 @@ public class AdminServiceImpl implements IAdminService {
         if (data.getList().isEmpty()) {
             return PageResult.of(data.getTotal(), data.getPages(), List.of());
         }
+
         List<AdminCommentReportVO> voList = data.getList().stream().map(r -> {
             AdminCommentReportVO vo = new AdminCommentReportVO();
             vo.setCommentId(r.getCommentId());

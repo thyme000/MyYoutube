@@ -11,11 +11,16 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class MediaTaskDispatcher {
     private final RocketMQTemplate mq;
+
     public void dispatch(MediaTaskMessage message) {
         mq.syncSend(MqConstants.TOPIC_MEDIA_TASK + ":" + message.getPhase(), message);
     }
+
     public void completed(Manifest manifest) {
         mq.syncSend(MqConstants.TOPIC_CONTENT_UNDERSTOOD, new ContentUnderstoodMessage(manifest));
     }
-    public void reviewed(ReviewResult result) { mq.syncSend(MqConstants.TOPIC_REVIEW_RESULT, result); }
+
+    public void reviewed(ReviewResult result) {
+        mq.syncSend(MqConstants.TOPIC_REVIEW_RESULT, result);
+    }
 }

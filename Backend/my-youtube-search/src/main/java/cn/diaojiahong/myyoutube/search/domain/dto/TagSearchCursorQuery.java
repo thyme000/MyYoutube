@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public class TagSearchCursorQuery extends CursorPageQuery {
     @Schema(description = "标签搜索词", maxLength = SearchQueryValidation.MAX_KEYWORD_LENGTH)
     private String tagName;
+
     @Override
     public void validate() {
         super.validate();

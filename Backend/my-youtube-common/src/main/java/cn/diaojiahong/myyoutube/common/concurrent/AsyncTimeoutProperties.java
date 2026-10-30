@@ -23,8 +23,9 @@ public class AsyncTimeoutProperties {
     public void validate() {
         resources.forEach((name, policy) -> {
             if (policy == null || policy.getExecutor() == null || policy.getExecutor().isBlank()
-                    || policy.getTimeoutMillis() <= 0)
+                    || policy.getTimeoutMillis() <= 0) {
                 throw new IllegalStateException("异步超时配置无效: " + name);
+            }
         });
     }
 }

@@ -9,7 +9,8 @@ import org.springframework.context.annotation.FilterType;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class FeignIsolationTest {
-    @Test void servicesWithoutFeignDoNotLoadFeignAdviceOrConfiguration() {
+    @Test
+    void servicesWithoutFeignDoNotLoadFeignAdviceOrConfiguration() {
         new ApplicationContextRunner().withClassLoader(new FilteredClassLoader("feign"))
                 .withUserConfiguration(Scan.class).run(context -> {
                     assertThat(context).hasNotFailed();
@@ -17,8 +18,12 @@ class FeignIsolationTest {
                     assertThat(context).doesNotHaveBean(InternalFeignConfiguration.class);
                 });
     }
+
     @Configuration(proxyBeanMethods = false)
     @ComponentScan(basePackageClasses = FeignExceptionHandler.class, useDefaultFilters = false,
-            includeFilters = @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = FeignExceptionHandler.class))
-    static class Scan {}
+            includeFilters = @ComponentScan.Filter(
+                    type = FilterType.ASSIGNABLE_TYPE,
+                    classes = FeignExceptionHandler.class))
+    static class Scan {
+    }
 }

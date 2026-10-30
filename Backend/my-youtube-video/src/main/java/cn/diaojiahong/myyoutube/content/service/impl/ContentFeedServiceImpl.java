@@ -16,6 +16,7 @@ import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentSortEnum;
@@ -23,6 +24,7 @@ import cn.diaojiahong.myyoutube.video.mapper.ContentReviewRecordMapper;
 import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import java.util.*;
@@ -43,13 +45,18 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     private final ContentReviewRecordMapper reviewRecords;
     private final AuthorContentPageService authorPages;
 
-    @Override public PageResult<ContentFeedVO> feed(Long userId, ContentPageQuery query) {
+    @Override
+    public PageResult<ContentFeedVO> feed(Long userId, ContentPageQuery query) {
         return recommended(userId, null, query.mediaType(), query);
     }
-    @Override public PageResult<ContentFeedVO> list(Long userId, ContentSortEnum sort, String category, ContentPageQuery query) {
-        var type = query.mediaType();
+
+    @Override
+    public PageResult<ContentFeedVO> list(Long userId, ContentSortEnum sort, String category, ContentPageQuery query) {
+        ContentTypeEnum type = query.mediaType();
         if (sort == ContentSortEnum.RECOMMENDED) return recommended(userId, category, type, query);
-        var filter = published().eq(Content::getVisibility, "public").ne(userId != null, Content::getAuthorId, userId)
+        LambdaQueryWrapper<Content> filter = published()
+                .eq(Content::getVisibility, "public")
+                .ne(userId != null, Content::getAuthorId, userId)
                 .eq(category != null && !category.isBlank(), Content::getCategoryCode, category)
                 .eq(type != null, Content::getType, type);
         if (sort == ContentSortEnum.MOST_LIKED) filter.orderByDesc(Content::getLikeCount);
@@ -58,84 +65,146 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         else filter.orderByDesc(Content::getCreateTime);
         return page(userId, filter, query, false);
     }
-    @Override public PageResult<ContentFeedVO> mine(Long userId, ContentPageQuery query) {
-        var type = query.mediaType();
-        return page(userId, new LambdaQueryWrapper<Content>().eq(type != null, Content::getType, type).eq(Content::getIsDelete, 0).eq(Content::getAuthorId, userId).orderByDesc(Content::getCreateTime), query, true);
+
+    @Override
+    public PageResult<ContentFeedVO> mine(Long userId, ContentPageQuery query) {
+        ContentTypeEnum type = query.mediaType();
+        return page(userId, new LambdaQueryWrapper<Content>()
+                .eq(type != null, Content::getType, type)
+                .eq(Content::getIsDelete, 0)
+                .eq(Content::getAuthorId, userId)
+                .orderByDesc(Content::getCreateTime), query, true);
     }
-    @Override public AuthorContentCursorVO byAuthor(Long viewer, Long author, AuthorContentCursorQuery query) {
+
+    @Override
+    public AuthorContentCursorVO byAuthor(Long viewer, Long author, AuthorContentCursorQuery query) {
         AuthorContentPageService.AuthorContentCandidates result = authorPages.list(viewer, author, query);
         CursorPage<Content, String> page = result.page();
         List<ContentFeedVO> cards = assembleCards(viewer, page.items(), Set.of());
         return new AuthorContentCursorVO(new CursorPage<>(cards, page.nextCursor()), result.displayCount());
     }
-    @Override public PageResult<ContentFeedVO> followFeed(Long userId, ContentPageQuery query) {
-        var type = query.mediaType();
-        var ids = follows.getFollowIds(userId);
+
+    @Override
+    public PageResult<ContentFeedVO> followFeed(Long userId, ContentPageQuery query) {
+        ContentTypeEnum type = query.mediaType();
+        List<Long> ids = follows.getFollowIds(userId);
         if (ids.isEmpty()) return PageResult.of(0, 0, List.of());
-        return page(userId, published().eq(type != null, Content::getType, type).in(Content::getAuthorId, ids).eq(Content::getVisibility, "public").orderByDesc(Content::getCreateTime), query, false);
+        return page(userId, published()
+                .eq(type != null, Content::getType, type)
+                .in(Content::getAuthorId, ids)
+                .eq(Content::getVisibility, "public")
+                .orderByDesc(Content::getCreateTime), query, false);
     }
-    private PageResult<ContentFeedVO> page(Long viewer, LambdaQueryWrapper<Content> filter, ContentPageQuery query, boolean management) {
-        var page = contents.page(query.toPage(), filter);
+
+    private PageResult<ContentFeedVO> page(
+            Long viewer,
+            LambdaQueryWrapper<Content> filter,
+            ContentPageQuery query,
+            boolean management) {
+        Page<Content> page = contents.page(query.toPage(), filter);
         return PageResult.of(page.getTotal(), page.getPages(), assembleList(viewer, page.getRecords(), management));
     }
-    private PageResult<ContentFeedVO> recommended(Long viewer, String category, ContentTypeEnum type, ContentPageQuery query) {
-        var ids = recommendations.recommend(new RecommendPort.RecommendQuery(viewer, type == null ? null : type.getCode(), category, query.getPageNo(), query.getPageSize()));
+
+    private PageResult<ContentFeedVO> recommended(
+            Long viewer,
+            String category,
+            ContentTypeEnum type,
+            ContentPageQuery query) {
+        List<Long> ids = recommendations.recommend(new RecommendPort.RecommendQuery(
+                viewer,
+                type == null ? null : type.getCode(),
+                category,
+                query.getPageNo(),
+                query.getPageSize()));
         if (ids.isEmpty()) return PageResult.of(0, 0, List.of());
-        var byId = contents.list(published().in(Content::getId, ids).eq(Content::getVisibility, "public")
-                .eq(type != null, Content::getType, type).eq(category != null && !category.isBlank(), Content::getCategoryCode, category))
+        Map<Long,Content> byId = contents.list(published().in(Content::getId, ids).eq(Content::getVisibility, "public")
+                .eq(type != null, Content::getType, type).eq(
+                        category != null && !category.isBlank(),
+                        Content::getCategoryCode,
+                        category))
                 .stream().collect(Collectors.toMap(Content::getId, c -> c));
-        var rows = ids.stream().map(byId::get).filter(Objects::nonNull).toList();
+        List<Content> rows = ids.stream().map(byId::get).filter(Objects::nonNull).toList();
         long total = (long) (query.getPageNo() - 1) * query.getPageSize() + ids.size() + (ids.size() == query.getPageSize() ? 1 : 0);
-        return PageResult.of(total, (total + query.getPageSize() - 1) / query.getPageSize(), assembleList(viewer, rows, false));
+        return PageResult.of(
+                total,
+                (total + query.getPageSize() - 1) / query.getPageSize(),
+                assembleList(viewer, rows, false));
     }
+
     private List<ContentFeedVO> assembleList(Long viewer, List<Content> candidates, boolean management) {
         var blocked = new HashSet<>(audioAccess.blocked(candidates));
-        var rows = management ? candidates : candidates.stream().filter(c -> !blocked.contains(c.getId())).toList();
+        List<Content> rows = management ? candidates : candidates.stream()
+                .filter(c -> !blocked.contains(c.getId()))
+                .toList();
         if (management) {
-            var bannedIds = rows.stream().filter(c -> c.getStatus() == ContentStatusEnum.BANNED).map(Content::getId).toList();
+            List<Long> bannedIds = rows.stream()
+                    .filter(c -> c.getStatus() == ContentStatusEnum.BANNED)
+                    .map(Content::getId)
+                    .toList();
             if (!bannedIds.isEmpty()) {
                 blocked.addAll(reviewRecords.audioBannedContentIds(bannedIds));
             }
         }
         return assembleCards(viewer, rows, blocked);
     }
+
     /** 调用方已完成访问检查；blocked 只用于管理页保留受限记录，不授予媒体访问权限。 */
     public List<ContentFeedVO> assembleCards(Long viewer, List<Content> rows, Set<Long> blocked) {
         if (rows.isEmpty()) return List.of();
-        var authorIds = rows.stream().map(Content::getAuthorId).distinct().toList();
-        var authors = users.listByIds(authorIds);
-        var names = UserSummaries.toNicknameMap(authors);
-        var avatars = UserSummaries.toAvatarMap(authors);
-        var followed = viewer == null ? List.<Boolean>of() : follows.isFollowOnList(authorIds, viewer);
+
+        List<Long> authorIds = rows.stream().map(Content::getAuthorId).distinct().toList();
+        List<UserSummary> authors = users.listByIds(authorIds);
+        Map<Long,String> names = UserSummaries.toNicknameMap(authors);
+        Map<Long,String> avatars = UserSummaries.toAvatarMap(authors);
+
+        List<Boolean> followed = viewer == null ? List.<Boolean>of() : follows.isFollowOnList(authorIds, viewer);
         var followMap = new HashMap<Long, Boolean>();
         for (int i = 0; i < followed.size(); i++) followMap.put(authorIds.get(i), followed.get(i));
-        var liked = viewer == null ? Set.<Long>of() : likes.selectList(new LambdaQueryWrapper<ContentLike>()
-                .eq(ContentLike::getUserId, viewer).eq(ContentLike::getIsLiked, 1).in(ContentLike::getContentId, rows.stream().map(Content::getId).toList()))
+
+        Set<Long> liked = viewer == null ? Set.<Long>of() : likes.selectList(new LambdaQueryWrapper<ContentLike>()
+                .eq(ContentLike::getUserId, viewer)
+                .eq(ContentLike::getIsLiked, 1)
+                .in(ContentLike::getContentId, rows.stream().map(Content::getId).toList()))
                 .stream().map(ContentLike::getContentId).collect(Collectors.toSet());
+
         var media = new HashMap<Long, cn.diaojiahong.myyoutube.common.media.ContentMedia>();
-        for (var group : rows.stream().collect(Collectors.groupingBy(Content::getType)).entrySet())
+        for (Map.Entry<ContentTypeEnum,List<Content>> group : rows.stream()
+                .collect(Collectors.groupingBy(Content::getType))
+                .entrySet())
             media.putAll(strategies.get(group.getKey()).loadMedia(group.getValue().stream().map(Content::getId).toList()));
+
         var result = new ArrayList<ContentFeedVO>();
-        for (var row : rows) {
+        for (Content row : rows) {
             if (!media.containsKey(row.getId())) continue;
-            var vo = BeanUtil.copyProperties(ContentCards.summary(row, media.get(row.getId())), ContentFeedVO.class);
+
+            ContentFeedVO vo = BeanUtil.copyProperties(
+                    ContentCards.summary(row, media.get(row.getId())),
+                    ContentFeedVO.class);
             vo.setAuthorNickname(names.get(row.getAuthorId()));
             vo.setAuthorAvatarUrl(storage.signGetUrl(avatars.get(row.getAuthorId()), SIGN_SECONDS));
+
             boolean audioRestricted = blocked.contains(row.getId());
             boolean restricted = audioRestricted || row.getStatus() == ContentStatusEnum.BANNED;
             if (restricted) {
                 vo.setStatus(ContentStatusEnum.BANNED.getCode());
                 vo.setRestrictionReason(ReviewFeedback.contentRestrictionReason(audioRestricted));
             }
+
             boolean signMedia = !restricted;
             vo.setCoverUrl(signMedia ? storage.signGetUrl(vo.getCoverUrl(), SIGN_SECONDS) : null);
             vo.setVideoUrl(signMedia ? storage.signGetUrl(vo.getVideoUrl(), SIGN_SECONDS) : null);
-            vo.setIsLike(liked.contains(row.getId())); vo.setIsFollow(Boolean.TRUE.equals(followMap.get(row.getAuthorId())));
+
+            vo.setIsLike(liked.contains(row.getId()));
+            vo.setIsFollow(Boolean.TRUE.equals(followMap.get(row.getAuthorId())));
             result.add(vo);
         }
+
         return result;
     }
+
     private LambdaQueryWrapper<Content> published() {
-        return new LambdaQueryWrapper<Content>().eq(Content::getIsDelete, 0).eq(Content::getStatus, ContentStatusEnum.PUBLISHED);
+        return new LambdaQueryWrapper<Content>()
+                .eq(Content::getIsDelete, 0)
+                .eq(Content::getStatus, ContentStatusEnum.PUBLISHED);
     }
 }

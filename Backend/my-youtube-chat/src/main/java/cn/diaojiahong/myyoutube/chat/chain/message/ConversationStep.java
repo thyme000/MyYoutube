@@ -23,6 +23,7 @@ public class ConversationStep extends MessageSendStep {
         if (conversationDoc == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "会话不存在");
         }
+
         ctx.setConversationDoc(conversationDoc);
     }
 }

@@ -66,7 +66,7 @@ public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> 
         try {
             List<ContentDoc> contents = contentDocRepository.findContentDocByAuthorId(message.getUserId());
             if (contents != null && !contents.isEmpty()) {
-                var updates = contents.stream().map(content -> {
+                List<UpdateQuery> updates = contents.stream().map(content -> {
                     return UpdateQuery.builder(content.getId().toString())
                             .withScriptType(ScriptType.INLINE).withLang("painless").withScript(AUTHOR_SCRIPT)
                             .withParams(Map.of("name", user.getNickname() == null ? "" : user.getNickname()))

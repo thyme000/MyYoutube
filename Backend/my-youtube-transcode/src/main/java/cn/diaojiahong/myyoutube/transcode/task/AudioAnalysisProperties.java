@@ -12,7 +12,9 @@ public class AudioAnalysisProperties {
     private int minimumCharacters = 8;
     private int chunkCharacters = 12000;
     private String model;
-    @PostConstruct public void validate() {
+
+    @PostConstruct
+    public void validate() {
         if (minimumCharacters < 1 || minimumCharacters > 1000 || chunkCharacters < 1024 || chunkCharacters > 30000)
             throw new IllegalStateException("音频初筛配置无效");
     }

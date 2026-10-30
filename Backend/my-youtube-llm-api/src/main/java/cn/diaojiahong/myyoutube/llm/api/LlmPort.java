@@ -31,6 +31,7 @@ public interface LlmPort {
     @AllArgsConstructor
     class ChatRequest {
         private List<Message> messages;
+
         /** 可选覆盖模型(vision 等场景), 不传用服务端配置 */
         private String model;
         /** 可选, 不传用服务端配置 */
@@ -52,6 +53,7 @@ public interface LlmPort {
         private String role;
         /** 纯文本消息 */
         private String content;
+
         /** 多模态消息(与 content 二选一) */
         private List<ContentPart> parts;
 
@@ -86,11 +88,18 @@ public interface LlmPort {
         private String model;
         private String finishReason;
         private Usage usage;
-        public ChatResponse(String content, String model) { this(content, model, null, null); }
-        public ChatResponse(String content) { this(content, null); }
+
+        public ChatResponse(String content, String model) {
+            this(content, model, null, null);
+        }
+
+        public ChatResponse(String content) {
+            this(content, null);
+        }
     }
 
-    record Usage(Integer promptTokens, Integer completionTokens, Integer totalTokens) {}
+    record Usage(Integer promptTokens, Integer completionTokens, Integer totalTokens) {
+    }
 
     @Data
     @NoArgsConstructor
@@ -114,10 +123,12 @@ public interface LlmPort {
 
         public EmbeddingsResponse(List<List<Float>> vectors, Integer dims, String version) {
             this(java.util.stream.IntStream.range(0, vectors.size())
-                    .mapToObj(index -> new EmbeddingItem(index, vectors.get(index), null)).toList(), dims, version, null);
+                    .mapToObj(index -> new EmbeddingItem(index, vectors.get(index), null))
+                    .toList(), dims, version, null);
         }
     }
 
     /** 每个输入恰好一项，vector 与 error 二选一。 */
-    record EmbeddingItem(int index, List<Float> vector, String error) {}
+    record EmbeddingItem(int index, List<Float> vector, String error) {
+    }
 }

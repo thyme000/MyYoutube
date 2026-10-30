@@ -107,12 +107,15 @@ public class LlmClient {
                 throw new IllegalStateException("LLM 响应 " + resp.statusCode());
             }
             JsonObject root = JsonUtil.GSON.fromJson(resp.body(), JsonObject.class);
-            var choice = root.getAsJsonArray("choices").get(0).getAsJsonObject();
+            JsonObject choice = root.getAsJsonArray("choices").get(0).getAsJsonObject();
             String finish = choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull()
                     ? choice.get("finish_reason").getAsString() : null;
-            var usage = root.has("usage") && root.get("usage").isJsonObject() ? root.getAsJsonObject("usage") : new JsonObject();
+            JsonObject usage = root.has("usage")
+                    && root.get("usage").isJsonObject() ? root.getAsJsonObject("usage") : new JsonObject();
             var tokens = new cn.diaojiahong.myyoutube.llm.api.LlmPort.Usage(
-                    tokenCount(usage, "prompt_tokens"), tokenCount(usage, "completion_tokens"), tokenCount(usage, "total_tokens"));
+                    tokenCount(usage, "prompt_tokens"), tokenCount(usage, "completion_tokens"), tokenCount(
+                            usage,
+                            "total_tokens"));
             // 只记用量与结束原因, 不落提示词/回复正文
             log.info("LLM completed model={} maxTokens={} finishReason={} promptTokens={} completionTokens={} totalTokens={} elapsedMs={}",
                     body.get("model").getAsString(), body.get("max_tokens").getAsInt(), finish,
@@ -137,6 +140,7 @@ public class LlmClient {
         if (url == null || url.isBlank() || url.startsWith("data:") || !properties.isCloud()) {
             return url;
         }
+
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(10))

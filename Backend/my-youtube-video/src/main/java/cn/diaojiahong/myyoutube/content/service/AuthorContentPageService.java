@@ -40,7 +40,9 @@ public class AuthorContentPageService {
     }
 
     AuthorContentPageService(IContentService contents, AudioContentAccess audioAccess,
-                             ContentStatisticsMapper statistics, AuthorContentPageProperties properties, LongSupplier ticker) {
+                             ContentStatisticsMapper statistics,
+                             AuthorContentPageProperties properties,
+                             LongSupplier ticker) {
         this.contents = contents;
         this.audioAccess = audioAccess;
         this.statistics = statistics;
@@ -59,7 +61,9 @@ public class AuthorContentPageService {
         long displayCount = statistics.displayCount(author, type,
                 Objects.equals(author, viewer) ? null : ContentVisibilityEnum.PUBLIC);
         long started = ticker.getAsLong();
-        Content after = cursor == null ? null : new Content().setId(cursor.contentId()).setCreateTime(cursor.createTime());
+        Content after = cursor == null ? null : new Content()
+                .setId(cursor.contentId())
+                .setCreateTime(cursor.createTime());
         Slice slice = readPage(filter, after, query.getPageSize(), started);
 
         String next = slice.hasMore() ? new AuthorContentCursor(author, viewer, type,
@@ -103,6 +107,9 @@ public class AuthorContentPageService {
                 && ticker.getAsLong() - started < TimeUnit.MILLISECONDS.toNanos(properties.getScanBudgetMs());
     }
 
-    private record Slice(List<Content> visible, Content last, boolean hasMore) {}
-    public record AuthorContentCandidates(CursorPage<Content, String> page, long displayCount) {}
+    private record Slice(List<Content> visible, Content last, boolean hasMore) {
+    }
+
+    public record AuthorContentCandidates(CursorPage<Content, String> page, long displayCount) {
+    }
 }

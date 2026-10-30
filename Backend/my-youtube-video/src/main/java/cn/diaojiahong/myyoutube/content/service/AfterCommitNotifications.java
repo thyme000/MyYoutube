@@ -21,22 +21,35 @@ public class AfterCommitNotifications {
         Runnable notify = () -> {
             try {
                 mq.asyncSend(topic, message, new SendCallback() {
-                    @Override public void onSuccess(SendResult result) {
+                    @Override
+                    public void onSuccess(SendResult result) {
                         if (result == null || result.getSendStatus() != SendStatus.SEND_OK) failed(failureMetric);
                     }
-                    @Override public void onException(Throwable error) { failed(failureMetric); }
+
+                    @Override
+                    public void onException(Throwable error) {
+                        failed(failureMetric);
+                    }
                 });
-            } catch (Exception error) { failed(failureMetric); }
+            } catch (Exception error) {
+                failed(failureMetric);
+            }
         };
         if (TransactionSynchronizationManager.isSynchronizationActive())
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() { notify.run(); }
+                @Override
+                public void afterCommit() {
+                    notify.run();
+                }
             });
         else notify.run();
     }
 
     private void failed(String name) {
-        try { metrics.counter(name).increment(); }
-        catch (RuntimeException unavailable) { /* 可选通知和指标均不能阻止业务处理。 */ }
+        try {
+            metrics.counter(name).increment();
+        } catch (RuntimeException unavailable) {
+            /* 可选通知和指标均不能阻止业务处理。 */
+        }
     }
 }

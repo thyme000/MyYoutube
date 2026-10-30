@@ -19,18 +19,27 @@ public class RetryBatchOccupation {
     private final RedissonClient redis;
     private final PipelineProperties properties;
 
-    public record Occupation(String requestId, Long actorId, List<Long> taskIds, Batch batch) {}
+    public record Occupation(String requestId, Long actorId, List<Long> taskIds, Batch batch) {
+    }
 
-    public RLock admissionLock() { return redis.getLock("media:retry:admission"); }
-    private RBucket<String> bucket() { return redis.getBucket(KEY, StringCodec.INSTANCE); }
+    public RLock admissionLock() {
+        return redis.getLock("media:retry:admission");
+    }
+
+    private RBucket<String> bucket() {
+        return redis.getBucket(KEY, StringCodec.INSTANCE);
+    }
+
     public Occupation current() {
         String value = bucket().get();
         return value == null ? null : JsonUtil.fromJson(value, Occupation.class);
     }
+
     public void publish(MediaRetryBatch row, List<Long> ids, Batch view) {
         bucket().setIfAbsent(JsonUtil.toJson(new Occupation(row.getRequestId(), row.getActorId(), ids, view)),
                 Duration.ofSeconds(properties.getRetryOccupationSeconds()));
     }
+
     public void update(Batch view) {
         String next = MediaRetryBatchStatus.RUNNING.equals(view.status()) ? JsonUtil.toJson(view) : "";
         redis.getScript(StringCodec.INSTANCE).eval(RScript.Mode.READ_WRITE,

@@ -13,7 +13,9 @@ import java.util.List;
 @ConfigurationProperties(prefix = "my-youtube.search.ranking")
 public class RecallRankingProperties {
     private Fields fields = new Fields();
+
     private Weights keyword = new Weights(0.20, 0.02, 0.04, 1.50);
+
     private Weights vector = new Weights(0.08, 0.01, 0.02, 1.20);
 
     @Data
@@ -53,6 +55,11 @@ public class RecallRankingProperties {
         }
     }
 
-    private static boolean positive(double value) { return Double.isFinite(value) && value > 0; }
-    private static boolean nonNegative(double value) { return Double.isFinite(value) && value >= 0; }
+    private static boolean positive(double value) {
+        return Double.isFinite(value) && value > 0;
+    }
+
+    private static boolean nonNegative(double value) {
+        return Double.isFinite(value) && value >= 0;
+    }
 }

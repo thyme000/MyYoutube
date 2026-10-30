@@ -25,6 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class AudioReviewDecisionContractTest {
     private final AudioReviewService reviews = mock(AudioReviewService.class);
+
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new InternalAdminAudioController(
                     mock(AudioMapper.class), mock(AudioReviewRecordMapper.class), reviews,
                     mock(S3StorageUtil.class), mock(ContentArtifactStore.class), mock(UserPort.class)))

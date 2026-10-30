@@ -22,13 +22,17 @@ public class IdempotentStep extends MessageSendStep {
      */
     @Override
     public void apply(MessageSendContext ctx) {
-        ChatMessageDoc old = mongoTemplate.findById(MessageSendContext.messageId(Long.valueOf(ctx.getUserId()), ctx.getDto().getClientMsgId()), ChatMessageDoc.class);
+        ChatMessageDoc old = mongoTemplate.findById(
+                MessageSendContext.messageId(Long.valueOf(ctx.getUserId()), ctx.getDto().getClientMsgId()),
+                ChatMessageDoc.class);
         if (old == null) {
             return;
         }
+
         if (!old.getConversationId().equals(ctx.getConversationId())) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "会话id不一致");
         }
+
         ctx.setAck(MessageSendContext.ackOf(old, old.getStatus()));
     }
 }

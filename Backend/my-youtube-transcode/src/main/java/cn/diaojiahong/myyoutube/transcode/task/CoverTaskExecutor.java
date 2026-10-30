@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.task;
 
+import cn.diaojiahong.myyoutube.common.media.ContentMedia;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.transcode.cover.VideoCoverGenerator;
@@ -27,8 +28,10 @@ public class CoverTaskExecutor implements MediaTaskExecutor {
 
     @Override
     public String execute(MediaTaskMessage msg) {
-        var media = msg.getInput().media();
-        if (media.preparation() != null) cn.diaojiahong.myyoutube.common.media.PreparedMedia.validate(media, msg.getInput().coverObjectKey());
+        ContentMedia media = msg.getInput().media();
+        if (media.preparation() != null) cn.diaojiahong.myyoutube.common.media.PreparedMedia.validate(
+                media,
+                msg.getInput().coverObjectKey());
         long startedAt = System.currentTimeMillis();
         String coverKey;
         String source;
@@ -43,7 +46,12 @@ public class CoverTaskExecutor implements MediaTaskExecutor {
             source = "GENERATED_FROM_VIDEO";
         }
         log.info("Cover completed pipelineId={} taskId={} attempt={} source={} coverObjectKey={} elapsedMs={}",
-                msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), source, coverKey, System.currentTimeMillis() - startedAt);
+                msg.getPipelineId(),
+                msg.getTaskId(),
+                msg.getAttempt(),
+                source,
+                coverKey,
+                System.currentTimeMillis() - startedAt);
         return JsonUtil.toJson(Map.of("coverObjectKey", coverKey));
     }
 }

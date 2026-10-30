@@ -58,6 +58,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "不能关注自己");
         }
+
         // 存在就修改,不存在就新增; 单条 UPDATE 走自动提交, 不开事务圈住下面的远程调用
         long id = IdWorker.getId();
         int row = baseMapper.followOrRestore(id, userId, authorId);
@@ -89,6 +90,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         return Long.valueOf(userId);
     }
 
@@ -122,6 +124,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
             return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
+
         List<Long> list = follows.stream().map(UserFollow::getFolloweeId).toList();
 
         List<UserRelationshipVO> voList = getUserRelationshipVOS(list);
@@ -175,6 +178,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
             return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
+
         List<Long> list = follows.stream().map(UserFollow::getFollowerId).toList();
         List<UserRelationshipVO> voList = getUserRelationshipVOS(list);
         return PageResult.of(page.getTotal(), page.getPages(), voList);
@@ -198,10 +202,12 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         if (authorIds == null || authorIds.isEmpty()) {
 
             return List.of();
         }
+
         Map<Long, Boolean> collect = lambdaQuery()
                 .eq(UserFollow::getFollowerId, userId)
                 .in(UserFollow::getFolloweeId, authorIds)
@@ -235,11 +241,13 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
             return PageResult.of(0, 0, List.of());
         }
+
         List<Long> records = page.getRecords() != null ? page.getRecords() : List.of();
         if (records.isEmpty()) {
 
             return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
+
         List<UserRelationshipVO> voList = getUserRelationshipVOS(records);
         return PageResult.of(page.getTotal(), page.getPages(), voList);
     }

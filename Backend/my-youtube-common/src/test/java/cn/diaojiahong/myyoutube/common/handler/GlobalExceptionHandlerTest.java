@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.handler;
 
+import ch.qos.logback.classic.Logger;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.resilience.ModelUnavailable;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
@@ -40,7 +42,8 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.data").isEmpty());
     }
 
-    @Test void bindingAndBodyValidationAreClientErrors() throws Exception {
+    @Test
+    void bindingAndBodyValidationAreClientErrors() throws Exception {
         mvc.perform(get("/contract/parameter")).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40002));
         mvc.perform(get("/contract/parameter").param("count", "not-a-number"))
@@ -51,14 +54,16 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40001));
     }
 
-    @Test void methodInputValidationIs400ButReturnContractViolationIs500() throws Exception {
+    @Test
+    void methodInputValidationIs400ButReturnContractViolationIs500() throws Exception {
         mvc.perform(get("/contract/validated").param("count", "0"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40001));
         mvc.perform(get("/contract/invalid-return"))
                 .andExpect(status().isInternalServerError()).andExpect(jsonPath("$.code").value(50001));
     }
 
-    @Test void protocolErrorsKeepAllowAndUseTheErrorEnvelope() throws Exception {
+    @Test
+    void protocolErrorsKeepAllowAndUseTheErrorEnvelope() throws Exception {
         mvc.perform(post("/contract/parameter")).andExpect(status().isMethodNotAllowed())
                 .andExpect(header().string("Allow", "GET"))
                 .andExpect(jsonPath("$.code").value(40501));
@@ -68,13 +73,15 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isPayloadTooLarge()).andExpect(jsonPath("$.code").value(41301));
     }
 
-    @Test void internalArgumentFailureDoesNotExposeItsMessageOrBecome400() throws Exception {
+    @Test
+    void internalArgumentFailureDoesNotExposeItsMessageOrBecome400() throws Exception {
         mvc.perform(get("/contract/internal-error"))
                 .andExpect(status().isInternalServerError()).andExpect(jsonPath("$.code").value(50001))
                 .andExpect(jsonPath("$.message").value(ErrorCode.INTERNAL_ERROR.getMessage()));
     }
 
-    @Test void dependencyFailuresKeepTheirCauseAndSafePublicMessage() throws Exception {
+    @Test
+    void dependencyFailuresKeepTheirCauseAndSafePublicMessage() throws Exception {
         var cause = new IllegalStateException("private database endpoint");
         var error = new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "资料暂时不可用", cause);
         assertSame(cause, error.getCause());
@@ -84,17 +91,20 @@ class GlobalExceptionHandlerTest {
         assertThrows(IllegalArgumentException.class, () -> new BizException(ErrorCode.INTERNAL_ERROR));
     }
 
-    @Test void committedResponseIsNotOverwritten() throws Exception {
+    @Test
+    void committedResponseIsNotOverwritten() throws Exception {
         var response = new MockHttpServletResponse();
         response.getWriter().write("stream data");
         response.flushBuffer();
-        var result = new GlobalExceptionHandler().handleBizException(new BizException(ErrorCode.FORBIDDEN),
+        ResponseEntity<Object> result = new GlobalExceptionHandler()
+                .handleBizException(new BizException(ErrorCode.FORBIDDEN),
                 new ServletWebRequest(new MockHttpServletRequest(), response));
         assertNull(result);
         assertEquals("stream data", response.getContentAsString());
     }
 
-    @Test void modelAdmissionUsesTheCommonEnvelopeAndKeepsRetryInformation() throws Exception {
+    @Test
+    void modelAdmissionUsesTheCommonEnvelopeAndKeepsRetryInformation() throws Exception {
         mvc.perform(get("/contract/model"))
                 .andExpect(status().isServiceUnavailable()).andExpect(header().string("Retry-After", "30"))
                 .andExpect(jsonPath("$.code").value(50302))
@@ -103,7 +113,8 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.data.reason").value("MODEL_RECOVERING"));
     }
 
-    @Test void modelExecutionFailureUsesSafeMessageAndStructuredReason() throws Exception {
+    @Test
+    void modelExecutionFailureUsesSafeMessageAndStructuredReason() throws Exception {
         mvc.perform(get("/contract/model-failure"))
                 .andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value(50202))
                 .andExpect(jsonPath("$.message").value(ErrorCode.MODEL_EXECUTION_FAILED.getMessage()))
@@ -113,7 +124,8 @@ class GlobalExceptionHandlerTest {
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("private upstream"))));
     }
 
-    @Test void modelErrorsDoNotOverwriteCommittedResponsesOrRequireAResource() throws Exception {
+    @Test
+    void modelErrorsDoNotOverwriteCommittedResponsesOrRequireAResource() throws Exception {
         var response = new MockHttpServletResponse();
         response.getWriter().write("stream data");
         response.flushBuffer();
@@ -122,12 +134,16 @@ class GlobalExceptionHandlerTest {
         assertNull(handler.handleModelUnavailable(new ModelUnavailable("MODEL_RECOVERING", 30, null), request));
         assertNull(handler.handleModelFailure(new ModelCallFailure(null, null), request));
         assertEquals("stream data", response.getContentAsString());
+
         var uncommitted = new ServletWebRequest(new MockHttpServletRequest(), new MockHttpServletResponse());
-        assertEquals(502, handler.handleModelFailure(new ModelCallFailure(null, null), uncommitted).getStatusCode().value());
+        assertEquals(
+                502,
+                handler.handleModelFailure(new ModelCallFailure(null, null), uncommitted).getStatusCode().value());
     }
 
-    @Test void businessRejectionLogsDoNotIncludeMessagesOrStackTraces() throws Exception {
-        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    @Test
+    void businessRejectionLogsDoNotIncludeMessagesOrStackTraces() throws Exception {
+        Logger logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class);
         var events = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
         events.start();
         logger.addAppender(events);
@@ -136,11 +152,16 @@ class GlobalExceptionHandlerTest {
             assertFalse(events.list.isEmpty());
             assertTrue(events.list.stream().allMatch(event -> event.getThrowableProxy() == null));
             assertTrue(events.list.stream().noneMatch(event -> event.getLevel() == ch.qos.logback.classic.Level.ERROR));
-            assertTrue(events.list.stream().noneMatch(event -> event.getFormattedMessage().contains(ErrorCode.INVALID_ARGUMENT.getMessage())));
-        } finally { logger.detachAppender(events); events.stop(); }
+            assertTrue(events.list.stream()
+                    .noneMatch(event -> event.getFormattedMessage().contains(ErrorCode.INVALID_ARGUMENT.getMessage())));
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
     }
 
-    @Test void unmappedRouteKeeps404() throws Exception {
+    @Test
+    void unmappedRouteKeeps404() throws Exception {
         mvc.perform(get("/no-such-route"))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value(40402));
     }
@@ -148,28 +169,58 @@ class GlobalExceptionHandlerTest {
     @RestController
     static class Endpoints {
         @GetMapping("/contract/rejection/{code}")
-        public Result<?> rejection(@PathVariable ErrorCode code) { throw new BizException(code); }
+        public Result<?> rejection(@PathVariable ErrorCode code) {
+            throw new BizException(code);
+        }
+
         @GetMapping("/contract/parameter")
-        public Result<?> parameter(@RequestParam int count) { return Result.success(count); }
+        public Result<?> parameter(@RequestParam int count) {
+            return Result.success(count);
+        }
+
         @PostMapping(value = "/contract/input", consumes = MediaType.APPLICATION_JSON_VALUE)
-        public Result<?> input(@Valid @RequestBody Input input) { return Result.success(input); }
+        public Result<?> input(@Valid @RequestBody Input input) {
+            return Result.success(input);
+        }
+
         @GetMapping("/contract/validated")
-        public Result<?> validated(@RequestParam @Min(1) int count) { return Result.success(count); }
-        @GetMapping("/contract/invalid-return") @NotNull
-        public String invalidReturn() { return null; }
+        public Result<?> validated(@RequestParam @Min(1) int count) {
+            return Result.success(count);
+        }
+
+        @GetMapping("/contract/invalid-return")
+        @NotNull
+        public String invalidReturn() {
+            return null;
+        }
+
         @GetMapping("/contract/internal-error")
-        public Result<?> internal() { throw new IllegalArgumentException("private invariant details"); }
+        public Result<?> internal() {
+            throw new IllegalArgumentException("private invariant details");
+        }
+
         @GetMapping("/contract/dependency")
         public Result<?> dependency() {
             throw new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "资料暂时不可用",
                     new IllegalStateException("private database endpoint"));
         }
+
         @GetMapping("/contract/upload-error")
-        public Result<?> upload() { throw new MaxUploadSizeExceededException(10); }
+        public Result<?> upload() {
+            throw new MaxUploadSizeExceededException(10);
+        }
+
         @GetMapping("/contract/model")
-        public Result<?> model() { throw new ModelUnavailable("OCR", "MODEL_RECOVERING", 30, null); }
+        public Result<?> model() {
+            throw new ModelUnavailable("OCR", "MODEL_RECOVERING", 30, null);
+        }
+
         @GetMapping("/contract/model-failure")
-        public Result<?> modelFailure() { throw new ModelCallFailure("LLM", new IllegalStateException("private upstream")); }
+        public Result<?> modelFailure() {
+            throw new ModelCallFailure("LLM", new IllegalStateException("private upstream"));
+        }
     }
-    record Input(@NotBlank String name) {}
+
+    record Input(@NotBlank String name) {
+    }
 }

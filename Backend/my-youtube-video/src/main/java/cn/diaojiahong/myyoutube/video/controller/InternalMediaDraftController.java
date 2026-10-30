@@ -24,7 +24,9 @@ public class InternalMediaDraftController {
     private final cn.diaojiahong.myyoutube.video.service.DraftPreparationService preparation;
 
     @PostMapping("/{draftId}/uploaded")
-    public boolean uploaded(@PathVariable Long draftId) { return preparation.uploaded(draftId); }
+    public boolean uploaded(@PathVariable Long draftId) {
+        return preparation.uploaded(draftId);
+    }
 
     @PostMapping("/create")
     public MediaDraftPort.DraftCreated createDraft(@RequestBody MediaDraftPort.DraftCreate create) {

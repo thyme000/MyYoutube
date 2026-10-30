@@ -54,6 +54,7 @@ public class JacksonConfig {
             builder.featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         };
     }
+
     /** 可空 Long：支持 JSON 数字或字符串 */
     static class LongFlexibleDeserializer extends JsonDeserializer<Long> {
         @Override
@@ -69,6 +70,7 @@ public class JacksonConfig {
             };
         }
     }
+
     /** 基本类型 long：不支持 null，缺省用 0 或抛错可按需改 */
     static class LongPrimitiveFlexibleDeserializer extends JsonDeserializer<Long> {
         private final JsonDeserializer<?> delegate =

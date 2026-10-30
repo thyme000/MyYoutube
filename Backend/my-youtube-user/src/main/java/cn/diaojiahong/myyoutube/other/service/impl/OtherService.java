@@ -40,6 +40,7 @@ public class OtherService implements IOtherService {
         if (biz == null) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "不支持的 bizType: " + bizType);
         }
+
         if ("work".equals(bizType) && (fileSize == null || fileSize < VIDEO_MIN_BYTES || fileSize > VIDEO_MAX_BYTES
                 || contentType == null || !contentType.matches("video/[a-zA-Z0-9.+-]+")))
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "请选择不超过 500 MB 的非空视频文件，并提供视频类型");

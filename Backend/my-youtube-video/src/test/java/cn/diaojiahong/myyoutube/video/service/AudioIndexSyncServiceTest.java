@@ -28,17 +28,23 @@ import static org.mockito.Mockito.*;
 
 class AudioIndexSyncServiceTest {
     private final AudioMapper rows = mock(AudioMapper.class);
+
     private final EsSyncPublisher publisher = mock(EsSyncPublisher.class);
+
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
     private final AtomicLong ticker = new AtomicLong();
+
     private final AudioIndexSyncService service = new AudioIndexSyncService(rows, publisher, registry, ticker::get);
 
-    @BeforeEach void candidates() {
+    @BeforeEach
+    void candidates() {
         when(rows.selectList(any())).thenReturn(List.of(audio(1), audio(2)));
         when(rows.update(isNull(), any())).thenReturn(1);
     }
 
-    @Test void badRecordDoesNotBlockNextRecord() {
+    @Test
+    void badRecordDoesNotBlockNextRecord() {
         doThrow(new IllegalArgumentException("bad document")).when(publisher).syncAudioDoc(1);
         service.deliver();
         verify(publisher).syncAudioDoc(2);
@@ -46,7 +52,8 @@ class AudioIndexSyncServiceTest {
         assertEquals(0, failures("mq_unavailable"));
     }
 
-    @Test void mqFailureStopsRoundAfterClaimingOnlyOneRecord() {
+    @Test
+    void mqFailureStopsRoundAfterClaimingOnlyOneRecord() {
         doThrow(new MessagingException("send failed", new MQClientException("route unavailable",
                 new RemotingConnectException("broker")))).when(publisher).syncAudioDoc(1);
         service.deliver();
@@ -55,15 +62,20 @@ class AudioIndexSyncServiceTest {
         assertEquals(1, failures("mq_unavailable"));
     }
 
-    @Test void elapsedBudgetStopsAdmissionOfNextRecord() {
-        doAnswer(call -> { ticker.set(TimeUnit.SECONDS.toNanos(6)); throw new IllegalArgumentException(); })
+    @Test
+    void elapsedBudgetStopsAdmissionOfNextRecord() {
+        doAnswer(call -> {
+            ticker.set(TimeUnit.SECONDS.toNanos(6));
+            throw new IllegalArgumentException();
+        })
                 .when(publisher).syncAudioDoc(1);
         service.deliver();
         verify(publisher, never()).syncAudioDoc(2);
         verify(rows).update(isNull(), any());
     }
 
-    @Test void lostClaimSkipsSendWithoutCountingFailure() {
+    @Test
+    void lostClaimSkipsSendWithoutCountingFailure() {
         when(rows.update(isNull(), any())).thenReturn(0, 1);
         service.deliver();
         verify(publisher, never()).syncAudioDoc(1);
@@ -71,7 +83,8 @@ class AudioIndexSyncServiceTest {
         assertEquals(0, failures("record"));
     }
 
-    @Test void databaseFailuresAreCountedSeparately() {
+    @Test
+    void databaseFailuresAreCountedSeparately() {
         when(rows.selectList(any())).thenThrow(new IllegalStateException("database offline"));
         service.deliver();
         assertEquals(1, failures("scan"));
@@ -99,18 +112,25 @@ class AudioIndexSyncServiceTest {
                 Arguments.of(new RuntimeException(new java.net.SocketTimeoutException()), true));
     }
 
-    @Test void interruptionRestoresThreadFlag() {
+    @Test
+    void interruptionRestoresThreadFlag() {
         try {
             assertTrue(AudioIndexSyncService.mqUnavailable(new RuntimeException(new InterruptedException())));
             assertTrue(Thread.currentThread().isInterrupted());
-        } finally { Thread.interrupted(); }
+        } finally {
+            Thread.interrupted();
+        }
     }
 
     private double failures(String scope) {
         return registry.get(MetricNames.AUDIO_INDEX_DELIVERY_FAILURES).tag("scope", scope).counter().count();
     }
+
     private static Audio audio(long id) {
-        var audio = new Audio(); audio.setId(id); audio.setIndexVersion(1L);
-        audio.setIndexAfter(LocalDateTime.now().minusMinutes(1)); return audio;
+        var audio = new Audio();
+        audio.setId(id);
+        audio.setIndexVersion(1L);
+        audio.setIndexAfter(LocalDateTime.now().minusMinutes(1));
+        return audio;
     }
 }

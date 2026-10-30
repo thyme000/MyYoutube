@@ -122,6 +122,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
             throw new BizException(ErrorCode.NOT_FOUND, "内容不存在");
         }
+
         return content.getAuthorId();
     }
 
@@ -132,6 +133,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
         return Long.valueOf(userId);
     }
 
@@ -187,7 +189,12 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
         // 查询用户点过赞的内容id
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
-        List<Long> contentIds = contentLikeMapper.selectListByUserId(userId, viewerId, pageQuery.getType(), offset, pageQuery.getPageSize());
+        List<Long> contentIds = contentLikeMapper.selectListByUserId(
+                userId,
+                viewerId,
+                pageQuery.getType(),
+                offset,
+                pageQuery.getPageSize());
         if (contentIds == null || contentIds.isEmpty()) {
 
             // 没有点过赞的内容,直接返回空列表
@@ -274,8 +281,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         if (!Objects.equals(comment.getUserId(), userId)) {
 
             // 发送点赞通知(MQ)
-            LikeCommentMessage lc = LikeCommentMessage
-                    .builder().senderId(userId).commentId(commentId).build();
+            LikeCommentMessage lc = LikeCommentMessage.builder().senderId(userId).commentId(commentId).build();
             rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_LIKE, lc);
         }
 
@@ -308,8 +314,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         // 发送取消点赞通知(MQ)
         if (comment != null && !Objects.equals(comment.getUserId(), userId)) {
 
-            LikeCommentMessage lc = LikeCommentMessage
-                    .builder().senderId(userId).commentId(commentId).build();
+            LikeCommentMessage lc = LikeCommentMessage.builder().senderId(userId).commentId(commentId).build();
             rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_UNLIKE, lc);
         }
 

@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.transcode.ffmpeg.FFmpegUtil;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
@@ -51,7 +52,8 @@ public class TranscodeTaskExecutor implements MediaTaskExecutor {
         FFmpegUtil.VideoProbe probe = FFmpegUtil.probeVideo(source, opt);
 
         String taskId = UUID.randomUUID().toString().replace("-", "");
-        Path work = WORK_DIR.resolve(LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)).resolve(taskId);
+        Path work = WORK_DIR.resolve(LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE))
+                .resolve(taskId);
         Files.createDirectories(work);
         try {
             Path out = work.resolve("processed-" + msg.getOwnerId() + ".mp4");
@@ -62,7 +64,12 @@ public class TranscodeTaskExecutor implements MediaTaskExecutor {
             long bytes = Files.size(out);
             storageUtil.uploadWithKey(Files.readAllBytes(out), processedKey);
             log.info("Transcode completed draftId={} taskId={} attempt={} processedObjectKey={} durationMs={} width={} height={} bytes={} elapsedMs={}",
-                    msg.getOwnerId(), msg.getTaskId(), msg.getAttempt(), processedKey, probe.durationMs(), probe.width(),
+                    msg.getOwnerId(),
+                    msg.getTaskId(),
+                    msg.getAttempt(),
+                    processedKey,
+                    probe.durationMs(),
+                    probe.width(),
                     probe.height(), bytes, System.currentTimeMillis() - startedAt);
             return JsonUtil.toJson(Map.of(
                     "processedObjectKey", processedKey,
@@ -71,11 +78,15 @@ public class TranscodeTaskExecutor implements MediaTaskExecutor {
                     "height", probe.height(),
                     "mime", mime));
         } finally {
-            try (var s = Files.walk(work)) {
+            try (Stream<Path> s = Files.walk(work)) {
                 s.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
-                    try { Files.deleteIfExists(p); } catch (Exception ignore) {}
+                    try {
+                        Files.deleteIfExists(p);
+                    } catch (Exception ignore) {
+                    }
                 });
-            } catch (Exception ignore) {}
+            } catch (Exception ignore) {
+            }
         }
     }
 }

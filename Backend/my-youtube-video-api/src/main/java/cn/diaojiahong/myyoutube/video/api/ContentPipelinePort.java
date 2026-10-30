@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 public interface ContentPipelinePort {
     @PostMapping("/tags")
     String generateTags(@RequestBody TagRequest request);
+
     @PostMapping("/{pipelineId}/review/{attempt}")
     ReviewSpec reviewSpec(@PathVariable("pipelineId") Long pipelineId, @PathVariable("attempt") int attempt);
 }

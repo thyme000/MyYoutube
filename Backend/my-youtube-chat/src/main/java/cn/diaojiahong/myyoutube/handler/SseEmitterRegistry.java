@@ -33,7 +33,11 @@ public class SseEmitterRegistry {
             t.setDaemon(true);
             return t;
         });
-        heartbeatExecutor.scheduleAtFixedRate(this::heartbeat, HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
+        heartbeatExecutor.scheduleAtFixedRate(
+                this::heartbeat,
+                HEARTBEAT_INTERVAL_SECONDS,
+                HEARTBEAT_INTERVAL_SECONDS,
+                TimeUnit.SECONDS);
     }
 
     @PreDestroy
@@ -43,7 +47,10 @@ public class SseEmitterRegistry {
         }
         for (Set<SseEmitter> set : USER_EMITTERS.values()) {
             for (SseEmitter emitter : set) {
-                try { emitter.complete(); } catch (Exception ignored) {}
+                try {
+                    emitter.complete();
+                } catch (Exception ignored) {
+                }
             }
         }
         USER_EMITTERS.clear();
@@ -65,7 +72,10 @@ public class SseEmitterRegistry {
             } catch (Exception e) {
                 // 发送失败即视为连接已死: 先移除再 complete, complete 在 response 不可用时会再抛(见 heartbeat)
                 remove(userId, emitter);
-                try { emitter.complete(); } catch (Exception ignored) {}
+                try {
+                    emitter.complete();
+                } catch (Exception ignored) {
+                }
             }
         }
     }
@@ -81,7 +91,10 @@ public class SseEmitterRegistry {
                     } catch (Exception e) {
                         // 客户端已断开: 立即摘除, 避免死 emitter 每轮心跳重复报错
                         remove(userId, emitter);
-                        try { emitter.complete(); } catch (Exception ignored) {}
+                        try {
+                            emitter.complete();
+                        } catch (Exception ignored) {
+                        }
                     }
                 }
             }
@@ -101,6 +114,7 @@ public class SseEmitterRegistry {
         if (set == null) {
             return;
         }
+
         set.remove(emitter);
         if (set.isEmpty()) {
             USER_EMITTERS.remove(userId, set);

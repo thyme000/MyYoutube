@@ -64,7 +64,9 @@ class UserRoleIntegrationTest {
     private static final String INTERNAL_TOKEN = "role-test-token";
 
     private final UserSummaryCache summaryCache = mock(UserSummaryCache.class);
+
     private final EsSyncPublisher publisher = mock(EsSyncPublisher.class);
+
     private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
     private JdbcTemplate jdbc;
     private UserMapper mapper;
@@ -75,7 +77,9 @@ class UserRoleIntegrationTest {
     @BeforeEach
     void setup() throws Exception {
         var dataSource = new DriverManagerDataSource(
-                "jdbc:h2:mem:user-role-" + UUID.randomUUID() + ";MODE=MySQL;NON_KEYWORDS=USER;DB_CLOSE_DELAY=-1", "sa", "");
+                "jdbc:h2:mem:user-role-" + UUID.randomUUID() + ";MODE=MySQL;NON_KEYWORDS=USER;DB_CLOSE_DELAY=-1",
+                "sa",
+                "");
         jdbc = new JdbcTemplate(dataSource);
         String schema = Files.readString(Path.of("../../resources/schema.sql"));
         String userSchema = schema.substring(schema.indexOf("CREATE TABLE IF NOT EXISTS `user`"),
@@ -92,7 +96,9 @@ class UserRoleIntegrationTest {
 
         users = spy(new UserServiceImpl(mock(S3StorageUtil.class), publisher, summaryCache));
         ReflectionTestUtils.setField(users, "baseMapper", mapper);
-        mvc = MockMvcBuilders.standaloneSetup(new InternalUserRoleController(roles, new InternalApiCredentials(INTERNAL_TOKEN)))
+        mvc = MockMvcBuilders.standaloneSetup(new InternalUserRoleController(
+                roles,
+                new InternalApiCredentials(INTERNAL_TOKEN)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 
@@ -165,7 +171,9 @@ class UserRoleIntegrationTest {
 
     @Test
     void anUnconfiguredInternalSecretDisablesSourceValidation() throws Exception {
-        MockMvc unconfigured = MockMvcBuilders.standaloneSetup(new InternalUserRoleController(roles, new InternalApiCredentials("")))
+        MockMvc unconfigured = MockMvcBuilders.standaloneSetup(new InternalUserRoleController(
+                roles,
+                new InternalApiCredentials("")))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         unconfigured.perform(get("/internal/user/roles/1"))
                 .andExpect(status().isOk())

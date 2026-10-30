@@ -17,6 +17,7 @@ import static cn.diaojiahong.myyoutube.observability.IngestFailure.Reason.*;
 
 public final class ElasticEventStore {
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
+
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("yyyy.MM.dd");
     private final URI endpoint;
     private final String prefix;
@@ -24,8 +25,12 @@ public final class ElasticEventStore {
     private final HttpClient http;
     private final Clock clock;
     private final MeterRegistry metrics;
-    record Document(PipelineEvent event, String index, String digest, ObjectNode source) {}
-    record Response(int status, JsonNode body) {}
+
+    record Document(PipelineEvent event, String index, String digest, ObjectNode source) {
+    }
+
+    record Response(int status, JsonNode body) {
+    }
 
     public ElasticEventStore(IngestProperties properties, Clock clock, MeterRegistry metrics) {
         endpoint = properties.getElasticsearch();
@@ -53,7 +58,9 @@ public final class ElasticEventStore {
                     "number_of_replicas", 0, "refresh_interval", "1s", "index.lifecycle.name", policy)));
             definition.set("mappings", EventBatch.JSON.readTree(in));
             required("PUT", "/_index_template/" + prefix + "template", template.toString());
-        } catch (IOException e) { throw new IllegalStateException("Cannot load event mapping", e); }
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot load event mapping", e);
+        }
     }
 
     public void ingest(byte[] batch) {
@@ -70,8 +77,12 @@ public final class ElasticEventStore {
         }
         long start = System.nanoTime();
         Response response;
-        try { response = request("POST", "/_bulk", bulk.toString(), "application/x-ndjson"); }
-        finally { metrics.timer(MetricNames.PIPELINE_INGEST_BULK_DURATION).record(System.nanoTime() - start, java.util.concurrent.TimeUnit.NANOSECONDS); }
+        try {
+            response = request("POST", "/_bulk", bulk.toString(), "application/x-ndjson");
+        } finally {
+            metrics.timer(MetricNames.PIPELINE_INGEST_BULK_DURATION)
+                    .record(System.nanoTime() - start, java.util.concurrent.TimeUnit.NANOSECONDS);
+        }
         if (response.status() == 400 || response.status() == 413) throw failure(MAPPING);
         if (response.status() != 200) throw failure(UNAVAILABLE);
         JsonNode items = response.body().path("items");
@@ -82,7 +93,8 @@ public final class ElasticEventStore {
         for (int i = 0; i < documents.size(); i++) {
             Document d = documents.get(i);
             JsonNode item = items.get(i).path("create");
-            if (!d.index().equals(item.path("_index").asText()) || !d.event().event().id().equals(item.path("_id").asText()))
+            if (!d.index().equals(item.path("_index").asText())
+                    || !d.event().event().id().equals(item.path("_id").asText()))
                 throw failure(UNAVAILABLE);
             int status = item.path("status").asInt();
             if (status == 409) duplicates.add(d);
@@ -104,12 +116,17 @@ public final class ElasticEventStore {
             String digest = PipelineEventJson.digest(event);
             source.putObject("ingest").put("digest", digest).put("schemaVersion", 1);
             return new Document(event, prefix + DAY.format(start.atZone(ZoneOffset.UTC)), digest, source);
-        } catch (IOException e) { throw failure(INVALID_BATCH); }
+        } catch (IOException e) {
+            throw failure(INVALID_BATCH);
+        }
     }
 
     private void verifyDuplicates(List<Document> documents) {
         ObjectNode query = EventBatch.JSON.createObjectNode();
-        for (Document d : documents) query.withArray("docs").addObject().put("_index", d.index()).put("_id", d.event().event().id());
+        for (Document d : documents) query.withArray("docs")
+                .addObject()
+                .put("_index", d.index())
+                .put("_id", d.event().event().id());
         Response response = request("POST", "/_mget", query.toString(), "application/json");
         JsonNode docs = response.body().path("docs");
         if (response.status() != 200 || !docs.isArray() || docs.size() != documents.size()) {
@@ -121,7 +138,8 @@ public final class ElasticEventStore {
         for (int i = 0; i < documents.size(); i++) {
             Document d = documents.get(i);
             JsonNode found = docs.get(i);
-            if (!d.index().equals(found.path("_index").asText()) || !d.event().event().id().equals(found.path("_id").asText())
+            if (!d.index().equals(found.path("_index").asText())
+                    || !d.event().event().id().equals(found.path("_id").asText())
                     || found.has("error") || !found.path("found").asBoolean()) {
                 unknown = true;
                 continue;
@@ -139,7 +157,9 @@ public final class ElasticEventStore {
                         && d.digest().equals(metadata.path("digest").asText())
                         && d.digest().equals(PipelineEventJson.digest(existing));
                 if (!same) conflict = true;
-            } catch (IllegalArgumentException e) { conflict = true; }
+            } catch (IllegalArgumentException e) {
+                conflict = true;
+            }
         }
         String result = conflict ? "conflict" : unknown ? "unknown" : "same";
         metrics.counter(MetricNames.PIPELINE_INGEST_DUPLICATES, "result", result).increment(documents.size());
@@ -155,31 +175,49 @@ public final class ElasticEventStore {
                     + "\",\"index.lifecycle.origination_date\":" + day.toEpochMilli() + "}}";
             Response created = request("PUT", "/" + index, settings, "application/json");
             if (created.status() != 200 && !(created.status() == 400 && "resource_already_exists_exception".equals(
-                    created.body().path("error").path("type").asText()))) throw failure(UNAVAILABLE);
+                    created.body().path("error").path("type").asText()))) {
+                throw failure(UNAVAILABLE);
+            }
             existing = request("GET", "/" + index + "/_settings", null, "application/json");
         }
         JsonNode lifecycle = existing.body().path(index).path("settings").path("index").path("lifecycle");
         if (existing.status() != 200 || !policy.equals(lifecycle.path("name").asText())
-                || lifecycle.path("origination_date").asLong(-1) != day.toEpochMilli()) throw failure(UNAVAILABLE);
+                || lifecycle.path("origination_date").asLong(-1) != day.toEpochMilli()) {
+            throw failure(UNAVAILABLE);
+        }
     }
 
-    private static Instant dayStart(Instant timestamp) { return timestamp.atZone(ZoneOffset.UTC).toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant(); }
-    private void checkAge(Instant day) { if (!clock.instant().isBefore(day.plus(Duration.ofDays(8)))) throw failure(EXPIRED_BUCKET); }
+    private static Instant dayStart(Instant timestamp) {
+        return timestamp.atZone(ZoneOffset.UTC).toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant();
+    }
+
+    private void checkAge(Instant day) {
+        if (!clock.instant().isBefore(day.plus(Duration.ofDays(8)))) throw failure(EXPIRED_BUCKET);
+    }
+
     private IngestFailure failure(IngestFailure.Reason reason) {
         metrics.counter(MetricNames.PIPELINE_INGEST_FAILURES, "reason", reason.name()).increment();
         return new IngestFailure(reason);
     }
+
     private void required(String method, String path, String body) {
         if (request(method, path, body, "application/json").status() != 200) throw failure(UNAVAILABLE);
     }
+
     private Response request(String method, String path, String body, String type) {
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint.toString().replaceAll("/$", "") + path))
                     .timeout(TIMEOUT).header("Content-Type", type).method(method, body == null
                             ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
-            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = http.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             return new Response(response.statusCode(), EventBatch.JSON.readTree(response.body()));
-        } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw failure(UNAVAILABLE); }
-        catch (IOException | IllegalArgumentException e) { throw failure(UNAVAILABLE); }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw failure(UNAVAILABLE);
+        } catch (IOException | IllegalArgumentException e) {
+            throw failure(UNAVAILABLE);
+        }
     }
 }

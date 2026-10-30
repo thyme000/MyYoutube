@@ -24,20 +24,27 @@ public class IdempotentGuard implements AutoCloseable {
     public static final long DEFAULT_LEASE_SECONDS = 30;
     public static final String DONE = "DONE";
     private static final String RUNNING = "RUNNING:";
+
     private static final RedisScript<List> ACQUIRE = RedisScript.of(
             new ClassPathResource("lua/idempotent-acquire.lua"), List.class);
+
     private static final RedisScript<Long> RENEW = RedisScript.of(
             new ClassPathResource("lua/idempotent-renew.lua"), Long.class);
+
     private static final RedisScript<Long> FINISH = RedisScript.of(
             new ClassPathResource("lua/idempotent-finish.lua"), Long.class);
 
     private final StringRedisTemplate redis;
     private final ThreadPoolTaskScheduler scheduler;
+
     private final ThreadLocal<Lease> current = new ThreadLocal<>();
 
     public Lease currentLease() {
         Lease lease = current.get();
-        if (lease == null) throw new IllegalStateException("当前调用未经过幂等切面");
+        if (lease == null) {
+            throw new IllegalStateException("当前调用未经过幂等切面");
+        }
+
         return lease;
     }
 
@@ -48,28 +55,39 @@ public class IdempotentGuard implements AutoCloseable {
     }
 
     void exit(Lease previous) {
-        if (previous == null) current.remove();
-        else current.set(previous);
+        if (previous == null) {
+            current.remove();
+        } else {
+            current.set(previous);
+        }
     }
 
     @Override
-    public void close() { scheduler.shutdown(); }
+    public void close() {
+        scheduler.shutdown();
+    }
 
     public Lease acquire(String key, long leaseSeconds) {
         return acquireAll(List.of(key), leaseSeconds);
     }
 
     public Lease acquireAll(List<String> keys, long leaseSeconds) {
-        if (keys == null || keys.isEmpty() || keys.stream().anyMatch(key -> !StringUtils.hasText(key)) || leaseSeconds <= 0) {
+        if (keys == null
+                || keys.isEmpty()
+                || keys.stream().anyMatch(key -> !StringUtils.hasText(key))
+                || leaseSeconds <= 0) {
             throw new IllegalArgumentException("幂等 key 不能为空，执行租期必须为正数");
         }
+
         List<String> redisKeys = keys.stream().distinct().map(key -> RedisConstants.IDEMPOTENT + key).toList();
         String token = RUNNING + UUID.randomUUID();
         long millis = Math.multiplyExact(leaseSeconds, 1000);
         Lease lease = new Lease(redisKeys, token, null, millis);
         try {
             List<?> result = redis.execute(ACQUIRE, redisKeys, token, String.valueOf(millis));
-            if (result == null || result.isEmpty()) throw new IllegalStateException("幂等占位未获确认");
+            if (result == null || result.isEmpty()) {
+                throw new IllegalStateException("幂等占位未获确认");
+            }
             if (!"ACQUIRED".equals(result.get(0))) {
                 String value = (String) result.get(1);
                 if (value.startsWith(RUNNING) || redisKeys.size() > 1) {
@@ -101,18 +119,30 @@ public class IdempotentGuard implements AutoCloseable {
             this.millis = millis;
         }
 
-        public boolean acquired() { return token != null; }
-        public String cachedValue() { return cachedValue; }
-        public String token() { return token; }
+        public boolean acquired() {
+            return token != null;
+        }
+
+        public String cachedValue() {
+            return cachedValue;
+        }
+
+        public String token() {
+            return token;
+        }
 
         private synchronized void startRenewal() {
             Duration interval = Duration.ofMillis(millis / 3);
             renewal = scheduler.scheduleWithFixedDelay(this::renew, Instant.now().plus(interval), interval);
-            if (renewal == null) throw new IllegalStateException("幂等续期任务未启动");
+            if (renewal == null) {
+                throw new IllegalStateException("幂等续期任务未启动");
+            }
         }
 
         public synchronized void checkActive() {
-            if (!acquired() || finished || lost) throw new IllegalStateException("幂等执行占位已失效: " + keys);
+            if (!acquired() || finished || lost) {
+                throw new IllegalStateException("幂等执行占位已失效: " + keys);
+            }
         }
 
         public synchronized void assertOwned() {
@@ -122,18 +152,26 @@ public class IdempotentGuard implements AutoCloseable {
         }
 
         private synchronized void renew() {
-            if (finished || lost) return;
+            if (finished || lost) {
+                return;
+            }
+
             try {
                 lost = !Long.valueOf(1).equals(redis.execute(RENEW, keys, token, String.valueOf(millis)));
             } catch (RuntimeException error) {
                 lost = true;
                 log.error("幂等占位续期失败: keys={}", keys, error);
             }
-            if (lost) cancelRenewal();
+            if (lost) {
+                cancelRenewal();
+            }
         }
 
         public synchronized void complete(String value, long ttlSeconds) {
-            if (ttlSeconds < 0) throw new IllegalArgumentException("幂等完成缓存期限不能为负数");
+            if (ttlSeconds < 0) {
+                throw new IllegalArgumentException("幂等完成缓存期限不能为负数");
+            }
+
             checkActive();
             Long result = redis.execute(FINISH, keys, token, value,
                     String.valueOf(Math.multiplyExact(ttlSeconds, 1000)));
@@ -148,7 +186,10 @@ public class IdempotentGuard implements AutoCloseable {
 
         @Override
         public synchronized void close() {
-            if (!acquired() || finished) return;
+            if (!acquired() || finished) {
+                return;
+            }
+
             finished = true;
             cancelRenewal();
             try {
@@ -159,7 +200,9 @@ public class IdempotentGuard implements AutoCloseable {
         }
 
         private void cancelRenewal() {
-            if (renewal != null) renewal.cancel(false);
+            if (renewal != null) {
+                renewal.cancel(false);
+            }
         }
     }
 }

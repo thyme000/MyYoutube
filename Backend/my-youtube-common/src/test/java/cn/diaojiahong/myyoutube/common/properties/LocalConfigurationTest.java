@@ -28,6 +28,7 @@ class LocalConfigurationTest {
             "my-youtube.s3.secret-key=test-secret",
             "my-youtube.s3.bucket-name=test-bucket"
     };
+
     private static final String SHARED = """
             my-youtube:
               s3:
@@ -38,27 +39,31 @@ class LocalConfigurationTest {
             jwt:
               secret: shared-jwt
             """;
+
     private static final Set<String> LOCAL_RESOURCES = Set.of(
             "application-common.yml", "application-common-local.yml", "application-local.yml");
+
     private final ApplicationContextRunner context = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(ConfigurationPropertiesAutoConfiguration.class))
             .withUserConfiguration(S3Properties.class);
+
     @TempDir Path temp;
 
     @ParameterizedTest
     @ValueSource(strings = {"endpoint", "access-key", "secret-key", "bucket-name"})
     void missingOrBlankStorageSettingReportsOnlyItsName(String field) {
         String key = "my-youtube.s3." + field;
-        var others = Arrays.stream(S3).filter(value -> !value.startsWith(key + "=")).toArray(String[]::new);
+        String[] others = Arrays.stream(S3).filter(value -> !value.startsWith(key + "=")).toArray(String[]::new);
         for (boolean blank : new boolean[]{false, true}) {
-            var runner = context.withPropertyValues(others);
+            ApplicationContextRunner runner = context.withPropertyValues(others);
             if (blank) runner = runner.withPropertyValues(key + "=   ");
             runner.run(c -> assertThat(c.getStartupFailure())
                     .hasRootCauseMessage("缺少必需配置：" + key));
         }
     }
 
-    @Test void validSettingsCreateBothStorageClientsWithoutConnectingToStorage() {
+    @Test
+    void validSettingsCreateBothStorageClientsWithoutConnectingToStorage() {
         context.withPropertyValues(S3).withUserConfiguration(S3ClientConfig.class).run(c -> {
             assertThat(c).hasNotFailed().hasSingleBean(S3Client.class).hasSingleBean(S3Presigner.class);
         });
@@ -67,10 +72,10 @@ class LocalConfigurationTest {
     @ParameterizedTest
     @ValueSource(strings = {"my-youtube-llm", "my-youtube-search", "my-youtube-gateway"})
     void serviceLocalFileDoesNotHideSharedStorageSettings(String module) throws Exception {
-        try (var loader = resources(SHARED, "jwt.secret: service-jwt\nmy-youtube.llm.model: service-model\n")) {
+        try (URLClassLoader loader = resources(SHARED, "jwt.secret: service-jwt\nmy-youtube.llm.model: service-model\n")) {
             service(module, loader).run(c -> {
                 assertThat(c).hasNotFailed();
-                var properties = c.getBean(S3Properties.class);
+                S3Properties properties = c.getBean(S3Properties.class);
                 assertThat(properties.getEndpoint()).isEqualTo("http://127.0.0.1:19000");
                 assertThat(properties.getAccessKey()).isEqualTo("test-access");
                 assertThat(properties.getSecretKey()).isEqualTo("test-secret");
@@ -84,7 +89,7 @@ class LocalConfigurationTest {
     @ParameterizedTest
     @ValueSource(strings = {"my-youtube-llm", "my-youtube-search", "my-youtube-gateway"})
     void serviceSpecificStorageValueOverridesSharedValue(String module) throws Exception {
-        try (var loader = resources(SHARED, "my-youtube.s3.endpoint: http://127.0.0.1:19001\n")) {
+        try (URLClassLoader loader = resources(SHARED, "my-youtube.s3.endpoint: http://127.0.0.1:19001\n")) {
             service(module, loader).run(c -> {
                 assertThat(c).hasNotFailed();
                 assertThat(c.getBean(S3Properties.class).getEndpoint()).isEqualTo("http://127.0.0.1:19001");
@@ -93,14 +98,16 @@ class LocalConfigurationTest {
         }
     }
 
-    @Test void optionalSharedFileCanBeReplacedByProcessConfiguration() throws Exception {
-        try (var loader = resources(null, "my-youtube.llm.model: service-model\n")) {
+    @Test
+    void optionalSharedFileCanBeReplacedByProcessConfiguration() throws Exception {
+        try (URLClassLoader loader = resources(null, "my-youtube.llm.model: service-model\n")) {
             service("my-youtube-llm", loader).withPropertyValues(S3).run(c -> assertThat(c).hasNotFailed());
         }
     }
 
-    @Test void missingSharedStorageConfigurationFailsWithTheRequiredKey() throws Exception {
-        try (var loader = resources(null, "my-youtube.llm.model: service-model\n")) {
+    @Test
+    void missingSharedStorageConfigurationFailsWithTheRequiredKey() throws Exception {
+        try (URLClassLoader loader = resources(null, "my-youtube.llm.model: service-model\n")) {
             service("my-youtube-llm", loader).run(c -> assertThat(c.getStartupFailure())
                     .hasRootCauseMessage("缺少必需配置：my-youtube.s3.endpoint"));
         }
@@ -115,13 +122,16 @@ class LocalConfigurationTest {
     private URLClassLoader resources(String sharedLocal, String serviceLocal) throws Exception {
         Path shared = Files.createDirectory(temp.resolve("shared"));
         Path local = Files.createDirectory(temp.resolve("service"));
-        Files.copy(commonModule().resolve("src/main/resources/application-common.yml"), shared.resolve("application-common.yml"));
+        Files.copy(
+                commonModule().resolve("src/main/resources/application-common.yml"),
+                shared.resolve("application-common.yml"));
         if (sharedLocal != null) Files.writeString(shared.resolve("application-common-local.yml"), sharedLocal);
         Files.writeString(local.resolve("application-local.yml"), serviceLocal);
         // 同名旧文件用于复现遮蔽场景；测试不会读取开发机的真实凭据。
         Files.writeString(shared.resolve("application-local.yml"), "my-youtube.s3.endpoint: http://stale-file\n");
         return new URLClassLoader(new URL[]{local.toUri().toURL(), shared.toUri().toURL()}, getClass().getClassLoader()) {
-            @Override public URL getResource(String name) {
+            @Override
+            public URL getResource(String name) {
                 return LOCAL_RESOURCES.contains(name) ? findResource(name) : super.getResource(name);
             }
         };

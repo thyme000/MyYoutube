@@ -24,6 +24,7 @@ public class BizException extends RuntimeException {
         if (errorCode.getHttpStatus() < 400 || errorCode.getHttpStatus() >= 500) {
             throw new IllegalArgumentException("Business rejection requires a 4xx error code");
         }
+
         this.errorCode = errorCode;
     }
 }

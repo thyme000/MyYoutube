@@ -39,13 +39,17 @@ public class VideoUploadNotificationJob {
         this.client = client;
         this.properties = properties;
         this.expected = List.of(rule("video-upload", "uploads/video/", queueArn),
-                rule("audio-upload", "uploads/audio/", queueArn), rule("audio-cover-upload", "uploads/audio-cover/", queueArn));
+                rule("audio-upload", "uploads/audio/", queueArn), rule(
+                        "audio-cover-upload",
+                        "uploads/audio-cover/",
+                        queueArn));
     }
 
     private QueueConfiguration rule(String id, String prefix, String queueArn) {
         return QueueConfiguration.builder().id(id).queueArn(queueArn).events(Event.S3_OBJECT_CREATED)
                 .filter(NotificationConfigurationFilter.builder().key(S3KeyFilter.builder()
-                        .filterRules(FilterRule.builder().name(FilterRuleName.PREFIX).value(prefix).build()).build()).build()).build();
+                        .filterRules(FilterRule.builder().name(FilterRuleName.PREFIX).value(prefix).build())
+                        .build()).build()).build();
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -55,7 +59,9 @@ public class VideoUploadNotificationJob {
         String bucket = properties.getBucketName();
         try {
             GetBucketNotificationConfigurationResponse current;
-            var getRequest = GetBucketNotificationConfigurationRequest.builder().bucket(bucket).build();
+            GetBucketNotificationConfigurationRequest getRequest = GetBucketNotificationConfigurationRequest.builder()
+                    .bucket(bucket)
+                    .build();
             try {
                 current = client.getBucketNotificationConfiguration(getRequest);
             } catch (S3Exception error) {
@@ -64,13 +70,13 @@ public class VideoUploadNotificationJob {
                 current = client.getBucketNotificationConfiguration(getRequest);
             }
 
-            var ownedRules = current.queueConfigurations().stream()
+            List<QueueConfiguration> ownedRules = current.queueConfigurations().stream()
                     .filter(rule -> expected.stream().anyMatch(e -> e.id().equals(rule.id()))).toList();
             if (ownedRules.size() == expected.size() && ownedRules.containsAll(expected)) return;
             var queues = new ArrayList<>(current.queueConfigurations());
             queues.removeIf(queue -> expected.stream().anyMatch(e -> e.id().equals(queue.id())));
             queues.addAll(expected);
-            var notification = NotificationConfiguration.builder()
+            NotificationConfiguration.Builder notification = NotificationConfiguration.builder()
                     .queueConfigurations(queues)
                     .topicConfigurations(current.topicConfigurations())
                     .lambdaFunctionConfigurations(current.lambdaFunctionConfigurations());
