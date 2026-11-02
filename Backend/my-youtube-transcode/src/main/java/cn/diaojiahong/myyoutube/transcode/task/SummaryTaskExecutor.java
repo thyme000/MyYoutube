@@ -74,17 +74,22 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
             var group = new ArrayList<String>();
             int characters = 0;
             for (String summary : summaries) {
-                if (!group.isEmpty() && characters + 1 + summary.length() > properties.getChunkCharacters()) {
+                int summaryCharacters = summary.codePointCount(0, summary.length());
+                if (!group.isEmpty() && characters + 1 + summaryCharacters > properties.getChunkCharacters()) {
                     reduced.add(group.size() == 1 ? group.get(0) : summarize(String.join("\n", group), false, templates).summary());
                     group.clear();
                     characters = 0;
                 }
                 group.add(summary);
-                characters += summary.length() + 1;
+                characters += summaryCharacters + 1;
             }
             reduced.add(group.size() == 1 ? group.get(0) : summarize(String.join("\n", group), false, templates).summary());
             reduced.removeIf(String::isEmpty);
-            if (reduced.size() >= summaries.size()) throw new IllegalStateException("摘要合并未收敛");
+            if (reduced.size() >= summaries.size()) {
+                // 摘要超过合并预算时保留各段原文，避免因模型未遵循建议字数而丢弃结果。
+                log.info("Summary merge skipped reason=CHUNK_BUDGET_EXCEEDED summaries={}", reduced.size());
+                reduced = List.of(String.join("\n", reduced));
+            }
             summaries = reduced;
         }
         String summary = summaries.isEmpty() ? "" : summaries.get(0);
@@ -92,7 +97,7 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
                 .sorted(Comparator.comparingLong(ContentArtifacts.Chapter::startMs)).distinct().toList());
         log.info("Summary completed pipelineId={} taskId={} attempt={} evidenceChars={} chunks={} mergeRounds={} chapters={} summaryLength={} elapsedMs={}",
                 msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), evidence.length(), chunks, mergeRounds,
-                result.chapters().size(), result.summary().length(), System.currentTimeMillis() - startedAt);
+                result.chapters().size(), summary.codePointCount(0, summary.length()), System.currentTimeMillis() - startedAt);
         return JsonUtil.toJson(Map.of(
                 "artifactKey",
                 artifacts.write(msg.getPipelineId(), "SUMMARY", msg.getAttempt(), result)));
@@ -107,7 +112,7 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
                 "chapterRule", allowChapters ? "" : templates.render("summary-no-chapters")));
         var request = new LlmPort.ChatRequest(List.of(LlmPort.Message.asText("system", instruction),
                 LlmPort.Message.asText("user", evidence)), null, 0.1, 1500);
-        request.setResponseFormat(responseFormat(summaryLimit, allowChapters));
+        request.setResponseFormat(responseFormat(allowChapters));
         LlmPort.ChatResponse response = guard.call("LLM", () -> llm.chat(request));
         if (response == null || !"stop".equals(response.getFinishReason()))
             throw new IllegalArgumentException("摘要未正常结束");
@@ -127,12 +132,13 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
         if (result == null || result.summary() == null || result.chapters() == null)
             throw new IllegalArgumentException("摘要输出不完整");
         String summary = result.summary();
-        boolean whitespaceOnly = !summary.isEmpty() && summary.isBlank();
-        if (summary.length() > summaryLimit || whitespaceOnly) throw new IllegalArgumentException("摘要长度或内容非法");
+        if (!summary.isEmpty() && summary.isBlank()) {
+            throw new IllegalArgumentException("摘要内容非法: 仅包含空白字符");
+        }
         return result;
     }
 
-    private static Map<String, Object> responseFormat(int limit, boolean chapters) {
+    private static Map<String, Object> responseFormat(boolean chapters) {
         Map<String,Object> chapter = Map.of("type", "object", "additionalProperties", false,
                 "required", List.of("startMs", "title"), "properties", Map.of(
                         "startMs", Map.of("type", "integer", "minimum", 0),
@@ -145,7 +151,7 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
                 "schema", Map.of("type", "object", "additionalProperties", false,
                         "required", List.of("summary", "chapters"), "properties", Map.of(
                                 "summary",
-                                Map.of("type", "string", "minLength", 0, "maxLength", limit),
+                                Map.of("type", "string", "minLength", 0),
                                 "chapters",
                                 array))));
     }

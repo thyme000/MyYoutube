@@ -92,6 +92,81 @@ class SummaryExecutorTest {
         Map<?,?> schema = (Map<?, ?>) jsonSchema.get("schema");
         Map<?,?> fields = (Map<?, ?>) schema.get("properties");
         assertEquals(0, ((Map<?, ?>) fields.get("summary")).get("minLength"));
+        assertFalse(((Map<?, ?>) fields.get("summary")).containsKey("maxLength"));
+    }
+
+    @Test
+    void overlongSummaryIsPreservedWithoutTruncationOrAnotherModelCall() {
+        String summary = "摘".repeat(601);
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(
+                cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(new ContentArtifacts.Summary(
+                        summary, List.of())), "test", "stop", null));
+
+        executor.execute(input("标题"));
+
+        verify(llm, times(1)).chat(any());
+        verify(artifacts).write(100L, "SUMMARY", 1, new ContentArtifacts.Summary(summary, List.of()));
+    }
+
+    @Test
+    void summaryPreservesSupplementaryCharacters() {
+        String summary = "摘".repeat(599) + "😀";
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(
+                cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(new ContentArtifacts.Summary(
+                        summary, List.of())), "test", "stop", null));
+
+        executor.execute(input("标题"));
+
+        verify(artifacts).write(100L, "SUMMARY", 1, new ContentArtifacts.Summary(summary, List.of()));
+    }
+
+    @Test
+    void summariesExceedingMergeBudgetAreJoinedWithoutDiscardingModelOutput() {
+        MediaTaskMessage message = input("标题");
+        var properties = new PipelineProperties();
+        properties.setChunkCharacters(1024);
+        when(artifacts.read("ocr", ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(
+                List.of(new ContentArtifacts.Frame(0, 0, "frame", "证据".repeat(1700)))));
+        String summary = "内容".repeat(600);
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(
+                cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(new ContentArtifacts.Summary(
+                        summary, List.of())), "test", "stop", null));
+
+        new SummaryTaskExecutor(artifacts, properties, llm, guard, prompts).execute(message);
+
+        verify(llm, times(4)).chat(any());
+        verify(artifacts).write(100L, "SUMMARY", 1,
+                new ContentArtifacts.Summary(String.join("\n", Collections.nCopies(4, summary)), List.of()));
+    }
+
+    @Test
+    void supplementaryCharacterSummariesStillConvergeWithinSmallChunkBudget() {
+        MediaTaskMessage message = input("标题");
+        var properties = new PipelineProperties();
+        properties.setChunkCharacters(1024);
+        when(artifacts.read("ocr", ContentArtifacts.Ocr.class)).thenReturn(new ContentArtifacts.Ocr(
+                List.of(new ContentArtifacts.Frame(0, 0, "frame", "证据".repeat(1700)))));
+        String summary = "😀".repeat(341);
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(
+                cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(new ContentArtifacts.Summary(
+                        summary, List.of())), "test", "stop", null));
+
+        new SummaryTaskExecutor(artifacts, properties, llm, guard, prompts).execute(message);
+
+        verify(llm, times(7)).chat(any());
+        verify(artifacts).write(100L, "SUMMARY", 1, new ContentArtifacts.Summary(summary, List.of()));
+    }
+
+    @Test
+    void whitespaceSummaryHasDistinctDiagnostic() {
+        when(llm.chat(any())).thenReturn(new LlmPort.ChatResponse(
+                "{\"summary\":\"  \",\"chapters\":[]}", "test", "stop", null));
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> executor.execute(input("标题")));
+
+        assertEquals("摘要内容非法: 仅包含空白字符", error.getMessage());
+        verify(artifacts, never()).write(anyLong(), eq("SUMMARY"), anyInt(), any());
     }
 
     @Test
