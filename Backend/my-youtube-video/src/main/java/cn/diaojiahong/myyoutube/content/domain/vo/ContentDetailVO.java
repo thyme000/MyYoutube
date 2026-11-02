@@ -1,16 +1,19 @@
 package cn.diaojiahong.myyoutube.content.domain.vo;
 
 import java.util.List;
+import cn.diaojiahong.myyoutube.common.media.ContentArtifacts.Chapter;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentInfoVO;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class ContentDetailVO extends cn.diaojiahong.myyoutube.video.api.dto.ContentInfoVO {
+public class ContentDetailVO extends ContentInfoVO {
     private Boolean isLike;
     private Boolean isFollow;
-    private cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO media;
+    private ContentMediaVO media;
     private String summary;
-    private List<cn.diaojiahong.myyoutube.common.media.ContentArtifacts.Chapter> chapters;
+    private List<Chapter> chapters;
     private String subtitleUrl;
 }

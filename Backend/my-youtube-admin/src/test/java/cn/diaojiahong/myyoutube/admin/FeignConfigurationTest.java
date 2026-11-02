@@ -59,7 +59,7 @@ class FeignConfigurationTest {
                         BizException error = assertThrows(
                                 BizException.class,
                                 () -> context.getBean(ContentAdminPort.class)
-                                .media(new ContentAdminPort.ContentId(7L)));
+                                .media(new ContentAdminPort.ReviewMedia(7L, 9L)));
                         assertEquals("媒体不存在", error.getMessage());
                         assertEquals(1, calls.get());
                     });

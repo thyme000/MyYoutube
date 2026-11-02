@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentDetailVO;
+import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentFeedServiceImpl;
@@ -15,6 +16,7 @@ import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.video.api.dto.VideoPlaybackVO;
 import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
 import cn.diaojiahong.myyoutube.video.mapper.ContentReviewRecordMapper;
 import cn.diaojiahong.myyoutube.transcode.api.TranscodePort;
@@ -37,6 +39,40 @@ class ContentReadContractTest {
     final ContentTypeStrategyRegistry registry=new ContentTypeStrategyRegistry(List.of());
 
     @Test
+    void publishedAndReviewVideoUseHlsThroughTheirRespectiveAccessPaths() {
+        Content content = new Content().setId(1L).setType(ContentTypeEnum.VIDEO).setAuthorId(7L)
+                .setVisibility("public").setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0);
+        when(contents.selectById(1L)).thenReturn(content);
+        when(strategy.type()).thenReturn(ContentTypeEnum.VIDEO);
+        when(strategy.loadMedia(List.of(1L))).thenReturn(Map.of(1L,
+                new ContentMedia("video", new VideoMedia("single-file", 12000), null)));
+        ContentFeedServiceImpl cards = mock(ContentFeedServiceImpl.class);
+        ContentFeedVO card = new ContentFeedVO();
+        card.setId("1");
+        card.setType("video");
+        when(cards.assembleCards(9L, List.of(content), Set.of())).thenReturn(List.of(card));
+        ContentStreamService streams = mock(ContentStreamService.class);
+        VideoPlaybackVO playback = new VideoPlaybackVO(1920, 1080, "version", 123456789,
+                "/contents/1/streams/master.m3u8?playbackToken=ticket", List.of());
+        when(streams.playback(1L, 9L)).thenReturn(playback);
+        ContentReadService reads = new ContentReadService(
+                new ContentAccessService(contents, mock(AudioContentAccess.class)),
+                new ContentTypeStrategyRegistry(List.of(strategy)), cards, understanding, storage, streams);
+
+        ContentDetailVO detail = reads.detail(1L, 9L);
+        assertSame(playback, detail.getMedia().video().playback());
+        assertEquals(12000, detail.getMedia().video().durationMs());
+        verifyNoInteractions(storage);
+
+        content.setStatus(ContentStatusEnum.REVIEW);
+        when(streams.reviewPlayback(1L, 9L)).thenReturn(playback);
+        assertSame(playback, reads.adminMedia(1L, 9L).video().playback());
+        verifyNoInteractions(storage);
+        verify(streams).reviewPlayback(1L, 9L);
+        verify(streams, times(1)).playback(1L, 9L);
+    }
+
+    @Test
     void bannedAudioBlocksDetailsSubtitlesAndBothNewAndPreviouslyCompletedDownloads() {
         Content row = new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setAuthorId(9L)
                 .setVisibility("public").setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0);
@@ -49,7 +85,7 @@ class ContentReadContractTest {
                 registry,
                 mock(ContentFeedServiceImpl.class),
                 understanding,
-                storage);
+                storage, mock(ContentStreamService.class));
         TranscodePort transcode = mock(TranscodePort.class);
         var task = new TranscodeTaskVO();
         task.setTaskId(5L);
@@ -100,7 +136,7 @@ class ContentReadContractTest {
                 registry,
                 cards,
                 understanding,
-                storage);
+                storage, mock(ContentStreamService.class));
         ContentDetailVO detail=service.detail(1L,9L);
         assertEquals("1",detail.getId());
         assertEquals("dynamic",detail.getType());
@@ -144,10 +180,10 @@ class ContentReadContractTest {
                 registry,
                 mock(ContentFeedServiceImpl.class),
                 understanding,
-                storage);
-        assertEquals("signed/image", service.adminMedia(1L).dynamic().items().get(0).url());
+                storage, mock(ContentStreamService.class));
+        assertEquals("signed/image", service.adminMedia(1L, 9L).dynamic().items().get(0).url());
         content.setIsDelete(1);
-        assertThrows(BizException.class, () -> service.adminMedia(1L));
+        assertThrows(BizException.class, () -> service.adminMedia(1L, 9L));
     }
 
     @Test
@@ -159,7 +195,7 @@ class ContentReadContractTest {
                 registry,
                 mock(ContentFeedServiceImpl.class),
                 understanding,
-                storage);
+                storage, mock(ContentStreamService.class));
         assertThrows(BizException.class, () -> service.detail(1L,9L));
         assertThrows(BizException.class, () -> service.subtitles(1L,9L));
         verifyNoInteractions(understanding,storage,strategy);

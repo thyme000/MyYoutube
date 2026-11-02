@@ -6,11 +6,23 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.content.service.ContentReadService;
+import cn.diaojiahong.myyoutube.content.service.ContentStreamService;
+import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
+import cn.diaojiahong.myyoutube.content.support.ContentCards;
 import cn.diaojiahong.myyoutube.video.api.ContentAdminPort;
+import cn.diaojiahong.myyoutube.video.api.ContentAdminPort.AdminContentQuery;
+import cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId;
+import cn.diaojiahong.myyoutube.video.api.ContentAdminPort.MarkStatus;
+import cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ReviewMedia;
+import cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ReviewStream;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
+import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
+import cn.diaojiahong.myyoutube.video.service.ReviewDecisionService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,21 +41,32 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class InternalAdminContentController implements ContentAdminPort {
 
-    private final cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService understanding;
-    private final cn.diaojiahong.myyoutube.video.service.ReviewDecisionService decisions;
+    private final ContentUnderstandingService understanding;
+    private final ReviewDecisionService decisions;
 
     private final IContentService contentService;
-    private final cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry strategies;
+    private final ContentTypeStrategyRegistry strategies;
 
-    private final cn.diaojiahong.myyoutube.content.service.ContentReadService reads;
+    private final ContentReadService reads;
+    private final ContentStreamService streams;
 
     @PostMapping("/media")
-    public cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO media(@RequestBody ContentAdminPort.ContentId id) {
-        return reads.adminMedia(id.getContentId());
+    public ContentMediaVO media(@RequestBody ReviewMedia request) {
+        return reads.adminMedia(request.contentId(), request.viewer());
+    }
+
+    @PostMapping("/streams/master")
+    public String masterPlaylist(@RequestBody ReviewStream request) {
+        return streams.reviewMasterPlaylist(request.contentId(), request.viewer(), request.token());
+    }
+
+    @PostMapping("/streams/playlist")
+    public String playlist(@RequestBody ReviewStream request) {
+        return streams.reviewPlaylist(request.contentId(), request.index(), request.viewer(), request.token());
     }
 
     @PostMapping("/mark-status")
-    public Boolean markStatus(@RequestBody ContentAdminPort.MarkStatus mark) {
+    public Boolean markStatus(@RequestBody MarkStatus mark) {
         if (ContentStatusEnum.PUBLISHED.getCode().equals(mark.getStatusCode()))
             return decisions.manual(mark.getContentId(), true, mark.getReason(), mark.getActorId());
         if (ContentStatusEnum.BANNED.getCode().equals(mark.getStatusCode())) {
@@ -56,12 +79,12 @@ public class InternalAdminContentController implements ContentAdminPort {
     }
 
     @PostMapping("/content/get")
-    public Map<String, Object> contentStatus(@RequestBody ContentAdminPort.ContentId id) {
+    public Map<String, Object> contentStatus(@RequestBody ContentId id) {
         return understanding.status(id.getContentId());
     }
 
     @PostMapping("/content/waiting")
-    public List<Map<String, Object>> waitingContent(@RequestBody ContentAdminPort.AdminContentQuery query) {
+    public List<Map<String, Object>> waitingContent(@RequestBody AdminContentQuery query) {
         return understanding.waiting((int) query.getPageNo(), (int) query.getPageSize()).stream().map(row -> {
             Content video = contentService.getById(row.contentId());
             return Map.<String, Object>of(
@@ -74,7 +97,7 @@ public class InternalAdminContentController implements ContentAdminPort {
     }
 
     @PostMapping("/page")
-    public PageResult<ContentSummary> pageContents(@RequestBody ContentAdminPort.AdminContentQuery query) {
+    public PageResult<ContentSummary> pageContents(@RequestBody AdminContentQuery query) {
         ContentStatusEnum status = null;
         if (query.getStatusCode() != null) {
             try {
@@ -83,7 +106,7 @@ public class InternalAdminContentController implements ContentAdminPort {
                 throw new BizException(ErrorCode.INVALID_ARGUMENT, "审核状态无效", error);
             }
         }
-        ContentTypeEnum type = query.getType() == null ? null : cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum.fromCode(query.getType());
+        ContentTypeEnum type = query.getType() == null ? null : ContentTypeEnum.fromCode(query.getType());
         if (query.getType() != null && type == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "内容类型无效");
         Page<Content> page = contentService.lambdaQuery().eq(Content::getIsDelete, 0)
                 .eq(status != null, Content::getStatus, status)
@@ -94,12 +117,12 @@ public class InternalAdminContentController implements ContentAdminPort {
                 .eq(query.getUserId() != null, Content::getAuthorId, query.getUserId())
                 .eq(query.getCategoryCode() != null, Content::getCategoryCode, query.getCategoryCode())
                 .orderByDesc(Content::getCreateTime)
-                .page(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<Content>(
+                .page(new Page<Content>(
                         query.getPageNo(),
                         query.getPageSize()));
         List<ContentSummary> summaries = page.getRecords().stream().map(c -> {
             ContentMedia media = strategies.get(c.getType()).loadMedia(List.of(c.getId())).get(c.getId());
-            return cn.diaojiahong.myyoutube.content.support.ContentCards.summary(c, media);
+            return ContentCards.summary(c, media);
         }).toList();
         return PageResult.of(page.getTotal(), page.getPages(), summaries);
     }

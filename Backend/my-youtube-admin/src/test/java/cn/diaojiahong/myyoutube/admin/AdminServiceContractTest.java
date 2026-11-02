@@ -98,7 +98,7 @@ class AdminServiceContractTest {
 
     @Test
     void externalControllerWrapsTheDirectDtoExactlyOnce() throws Exception {
-        when(content.media(any())).thenReturn(new ContentMediaVO("video", new ContentMediaVO.Video("url", 1000), null));
+        when(content.media(any())).thenReturn(new ContentMediaVO("video", new ContentMediaVO.Video(1000, null), null));
         MockMvcBuilders.standaloneSetup(new AdminController(service, content, AuthorizationFixture.authorization()))
                 .setControllerAdvice(new GlobalExceptionHandler()).build()
                 .perform(get("/admin/content/7/media"))

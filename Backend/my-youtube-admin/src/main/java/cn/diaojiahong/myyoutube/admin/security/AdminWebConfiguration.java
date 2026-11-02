@@ -20,6 +20,7 @@ public class AdminWebConfiguration implements WebMvcConfigurer {
             @Override
             public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
                 // 请求时再获取，避免 MVC 初始化与角色 Feign 客户端创建相互依赖。
+                response.setHeader("Cache-Control", "no-store");
                 authorization.getObject().requireAdmin();
                 return true;
             }

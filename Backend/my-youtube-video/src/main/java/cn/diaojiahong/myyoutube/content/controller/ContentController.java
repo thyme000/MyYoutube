@@ -12,6 +12,10 @@ import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentSortEnum;
 import lombok.RequiredArgsConstructor;
 import io.swagger.v3.oas.annotations.Operation;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -38,8 +42,10 @@ public class ContentController {
     }
 
     @GetMapping("/{contentId}")
-    public Result<ContentDetailVO> detail(@PathVariable Long contentId) {
-        return Result.success(reads.detail(contentId, userId()));
+    public ResponseEntity<Result<ContentDetailVO>> detail(@PathVariable Long contentId, HttpServletResponse response) {
+        response.setHeader(HttpHeaders.CACHE_CONTROL, CacheControl.noStore().getHeaderValue());
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(Result.success(reads.detail(contentId, userId())));
     }
 
     @GetMapping("/{contentId}/subtitles")

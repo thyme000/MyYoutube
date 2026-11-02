@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.video;
 
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import cn.diaojiahong.myyoutube.content.service.ContentReadService;
+import cn.diaojiahong.myyoutube.content.service.ContentStreamService;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.video.controller.InternalAdminContentController;
@@ -22,7 +23,7 @@ class AdminContentRequestErrorTest {
 
     final MockMvc mvc = MockMvcBuilders.standaloneSetup(new InternalAdminContentController(
             mock(ContentUnderstandingService.class), decisions, content,
-            mock(ContentTypeStrategyRegistry.class), mock(ContentReadService.class)))
+            mock(ContentTypeStrategyRegistry.class), mock(ContentReadService.class), mock(ContentStreamService.class)))
             .setControllerAdvice(new GlobalExceptionHandler()).build();
 
     @Test

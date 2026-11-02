@@ -10,6 +10,7 @@ import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.comment.service.ICommentReportService;
 import cn.diaojiahong.myyoutube.content.service.ContentReadService;
+import cn.diaojiahong.myyoutube.content.service.ContentStreamService;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.video.api.CommentAdminPort;
@@ -37,6 +38,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 class InternalAdminFeignContractTest {
     final ContentReadService reads = mock(ContentReadService.class);
+    final ContentStreamService streams = mock(ContentStreamService.class);
 
     final IContentCommentService comments = mock(IContentCommentService.class);
 
@@ -52,7 +54,7 @@ class InternalAdminFeignContractTest {
                 new InternalAdminContentController(
                         mock(ContentUnderstandingService.class),
                         mock(ReviewDecisionService.class),
-                        mock(IContentService.class), mock(ContentTypeStrategyRegistry.class), reads),
+                        mock(IContentService.class), mock(ContentTypeStrategyRegistry.class), reads, streams),
                 new InternalAdminCommentController(comments, mock(ICommentReportService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -82,9 +84,10 @@ class InternalAdminFeignContractTest {
         return Feign.builder().contract(new SpringMvcContract()).errorDecoder(new InternalApiErrorDecoder())
                 .retryer(Retryer.NEVER_RETRY)
                 .encoder((value, type, template) -> template.body(JsonUtil.toJson(value)))
-                .decoder((response, type) -> JsonUtil.GSON.fromJson(
-                        response.body().asReader(StandardCharsets.UTF_8),
-                        type));
+                .decoder((response, type) -> {
+                    String body = new String(response.body().asInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                    return type == String.class ? body : JsonUtil.GSON.fromJson(body, type);
+                });
     }
 
     @AfterEach
@@ -93,10 +96,20 @@ class InternalAdminFeignContractTest {
     }
 
     @Test
+    void reviewStreamFeignContractsPreserveRawPlaylists() {
+        ContentAdminPort.ReviewStream request = new ContentAdminPort.ReviewStream(
+                7L, 9L, 720, "review-ticket");
+        when(streams.reviewMasterPlaylist(7L, 9L, "review-ticket")).thenReturn("#EXTM3U\n720/index.m3u8\n");
+        when(streams.reviewPlaylist(7L, 720, 9L, "review-ticket")).thenReturn("#EXTM3U\nmedia.mp4\n");
+        assertEquals("#EXTM3U\n720/index.m3u8\n", content.masterPlaylist(request));
+        assertEquals("#EXTM3U\nmedia.mp4\n", content.playlist(request));
+    }
+
+    @Test
     void providerDtoAnd204CommandsMatchTheNewFeignSignatures() {
-        var media = new ContentMediaVO("video", new ContentMediaVO.Video("url", 1200), null);
-        when(reads.adminMedia(7L)).thenReturn(media);
-        assertEquals(media, content.media(new ContentAdminPort.ContentId(7L)));
+        var media = new ContentMediaVO("video", new ContentMediaVO.Video(1200, null), null);
+        when(reads.adminMedia(7L, 9L)).thenReturn(media);
+        assertEquals(media, content.media(new ContentAdminPort.ReviewMedia(7L, 9L)));
         when(comments.getById(7L)).thenReturn(new ContentComment().setStatus("visible"));
         assertDoesNotThrow(() -> comment.restore(new CommentAdminPort.CommentId(7L)));
         assertEquals(2, calls.get());
@@ -116,11 +129,11 @@ class InternalAdminFeignContractTest {
     void routeAndSerializationContractErrorsAreNotBusinessErrors() {
         route = "/missing-internal-route";
         assertEquals(ErrorCode.DEPENDENCY_FAILURE, assertThrows(DependencyException.class,
-                () -> content.media(new ContentAdminPort.ContentId(7L))).getErrorCode());
+                () -> content.media(new ContentAdminPort.ReviewMedia(7L, 9L))).getErrorCode());
         route = null;
         corruptBody = true;
         assertEquals(ErrorCode.DEPENDENCY_FAILURE, assertThrows(DependencyException.class,
-                () -> content.media(new ContentAdminPort.ContentId(7L))).getErrorCode());
+                () -> content.media(new ContentAdminPort.ReviewMedia(7L, 9L))).getErrorCode());
         verifyNoInteractions(reads);
         assertEquals(2, calls.get());
     }

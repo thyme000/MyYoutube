@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.feign.PropagateBusinessErrors;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -15,13 +16,23 @@ import org.springframework.web.bind.annotation.RequestBody;
 /**
  * video 服务对外契约: 管理端视频操作
  */
-@PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT, ErrorCode.NOT_FOUND, ErrorCode.STATE_CONFLICT})
+@PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT, ErrorCode.NOT_FOUND, ErrorCode.STATE_CONFLICT, ErrorCode.UNAUTHORIZED})
 @FeignClient(name = "my-youtube-video-service", contextId = "contentAdminPort",
         path = "/internal/admin/content", url = "${my-youtube.video-service.url:}")
 public interface ContentAdminPort {
 
     @PostMapping("/media")
-    cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO media(@RequestBody ContentId id);
+    ContentMediaVO media(@RequestBody ReviewMedia request);
+
+    record ReviewMedia(Long contentId, Long viewer) {}
+
+    record ReviewStream(Long contentId, Long viewer, int index, String token) {}
+
+    @PostMapping("/streams/master")
+    String masterPlaylist(@RequestBody ReviewStream request);
+
+    @PostMapping("/streams/playlist")
+    String playlist(@RequestBody ReviewStream request);
 
     @PostMapping("/mark-status")
     Boolean markStatus(@RequestBody MarkStatus mark);

@@ -10,10 +10,20 @@ import cn.diaojiahong.myyoutube.admin.service.IAdminService;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
+import cn.diaojiahong.myyoutube.video.api.ContentAdminPort;
+import cn.diaojiahong.myyoutube.video.api.ContentAdminPort.AdminContentQuery;
+import cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId;
+import cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ReviewMedia;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/admin")
@@ -22,32 +32,32 @@ import org.springframework.web.bind.annotation.*;
 public class AdminController {
 
     private final IAdminService adminService;
-    private final cn.diaojiahong.myyoutube.video.api.ContentAdminPort contentAdminPort;
+    private final ContentAdminPort contentAdminPort;
     private final AdminAuthorization authorization;
 
-    public record Decision(@jakarta.validation.constraints.NotBlank String reason) {
+    public record Decision(@NotBlank String reason) {
     }
 
     @GetMapping("/content/{contentId}/media")
-    public Result<cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO> media(@PathVariable Long contentId) {
-        authorization.requireAdmin();
-
-        return Result.success(contentAdminPort.media(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId)));
+    public Result<ContentMediaVO> media(@PathVariable Long contentId) {
+        Long viewer = authorization.requireAdmin();
+        return Result.success(contentAdminPort.media(
+                new ReviewMedia(contentId, viewer)));
     }
 
     @GetMapping("/content/{contentId}")
-    public Result<java.util.Map<String, Object>> content(@PathVariable Long contentId) {
+    public Result<Map<String, Object>> content(@PathVariable Long contentId) {
         authorization.requireAdmin();
 
-        return Result.success(contentAdminPort.contentStatus(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.ContentId(contentId)));
+        return Result.success(contentAdminPort.contentStatus(new ContentId(contentId)));
     }
 
     @GetMapping("/content/waiting")
-    public Result<java.util.List<java.util.Map<String, Object>>> waiting(@RequestParam(defaultValue = "1") long pageNo,
+    public Result<List<Map<String, Object>>> waiting(@RequestParam(defaultValue = "1") long pageNo,
                                                                        @RequestParam(defaultValue = "20") long pageSize) {
         authorization.requireAdmin();
 
-        return Result.success(contentAdminPort.waitingContent(new cn.diaojiahong.myyoutube.video.api.ContentAdminPort.AdminContentQuery(
+        return Result.success(contentAdminPort.waitingContent(new AdminContentQuery(
                 null,
                 null,
                 null,
@@ -64,7 +74,7 @@ public class AdminController {
      */
     @Operation(summary = "审核通过")
     @PostMapping("/review/pass/{contentId}")
-    public Result<String> pass(@PathVariable Long contentId, @jakarta.validation.Valid @RequestBody Decision decision) {
+    public Result<String> pass(@PathVariable Long contentId, @Valid @RequestBody Decision decision) {
         return Result.success(adminService.pass(contentId, decision.reason()));
     }
 
@@ -75,7 +85,7 @@ public class AdminController {
      */
     @Operation(summary = "审核不通过")
     @PostMapping("/review/ban/{contentId}")
-    public Result<String> ban(@PathVariable Long contentId, @jakarta.validation.Valid @RequestBody Decision decision) {
+    public Result<String> ban(@PathVariable Long contentId, @Valid @RequestBody Decision decision) {
         return Result.success(adminService.ban(contentId, decision.reason()));
     }
 
