@@ -1,4 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.mq.listener;
+
+import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskPhase;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.transcode.service.MediaTaskWorker;
@@ -27,7 +29,7 @@ org.apache.rocketmq.spring.core.RocketMQPushConsumerLifecycleListener {
 
     @Override
     public void onMessage(MediaTaskMessage message) {
-        if (!"REVIEW".equals(message.getPhase())) throw new IllegalArgumentException("Worker phase mismatch");
+        if (!MediaTaskPhase.REVIEW.matches(message.getPhase())) throw new IllegalArgumentException("Worker phase mismatch");
         worker.execute(message);
     }
 }

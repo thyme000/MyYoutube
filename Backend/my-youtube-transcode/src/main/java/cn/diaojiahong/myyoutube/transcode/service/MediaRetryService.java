@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskPhase;
 import cn.diaojiahong.myyoutube.common.media.ContentMedia;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort;
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
@@ -41,7 +42,7 @@ public class MediaRetryService {
     public CursorPage<Task, Long> query(Query request) {
         if (request==null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "Missing task query");
         validate(request.taskType(),Arrays.stream(MediaTaskType.values()).map(Enum::name).toList());
-        validate(request.phase(),List.of("DRAFT","CONTENT","REVIEW"));
+        validate(request.phase(),Arrays.stream(MediaTaskPhase.values()).map(Enum::name).toList());
         if (!"ALL".equals(request.status()))
             validate(request.status(),Arrays.stream(MediaTaskStatus.values()).map(Enum::name).toList());
         validate(request.dependencyService(),List.of("ASR","OCR","LLM"));

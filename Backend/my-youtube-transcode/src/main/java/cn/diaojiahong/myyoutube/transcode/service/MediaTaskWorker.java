@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskPhase;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.common.media.InvalidMediaInputException;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts;
@@ -39,7 +40,7 @@ public class MediaTaskWorker {
         context.put("attempt", claimed.getAttempt().toString());
         context.put("pipelineId", Objects.toString(claimed.getPipelineId(), null));
         context.put("traceId", org.slf4j.MDC.get("traceId"));
-        if (!"DRAFT".equals(claimed.getPhase())) context.put("contentId", claimed.getOwnerId().toString());
+        if (!MediaTaskPhase.DRAFT.matches(claimed.getPhase())) context.put("contentId", claimed.getOwnerId().toString());
         else context.put(MediaTaskType.fromCode(claimed.getTaskType()).isAudio() ? "audioId"
                 : MediaTaskType.PREPARE.matches(claimed.getTaskType()) ? "preparationId" : "draftId",
                 claimed.getOwnerId()

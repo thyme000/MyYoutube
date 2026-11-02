@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.observability;
 
+import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
@@ -67,10 +68,10 @@ public record PipelineEvent(@JsonProperty("@timestamp") Instant occurredAt, Serv
             if (terminal && (nextAttempt != null || nextRetryAt != null)) {
                 throw new IllegalArgumentException("Terminal failure cannot schedule a retry");
             }
-            if (!(retryable ? "RETRY_WAIT" : "DEAD").equals(state.to())) {
+            if (!(retryable ? MediaTaskStatus.RETRY_WAIT : MediaTaskStatus.DEAD).name().equals(state.to())) {
                 throw new IllegalArgumentException("Failure state does not match retry semantics");
             }
-            if (deferred && (!retryable || !"RUNNING".equals(state.from()))) {
+            if (deferred && (!retryable || !MediaTaskStatus.RUNNING.name().equals(state.from()))) {
                 throw new IllegalArgumentException("Deferred execution must wait for another attempt");
             }
         } else if (retryable != null || terminal != null || nextAttempt != null || nextRetryAt != null || failure != null) {

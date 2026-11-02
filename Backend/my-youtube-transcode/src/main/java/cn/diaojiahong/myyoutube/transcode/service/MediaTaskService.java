@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskPhase;
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
-
 import cn.diaojiahong.myyoutube.common.media.AudioAnalysisContracts;
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
@@ -66,7 +66,7 @@ public class MediaTaskService {
                 if (!input.equals(JsonUtil.fromJson(row.getDraftInputJson(), inputType))) throw new IllegalArgumentException("audioId input mismatch");
                 return;
             }
-            row = new MediaTask().setOwnerId(id).setPhase("DRAFT").setTaskType(type.name())
+            row = new MediaTask().setOwnerId(id).setPhase(MediaTaskPhase.DRAFT.name()).setTaskType(type.name())
                     .setStatus(MediaTaskStatus.PENDING).setAttempt(0).setRetryCount(0).setCompletionAck(false)
                     .setDraftInputJson(inputJson).setDependenciesJson("{}");
             tasks.insert(row);
@@ -97,7 +97,7 @@ public class MediaTaskService {
         if (!type.isAudio()) throw new IllegalArgumentException("Not an audio task");
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             MediaTask row = tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, id)
-                    .eq(MediaTask::getPhase, "DRAFT").eq(MediaTask::getTaskType, type.name()).last("FOR UPDATE"));
+                    .eq(MediaTask::getPhase, MediaTaskPhase.DRAFT.name()).eq(MediaTask::getTaskType, type.name()).last("FOR UPDATE"));
             if (row == null) return false;
             if (Set.of(
                     MediaTaskStatus.READY,
@@ -122,7 +122,7 @@ public class MediaTaskService {
 
     MediaTask audioTask(MediaTaskType type, Long id) {
         return tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, id)
-                .eq(MediaTask::getPhase, "DRAFT").eq(MediaTask::getTaskType, type.name()));
+                .eq(MediaTask::getPhase, MediaTaskPhase.DRAFT.name()).eq(MediaTask::getTaskType, type.name()));
     }
 
     public void rejectAudioPreparation(MediaTaskMessage message, InvalidMediaInputException.Reason reason) {
@@ -157,34 +157,39 @@ public class MediaTaskService {
                     || !Objects.equals(input.media().preparation().userId(), input.userId()))
                 throw new IllegalArgumentException("Prepared Pipeline owner mismatch");
         }
-        transaction.executeWithoutResult(tx -> {
-            lock(input.pipelineId());
-            lifecycle.requireActive(input.media());
-            Pipeline pipeline = new Pipeline().setId(input.pipelineId()).setContentId(input.contentId())
-                    .setInputJson(JsonUtil.toJson(input)).setStatus(PipelineStatus.PROCESSING).setReceived(false)
-                    .setSubmittedAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(input.submittedAt()), ZoneOffset.UTC));
-            try {
+        try {
+            transaction.executeWithoutResult(tx -> {
+                Pipeline pipeline = new Pipeline().setId(input.pipelineId()).setContentId(input.contentId())
+                        .setInputJson(JsonUtil.toJson(input)).setStatus(PipelineStatus.PROCESSING).setReceived(false)
+                        .setSubmittedAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(input.submittedAt()), ZoneOffset.UTC));
+                // 新管线直接插入，避免锁不存在的行；仍按管线、准备记录的顺序加锁。
                 pipelines.insert(pipeline);
-            } catch (DuplicateKeyException e) {
-                Pipeline current = pipelines.selectById(input.pipelineId());
+                lifecycle.requireActive(input.media());
+
+                eventJournal.pipeline(pipeline, null, "PIPELINE_STARTED", input);
+                var nodes = new ArrayList<MediaTask>();
+                for (MediaTaskType type : MediaTaskType.contentTypes()) nodes.add(insert(input.contentId(), input.pipelineId(), MediaTaskPhase.CONTENT.name(), type, input));
+                afterCommit(() -> log.info("Pipeline accepted pipelineId={} contentId={} userId={} media={} nodes={}",
+                        input.pipelineId(), input.contentId(), input.userId(), input.media().type(), nodes.size()));
+                advance(pipeline, nodes);
+            });
+        } catch (DuplicateKeyException duplicate) {
+            // 先结束插入失败的事务、释放共享锁，再锁定已有管线，避免并发重投时锁升级死锁。
+            transaction.executeWithoutResult(tx -> {
+                Pipeline current = lock(input.pipelineId());
+                if (current == null) throw duplicate;
+                lifecycle.requireActive(input.media());
                 if (!input.equals(JsonUtil.fromJson(current.getInputJson(), Input.class))) throw new IllegalStateException("pipelineId input mismatch");
                 log.debug("Pipeline already registered, submit replayed pipelineId={}", input.pipelineId());
-                return;
-            }
-            eventJournal.pipeline(pipeline, null, "PIPELINE_STARTED", input);
-            var nodes = new ArrayList<MediaTask>();
-            for (MediaTaskType type : MediaTaskType.contentTypes()) nodes.add(insert(input.contentId(), input.pipelineId(), "CONTENT", type, input));
-            afterCommit(() -> log.info("Pipeline accepted pipelineId={} contentId={} userId={} media={} nodes={}",
-                    input.pipelineId(), input.contentId(), input.userId(), input.media().type(), nodes.size()));
-            advance(pipeline, nodes);
-        });
+            });
+        }
     }
 
     public void startPreparation(Long preparationId, Long userId, ContentMedia media, String cover) {
         transaction.executeWithoutResult(tx -> {
             lifecycle.requireActive(preparationId);
             var input = new Input(null, preparationId, userId, "", "", "", cover, media, System.currentTimeMillis());
-            MediaTask row = insert(preparationId, null, "DRAFT", MediaTaskType.PREPARE, input);
+            MediaTask row = insert(preparationId, null, MediaTaskPhase.DRAFT.name(), MediaTaskType.PREPARE, input);
             afterCommit(() -> log.info(
                     "Preparation task accepted preparationId={} userId={} media={}",
                     preparationId,
@@ -200,7 +205,7 @@ public class MediaTaskService {
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             lifecycle.requireActive(preparationId);
             MediaTask row = tasks.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, preparationId)
-                    .eq(MediaTask::getPhase, "DRAFT").eq(MediaTask::getTaskType, "PREPARE").last("FOR UPDATE"));
+                    .eq(MediaTask::getPhase, MediaTaskPhase.DRAFT.name()).eq(MediaTask::getTaskType, MediaTaskType.PREPARE.name()).last("FOR UPDATE"));
             if (row == null) {
                 log.debug("Preparation retry ignored: no task preparationId={}", preparationId);
                 return false;
@@ -248,7 +253,7 @@ public class MediaTaskService {
             PipelineContracts.Manifest manifest = JsonUtil.fromJson(pipeline.getManifestJson(), Manifest.class);
             MediaTask row;
             try {
-                row = insert(pipeline.getContentId(), pipelineId, "REVIEW", MediaTaskType.REVIEW, manifest.input());
+                row = insert(pipeline.getContentId(), pipelineId, MediaTaskPhase.REVIEW.name(), MediaTaskType.REVIEW, manifest.input());
             } catch (DuplicateKeyException ignored) {
                 log.debug("Review already registered pipelineId={}", pipelineId);
                 return;
@@ -291,7 +296,7 @@ public class MediaTaskService {
                         log.debug("Task claim skipped taskId={} reason=TASK_MISSING", message.getTaskId());
                         return null;
                     }
-                    if ("PREPARE".equals(candidate.getTaskType())) lifecycle.requireActive(candidate.getOwnerId());
+                    if (MediaTaskType.PREPARE.matches(candidate.getTaskType())) lifecycle.requireActive(candidate.getOwnerId());
                 }
             } catch (IllegalStateException retired) {
                 log.debug("Task claim skipped taskId={} reason=OWNER_RETIRED", message.getTaskId());
@@ -329,7 +334,7 @@ public class MediaTaskService {
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             if (row.getUnavailableDeadline() != null && !now.isBefore(row.getUnavailableDeadline())) {
                 unavailableExpired(row, input(row, pipeline));
-                if ("CONTENT".equals(row.getPhase())) advance(pipeline, listPipeline(row.getPipelineId(), "CONTENT"));
+                if (MediaTaskPhase.CONTENT.matches(row.getPhase())) advance(pipeline, listPipeline(row.getPipelineId(), MediaTaskPhase.CONTENT.name()));
                 else notifyResult(row);
                 if (retryBatches != null) retryBatches.taskChanged(row.getRetryBatchId());
                 return null;
@@ -365,7 +370,7 @@ public class MediaTaskService {
                 row.getRetryBatchId(),
                 row.getId(),
                 reason));
-        if ("CONTENT".equals(row.getPhase())) advance(pipeline,listPipeline(row.getPipelineId(),"CONTENT"));
+        if (MediaTaskPhase.CONTENT.matches(row.getPhase())) advance(pipeline,listPipeline(row.getPipelineId(),MediaTaskPhase.CONTENT.name()));
         if (retryBatches != null) retryBatches.taskChanged(row.getRetryBatchId());
     }
 
@@ -392,7 +397,7 @@ public class MediaTaskService {
             if (resource != null) row.setDependencyService(resource);
             if (unavailable == null) finish(row, result, error, input(row, pipeline));
             else defer(row, unavailable, input(row, pipeline));
-            if ("CONTENT".equals(row.getPhase())) advance(pipeline, listPipeline(row.getPipelineId(), "CONTENT"));
+            if (MediaTaskPhase.CONTENT.matches(row.getPhase())) advance(pipeline, listPipeline(row.getPipelineId(), MediaTaskPhase.CONTENT.name()));
             else notifyResult(row);
             if (retryBatches != null) retryBatches.taskChanged(row.getRetryBatchId());
         });
@@ -660,13 +665,13 @@ public class MediaTaskService {
     }
 
     private void notifyResult(MediaTask row) {
-        if ("DRAFT".equals(row.getPhase())
+        if (MediaTaskPhase.DRAFT.matches(row.getPhase())
                 && (MediaTaskType.PREPARE.matches(row.getTaskType()) || MediaTaskType.fromCode(row.getTaskType()).isAudio())) {
             if (Set.of(MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD).contains(row.getStatus())) {
                 row.setCompletionAck(true);
                 save(row);
             }
-        } else if ("REVIEW".equals(row.getPhase())) {
+        } else if (MediaTaskPhase.REVIEW.matches(row.getPhase())) {
             var result = new ReviewResult(row.getPipelineId(), row.getOwnerId(), row.getId(), row.getAttempt(),
                     row.getResultJson(), row.getErrorMessage(), MediaTaskStatus.DEAD.equals(row.getStatus()));
             afterCommit(() -> dispatcher.reviewed(result));
@@ -674,7 +679,7 @@ public class MediaTaskService {
     }
 
     public boolean retry(Long id) {
-        if (retryBatches != null) listPipeline(id, "CONTENT").stream().map(MediaTask::getRetryBatchId)
+        if (retryBatches != null) listPipeline(id, MediaTaskPhase.CONTENT.name()).stream().map(MediaTask::getRetryBatchId)
                 .filter(Objects::nonNull).distinct().forEach(retryBatches::batch);
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             Pipeline pipeline = lock(id);
@@ -690,7 +695,7 @@ public class MediaTaskService {
                 log.debug("Pipeline retry no-op pipelineId={} reason=STILL_PROCESSING", id);
                 return true;
             }
-            List<MediaTask> nodes = listPipeline(id, "CONTENT");
+            List<MediaTask> nodes = listPipeline(id, MediaTaskPhase.CONTENT.name());
             if (retryBatches != null && nodes.stream().anyMatch(row -> row.getRetryBatchId() != null
                     && Set.of(MediaRetryBatchStatus.QUEUED, MediaRetryBatchStatus.RUNNING)
                     .contains(retryBatches.status(row.getRetryBatchId())))) return false;
@@ -735,7 +740,7 @@ public class MediaTaskService {
                 for (MediaTask row:group) skipped.put(row.getId(),"PIPELINE_MISSING");
                 continue;
             }
-            if (pipeline==null && group.stream().anyMatch(row -> "PREPARE".equals(row.getTaskType()))) {
+            if (pipeline==null && group.stream().anyMatch(row -> MediaTaskType.PREPARE.matches(row.getTaskType()))) {
                 try {
                     lifecycle.requireActive(first.getOwnerId());
                 } catch (IllegalStateException retired) {
@@ -805,7 +810,7 @@ public class MediaTaskService {
                 afterCommit(() -> log.info("Retry task resumed batchId={} taskId={} pipelineId={} type={} attempt={}",
                         batchId,row.getId(),row.getPipelineId(),row.getTaskType(),row.getAttempt()));
             }
-            if ("CONTENT".equals(first.getPhase())) advance(pipeline,nodes);
+            if (MediaTaskPhase.CONTENT.matches(first.getPhase())) advance(pipeline,nodes);
             else for (MediaTask row : nodes) if (resumed.containsKey(row.getId())) ready(
                     row,
                     dependencies(row),
@@ -840,7 +845,7 @@ public class MediaTaskService {
     public List<MediaTask> listByDraft(Long id) {
         return tasks.selectList(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, id).eq(
                 MediaTask::getPhase,
-                "DRAFT"));
+                MediaTaskPhase.DRAFT.name()));
     }
 
     public List<MediaTask> listPipeline(Long id, String phase) {
@@ -896,11 +901,11 @@ public class MediaTaskService {
                             .eq(MediaTask::getStatus, MediaTaskStatus.RUNNING)
                             .lt(MediaTask::getUpdateTime, now.minusSeconds(properties.getLeaseSeconds()))
                             .or()
-                            .eq(MediaTask::getPhase, "DRAFT")
+                            .eq(MediaTask::getPhase, MediaTaskPhase.DRAFT.name())
                             .in(MediaTask::getStatus, MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD)
                             .eq(MediaTask::getCompletionAck, false)
                             .or()
-                            .eq(MediaTask::getPhase, "REVIEW")
+                            .eq(MediaTask::getPhase, MediaTaskPhase.REVIEW.name())
                             .in(MediaTask::getStatus, MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD)
                             .eq(MediaTask::getCompletionAck, false))
                     .orderByAsc(MediaTask::getId).last("LIMIT 100"));
@@ -938,13 +943,13 @@ public class MediaTaskService {
                 finish(row, null, "Worker lease expired", input);
                 graphChanged = true;
                 changedBatches.add(row.getRetryBatchId());
-                if (!"CONTENT".equals(row.getPhase())) notifyResult(row);
+                if (!MediaTaskPhase.CONTENT.matches(row.getPhase())) notifyResult(row);
             } else if (MediaTaskStatus.RETRY_WAIT.equals(row.getStatus()) && !row.getNextRetryAt().isAfter(now)) {
                 if (row.getUnavailableDeadline() != null && !now.isBefore(row.getUnavailableDeadline())) {
                     unavailableExpired(row, input);
                     graphChanged = true;
                     changedBatches.add(row.getRetryBatchId());
-                    if (!"CONTENT".equals(row.getPhase())) notifyResult(row);
+                    if (!MediaTaskPhase.CONTENT.matches(row.getPhase())) notifyResult(row);
                     continue;
                 }
                 metrics.timer(MetricNames.MEDIA_NODE_RETRY_WAIT, "type", row.getTaskType())
@@ -966,7 +971,7 @@ public class MediaTaskService {
                 afterCommit(() -> dispatcher.dispatch(execution));
             } else if (!Boolean.TRUE.equals(row.getCompletionAck()) && Set.of(MediaTaskStatus.SUCCESS, MediaTaskStatus.DEAD).contains(row.getStatus())) notifyResult(row);
         }
-        if (graphChanged && "CONTENT".equals(first.getPhase())) advance(pipeline, rows);
+        if (graphChanged && MediaTaskPhase.CONTENT.matches(first.getPhase())) advance(pipeline, rows);
         if (retryBatches != null) changedBatches.stream().filter(Objects::nonNull).forEach(retryBatches::taskChanged);
     }
 

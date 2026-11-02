@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskPhase;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
@@ -15,7 +16,6 @@ import cn.diaojiahong.myyoutube.transcode.preparation.PreparationLifecycle;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-
 import java.time.ZoneOffset;
 
 @Service
@@ -34,18 +34,18 @@ public class PipelineEventJournal {
             draftId = prepared.draftId();
             preparationId = prepared.preparationId();
             version = prepared.mediaVersion();
-        } else if ("PREPARE".equals(row.getTaskType())) {
+        } else if (MediaTaskType.PREPARE.matches(row.getTaskType())) {
             MediaPreparation preparation = lifecycle.lock(row.getOwnerId());
             draftId = preparation.getDraftId();
             preparationId = preparation.getId();
             version = preparation.getMediaVersion();
-        } else if ("DRAFT".equals(row.getPhase()) && !MediaTaskType.fromCode(row.getTaskType()).isAudio()) draftId = row.getOwnerId();
+        } else if (MediaTaskPhase.DRAFT.matches(row.getPhase()) && !MediaTaskType.fromCode(row.getTaskType()).isAudio()) draftId = row.getOwnerId();
         row.setEventSequence(events.next(row.getEventSequence()));
         // RUNNING 不会完整保存任务，此处需在同一事务中单独持久化事件序号。
         if (MediaTaskStatus.RUNNING.equals(row.getStatus())) tasks.update(null, new LambdaUpdateWrapper<MediaTask>()
                 .eq(MediaTask::getId, row.getId()).set(MediaTask::getEventSequence, row.getEventSequence()));
         events.record(new PipelineEventPort.Subject("TASK", row.getId(), row.getPipelineId(),
-                "DRAFT".equals(row.getPhase()) ? null : row.getOwnerId(),
+                MediaTaskPhase.DRAFT.matches(row.getPhase()) ? null : row.getOwnerId(),
                 row.getId(),
                 draftId,
                 preparationId,
