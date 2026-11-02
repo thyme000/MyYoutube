@@ -1,7 +1,10 @@
 package cn.diaojiahong.myyoutube.transcode.preparation;
 
+import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskPhase;
+import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
+import cn.diaojiahong.myyoutube.transcode.domain.enums.PreparationState;
+import cn.diaojiahong.myyoutube.transcode.domain.enums.PreparationItemStatus;
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
-
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
@@ -78,18 +81,18 @@ public class PreparationReclaimer {
             List<MediaTask> consumers = tasks.selectList(new LambdaQueryWrapper<MediaTask>().and(q -> q.eq(
                     MediaTask::getOwnerId,
                     row.getId())
-                    .eq(MediaTask::getPhase, "DRAFT")
-                    .eq(MediaTask::getTaskType, "PREPARE")
-                    .or().eq(MediaTask::getOwnerId, row.getDraftId()).in(MediaTask::getPhase, "CONTENT", "REVIEW"))
+                    .eq(MediaTask::getPhase, MediaTaskPhase.DRAFT.name())
+                    .eq(MediaTask::getTaskType, MediaTaskType.PREPARE.name())
+                    .or().eq(MediaTask::getOwnerId, row.getDraftId()).in(MediaTask::getPhase, MediaTaskPhase.CONTENT.name(), MediaTaskPhase.REVIEW.name()))
                     .last("FOR UPDATE"));
             if (consumers.isEmpty()
                     || consumers.stream().anyMatch(task -> !TERMINAL.contains(task.getStatus()))) return false;
-            if ("ACTIVE".equals(row.getLifecycle())) {
-                row.setLifecycle("RETIRED").setRetiredAt(now).setReclaimAfter(now.plusDays(1));
+            if (PreparationState.ACTIVE.equals(row.getLifecycle())) {
+                row.setLifecycle(PreparationState.RETIRED).setRetiredAt(now).setReclaimAfter(now.plusDays(1));
                 preparations.updateById(row);
                 return false;
             }
-            return "RETIRED".equals(row.getLifecycle()) && row.getRetiredAt() != null
+            return PreparationState.RETIRED.equals(row.getLifecycle()) && row.getRetiredAt() != null
                     && !row.getRetiredAt().plusDays(1).isAfter(now);
         }));
         if (!delete) return;
@@ -100,7 +103,7 @@ public class PreparationReclaimer {
                 if (!item.getObjectKey()
                         .startsWith(ownerPrefix)) throw new IllegalStateException("Shared object ownership mismatch");
                 items.update(null, new LambdaUpdateWrapper<PreparationItem>().eq(PreparationItem::getId, item.getId())
-                        .set(PreparationItem::getStatus, "DELETED"));
+                        .set(PreparationItem::getStatus, PreparationItemStatus.DELETED));
                 continue;
             }
             if (!item.getObjectKey()
@@ -110,13 +113,13 @@ public class PreparationReclaimer {
                 if (items.activeReferences(item.getObjectKey(), candidate.getId()) > 0) return false;
                 // Sharing takes the same owner lock and only accepts READY objects.
                 items.update(null, new LambdaUpdateWrapper<PreparationItem>().eq(PreparationItem::getId, item.getId())
-                        .set(PreparationItem::getStatus, "DELETING"));
+                        .set(PreparationItem::getStatus, PreparationItemStatus.DELETING));
                 return true;
             }));
             if (!unreferenced) continue;
             storage.delete(item.getObjectKey());
             items.update(null, new LambdaUpdateWrapper<PreparationItem>().eq(PreparationItem::getId, item.getId())
-                    .set(PreparationItem::getStatus, "DELETED"));
+                    .set(PreparationItem::getStatus, PreparationItemStatus.DELETED));
         }
         // Keep tombstones and sweep again: an IO operation from a worker with a lost lease can finish late.
         preparations.update(null, new LambdaUpdateWrapper<MediaPreparation>().eq(

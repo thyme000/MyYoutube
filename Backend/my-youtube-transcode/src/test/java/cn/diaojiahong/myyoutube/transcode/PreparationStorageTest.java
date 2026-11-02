@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode;
 
 import cn.diaojiahong.myyoutube.common.properties.S3Properties;
+import cn.diaojiahong.myyoutube.common.media.HlsPlaylist;
 import cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -93,6 +94,19 @@ class PreparationStorageTest {
         when(client.headObject(any(HeadObjectRequest.class))).thenThrow(S3Exception.builder().statusCode(404).build());
         storage().delete("media-prepared/9/101/image");
         verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
+    }
+
+    @Test
+    void playbackUploadsKeepMimeTypesAndCannotOverwriteExistingObjects() throws Exception {
+        Path file = work.resolve("artifact");
+        Files.write(file, new byte[]{1, 2, 3});
+        storage().upload(file, "media-prepared/9/101/media.mp4", HlsPlaylist.MEDIA_CONTENT_TYPE);
+        storage().upload(file, "media-prepared/9/101/index.m3u8", HlsPlaylist.CONTENT_TYPE);
+        ArgumentCaptor<PutObjectRequest> requests = ArgumentCaptor.forClass(PutObjectRequest.class);
+        verify(client, times(2)).putObject(requests.capture(), any(software.amazon.awssdk.core.sync.RequestBody.class));
+        assertEquals(java.util.List.of("video/mp4", "application/vnd.apple.mpegurl"),
+                requests.getAllValues().stream().map(PutObjectRequest::contentType).toList());
+        assertTrue(requests.getAllValues().stream().allMatch(request -> "*".equals(request.ifNoneMatch())));
     }
 
 }

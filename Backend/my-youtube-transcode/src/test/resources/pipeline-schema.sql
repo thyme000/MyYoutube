@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS media_preparation_item (
     item_index INT NOT NULL,
     object_key VARCHAR(512) NOT NULL,
     source_json TEXT,
-    result_json TEXT,
+    result_json MEDIUMTEXT,
     status VARCHAR(16) NOT NULL,
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_preparation_item(preparation_id, role, item_index),

@@ -1,20 +1,22 @@
 package cn.diaojiahong.myyoutube.transcode.preparation;
 
+import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskPhase;
+import cn.diaojiahong.myyoutube.transcode.domain.enums.PreparationState;
+import cn.diaojiahong.myyoutube.transcode.domain.enums.PreparationItemStatus;
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.*;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.transcode.domain.po.*;
+import cn.diaojiahong.myyoutube.transcode.ffmpeg.FFmpegUtil;
 import cn.diaojiahong.myyoutube.transcode.mapper.*;
 import cn.diaojiahong.myyoutube.transcode.service.MediaTaskService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
-
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.*;
 
 @Service
@@ -33,7 +35,7 @@ public class PreparationRegistry {
         try { transaction.executeWithoutResult(tx -> {
             MediaPreparation existing = preparations.selectById(request.preparationId());
             if (existing != null) {
-                if (!"ACTIVE".equals(existing.getLifecycle())) throw new IllegalStateException("Preparation is retired");
+                if (!PreparationState.ACTIVE.equals(existing.getLifecycle())) throw new IllegalStateException("Preparation is retired");
                 if (!request.equals(JsonUtil.fromJson(existing.getRequestJson(), Request.class)))
                     throw new IllegalStateException("Preparation input mismatch");
                 return;
@@ -74,23 +76,24 @@ public class PreparationRegistry {
     }
 
     public String parameterVersion(FrameProcessingSettings.Snapshot settings) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(("media-preparation-v4:" + JsonUtil.toJson(List.of(settings.intervalSeconds(), settings.maxFrames(), settings.minSuccessPercent(),
-                            properties.getVideoBrands().stream().sorted().toList(),
-                            properties.getVideoProfiles().stream().sorted().toList(), properties.getVideoMaxLevel(),
-                            properties.getLongEdge(), properties.getOutputPixels(), properties.getJpegQuality(),
-                            properties.getSourceBytes(), properties.getVideoSourceBytes(), properties.getSourcePixels(),
-                            properties.getSourceLongEdge()))).getBytes(StandardCharsets.UTF_8)));
-        } catch (java.security.NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
+        int threads = properties.playbackThreads();
+        List<List<String>> playbackParameters = Arrays.stream(PlaybackQuality.values())
+                .map(quality -> FFmpegUtil.hlsEncodingArguments(quality, threads)).toList();
+        List<Object> parameters = List.of(settings.intervalSeconds(), settings.maxFrames(), settings.minSuccessPercent(),
+                properties.getVideoBrands().stream().sorted().toList(),
+                properties.getVideoProfiles().stream().sorted().toList(), properties.getVideoMaxLevel(),
+                properties.getLongEdge(), properties.getOutputPixels(), properties.getJpegQuality(),
+                properties.getSourceBytes(), properties.getVideoSourceBytes(), properties.getSourcePixels(),
+                properties.getSourceLongEdge(), playbackParameters);
+        String input = "media-preparation-v8-source-hls:" + JsonUtil.toJson(parameters);
+
+        return DigestUtil.sha256Hex(input);
     }
 
     public View view(Long id) {
         MediaPreparation preparation = get(id);
         MediaTask row = taskRows.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getOwnerId, id)
-                .eq(MediaTask::getPhase, "DRAFT").eq(MediaTask::getTaskType, "PREPARE"));
+                .eq(MediaTask::getPhase, MediaTaskPhase.DRAFT.name()).eq(MediaTask::getTaskType, MediaTaskType.PREPARE.name()));
         if (row == null) throw new IllegalStateException("Missing preparation task");
         boolean parametersChanged = !Objects.equals(preparation.getParameterVersion(), parameterVersion());
         String error = MediaTaskStatus.DEAD.equals(row.getStatus()) && parametersChanged
@@ -100,12 +103,23 @@ public class PreparationRegistry {
                 parametersChanged);
     }
 
-    public PreparationItem find(Long id, String role, int index) {
+    public PreparationItem find(Long id, ItemRole role, int index) {
         return items.selectOne(new LambdaQueryWrapper<PreparationItem>().eq(PreparationItem::getPreparationId, id)
                 .eq(PreparationItem::getRole, role).eq(PreparationItem::getItemIndex, index));
     }
 
-    public PreparationItem reserve(MediaTaskMessage task, String role, int index, String sourceJson) {
+    /** 原件、抽帧及 OCR 图片的登记入口：按角色和序号区分多项，原件可携带源对象快照，不指定文件后缀。 */
+    public PreparationItem reserve(MediaTaskMessage task, ItemRole role, int index, String sourceJson) {
+        return reserve(task, role, index, sourceJson, "");
+    }
+
+    /** HLS 档位产物的登记入口：用清晰度代码作序号，区分各档视频与目录，后缀由产物类型决定。 */
+    public PreparationItem reserve(MediaTaskMessage task, ItemRole role, PlaybackQuality quality) {
+        return reserve(task, role, quality.code(), null, role.extension());
+    }
+
+    /** 两个入口共享的预留逻辑：校验任务租约，复用已有记录，否则分配对象 key 并登记为 ALLOCATED。 */
+    private PreparationItem reserve(MediaTaskMessage task, ItemRole role, int index, String sourceJson, String extension) {
         return transaction.execute(tx -> {
             fence(task);
             PreparationItem current = find(task.getOwnerId(), role, index);
@@ -116,8 +130,8 @@ public class PreparationRegistry {
                     .setItemIndex(index)
                     .setObjectOwnerId(task.getOwnerId())
                     .setObjectKey("media-prepared/" + task.getUserId() + "/" + task.getOwnerId() + "/"
-                            + role.toLowerCase(Locale.ROOT) + "-" + index + "-" + UUID.randomUUID())
-                    .setSourceJson(sourceJson).setStatus("ALLOCATED");
+                            + role.name().toLowerCase(Locale.ROOT) + "-" + index + "-" + UUID.randomUUID() + extension)
+                    .setSourceJson(sourceJson).setStatus(PreparationItemStatus.ALLOCATED);
             items.insert(row);
             return row;
         });
@@ -148,21 +162,21 @@ public class PreparationRegistry {
             PreparationItem output = items.selectById(derived.getId());
             if (source == null
                     || output == null
-                    || !"READY".equals(source.getStatus())
-                    || !"READY".equals(output.getStatus())
+                    || !PreparationItemStatus.READY.equals(source.getStatus())
+                    || !PreparationItemStatus.READY.equals(output.getStatus())
                     || !Objects.equals(source.getObjectOwnerId(), owner.getId())
                     || !Objects.equals(output.getObjectOwnerId(), owner.getId())
-                    || !Objects.equals(output.getPreparationId(), owner.getId()) || !"IMAGE".equals(source.getRole())
-                    || !"OCR_IMAGE".equals(output.getRole())
+                    || !Objects.equals(output.getPreparationId(), owner.getId()) || !ItemRole.IMAGE.equals(source.getRole())
+                    || !ItemRole.OCR_IMAGE.equals(output.getRole())
                     || !source.getItemIndex().equals(output.getItemIndex())) return false;
-            if (find(task.getOwnerId(), "IMAGE", index) != null
-                    || find(task.getOwnerId(), "OCR_IMAGE", index) != null) return false;
+            if (find(task.getOwnerId(), ItemRole.IMAGE, index) != null
+                    || find(task.getOwnerId(), ItemRole.OCR_IMAGE, index) != null) return false;
             for (PreparationItem row : List.of(source, output)) items.insert(new PreparationItem().setPreparationId(task.getOwnerId())
                     .setObjectOwnerId(owner.getId())
                     .setRole(row.getRole())
                     .setItemIndex(index)
                     .setObjectKey(row.getObjectKey())
-                    .setSourceJson(row.getSourceJson()).setResultJson(row.getResultJson()).setStatus("READY"));
+                    .setSourceJson(row.getSourceJson()).setResultJson(row.getResultJson()).setStatus(PreparationItemStatus.READY));
             return true;
         }));
     }
@@ -174,7 +188,7 @@ public class PreparationRegistry {
             if (!Objects.equals(current.getObjectOwnerId(), task.getOwnerId()))
                 throw new IllegalStateException("Shared preparation objects are immutable");
             if (current.getResultJson() == null) current.setResultJson(resultJson);
-            current.setStatus("PLANNED");
+            current.setStatus(PreparationItemStatus.PLANNED);
             items.updateById(current);
             return current;
         });
@@ -187,7 +201,7 @@ public class PreparationRegistry {
             if (!Objects.equals(current.getObjectOwnerId(), task.getOwnerId()))
                 throw new IllegalStateException("Shared preparation objects are immutable");
             if (current.getResultJson() == null) throw new IllegalStateException("Missing planned object metadata");
-            current.setStatus("READY");
+            current.setStatus(PreparationItemStatus.READY);
             items.updateById(current);
         });
     }
@@ -195,10 +209,10 @@ public class PreparationRegistry {
     private void fence(MediaTaskMessage task) {
         MediaPreparation preparation = preparations.selectOne(new LambdaQueryWrapper<MediaPreparation>()
                 .eq(MediaPreparation::getId, task.getOwnerId()).last("FOR UPDATE"));
-        if (preparation == null || !"ACTIVE".equals(preparation.getLifecycle()))
+        if (preparation == null || !PreparationState.ACTIVE.equals(preparation.getLifecycle()))
             throw new IllegalStateException("Preparation is retired or missing");
         MediaTask row = taskRows.selectOne(new LambdaQueryWrapper<MediaTask>().eq(MediaTask::getId, task.getTaskId()).last("FOR UPDATE"));
-        if (row == null || !"DRAFT".equals(row.getPhase()) || !"PREPARE".equals(row.getTaskType())
+        if (row == null || !MediaTaskPhase.DRAFT.matches(row.getPhase()) || !MediaTaskType.PREPARE.matches(row.getTaskType())
                 || !Objects.equals(row.getOwnerId(), task.getOwnerId())
                 || !MediaTaskStatus.RUNNING.equals(row.getStatus())
                 || !Objects.equals(row.getAttempt(), task.getAttempt())) throw new IllegalStateException("Preparation lease lost");

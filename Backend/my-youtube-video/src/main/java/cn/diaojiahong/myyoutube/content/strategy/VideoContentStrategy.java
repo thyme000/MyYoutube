@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.content.strategy;
 
 import cn.diaojiahong.myyoutube.common.media.*;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.*;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
@@ -26,7 +27,9 @@ public class VideoContentStrategy implements ContentTypeStrategy {
 
     @Override
     public void persist(Long id, ContentMedia media) {
-        videos.insert(new Video().setId(id).setObjectKey(media.video().objectKey()).setDurationMs(media.video().durationMs()));
+        VideoPlayback playback = VideoPlayback.from(media.preparation());
+        videos.insert(new Video().setId(id).setObjectKey(media.video().objectKey()).setDurationMs(media.video().durationMs())
+                .setPlaybackJson(JsonUtil.toJson(playback)));
     }
 
     @Override

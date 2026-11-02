@@ -40,7 +40,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentServiceImpl;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewState;
@@ -71,7 +70,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.core.io.ClassPathResource;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.*;
 import cn.diaojiahong.myyoutube.recommend.auto.TagResultMapper;
@@ -260,11 +258,11 @@ class ReviewTransactionIntegrationTest {
         for (String table : new String[]{"content_review_record", "content_publication_event", "content_understanding", "video", "dynamic", "content"}) {
             jdbc.execute("DROP TABLE IF EXISTS " + table);
         }
-        jdbc.execute("CREATE TABLE video(id BIGINT PRIMARY KEY,object_key VARCHAR(512),duration_ms BIGINT)");
+        jdbc.execute("CREATE TABLE video(id BIGINT PRIMARY KEY,object_key VARCHAR(512),duration_ms BIGINT,playback_json TEXT NOT NULL)");
         jdbc.execute("CREATE TABLE dynamic(id BIGINT PRIMARY KEY,media_json TEXT)");
         jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,audio_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
         new ResourceDatabasePopulator(new ClassPathResource("pipeline-schema.sql")).execute(dataSource);
-        jdbc.update("INSERT INTO video VALUES(1,'processed.mp4',1000)");
+        jdbc.update("INSERT INTO video VALUES(1,'processed.mp4',1000,?)", JsonUtil.toJson(new VideoPlayback(1920, 1080, List.of())));
         jdbc.update("INSERT INTO content(id,type,author_id,title,status,visibility,is_delete) VALUES(1,'video',9,'标题','review','public',0)");
     }
 

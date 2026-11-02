@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.diaojiahong.myyoutube.transcode.domain.enums.PreparationState;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts;
@@ -27,9 +28,9 @@ public class RetryOwnerChecks {
         if (row == null) return "TASK_MISSING";
         if (MediaTaskType.fromCode(row.getTaskType()).isAudio()) return "USE_AUDIO_RETRY";
         Long ownerId=row.getOwnerId(), preparationId=null, version=null;
-        if ("PREPARE".equals(row.getTaskType())) {
+        if (MediaTaskType.PREPARE.matches(row.getTaskType())) {
             MediaPreparation preparation=preparations.selectById(ownerId);
-            if (preparation==null || !"ACTIVE".equals(preparation.getLifecycle())) return "OWNER_RETIRED";
+            if (preparation==null || !PreparationState.ACTIVE.equals(preparation.getLifecycle())) return "OWNER_RETIRED";
             if (!preparation.getParameterVersion()
                     .equals(registry.getObject().parameterVersion())) return "PREPARATION_PARAMETERS_CHANGED";
             ownerId=preparation.getDraftId();
@@ -42,7 +43,7 @@ public class RetryOwnerChecks {
             PreparationContracts.Manifest prepared=input.media().preparation();
             if (prepared!=null) {
                 MediaPreparation record=preparations.selectById(prepared.preparationId());
-                if (record==null || !"ACTIVE".equals(record.getLifecycle())) return "OWNER_RETIRED";
+                if (record==null || !PreparationState.ACTIVE.equals(record.getLifecycle())) return "OWNER_RETIRED";
             }
         }
         MediaRetryOwnerPort.Eligibility result=owners.check(new MediaRetryOwnerPort.Owner(

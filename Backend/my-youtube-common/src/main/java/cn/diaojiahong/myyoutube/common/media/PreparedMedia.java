@@ -44,12 +44,30 @@ public final class PreparedMedia {
         ContentMedia frozen;
         String cover = null;
         if (request.media().video() != null) {
-            PreparationContracts.Item originalItem = take(entries, "VIDEO", 0);
+            PreparationContracts.Item originalItem = take(entries, ItemRole.VIDEO, 0);
             original(originalItem);
+
+            if (originalItem.width() <= 0 || originalItem.height() <= 0)
+                throw new IllegalArgumentException("Missing original video dimensions");
+            String playbackPrefix = "media-prepared/" + request.userId() + "/" + request.preparationId() + "/";
+            for (PlaybackQuality quality : PlaybackQuality.forVideo(originalItem.width(), originalItem.height())) {
+                Item playback = take(entries, ItemRole.HLS_MEDIA, quality.code());
+                Item playlist = take(entries, ItemRole.HLS_PLAYLIST, quality.code());
+                derived(playback, originalItem.objectKey());
+                if (!playlist.originalObjectKey().equals(originalItem.objectKey())
+                        || !playback.objectKey().startsWith(playbackPrefix) || !playlist.objectKey().startsWith(playbackPrefix)
+                        || playback.bandwidth() <= 0 || playback.playback() == null) {
+                    throw new IllegalArgumentException("Invalid prepared playback pair");
+                }
+                if (quality == PlaybackQuality.SOURCE
+                        && (playback.width() != originalItem.width() || playback.height() != originalItem.height())) {
+                    throw new IllegalArgumentException("Source rendition dimensions mismatch");
+                }
+            }
 
             long previousTime = -1;
             for (Item frame : videoFrames(manifest)) {
-                take(entries, "FRAME", frame.index());
+                take(entries, ItemRole.FRAME, frame.index());
                 derived(frame, originalItem.objectKey());
                 if (frame.timeMs() > manifest.durationMs() || frame.timeMs() < previousTime) {
                     throw new IllegalArgumentException("Frame time out of bounds or order");
@@ -77,9 +95,9 @@ public final class PreparedMedia {
             var images = new ArrayList<DynamicMedia.Image>();
             for (int i = 0; i < dynamic.items().size(); i++) {
                 DynamicMedia.Image input = dynamic.items().get(i);
-                PreparationContracts.Item originalItem = take(entries, "IMAGE", i);
+                PreparationContracts.Item originalItem = take(entries, ItemRole.IMAGE, i);
                 original(originalItem);
-                PreparationContracts.Item ocr = take(entries, "OCR_IMAGE", i);
+                PreparationContracts.Item ocr = take(entries, ItemRole.OCR_IMAGE, i);
                 derived(ocr, originalItem.objectKey());
                 if (originalItem.timeMs() != input.startMs() || ocr.timeMs() != input.startMs()) {
                     throw new IllegalArgumentException("Prepared image timing mismatch");
@@ -94,7 +112,7 @@ public final class PreparedMedia {
 
             DynamicMedia.Audio audio = null;
             if (dynamic.audio() != null) {
-                PreparationContracts.Item originalItem = take(entries, "AUDIO", 0);
+                PreparationContracts.Item originalItem = take(entries, ItemRole.AUDIO, 0);
                 original(originalItem);
                 DynamicMedia.Audio input = dynamic.audio();
                 audio = new DynamicMedia.Audio(input.id(), originalItem.objectKey(), input.title(), input.durationMs());
@@ -136,7 +154,7 @@ public final class PreparedMedia {
     }
 
     public static void validateOcr(ContentMedia media, ContentArtifacts.Ocr ocr) {
-        String role = media.video() != null ? "FRAME" : "OCR_IMAGE";
+        ItemRole role = media.video() != null ? ItemRole.FRAME : ItemRole.OCR_IMAGE;
         List<Item> inputs = media.preparation().items().stream().filter(item -> role.equals(item.role()))
                 .sorted(Comparator.comparingInt(Item::index)).toList();
         if (ocr == null || ocr.frames() == null || ocr.frames().size() != inputs.size()) {
@@ -156,7 +174,7 @@ public final class PreparedMedia {
 
     public static List<Item> videoFrames(Manifest manifest) {
         VideoFrameSampling.Plan plan = Objects.requireNonNull(manifest.videoSampling(), "Missing video sampling plan");
-        List<Item> frames = manifest.items().stream().filter(item -> "FRAME".equals(item.role()))
+        List<Item> frames = manifest.items().stream().filter(item -> ItemRole.FRAME.equals(item.role()))
                 .sorted(Comparator.comparingInt(Item::index)).toList();
         if (frames.size() != manifest.videoFrameCount()) {
             throw new IllegalArgumentException("Incomplete prepared video frames");
@@ -166,7 +184,7 @@ public final class PreparedMedia {
         return frames;
     }
 
-    private static Item take(Map<String, Item> entries, String role, int index) {
+    private static Item take(Map<String, Item> entries, ItemRole role, int index) {
         return Objects.requireNonNull(entries.remove(role + ":" + index), "Missing prepared " + role + ":" + index);
     }
 

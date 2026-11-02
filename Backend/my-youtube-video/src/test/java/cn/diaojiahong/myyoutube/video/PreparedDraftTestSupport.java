@@ -26,19 +26,23 @@ final class PreparedDraftTestSupport {
         var items = new ArrayList<Item>();
         if (request.media().video() != null) {
             String original = prefix + "video";
-            items.add(new Item("VIDEO", 0, original, original, 0, 0, 0));
+            items.add(new Item(ItemRole.VIDEO, 0, original, original, 0, 1280, 720, 0, null));
+            items.add(new Item(ItemRole.HLS_MEDIA, 480, original, prefix + "playback-480.mp4", 0, 854, 480, 1000000, new PlaybackMetadata("avc1.64001f,mp4a.40.2", 1000000, 25)));
+            items.add(new Item(ItemRole.HLS_PLAYLIST, 480, original, prefix + "index-480.m3u8", 0, 854, 480, 0, null));
+            items.add(new Item(ItemRole.HLS_MEDIA, 0, original, prefix + "playback-source.mp4", 0, 1280, 720, 2000000, new PlaybackMetadata("avc1.64001f,mp4a.40.2", 2000000, 25)));
+            items.add(new Item(ItemRole.HLS_PLAYLIST, 0, original, prefix + "index-source.m3u8", 0, 0, 0, 0, null));
             for (int i = 0; i < 8; i++) {
-                items.add(new Item("FRAME", i, original, prefix + "frame-" + i, i * 100L, 80, 60));
+                items.add(new Item(ItemRole.FRAME, i, original, prefix + "frame-" + i, i * 100L, 80, 60, 0, null));
             }
         } else {
             DynamicMedia media = request.media().dynamic();
             for (int i = 0; i < media.items().size(); i++) {
                 String original = prefix + "image-" + i;
                 long time = media.items().get(i).startMs();
-                items.add(new Item("IMAGE", i, original, original, time, 0, 0));
-                items.add(new Item("OCR_IMAGE", i, original, prefix + "ocr-" + i, time, 80, 60));
+                items.add(new Item(ItemRole.IMAGE, i, original, original, time, 0, 0, 0, null));
+                items.add(new Item(ItemRole.OCR_IMAGE, i, original, prefix + "ocr-" + i, time, 80, 60, 0, null));
             }
-            if (media.audio() != null) items.add(new Item("AUDIO", 0, prefix + "audio", prefix + "audio", 0, 0, 0));
+            if (media.audio() != null) items.add(new Item(ItemRole.AUDIO, 0, prefix + "audio", prefix + "audio", 0, 0, 0, 0, null));
         }
         return new Manifest(request.preparationId(), request.draftId(), request.mediaVersion(), request.userId(), "a"
                 .repeat(64), items,

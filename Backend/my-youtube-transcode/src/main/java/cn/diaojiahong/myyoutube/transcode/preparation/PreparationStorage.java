@@ -85,9 +85,13 @@ public class PreparationStorage {
     }
 
     public void upload(Path source, String key) {
+        upload(source, key, "image/jpeg");
+    }
+
+    public void upload(Path source, String key, String contentType) {
         protectedKey(key);
         s3.putObject(PutObjectRequest.builder().bucket(properties.getBucketName()).key(key)
-                .contentType("image/jpeg").ifNoneMatch("*").build(), RequestBody.fromFile(source));
+                .contentType(contentType).ifNoneMatch("*").build(), RequestBody.fromFile(source));
     }
 
     public void delete(String key) {

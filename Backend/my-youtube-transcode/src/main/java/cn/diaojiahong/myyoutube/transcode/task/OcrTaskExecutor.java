@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.task;
 
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts.ItemRole;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.ContentArtifacts;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
@@ -83,7 +84,7 @@ public class OcrTaskExecutor implements MediaTaskExecutor {
     private String recognizePrepared(MediaTaskMessage msg, int batchSize) {
         ContentMedia media = msg.getInput().media();
         PreparedMedia.validate(media, msg.getInput().coverObjectKey());
-        String role = media.video() != null ? "FRAME" : "OCR_IMAGE";
+        ItemRole role = media.video() != null ? ItemRole.FRAME : ItemRole.OCR_IMAGE;
         List<PreparationContracts.Item> inputs = media.preparation()
                 .items()
                 .stream()

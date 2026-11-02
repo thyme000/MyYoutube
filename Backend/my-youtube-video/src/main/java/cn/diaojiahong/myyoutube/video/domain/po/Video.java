@@ -12,4 +12,5 @@ public class Video {
     private Long id;
     private String objectKey;
     private Long durationMs;
+    private String playbackJson;
 }

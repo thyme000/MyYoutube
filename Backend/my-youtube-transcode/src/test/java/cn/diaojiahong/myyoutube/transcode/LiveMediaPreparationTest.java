@@ -30,7 +30,6 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.*;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
-
 import javax.imageio.ImageIO;
 import javax.sql.DataSource;
 import java.awt.*;
@@ -104,6 +103,7 @@ class LiveMediaPreparationTest {
                 storage,
                 writer,
                 new PreparedVideoReader(properties, writer, new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings()),
+                new PreparedVideoWriter(properties),
                 properties,
                 urls,
                 new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(),
@@ -216,7 +216,7 @@ class LiveMediaPreparationTest {
     }
 
     @Test
-    void realVideoPreparesDurationBasedSharedFramesWithoutReencoding() throws Exception {
+    void realVideoPreservesOriginalAndProducesFramesAndPlayback() throws Exception {
         Path video = work.resolve("sample.mp4");
         Path log = work.resolve("ffmpeg.log");
         Process process = new ProcessBuilder(
@@ -247,13 +247,13 @@ class LiveMediaPreparationTest {
                 9L,
                 new ContentMedia("video", new VideoMedia("upload/video", 0), null),
                 null));
-        assertEquals(2, manifest.items().size());
+        assertEquals(4, manifest.items().size());
         assertFalse(manifest.hasAudio());
         assertArrayEquals(
                 bytes,
                 s3.getObjectAsBytes(b -> b.bucket(bucket).key(manifest.items().get(0).objectKey())).asByteArray());
         assertEquals(1, manifest.videoFrameCount());
-        assertEquals(1, manifest.items().stream().filter(i -> "FRAME".equals(i.role())).count());
+        assertEquals(1, manifest.items().stream().filter(i -> ItemRole.FRAME.equals(i.role())).count());
         for (PreparationContracts.Item item : manifest.items()) assertNotNull(storage.inspect(item.objectKey()));
     }
 

@@ -106,7 +106,8 @@ CREATE TABLE IF NOT EXISTS `audio_author_usage` (
 CREATE TABLE IF NOT EXISTS `video` (
     `id` BIGINT NOT NULL PRIMARY KEY COMMENT '与 content 相同',
     `object_key` VARCHAR(512) NOT NULL,
-    `duration_ms` BIGINT NOT NULL
+    `duration_ms` BIGINT NOT NULL,
+    `playback_json` JSON NOT NULL COMMENT '源视频尺寸及 HLS 档位资源、编码、峰值/平均码率、帧率，无签名URL'
 ) ENGINE=InnoDB COMMENT='视频媒体';
 
 -- 内容点赞表
@@ -613,7 +614,7 @@ CREATE TABLE IF NOT EXISTS media_preparation_item (
     item_index INT NOT NULL,
     object_key VARCHAR(512) NOT NULL,
     source_json TEXT,
-    result_json TEXT,
+    result_json MEDIUMTEXT,
     status VARCHAR(16) NOT NULL,
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_preparation_item(preparation_id, role, item_index),

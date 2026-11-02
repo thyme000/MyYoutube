@@ -1,7 +1,11 @@
 package cn.diaojiahong.myyoutube.transcode.ffmpeg;
 
+import cn.diaojiahong.myyoutube.common.media.HlsPlaylist;
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackQuality;
+import cn.diaojiahong.myyoutube.common.media.StructuredJson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
-
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
@@ -15,6 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 视频自动封面工具: 多点抽帧 -> 图像质量评分; 输入支持本地路径或 http(s) URL,
@@ -112,6 +118,53 @@ public final class FFmpegUtil {
         return new VideoProbe(Math.round(seconds * 1000), width, height);
     }
 
+    public record HlsProbe(int width, int height, String codecs, double frameRate) {}
+
+    public static HlsProbe probeHls(String source, Options options) {
+        CommandResult result = runCommand(List.of(options.ffprobeCommand, "-v", "error", "-show_data",
+                "-show_entries", "stream=codec_type,codec_name,codec_tag_string,profile,extradata,width,height,avg_frame_rate",
+                "-of", "json", source), options.commandTimeout);
+        if (result.exitCode != 0) throw new IllegalStateException("HLS 产物探测失败: " + tail(result.output));
+        return parseHlsProbe(result.output);
+    }
+
+    static HlsProbe parseHlsProbe(String text) {
+        JsonObject json = StructuredJson.object(text);
+        JsonObject video = null;
+        boolean audio = false;
+        for (JsonElement entry : json.getAsJsonArray("streams")) {
+            JsonObject stream = entry.getAsJsonObject();
+            switch (stream.get("codec_type").getAsString()) {
+                case "video" -> {
+                    if (!"h264".equals(stream.get("codec_name").getAsString())
+                            || !"avc1".equals(stream.get("codec_tag_string").getAsString()))
+                        throw new IllegalStateException("HLS 产物必须使用 avc1/H.264");
+                    video = stream;
+                }
+                case "audio" -> {
+                    if (!"aac".equals(stream.get("codec_name").getAsString())
+                            || !"LC".equals(stream.get("profile").getAsString()))
+                        throw new IllegalStateException("HLS 产物必须使用 AAC-LC 音轨");
+                    audio = true;
+                }
+                default -> { }
+            }
+        }
+        if (video == null) throw new IllegalStateException("HLS 产物缺少视频轨");
+
+        // avcC 的第 2~4 字节分别为 profile、兼容标志和 level，不能用源视频的探测值替代。
+        Matcher header = Pattern.compile("(?m)^\\s*00000000:\\s*([0-9a-fA-F]{4})\\s+([0-9a-fA-F]{4})")
+                .matcher(video.get("extradata").getAsString());
+        if (!header.find()) throw new IllegalStateException("HLS 产物缺少 AVC 配置");
+        String bytes = header.group(1) + header.group(2);
+        if (!bytes.startsWith("01")) throw new IllegalStateException("HLS 产物的 AVC 配置版本无效");
+        String codecs = "avc1." + bytes.substring(2).toLowerCase(Locale.ROOT) + (audio ? ",mp4a.40.2" : "");
+        String[] rate = video.get("avg_frame_rate").getAsString().split("/");
+        double frameRate = Double.parseDouble(rate[0]) / Double.parseDouble(rate[1]);
+        if (!Double.isFinite(frameRate) || frameRate <= 0) throw new IllegalStateException("HLS 产物帧率无效");
+        return new HlsProbe(video.get("width").getAsInt(), video.get("height").getAsInt(), codecs, frameRate);
+    }
+
     /**
      * 标准化转码: 长边钳制 H.264/AAC mp4, faststart 便于流式播放。源更小不放大。
      */
@@ -137,6 +190,132 @@ public final class FFmpegUtil {
         if (result.exitCode != 0) {
             throw new IllegalStateException("转码失败: " + tail(result.output));
         }
+    }
+
+    public record HlsOutput(Path playlist, Path media) {
+    }
+
+    public record HlsTimeouts(Duration total, Duration startup, Duration stall) {
+        public HlsTimeouts {
+            for (Duration value : List.of(total, startup, stall)) {
+                if (value.isZero() || value.isNegative()) throw new IllegalArgumentException("HLS 超时时间必须大于 0");
+            }
+        }
+    }
+
+    public enum HlsTimeoutReason {
+        TOTAL_BUDGET_EXCEEDED("HLS 总预算超时"),
+        STARTUP_TIMEOUT("HLS 启动等待超时"),
+        PROGRESS_STALLED("HLS 连续无进展超时");
+
+        private final String message;
+
+        HlsTimeoutReason(String message) {
+            this.message = message;
+        }
+    }
+
+    public static final class HlsTimeoutException extends IllegalStateException {
+        private final HlsTimeoutReason reason;
+
+        private HlsTimeoutException(HlsTimeoutReason reason) {
+            super(reason.message);
+            this.reason = reason;
+        }
+
+        public HlsTimeoutReason reason() {
+            return reason;
+        }
+    }
+
+    /** 仅实际处理时间的增长续期停滞计时；普通日志和重复进度不能续期。 */
+    static final class HlsProgress {
+        private final HlsTimeouts timeouts;
+        private final long startedAt;
+        private long lastProgressAt;
+        private long outputTimeUs;
+
+        HlsProgress(HlsTimeouts timeouts, long startedAt) {
+            this.timeouts = timeouts;
+            this.startedAt = startedAt;
+            this.lastProgressAt = startedAt;
+        }
+
+        synchronized void accept(String line, long now) {
+            if (!line.startsWith("out_time_us=")) return;
+            try {
+                long timeUs = Long.parseLong(line.substring("out_time_us=".length()));
+                if (timeUs > outputTimeUs) {
+                    outputTimeUs = timeUs;
+                    lastProgressAt = now;
+                }
+            } catch (NumberFormatException ignored) {
+                // 启动时 FFmpeg 可能尚无有效输出时间。
+            }
+        }
+
+        synchronized HlsTimeoutReason timeoutReason(long now) {
+            if (now - startedAt >= timeouts.total().toNanos()) return HlsTimeoutReason.TOTAL_BUDGET_EXCEEDED;
+            if (outputTimeUs == 0) {
+                return now - startedAt >= timeouts.startup().toNanos() ? HlsTimeoutReason.STARTUP_TIMEOUT : null;
+            }
+            return now - lastProgressAt >= timeouts.stall().toNanos() ? HlsTimeoutReason.PROGRESS_STALLED : null;
+        }
+
+        synchronized long waitNanos(long now) {
+            long remaining = timeouts.total().toNanos() - (now - startedAt);
+            long idleRemaining = outputTimeUs == 0
+                    ? timeouts.startup().toNanos() - (now - startedAt)
+                    : timeouts.stall().toNanos() - (now - lastProgressAt);
+            return Math.max(1, Math.min(TimeUnit.SECONDS.toNanos(1), Math.min(remaining, idleRemaining)));
+        }
+    }
+
+    /** 编码命令和准备版本共用同一组参数；文件路径不参与版本计算。 */
+    public static List<String> hlsEncodingArguments(PlaybackQuality quality, int threads) {
+        var arguments = new ArrayList<String>(List.of("-map", "0:v:0", "-map", "0:a:0?"));
+        if (quality != PlaybackQuality.SOURCE) {
+            int shortEdge = quality.code();
+            arguments.addAll(List.of("-vf", "scale=if(gt(iw\\,ih)\\,-2\\,min(" + shortEdge + "\\,iw)):"
+                    + "if(gt(iw\\,ih)\\,min(" + shortEdge + "\\,ih)\\,-2)"));
+        }
+        // 最高档保持源尺寸，以较低 CRF 减少再次编码的画质损失。
+        arguments.addAll(List.of(
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", quality == PlaybackQuality.SOURCE ? "18" : "23",
+                "-pix_fmt", "yuv420p", "-threads", Integer.toString(threads),
+                // 固定时间强制关键帧，避免场景切换使段边界偏离；闭合 GOP 允许按段解码。
+                "-force_key_frames", "expr:gte(t,n_forced*4)", "-sc_threshold", "0", "-flags", "+cgop",
+                "-c:a", "aac", "-b:a", "128k",
+                "-hls_time", "4", "-hls_list_size", "0", "-hls_playlist_type", "vod",
+                "-hls_segment_type", "fmp4", "-hls_flags", "single_file+independent_segments", "-f", "hls"));
+        return List.copyOf(arguments);
+    }
+
+    /** 单档点播 HLS：媒体段放在同一 fMP4，目录通过字节范围引用。调用方管理输出目录的生命周期。 */
+    public static HlsOutput transcodeHls(
+            String source,
+            Path outputDirectory,
+            PlaybackQuality quality,
+            Options options,
+            HlsTimeouts timeouts) throws IOException {
+        if (options.ffmpegThreads < 1) {
+            throw new IllegalArgumentException("转码线程数必须有效");
+        }
+
+        Files.createDirectories(outputDirectory);
+        Path playlist = outputDirectory.resolve(HlsPlaylist.PLAYLIST_FILENAME);
+        Path media = outputDirectory.resolve(HlsPlaylist.MEDIA_FILENAME);
+        List<String> command = new ArrayList<>(List.of(
+                options.ffmpegCommand, "-nostdin", "-y", "-nostats", "-progress", "pipe:1", "-stats_period", "1",
+                "-i", source));
+        command.addAll(hlsEncodingArguments(quality, options.ffmpegThreads));
+        command.addAll(List.of("-hls_segment_filename", media.toString(), playlist.toString()));
+        CommandResult result = runCommand(command, timeouts.total(), new HlsProgress(timeouts, System.nanoTime()));
+        if (result.exitCode != 0) {
+            throw new IllegalStateException("HLS 转码失败: " + tail(result.output));
+        }
+
+        return new HlsOutput(playlist, media);
     }
 
     /**
@@ -341,63 +520,15 @@ public final class FFmpegUtil {
     }
 
     public static FrameScore scoreFrame(Path framePath, double second) {
-        BufferedImage image;
-        try {
-            image = ImageIO.read(framePath.toFile());
-        } catch (IOException e) {
-            return null;
-        }
-        if (image == null || image.getWidth() < 3 || image.getHeight() < 3) {
+        BufferedImage image = readScoringImage(framePath);
+        if (image == null) {
             return null;
         }
 
-        int w = image.getWidth();
-        int h = image.getHeight();
-        // 整行取像素, 避免逐点 getRGB 的边界开销
-        int[] row = new int[w];
-        double[][] gray = new double[h][w];
-
-        double sum = 0;
-        for (int y = 0; y < h; y++) {
-            row = image.getRGB(0, y, w, 1, row, 0, w);
-            for (int x = 0; x < w; x++) {
-                int rgb = row[x];
-                int r = (rgb >> 16) & 0xff;
-                int g = (rgb >> 8) & 0xff;
-                int b = rgb & 0xff;
-                double gval = 0.299 * r + 0.587 * g + 0.114 * b;
-                gray[y][x] = gval;
-                sum += gval;
-            }
-        }
-        double mean = sum / (w * h);
-
-        double var = 0;
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                double d = gray[y][x] - mean;
-                var += d * d;
-            }
-        }
-        var /= (w * h);
-        double std = Math.sqrt(var);
-
-        // 近似拉普拉斯(4邻域), 方差越大通常越清晰
-        double lapSum = 0;
-        double lapSqSum = 0;
-        int count = 0;
-        for (int y = 1; y < h - 1; y++) {
-            for (int x = 1; x < w - 1; x++) {
-                double lap = 4 * gray[y][x] - gray[y - 1][x] - gray[y + 1][x] - gray[y][x - 1] - gray[y][x + 1];
-                lapSum += lap;
-                lapSqSum += lap * lap;
-                count++;
-            }
-        }
-        double lapMean = lapSum / Math.max(1, count);
-        double sharpVar = (lapSqSum / Math.max(1, count)) - lapMean * lapMean;
-
-        double sharpnessScore = normalize(sharpVar, 20, 900);
+        Grayscale grayscale = toGrayscale(image);
+        double mean = grayscale.mean();
+        double std = standardDeviation(grayscale.pixels(), mean);
+        double sharpnessScore = normalize(laplacianVariance(grayscale.pixels()), 20, 900);
         double brightnessScore = 1.0 - Math.min(1.0, Math.abs(mean - 128.0) / 128.0);
         double contrastScore = normalize(std, 20, 80);
 
@@ -407,6 +538,77 @@ public final class FFmpegUtil {
 
         image.flush();
         return new FrameScore(framePath, second, sharpnessScore, brightnessScore, contrastScore, mean, std, total);
+    }
+
+    private static BufferedImage readScoringImage(Path framePath) {
+        BufferedImage image;
+        try {
+            image = ImageIO.read(framePath.toFile());
+        } catch (IOException e) {
+            return null;
+        }
+        if (image == null || image.getWidth() < 3 || image.getHeight() < 3) {
+            return null;
+        }
+        return image;
+    }
+
+    private record Grayscale(double[][] pixels, double mean) {
+    }
+
+    private static Grayscale toGrayscale(BufferedImage image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        double[][] gray = new double[height][width];
+        // 整行取像素，避免逐点 getRGB 的边界开销。
+        int[] row = new int[width];
+        double sum = 0;
+        for (int y = 0; y < height; y++) {
+            row = image.getRGB(0, y, width, 1, row, 0, width);
+            for (int x = 0; x < width; x++) {
+                int rgb = row[x];
+                int red = (rgb >> 16) & 0xff;
+                int green = (rgb >> 8) & 0xff;
+                int blue = rgb & 0xff;
+                double value = 0.299 * red + 0.587 * green + 0.114 * blue;
+                gray[y][x] = value;
+                sum += value;
+            }
+        }
+        return new Grayscale(gray, sum / (width * height));
+    }
+
+    private static double standardDeviation(double[][] gray, double mean) {
+        int height = gray.length;
+        int width = gray[0].length;
+        double variance = 0;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                double difference = gray[y][x] - mean;
+                variance += difference * difference;
+            }
+        }
+        variance /= (width * height);
+        return Math.sqrt(variance);
+    }
+
+    private static double laplacianVariance(double[][] gray) {
+        int height = gray.length;
+        int width = gray[0].length;
+        // 近似拉普拉斯（4 邻域），方差越大通常越清晰。
+        double lapSum = 0;
+        double lapSqSum = 0;
+        int count = 0;
+        for (int y = 1; y < height - 1; y++) {
+            for (int x = 1; x < width - 1; x++) {
+                double lap = 4 * gray[y][x] - gray[y - 1][x] - gray[y + 1][x] - gray[y][x - 1] - gray[y][x + 1];
+                lapSum += lap;
+                lapSqSum += lap * lap;
+                count++;
+            }
+        }
+        double lapMean = lapSum / Math.max(1, count);
+        return (lapSqSum / Math.max(1, count)) - lapMean * lapMean;
     }
 
     private static double normalize(double v, double low, double high) {
@@ -422,47 +624,82 @@ public final class FFmpegUtil {
     }
 
     private static CommandResult runCommand(List<String> command, Duration timeout) {
-        ProcessBuilder pb = new ProcessBuilder(command);
-        pb.redirectErrorStream(true);
-        StringBuilder out = new StringBuilder();
+        return runCommand(command, timeout, null);
+    }
+
+    private static CommandResult runCommand(List<String> command, Duration timeout, HlsProgress progress) {
+        ProcessBuilder builder = new ProcessBuilder(command);
+        builder.redirectErrorStream(true);
+        StringBuilder output = new StringBuilder();
         Process process = null;
         try {
-            process = pb.start();
-            final Process proc = process;
-            // 输出在独立线程消费: 网络输入可能长时间无输出, 阻塞读会令 waitFor 超时失效
-            Thread reader = new Thread(() -> {
-                try (BufferedReader br = new BufferedReader(
-                        new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = br.readLine()) != null) {
-                        synchronized (out) {
-                            out.append(line.replaceAll("https?://[^\\s\"<>]+", "[redacted-url]")).append('\n');
-                            if (out.length() > 262144) out.delete(0, out.length() - 262144);
-                        }
-                    }
-                } catch (IOException ignored) {
-                    // 进程被销毁时流关闭, 属预期
-                }
-            });
-            reader.setDaemon(true);
-            reader.start();
-            boolean finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            process = builder.start();
+            Thread reader = startOutputReader(process, output, progress);
+            boolean finished = waitForProcess(process, timeout, progress, reader);
             if (!finished) {
-                process.destroyForcibly();
-                process.waitFor(5, TimeUnit.SECONDS);
-                synchronized (out) {
-                    out.append("process timeout");
+                stopProcess(process);
+                synchronized (output) {
+                    output.append("process timeout");
                 }
-                return new CommandResult(-1, out.toString());
+                return new CommandResult(-1, output.toString());
             }
+
             reader.join(1000);
-            return new CommandResult(process.exitValue(), out.toString());
+            return new CommandResult(process.exitValue(), output.toString());
+        } catch (HlsTimeoutException e) {
+            throw e;
         } catch (Exception e) {
             if (process != null) {
                 process.destroyForcibly();
             }
-            return new CommandResult(-1, out + e.getMessage());
+            return new CommandResult(-1, output + e.getMessage());
         }
+    }
+
+    private static Thread startOutputReader(Process process, StringBuilder out, HlsProgress progress) {
+        // 独立线程消费输出，避免阻塞读使主线程的超时检测失效。
+        Thread reader = new Thread(() -> {
+            try (BufferedReader br = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    if (progress != null) progress.accept(line, System.nanoTime());
+                    synchronized (out) {
+                        out.append(line.replaceAll("https?://[^\\s\"<>]+", "[redacted-url]")).append('\n');
+                        if (out.length() > 262144) out.delete(0, out.length() - 262144);
+                    }
+                }
+            } catch (IOException ignored) {
+                // 进程被销毁时流关闭, 属预期
+            }
+        });
+        reader.setDaemon(true);
+        reader.start();
+        return reader;
+    }
+
+    private static boolean waitForProcess(Process process, Duration timeout, HlsProgress progress, Thread reader)
+            throws InterruptedException {
+        if (progress == null) {
+            return process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        }
+
+        while (process.isAlive()) {
+            long now = System.nanoTime();
+            HlsTimeoutReason reason = progress.timeoutReason(now);
+            if (reason != null) {
+                stopProcess(process);
+                reader.join(1000);
+                throw new HlsTimeoutException(reason);
+            }
+            process.waitFor(progress.waitNanos(now), TimeUnit.NANOSECONDS);
+        }
+        return true;
+    }
+
+    private static void stopProcess(Process process) throws InterruptedException {
+        process.destroyForcibly();
+        process.waitFor(5, TimeUnit.SECONDS);
     }
 
     private static String tail(String output) {

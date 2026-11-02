@@ -1,7 +1,9 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.transcode.domain.enums.PreparationState;
+import cn.diaojiahong.myyoutube.transcode.domain.enums.PreparationItemStatus;
+import cn.diaojiahong.myyoutube.common.media.HlsPlaylist;
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
-
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.*;
@@ -16,13 +18,17 @@ import cn.diaojiahong.myyoutube.transcode.task.PrepareTaskExecutor;
 import cn.diaojiahong.myyoutube.video.api.MediaDraftPort;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import cn.diaojiahong.myyoutube.transcode.ffmpeg.FFmpegUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.transaction.support.TransactionTemplate;
-
 import javax.sql.DataSource;
 import java.nio.file.*;
 import java.util.*;
@@ -50,10 +56,12 @@ class PreparationWorkflowTest {
     PreparationStorage storage;
     PreparedImageWriter images;
     PreparedVideoReader videos;
+    PreparedVideoWriter playbackWriter;
     S3StorageUtil urls;
     PrepareTaskExecutor executor;
     Map<String, PreparationStorage.Source> objects;
     io.micrometer.core.instrument.simple.SimpleMeterRegistry samplingMetrics;
+    @TempDir Path nativeWork;
 
     Request request() {
         var media = new DynamicMedia("horizontal", 1920, 1080, "cut", 0,
@@ -84,6 +92,7 @@ class PreparationWorkflowTest {
         storage = mock(PreparationStorage.class);
         images = mock(PreparedImageWriter.class);
         videos = mock(PreparedVideoReader.class);
+        playbackWriter = mock(PreparedVideoWriter.class);
         urls = mock(S3StorageUtil.class);
         samplingMetrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         executor = new PrepareTaskExecutor(
@@ -91,10 +100,30 @@ class PreparationWorkflowTest {
                 storage,
                 images,
                 videos,
+                playbackWriter,
                 properties,
                 urls,
                 frameSettings,
                 samplingMetrics);
+        when(playbackWriter.write(anyString(), any(), any(PlaybackQuality.class), anyLong())).thenAnswer(call -> {
+            Path directory = call.getArgument(1);
+            Files.createDirectories(directory);
+            Path media = directory.resolve("media.mp4");
+            Path playlist = directory.resolve("index.m3u8");
+            Files.write(media, new byte[]{1, 2, 3, 4});
+            Files.writeString(playlist, "#EXTM3U\n#EXT-X-MAP:URI=\"media.mp4\",BYTERANGE=\"1@0\"\n"
+                    + "#EXTINF:4.0,\n#EXT-X-BYTERANGE:3@1\nmedia.mp4\n#EXT-X-ENDLIST\n");
+            PlaybackQuality quality = call.getArgument(2);
+            int width = quality.code() * 2;
+            int height = quality.code();
+            if (quality == PlaybackQuality.SOURCE) {
+                PreparedVideoReader.Probe probe = videos.probe(call.getArgument(0), new byte[0]);
+                boolean rotated = Math.floorMod(probe.rotation(), 180) != 0;
+                width = rotated ? probe.height() : probe.width();
+                height = rotated ? probe.width() : probe.height();
+            }
+            return new PreparedVideoWriter.Result(playlist, media, width, height, 1000000, new PlaybackMetadata("avc1.64001f,mp4a.40.2", 1000000, 25));
+        });
         objects = new HashMap<>();
         for (String key : List.of("upload/a", "upload/b", "upload/video"))
             objects.put(key, new PreparationStorage.Source(key, "v1", "source-etag", 10));
@@ -127,7 +156,7 @@ class PreparationWorkflowTest {
                             key));
             objects.put(key, new PreparationStorage.Source(key, null, "output-etag", Files.size(call.getArgument(0))));
             return null;
-        }).when(storage).upload(any(), anyString());
+        }).when(storage).upload(any(), anyString(), anyString());
     }
 
     MediaTaskMessage claim() {
@@ -201,7 +230,7 @@ class PreparationWorkflowTest {
         }).when(images).write(any(), any());
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> executor.execute(first));
         tasks.completeAndAdvance(first, null, error.getMessage());
-        assertEquals("READY", registry.find(101L, "OCR_IMAGE", 0).getStatus());
+        assertEquals(PreparationItemStatus.READY, registry.find(101L, ItemRole.OCR_IMAGE, 0).getStatus());
         assertEquals(MediaTaskStatus.RETRY_WAIT, registry.view(101L).status());
         due();
         MediaTaskMessage second = claim();
@@ -214,7 +243,7 @@ class PreparationWorkflowTest {
         assertEquals(3000, manifest.items().get(3).timeMs());
         assertEquals(manifest.items().get(2).objectKey(), manifest.items().get(3).originalObjectKey());
         assertFalse(manifest.hasAudio());
-        verify(storage, times(2)).upload(any(), anyString());
+        verify(storage, times(2)).upload(any(), anyString(), anyString());
         assertTrue(tasks.listByDraft(101L).get(0).getCompletionAck());
     }
 
@@ -231,15 +260,15 @@ class PreparationWorkflowTest {
                 tasks.recover();
             }
             return null;
-        }).when(storage).upload(any(), anyString());
+        }).when(storage).upload(any(), anyString(), anyString());
         assertThrows(IllegalStateException.class, () -> executor.execute(old));
-        assertEquals("PLANNED", registry.find(101L, "OCR_IMAGE", 0).getStatus());
-        assertThrows(IllegalStateException.class, () -> registry.reserve(old, "FRAME", 0, null));
+        assertEquals(PreparationItemStatus.PLANNED, registry.find(101L, ItemRole.OCR_IMAGE, 0).getStatus());
+        assertThrows(IllegalStateException.class, () -> registry.reserve(old, ItemRole.FRAME, 0, null));
         tasks.completeAndAdvance(old, "{}", null);
         assertEquals(MediaTaskStatus.RETRY_WAIT, registry.view(101L).status());
         due();
         assertNotNull(succeed(claim()));
-        verify(storage, times(2)).upload(any(), anyString());
+        verify(storage, times(2)).upload(any(), anyString(), anyString());
     }
 
     @Test
@@ -314,7 +343,7 @@ class PreparationWorkflowTest {
         registry.start(request);
         when(urls.signGetUrl(anyString(), anyLong())).thenReturn("protected-source");
         when(urls.readHeadBytes(anyString(), anyInt())).thenReturn(new byte[10]);
-        var probe = new PreparedVideoReader.Probe(30000, 320, 180, 0, false, "High", 42, 30);
+        var probe = new PreparedVideoReader.Probe(30000, 1920, 1080, 0, false, "High", 42, 30);
         when(videos.probe(anyString(), any())).thenReturn(probe);
         var failed = new AtomicBoolean();
         var decoded = new ArrayList<Integer>();
@@ -338,11 +367,11 @@ class PreparationWorkflowTest {
         tasks.completeAndAdvance(first, null, "frame unavailable");
         due();
         PreparationContracts.Manifest manifest = succeed(claim());
-        assertEquals(7, manifest.items().size());
+        assertEquals(13, manifest.items().size());
         assertEquals(6, manifest.videoFrameCount());
         assertEquals(List.of(0, 1, 2, 3, 4, 5), decoded);
         assertEquals(510, manifest.items().get(6).timeMs());
-        verify(storage, times(6)).upload(any(), anyString());
+        verify(storage, times(6)).upload(any(), anyString(), eq("image/jpeg"));
         verifyNoInteractions(images);
         assertFalse(manifest.hasAudio());
     }
@@ -368,8 +397,8 @@ class PreparationWorkflowTest {
         when(urls.readHeadBytes(anyString(), anyInt())).thenReturn(new byte[10]);
         when(videos.probe(anyString(), any())).thenReturn(new PreparedVideoReader.Probe(
                 50000,
-                320,
-                180,
+                1920,
+                1080,
                 0,
                 false,
                 "High",
@@ -393,6 +422,33 @@ class PreparationWorkflowTest {
     }
 
     @Test
+    void executionBudgetChangesDoNotInvalidatePreparedArtifacts() {
+        String before = registry.parameterVersion();
+        properties.getPlayback().setDurationMultiplier(2.0);
+        properties.getPlayback().setStartupTimeout(java.time.Duration.ofMinutes(3));
+        properties.getPlayback().setStallTimeout(java.time.Duration.ofMinutes(4));
+        assertEquals(before, registry.parameterVersion());
+    }
+
+    @Test
+    void eachLongVideoRenditionGetsAFreshSourceSignatureCoveringItsBudget() throws Exception {
+        mockVideoSamples(Set.of(), new ArrayList<>());
+        long durationMs = java.time.Duration.ofHours(2).toMillis();
+        when(videos.probe(anyString(), any())).thenReturn(
+                new PreparedVideoReader.Probe(durationMs, 1920, 1080, 0, false, "High", 42, 25));
+        long expectedTtl = java.time.Duration.ofMinutes(362).toSeconds() + 300;
+        when(urls.signGetUrl(anyString(), eq(expectedTtl))).thenReturn("fresh-480", "fresh-720", "fresh-source");
+
+        Manifest manifest = succeed(claim());
+
+        assertEquals(durationMs, manifest.durationMs());
+        verify(playbackWriter).write(eq("fresh-480"), any(), eq(PlaybackQuality.P480), eq(durationMs));
+        verify(playbackWriter).write(eq("fresh-720"), any(), eq(PlaybackQuality.P720), eq(durationMs));
+        verify(playbackWriter).write(eq("fresh-source"), any(), eq(PlaybackQuality.SOURCE), eq(durationMs));
+        verify(urls, times(3)).signGetUrl(anyString(), eq(expectedTtl));
+    }
+
+    @Test
     void toleratedVideoFreezesActualSlotsAndSurvivesStricterConfiguration() throws Exception {
         mockVideoSamples(Set.of(2, 7), new ArrayList<>());
         PreparationContracts.Manifest manifest = succeed(claim());
@@ -411,7 +467,7 @@ class PreparationWorkflowTest {
                 .tag("outcome", "TOLERATED")
                 .counter()
                 .count());
-        verify(storage, times(8)).upload(any(), anyString());
+        verify(storage, times(8)).upload(any(), anyString(), eq("image/jpeg"));
     }
 
     @Test
@@ -434,7 +490,7 @@ class PreparationWorkflowTest {
         assertEquals(
                 List.of(0, 1, 3, 4, 5, 6, 8, 9),
                 PreparedMedia.videoFrames(manifest).stream().map(Item::index).toList());
-        verify(storage, times(8)).upload(any(), anyString());
+        verify(storage, times(8)).upload(any(), anyString(), eq("image/jpeg"));
         assertEquals(1, samplingMetrics.get(MetricNames.MEDIA_VIDEO_SAMPLING_ATTEMPTS)
                 .tag("outcome", "INSUFFICIENT_FRAMES")
                 .counter()
@@ -458,7 +514,7 @@ class PreparationWorkflowTest {
         PreparationContracts.Manifest manifest = succeed(claim());
         assertEquals(9, manifest.videoFrameCount());
         assertEquals(2, decoded.get(decoded.size() - 1));
-        verify(storage, times(9)).upload(any(), anyString());
+        verify(storage, times(9)).upload(any(), anyString(), eq("image/jpeg"));
         assertEquals(1, samplingMetrics.get(MetricNames.MEDIA_VIDEO_SAMPLING_ATTEMPTS)
                 .tag("outcome", "COVERAGE_GAP")
                 .counter()
@@ -466,10 +522,187 @@ class PreparationWorkflowTest {
     }
 
     @Test
+    void encodingArgumentsAndEffectiveThreadsChangePreparationVersion() {
+        String before = registry.parameterVersion();
+        int originalThreads = properties.getPlayback().getThreads();
+        int effectiveThreads = properties.playbackThreads();
+        properties.getPlayback().setThreads(effectiveThreads + 1);
+        assertNotEquals(before, registry.parameterVersion());
+        properties.getPlayback().setThreads(originalThreads);
+        assertEquals(before, registry.parameterVersion());
+
+        try (org.mockito.MockedStatic<FFmpegUtil> ffmpeg = mockStatic(FFmpegUtil.class, CALLS_REAL_METHODS)) {
+            ffmpeg.when(() -> FFmpegUtil.hlsEncodingArguments(any(PlaybackQuality.class), anyInt()))
+                    .thenAnswer(call -> {
+                        @SuppressWarnings("unchecked")
+                        List<String> original = (List<String>) call.callRealMethod();
+                        return original.stream().map(value -> "veryfast".equals(value) ? "fast" : value).toList();
+                    });
+            assertNotEquals(before, registry.parameterVersion());
+        }
+    }
+
+    @Test
     void successRatioChangesPreparationFingerprintEvenWhenTargetIsUnchanged() {
         String before = registry.parameterVersion();
         frameSettings.replace("interval-seconds: 5\nmax-frames: 10\nmin-success-percent: 90\ncover-max-candidates: 8\nocr-batch-size: 2\nreview-batch-size: 4");
         assertNotEquals(before, registry.parameterVersion());
+    }
+
+    @Test
+    void originalPlaybackDimensionsFollowDisplayRotation() throws Exception {
+        mockVideoSamples(Set.of(), new ArrayList<>());
+        when(videos.probe(anyString(), any())).thenReturn(new PreparedVideoReader.Probe(
+                50000, 180, 320, 90, false, "High", 42, 30));
+        Manifest manifest = succeed(claim());
+        Item original = manifest.items().stream().filter(item -> ItemRole.VIDEO.equals(item.role()))
+                .findFirst().orElseThrow();
+        assertEquals(320, original.width());
+        assertEquals(180, original.height());
+        Item highest = manifest.items().stream().filter(item -> ItemRole.HLS_MEDIA.equals(item.role()))
+                .findFirst().orElseThrow();
+        assertEquals(PlaybackQuality.SOURCE.code(), highest.index());
+        assertEquals(320, highest.width());
+        assertEquals(180, highest.height());
+        verify(playbackWriter).write(anyString(), any(), eq(PlaybackQuality.SOURCE), eq(50000L));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PlaybackQuality.class, names = {"P720", "SOURCE"})
+    void playlistUploadFailureResumesExactPairWithoutReencoding(PlaybackQuality quality) throws Exception {
+        mockVideoSamples(Set.of(), new ArrayList<>());
+        var fail = new AtomicBoolean(true);
+        var uploadedPlaylists = new ArrayList<String>();
+        doAnswer(call -> {
+            String text = Files.readString(call.getArgument(0));
+            String key = call.getArgument(1);
+            if (key.contains("hls_playlist-" + quality.code() + "-")) {
+                uploadedPlaylists.add(text);
+                if (fail.getAndSet(false)) throw new IllegalStateException("playlist storage unavailable");
+            }
+            objects.put(key, new PreparationStorage.Source(key, null, "playlist-etag", Files.size(call.getArgument(0))));
+            return null;
+        }).when(storage).upload(any(), anyString(), eq(HlsPlaylist.CONTENT_TYPE));
+        MediaTaskMessage first = claim();
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> executor.execute(first));
+        assertEquals(PreparationItemStatus.READY, registry.find(101L, ItemRole.HLS_MEDIA, quality.code()).getStatus());
+        assertEquals(PreparationItemStatus.READY, registry.find(101L, ItemRole.HLS_PLAYLIST, 480).getStatus());
+        assertEquals(PreparationItemStatus.PLANNED, registry.find(101L, ItemRole.HLS_PLAYLIST, quality.code()).getStatus());
+        assertNull(registry.view(101L).manifest());
+        tasks.completeAndAdvance(first, null, error.getMessage());
+        due();
+        Manifest manifest = succeed(claim());
+        assertNotNull(manifest);
+        assertEquals(uploadedPlaylists.get(0), uploadedPlaylists.get(1));
+        String mediaKey = registry.find(101L, ItemRole.HLS_MEDIA, quality.code()).getObjectKey();
+        assertTrue(uploadedPlaylists.get(1).contains(mediaKey.substring(mediaKey.lastIndexOf('/') + 1)));
+        assertFalse(uploadedPlaylists.get(1).contains("media.mp4"));
+        verify(playbackWriter, times(3)).write(anyString(), any(), any(PlaybackQuality.class), anyLong());
+        verify(playbackWriter).write(anyString(), any(), eq(PlaybackQuality.P480), anyLong());
+        verify(playbackWriter).write(anyString(), any(), eq(PlaybackQuality.P720), anyLong());
+        verify(playbackWriter).write(anyString(), any(), eq(PlaybackQuality.SOURCE), anyLong());
+        verify(storage, times(1)).upload(any(), eq(mediaKey), eq(HlsPlaylist.MEDIA_CONTENT_TYPE));
+    }
+
+    @Test
+    void reusedPlaybackObjectsAreInspectedOncePerAttempt() throws Exception {
+        mockVideoSamples(Set.of(), new ArrayList<>());
+        MediaTaskMessage task = claim();
+        Manifest first = JsonUtil.fromJson(executor.execute(task), Manifest.class);
+        clearInvocations(storage, playbackWriter);
+        Manifest second = JsonUtil.fromJson(executor.execute(task), Manifest.class);
+        assertEquals(first, second);
+        for (Item item : second.items()) {
+            if (ItemRole.HLS_MEDIA.equals(item.role()) || ItemRole.HLS_PLAYLIST.equals(item.role()))
+                verify(storage, times(1)).inspectIfPresent(item.objectKey());
+        }
+        verifyNoInteractions(playbackWriter);
+    }
+
+    @Test
+    void changedRegeneratedMediaCannotBeCombinedWithPlannedPlaylist() throws Exception {
+        mockVideoSamples(Set.of(), new ArrayList<>());
+        doThrow(new IllegalStateException("video storage unavailable")).when(storage)
+                .upload(any(), anyString(), eq(HlsPlaylist.MEDIA_CONTENT_TYPE));
+        MediaTaskMessage first = claim();
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> executor.execute(first));
+        tasks.completeAndAdvance(first, null, error.getMessage());
+        // 同样长度但内容不同，不能仅用大小判断它仍与原目录匹配。
+        doAnswer(call -> {
+            Path directory = call.getArgument(1);
+            Files.createDirectories(directory);
+            Path media = directory.resolve("media.mp4"), playlist = directory.resolve("index.m3u8");
+            Files.write(media, new byte[]{4, 3, 2, 1});
+            Files.writeString(playlist, "changed");
+            PlaybackQuality quality = call.getArgument(2);
+            int width = quality.code() * 2;
+            int height = quality.code();
+            if (quality == PlaybackQuality.SOURCE) {
+                PreparedVideoReader.Probe probe = videos.probe(call.getArgument(0), new byte[0]);
+                boolean rotated = Math.floorMod(probe.rotation(), 180) != 0;
+                width = rotated ? probe.height() : probe.width();
+                height = rotated ? probe.width() : probe.height();
+            }
+            return new PreparedVideoWriter.Result(playlist, media, width, height, 1000000, new PlaybackMetadata("avc1.64001f,mp4a.40.2", 1000000, 25));
+        }).when(playbackWriter).write(anyString(), any(), any(PlaybackQuality.class), anyLong());
+        due();
+        MediaTaskMessage second = claim();
+        IllegalStateException mismatch = assertThrows(IllegalStateException.class, () -> executor.execute(second));
+        assertEquals("Playback output differs from registered pair", mismatch.getMessage());
+        tasks.completeAndAdvance(second, null, mismatch.getMessage());
+        assertNull(registry.view(101L).manifest());
+        verify(storage, times(1)).upload(any(), anyString(), eq(HlsPlaylist.MEDIA_CONTENT_TYPE));
+        verify(storage, never()).upload(any(), anyString(), eq(HlsPlaylist.CONTENT_TYPE));
+    }
+
+    @Test
+    void releasedVideoReclaimsPlaybackPairAfterGracePeriod() throws Exception {
+        mockVideoSamples(Set.of(), new ArrayList<>());
+        Manifest manifest = succeed(claim());
+        PreparationReclaimer cleaner = reclaimer(released());
+        cleaner.reclaim();
+        verify(storage, never()).delete(anyString());
+        reclaimDue(true);
+        cleaner.reclaim();
+        for (PlaybackQuality quality : PlaybackQuality.forVideo(1920, 1080)) {
+            for (ItemRole role : java.util.List.of(ItemRole.HLS_MEDIA, ItemRole.HLS_PLAYLIST)) {
+                PreparationItem item = registry.find(101L, role, quality.code());
+                assertEquals(PreparationItemStatus.DELETED, item.getStatus());
+                verify(storage).delete(item.getObjectKey());
+            }
+        }
+        assertEquals(17, manifest.items().size());
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "hls.native", matches = "true")
+    void nativePreparationProducesDecodableRegisteredPlaylist() throws Exception {
+        Path source = nativeWork.resolve("source.mp4");
+        FFmpegUtil.CommandOutput created = FFmpegUtil.runBoundedCommand(List.of(
+                "ffmpeg", "-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=25",
+                "-t", "9.2", "-c:v", "libx264", "-pix_fmt", "yuv420p", source.toString()), java.time.Duration.ofSeconds(30));
+        assertEquals(0, created.exitCode(), created.output());
+        mockVideoSamples(Set.of(), new ArrayList<>());
+        when(urls.signGetUrl(anyString(), anyLong())).thenReturn(source.toString());
+        when(videos.probe(anyString(), any())).thenReturn(new PreparedVideoReader.Probe(9200, 1920, 1080, 0, false, "High", 42, 25));
+        executor = new PrepareTaskExecutor(registry, storage, images, videos, new PreparedVideoWriter(properties),
+                properties, urls, frameSettings, samplingMetrics);
+        doAnswer(call -> {
+            String key = call.getArgument(1);
+            Path file = call.getArgument(0);
+            Files.copy(file, nativeWork.resolve(key.substring(key.lastIndexOf('/') + 1)));
+            objects.put(key, new PreparationStorage.Source(key, null, "playback-etag", Files.size(file)));
+            return null;
+        }).when(storage).upload(any(), anyString(), argThat(type -> !"image/jpeg".equals(type)));
+        Manifest manifest = succeed(claim());
+        Item playlist = manifest.items().stream().filter(item -> ItemRole.HLS_PLAYLIST.equals(item.role()))
+                .findFirst().orElseThrow();
+        Path file = nativeWork.resolve(playlist.objectKey().substring(playlist.objectKey().lastIndexOf('/') + 1));
+        FFmpegUtil.CommandOutput decoded = FFmpegUtil.runBoundedCommand(List.of("ffmpeg", "-v", "error", "-xerror",
+                "-i", file.toString(), "-f", "null", "-"), java.time.Duration.ofSeconds(30));
+        assertEquals(0, decoded.exitCode(), decoded.output());
+        assertEquals(9200, manifest.durationMs());
+        assertEquals(9, manifest.items().size());
     }
 
     @Test
@@ -481,7 +714,7 @@ class PreparationWorkflowTest {
                 throw new IllegalStateException("storage unavailable");
             objects.put(key, new PreparationStorage.Source(key, null, "output-etag", Files.size(call.getArgument(0))));
             return null;
-        }).when(storage).upload(any(), anyString());
+        }).when(storage).upload(any(), anyString(), anyString());
         MediaTaskMessage task = claim();
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> executor.execute(task));
         assertEquals("storage unavailable", error.getMessage());
@@ -499,7 +732,7 @@ class PreparationWorkflowTest {
     void retirementReclaimsPlannedObjectOmittedFromToleratedManifest() throws Exception {
         mockVideoSamples(Set.of(2, 7), new ArrayList<>());
         MediaTaskMessage task = claim();
-        PreparationItem pending = registry.reserve(task, "FRAME", 2, null);
+        PreparationItem pending = registry.reserve(task, ItemRole.FRAME, 2, null);
         registry.planned(task, pending, "{\"bytes\":4,\"timeMs\":10000,\"width\":320,\"height\":180}");
         objects.put(
                 pending.getObjectKey(),
@@ -512,7 +745,7 @@ class PreparationWorkflowTest {
         reclaimDue(true);
         cleaner.reclaim();
         verify(storage).delete(pending.getObjectKey());
-        assertEquals("DELETED", registry.find(101L, "FRAME", 2).getStatus());
+        assertEquals(PreparationItemStatus.DELETED, registry.find(101L, ItemRole.FRAME, 2).getStatus());
     }
 
     @Test
@@ -554,7 +787,7 @@ class PreparationWorkflowTest {
         registry.start(request());
         MediaTaskMessage first = claim();
         String result = executor.execute(first);
-        PreparationItem image = registry.find(101L, "OCR_IMAGE", 0);
+        PreparationItem image = registry.find(101L, ItemRole.OCR_IMAGE, 0);
         objects.put(image.getObjectKey(), new PreparationStorage.Source(image.getObjectKey(), null, "changed", 9));
         assertThrows(IllegalStateException.class, () -> executor.execute(first));
         assertNull(registry.view(101L).manifest());
@@ -567,13 +800,13 @@ class PreparationWorkflowTest {
         registry.start(request());
         MediaTaskMessage first = claim();
         executor.execute(first);
-        PreparationItem image = registry.find(101L, "OCR_IMAGE", 0);
+        PreparationItem image = registry.find(101L, ItemRole.OCR_IMAGE, 0);
         objects.remove(image.getObjectKey());
         objects.remove("upload/a");
         objects.remove("upload/b");
         PreparationContracts.Manifest manifest = succeed(first);
         assertEquals(4, manifest.items().size());
-        verify(storage, times(3)).upload(any(), anyString());
+        verify(storage, times(3)).upload(any(), anyString(), anyString());
         verify(storage, times(2)).freeze(any(), anyString());
     }
 
@@ -594,7 +827,7 @@ class PreparationWorkflowTest {
         PreparationContracts.Manifest manifest = succeed(claim());
         assertTrue(manifest.hasAudio());
         assertEquals(6000, manifest.durationMs());
-        assertEquals("AUDIO", manifest.items().get(4).role());
+        assertEquals(ItemRole.AUDIO, manifest.items().get(4).role());
         assertTrue(manifest.items().get(4).objectKey().startsWith("media-prepared/"));
         assertEquals(3000, manifest.items().get(3).timeMs());
     }
@@ -634,13 +867,13 @@ class PreparationWorkflowTest {
             when(video.preparationReference(any())).thenReturn(reference);
             reclaimDue(false);
             cleaner.reclaim();
-            assertEquals("ACTIVE", registry.get(101L).getLifecycle());
+            assertEquals(PreparationState.ACTIVE, registry.get(101L).getLifecycle());
         }
         when(video.preparationReference(any())).thenThrow(new IllegalStateException("video unavailable"));
         reclaimDue(false);
         cleaner.reclaim();
         verify(storage, never()).delete(anyString());
-        assertEquals("ACTIVE", registry.get(101L).getLifecycle());
+        assertEquals(PreparationState.ACTIVE, registry.get(101L).getLifecycle());
     }
 
     @Test
@@ -648,20 +881,20 @@ class PreparationWorkflowTest {
         registry.start(request());
         PreparationReclaimer cleaner = reclaimer(released());
         cleaner.reclaim();
-        assertEquals("ACTIVE", registry.get(101L).getLifecycle());
+        assertEquals(PreparationState.ACTIVE, registry.get(101L).getLifecycle());
         MediaTaskMessage execution = claim();
         reclaimDue(false);
         cleaner.reclaim();
-        assertEquals("ACTIVE", registry.get(101L).getLifecycle());
+        assertEquals(PreparationState.ACTIVE, registry.get(101L).getLifecycle());
         tasks.completeAndAdvance(execution, executor.execute(execution), null);
         jdbc.update("INSERT INTO media_task(id,owner_id,pipeline_id,phase,task_type,status,dependencies_json) VALUES(500,1,NULL,'REVIEW','REVIEW','RETRY_WAIT','{}')");
         reclaimDue(false);
         cleaner.reclaim();
-        assertEquals("ACTIVE", registry.get(101L).getLifecycle());
+        assertEquals(PreparationState.ACTIVE, registry.get(101L).getLifecycle());
         jdbc.update("UPDATE media_task SET status='DEAD' WHERE id=500");
         reclaimDue(false);
         cleaner.reclaim();
-        assertEquals("RETIRED", registry.get(101L).getLifecycle());
+        assertEquals(PreparationState.RETIRED, registry.get(101L).getLifecycle());
         verify(storage, never()).delete(anyString());
     }
 
@@ -670,7 +903,7 @@ class PreparationWorkflowTest {
         finishPreparation();
         PreparationReclaimer cleaner = reclaimer(released());
         cleaner.reclaim();
-        assertEquals("RETIRED", registry.get(101L).getLifecycle());
+        assertEquals(PreparationState.RETIRED, registry.get(101L).getLifecycle());
         assertThrows(IllegalStateException.class, () -> registry.start(request()));
         assertThrows(IllegalStateException.class, () -> tasks.retryPreparation(101L));
         jdbc.update("UPDATE media_task SET status='READY'");
@@ -726,7 +959,7 @@ class PreparationWorkflowTest {
     void allocatedOrphanObjectIsReclaimedAfterDeadTask() {
         registry.start(request());
         MediaTaskMessage execution = claim();
-        PreparationItem item = registry.reserve(execution, "IMAGE", 0, "{}");
+        PreparationItem item = registry.reserve(execution, ItemRole.IMAGE, 0, "{}");
         jdbc.update("UPDATE media_task SET status='DEAD'");
         PreparationReclaimer cleaner = reclaimer(released());
         cleaner.reclaim();
@@ -734,6 +967,22 @@ class PreparationWorkflowTest {
         cleaner.reclaim();
         verify(storage).delete(item.getObjectKey());
         assertThrows(IllegalStateException.class, () -> registry.confirmed(execution, item));
+    }
+
+    @Test
+    void retiredPreparationRollsBackFirstPipelineRegistration() throws Exception {
+        finishPreparation();
+        PreparedMedia.Snapshot frozen = PreparedMedia.freeze(request(), registry.view(101L).manifest());
+        var input = new PipelineContracts.Input(100L, 1L, 9L, "标题", "", "",
+                frozen.coverObjectKey(), frozen.media(), System.currentTimeMillis());
+        jdbc.update("UPDATE media_preparation SET lifecycle='RETIRED' WHERE id=101");
+        reset(dispatcher);
+
+        assertThrows(IllegalStateException.class, () -> tasks.start(input));
+
+        assertNull(pipelines.selectById(100L));
+        assertTrue(tasks.listPipeline(100L, "CONTENT").isEmpty());
+        verifyNoInteractions(dispatcher);
     }
 
     @Test
@@ -753,12 +1002,12 @@ class PreparationWorkflowTest {
         tasks.start(input);
         PreparationReclaimer cleaner = reclaimer(released());
         cleaner.reclaim();
-        assertEquals("ACTIVE", registry.get(101L).getLifecycle());
+        assertEquals(PreparationState.ACTIVE, registry.get(101L).getLifecycle());
         jdbc.update("UPDATE media_task SET status='DEAD' WHERE phase='CONTENT'");
         jdbc.update("UPDATE media_pipeline SET status='WAITING_ARTIFACTS' WHERE id=100");
         reclaimDue(false);
         cleaner.reclaim();
-        assertEquals("RETIRED", registry.get(101L).getLifecycle());
+        assertEquals(PreparationState.RETIRED, registry.get(101L).getLifecycle());
         assertThrows(IllegalStateException.class, () -> tasks.retry(100L));
         assertThrows(IllegalStateException.class, () -> tasks.start(input));
         MediaTask row = tasks.listPipeline(100L, "CONTENT").get(0);
@@ -794,10 +1043,10 @@ class PreparationWorkflowTest {
         cleanup.join();
         boolean retried = retry.join();
         if (retried) {
-            assertEquals("ACTIVE", registry.get(101L).getLifecycle());
+            assertEquals(PreparationState.ACTIVE, registry.get(101L).getLifecycle());
             assertEquals(MediaTaskStatus.READY, tasks.listByDraft(101L).get(0).getStatus());
         } else {
-            assertEquals("RETIRED", registry.get(101L).getLifecycle());
+            assertEquals(PreparationState.RETIRED, registry.get(101L).getLifecycle());
             assertEquals(MediaTaskStatus.DEAD, tasks.listByDraft(101L).get(0).getStatus());
         }
         verify(storage, never()).delete(anyString());
@@ -831,15 +1080,15 @@ class PreparationWorkflowTest {
         finishPreparation();
         clearInvocations(storage, images);
         PreparationContracts.Manifest manifest = prepareNext(reordered());
-        assertEquals(registry.find(101L, "IMAGE", 1).getObjectKey(), manifest.items().get(0).objectKey());
-        assertEquals(registry.find(101L, "OCR_IMAGE", 0).getObjectKey(), manifest.items().get(3).objectKey());
+        assertEquals(registry.find(101L, ItemRole.IMAGE, 1).getObjectKey(), manifest.items().get(0).objectKey());
+        assertEquals(registry.find(101L, ItemRole.OCR_IMAGE, 0).getObjectKey(), manifest.items().get(3).objectKey());
         assertEquals(5000, manifest.items().get(3).timeMs());
         PreparedMedia.Snapshot frozen = PreparedMedia.freeze(reordered(), manifest);
         PreparedMedia.validate(frozen.media(), frozen.coverObjectKey());
         assertEquals(8000, frozen.media().durationMs());
         assertEquals(.2, frozen.media().dynamic().items().get(0).focusX());
         verify(storage, never()).freeze(any(), anyString());
-        verify(storage, never()).upload(any(), anyString());
+        verify(storage, never()).upload(any(), anyString(), anyString());
         verifyNoInteractions(images);
     }
 
@@ -853,10 +1102,10 @@ class PreparationWorkflowTest {
         PreparationContracts.Manifest manifest = prepareNext(next);
         assertNotNull(PreparedMedia.freeze(next, manifest));
         verify(storage, times(1)).freeze(any(), anyString());
-        verify(storage, times(1)).upload(any(), anyString());
+        verify(storage, times(1)).upload(any(), anyString(), anyString());
         verify(images, times(1)).write(any(), any());
-        assertEquals(101L, registry.find(102L, "IMAGE", 0).getObjectOwnerId());
-        assertEquals(102L, registry.find(102L, "IMAGE", 1).getObjectOwnerId());
+        assertEquals(101L, registry.find(102L, ItemRole.IMAGE, 0).getObjectOwnerId());
+        assertEquals(102L, registry.find(102L, ItemRole.IMAGE, 1).getObjectOwnerId());
     }
 
     @Test
@@ -884,18 +1133,18 @@ class PreparationWorkflowTest {
         PreparationReclaimer cleaner = reclaimer(video);
         reclaimDue(false);
         cleaner.reclaim();
-        assertEquals("RETIRED", registry.get(101L).getLifecycle());
+        assertEquals(PreparationState.RETIRED, registry.get(101L).getLifecycle());
         reclaimDue(true);
         cleaner.reclaim();
-        verify(storage, never()).delete(registry.find(101L, "IMAGE", 0).getObjectKey());
-        verify(storage).delete(registry.find(101L, "IMAGE", 1).getObjectKey());
-        verify(storage).delete(registry.find(101L, "OCR_IMAGE", 1).getObjectKey());
+        verify(storage, never()).delete(registry.find(101L, ItemRole.IMAGE, 0).getObjectKey());
+        verify(storage).delete(registry.find(101L, ItemRole.IMAGE, 1).getObjectKey());
+        verify(storage).delete(registry.find(101L, ItemRole.OCR_IMAGE, 1).getObjectKey());
         when(video.preparationReference(any())).thenReturn("RELEASED");
         reclaimDue(false);
         cleaner.reclaim();
         reclaimDue(true);
         cleaner.reclaim();
-        verify(storage).delete(registry.find(101L, "IMAGE", 0).getObjectKey());
+        verify(storage).delete(registry.find(101L, ItemRole.IMAGE, 0).getObjectKey());
         assertEquals(
                 0,
                 jdbc.queryForObject(
@@ -909,7 +1158,7 @@ class PreparationWorkflowTest {
         registry.start(reordered());
         MediaTaskMessage execution = claim(102L);
         executor.execute(execution);
-        PreparationItem row = registry.find(102L, "IMAGE", 0);
+        PreparationItem row = registry.find(102L, ItemRole.IMAGE, 0);
         assertThrows(IllegalStateException.class, () -> registry.planned(execution, row, "{}"));
         assertThrows(IllegalStateException.class, () -> registry.confirmed(execution, row));
         tasks.completeAndAdvance(execution, null, "later stage failed");
@@ -943,14 +1192,14 @@ class PreparationWorkflowTest {
         assertTrue(deleting.await(10, java.util.concurrent.TimeUnit.SECONDS));
         registry.start(reordered());
         MediaTaskMessage execution = claim(102L);
-        PreparationItem source = registry.find(101L, "IMAGE", 0);
-        PreparationItem output = registry.find(101L, "OCR_IMAGE", 0);
+        PreparationItem source = registry.find(101L, ItemRole.IMAGE, 0);
+        PreparationItem output = registry.find(101L, ItemRole.OCR_IMAGE, 0);
         assertFalse(registry.shareImages(execution, 0, source, output));
         tasks.completeAndAdvance(execution, null, "lease ended");
         assertThrows(IllegalStateException.class, () -> registry.shareImages(execution, 0, source, output));
         resume.countDown();
         cleanup.join();
-        assertNull(registry.find(102L, "IMAGE", 0));
+        assertNull(registry.find(102L, ItemRole.IMAGE, 0));
     }
 
     @Test
@@ -971,7 +1220,7 @@ class PreparationWorkflowTest {
         finishPreparation();
         PreparationReclaimer cleaner = reclaimer(released());
         cleaner.reclaim();
-        assertEquals("RETIRED", registry.get(101L).getLifecycle());
+        assertEquals(PreparationState.RETIRED, registry.get(101L).getLifecycle());
         clearInvocations(images);
         assertNotNull(PreparedMedia.freeze(reordered(), prepareNext(reordered())));
         verifyNoInteractions(images);
@@ -987,23 +1236,23 @@ class PreparationWorkflowTest {
         assertFalse(registry.shareImages(
                 execution,
                 0,
-                registry.find(101L, "IMAGE", 0),
-                registry.find(101L, "OCR_IMAGE", 0)));
-        assertNull(registry.find(102L, "IMAGE", 0));
+                registry.find(101L, ItemRole.IMAGE, 0),
+                registry.find(101L, ItemRole.OCR_IMAGE, 0)));
+        assertNull(registry.find(102L, ItemRole.IMAGE, 0));
     }
 
     @Test
     void missingOldDerivativeCreatesNewOwnedPairInsteadOfWritingSharedKey() throws Exception {
         finishPreparation();
-        PreparationItem old = registry.find(101L, "OCR_IMAGE", 0);
+        PreparationItem old = registry.find(101L, ItemRole.OCR_IMAGE, 0);
         objects.remove(old.getObjectKey());
         clearInvocations(images, storage);
         PreparationContracts.Manifest manifest = prepareNext(reordered());
         assertNotNull(PreparedMedia.freeze(reordered(), manifest));
-        assertEquals(102L, registry.find(102L, "OCR_IMAGE", 1).getObjectOwnerId());
-        assertNotEquals(old.getObjectKey(), registry.find(102L, "OCR_IMAGE", 1).getObjectKey());
+        assertEquals(102L, registry.find(102L, ItemRole.OCR_IMAGE, 1).getObjectOwnerId());
+        assertNotEquals(old.getObjectKey(), registry.find(102L, ItemRole.OCR_IMAGE, 1).getObjectKey());
         verify(images, times(1)).write(any(), any());
-        verify(storage, never()).upload(any(), eq(old.getObjectKey()));
+        verify(storage, never()).upload(any(), eq(old.getObjectKey()), anyString());
     }
 
 }

@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts.ItemRole;
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
-
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
@@ -60,7 +60,7 @@ public class ContentUnderstandingService {
                 .setSubmissionAck(false).setReceived(false).setRetryRequested(false).setReviewAttempt(0)
                 .setSubmittedAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(submitted), ZoneOffset.UTC));
         understanding.insert(row);
-        observation.record(row, "CONTENT_SUBMITTED", null, "WAITING_PIPELINE");
+        observation.record(row, "CONTENT_SUBMITTED", null, ContentReviewState.WAITING_PIPELINE.name());
         afterCommit(() -> log.info("Content submitted for understanding contentId={} pipelineId={} authorId={} media={}",
                 content.getId(), id, content.getAuthorId(), media.type()));
         afterCommit(() -> submit(input));
@@ -89,7 +89,7 @@ public class ContentUnderstandingService {
                     "Pipeline manifest ignored contentId={} pipelineId={} reason={}",
                     manifest.contentId(),
                     manifest.pipelineId(),
-                    Boolean.TRUE.equals(current.getReceived()) ? "ALREADY_RECEIVED" : "CANCELLED");
+                    Boolean.TRUE.equals(current.getReceived()) ? "ALREADY_RECEIVED" : ContentReviewState.CANCELLED.name());
             tasks.received(manifest.pipelineId());
             return;
         }
@@ -126,7 +126,7 @@ public class ContentUnderstandingService {
                 .preparation()
                 .items()
                 .stream()
-                .noneMatch(i -> "FRAME".equals(i.role()) && coverKey.equals(i.objectKey())))
+                .noneMatch(i -> ItemRole.FRAME.equals(i.role()) && coverKey.equals(i.objectKey())))
             throw new IllegalArgumentException("视频封面不属于公共准备帧");
         Long receivedAt = transaction.execute(tx -> {
             ContentUnderstanding row = locked(manifest.contentId());
@@ -136,8 +136,8 @@ public class ContentUnderstandingService {
             }
             Content video = contents.selectById(manifest.contentId());
             if (video == null || Integer.valueOf(1).equals(video.getIsDelete())) {
-                understanding.update(null, patch(row).set(ContentUnderstanding::getState, "CANCELLED"));
-                observation.record(row, "CONTENT_CANCELLED", row.getState().name(), "CANCELLED");
+                understanding.update(null, patch(row).set(ContentUnderstanding::getState, ContentReviewState.CANCELLED));
+                observation.record(row, "CONTENT_CANCELLED", row.getState().name(), ContentReviewState.CANCELLED.name());
                 log.info("Pipeline artifacts discarded contentId={} pipelineId={} reason=CONTENT_DELETED",
                         manifest.contentId(), manifest.pipelineId());
                 return null;
@@ -174,12 +174,12 @@ public class ContentUnderstandingService {
                             LocalDateTime.ofInstant(Instant.ofEpochMilli(readyAt), ZoneOffset.UTC))
                     .set(
                             ContentUnderstanding::getState,
-                            properties.isAutoReview() ? "AUTO_PENDING" : "MANUAL_PENDING"));
+                            properties.isAutoReview() ? ContentReviewState.AUTO_PENDING : ContentReviewState.MANUAL_PENDING));
             observation.record(
                     row,
                     "ARTIFACTS_STORED",
                     row.getState().name(),
-                    properties.isAutoReview() ? "AUTO_PENDING" : "MANUAL_PENDING");
+                    properties.isAutoReview() ? ContentReviewState.AUTO_PENDING.name() : ContentReviewState.MANUAL_PENDING.name());
             if (properties.isAutoReview()) afterCommit(() -> requestReview(manifest.pipelineId()));
             return readyAt;
         });
@@ -244,7 +244,7 @@ public class ContentUnderstandingService {
                     .and(q -> q.eq(ContentUnderstanding::getSubmissionAck, false).or().eq(
                             ContentUnderstanding::getRetryRequested,
                             true)
-                            .or().eq(ContentUnderstanding::getState, "AUTO_PENDING"))
+                            .or().eq(ContentUnderstanding::getState, ContentReviewState.AUTO_PENDING))
                     .orderByAsc(ContentUnderstanding::getContentId).last("LIMIT 100"));
             if (rows.isEmpty()) break;
             cursor = rows.get(rows.size()-1).getContentId();
@@ -285,7 +285,7 @@ public class ContentUnderstandingService {
             List<ContentUnderstanding> page = understanding.selectList(new LambdaQueryWrapper<ContentUnderstanding>().gt(
                     ContentUnderstanding::getContentId,
                     cursor)
-                    .in(ContentUnderstanding::getState, "AUTO_PENDING", "AUTO_RUNNING")
+                    .in(ContentUnderstanding::getState, ContentReviewState.AUTO_PENDING, ContentReviewState.AUTO_RUNNING)
                     .orderByAsc(ContentUnderstanding::getContentId)
                     .last("LIMIT 100"));
             if (page.isEmpty()) return;
@@ -297,8 +297,8 @@ public class ContentUnderstandingService {
                         .contains(row.getState())) {
                     return;
                 }
-                understanding.update(null, patch(row).set(ContentUnderstanding::getState, "MANUAL_PENDING"));
-                observation.record(row, "REVIEW_MANUAL_PENDING", row.getState().name(), "MANUAL_PENDING");
+                understanding.update(null, patch(row).set(ContentUnderstanding::getState, ContentReviewState.MANUAL_PENDING));
+                observation.record(row, "REVIEW_MANUAL_PENDING", row.getState().name(), ContentReviewState.MANUAL_PENDING.name());
             });
         }
     }

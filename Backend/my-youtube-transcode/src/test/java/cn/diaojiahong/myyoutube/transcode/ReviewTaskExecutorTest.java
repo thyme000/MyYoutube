@@ -1,5 +1,9 @@
 package cn.diaojiahong.myyoutube.transcode;
 
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackMetadata;
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item;
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts.ItemRole;
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackQuality;
 import cn.diaojiahong.myyoutube.common.media.ContentArtifactStore;
 import cn.diaojiahong.myyoutube.common.media.ContentArtifacts;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.Input;
@@ -19,11 +23,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.mock.env.MockEnvironment;
-
 import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
-
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -257,16 +259,17 @@ class ReviewTaskExecutorTest {
         MediaTaskMessage message = input(true, 7, count);
         String prefix = "media-prepared/9/101/";
         var items = new java.util.ArrayList<cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item>();
-        items.add(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item(
-                "VIDEO",
-                0,
-                prefix + "video",
-                prefix + "video",
-                0,
-                0,
-                0));
+        items.add(new Item(ItemRole.VIDEO, 0, prefix + "video", prefix + "video", 0, 1920, 1080, 0, null));
+        for (PlaybackQuality quality : PlaybackQuality.forVideo(1920, 1080)) {
+            items.add(new Item(ItemRole.HLS_MEDIA, quality.code(), prefix + "video",
+                    prefix + quality.code() + ".mp4", 0, quality == PlaybackQuality.SOURCE ? 1920 : quality.code() * 2,
+                        quality == PlaybackQuality.SOURCE ? 1080 : quality.code(), 1000000, new PlaybackMetadata("avc1.64001f,mp4a.40.2", 1000000, 25)));
+            items.add(new Item(ItemRole.HLS_PLAYLIST, quality.code(), prefix + "video",
+                    prefix + quality.code() + ".m3u8", 0, quality == PlaybackQuality.SOURCE ? 1920 : quality.code() * 2,
+                        quality == PlaybackQuality.SOURCE ? 1080 : quality.code(), 0, null));
+        }
         for (int i = 0; i < count; i++) items.add(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item(
-                "FRAME", i, prefix + "video", prefix + "frame-" + i, i * 100L, 80, 60));
+                ItemRole.FRAME, i, prefix + "video", prefix + "frame-" + i, i * 100L, 80, 60, 0, null));
         var manifest = new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Manifest(
                 101L,
                 1L,
@@ -308,16 +311,17 @@ class ReviewTaskExecutorTest {
         String prefix = "media-prepared/9/101/";
         List<Integer> indices = List.of(0, 1, 3, 4, 5, 6, 8, 9);
         var items = new java.util.ArrayList<cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item>();
-        items.add(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item(
-                "VIDEO",
-                0,
-                prefix + "video",
-                prefix + "video",
-                0,
-                0,
-                0));
+        items.add(new Item(ItemRole.VIDEO, 0, prefix + "video", prefix + "video", 0, 1920, 1080, 0, null));
+        for (PlaybackQuality quality : PlaybackQuality.forVideo(1920, 1080)) {
+            items.add(new Item(ItemRole.HLS_MEDIA, quality.code(), prefix + "video",
+                    prefix + quality.code() + ".mp4", 0, quality == PlaybackQuality.SOURCE ? 1920 : quality.code() * 2,
+                        quality == PlaybackQuality.SOURCE ? 1080 : quality.code(), 1000000, new PlaybackMetadata("avc1.64001f,mp4a.40.2", 1000000, 25)));
+            items.add(new Item(ItemRole.HLS_PLAYLIST, quality.code(), prefix + "video",
+                    prefix + quality.code() + ".m3u8", 0, quality == PlaybackQuality.SOURCE ? 1920 : quality.code() * 2,
+                        quality == PlaybackQuality.SOURCE ? 1080 : quality.code(), 0, null));
+        }
         for (int i : indices) items.add(new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Item(
-                "FRAME", i, prefix + "video", prefix + "frame-" + i, i * 5000L, 80, 60));
+                ItemRole.FRAME, i, prefix + "video", prefix + "frame-" + i, i * 5000L, 80, 60, 0, null));
         var manifest = new cn.diaojiahong.myyoutube.common.media.PreparationContracts.Manifest(
                 101L,
                 1L,

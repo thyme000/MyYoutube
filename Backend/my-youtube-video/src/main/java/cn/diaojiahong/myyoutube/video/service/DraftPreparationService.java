@@ -67,20 +67,10 @@ public class DraftPreparationService {
         LambdaUpdateWrapper<MediaDraft> update = version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.FAILED)
                 .set(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                 .set(MediaDraft::getPreparationAfter, LocalDateTime.now()).set(MediaDraft::getErrorMessage, null);
+
+        // 参数变了, 重做准备清单
         if (result.parametersChanged()) {
-            // 参数指纹变了: 旧准备清单不能继续用, 换 preparationId 与媒体版本重做
-            long nextPreparationId = IdWorker.getId();
-            log.info("Draft retry re-prepares media draftId={} reason=PARAMETERS_CHANGED previousPreparationId={} nextPreparationId={} mediaVersion={}",
-                    id, draft.getPreparationId(), nextPreparationId, draft.getMediaVersion() + 1);
-            update.eq(MediaDraft::getRevision, draft.getRevision()).setIncrBy(MediaDraft::getRevision, 1)
-                    .set(MediaDraft::getMediaVersion, draft.getMediaVersion() + 1)
-                    .set(MediaDraft::getPreparationId, nextPreparationId).set(MediaDraft::getPreparationAttempt, 0)
-                    .set(MediaDraft::getPreparationRetry, false).set(MediaDraft::getPreparedJson, null)
-                    .set(MediaDraft::getPreparedCoverObjectKey, null).set(
-                            MediaDraft::getExpiresAt,
-                            LocalDateTime.now().plusDays(7));
-            if (Objects.equals(draft.getSubmissionRevision(), draft.getRevision()))
-                update.set(MediaDraft::getSubmissionRevision, draft.getRevision() + 1);
+            reprepare(draft, update);
         } else {
             log.info("Draft retry reuses preparation draftId={} preparationId={} nextAttempt={} reason=TRANSIENT_FAILURE",
                     id, draft.getPreparationId(), draft.getPreparationAttempt() + 1);
@@ -88,6 +78,22 @@ public class DraftPreparationService {
                     .set(MediaDraft::getPreparationAttempt, draft.getPreparationAttempt() + 1);
         }
         return observation.update(id, update) > 0;
+    }
+
+    private void reprepare(MediaDraft draft, LambdaUpdateWrapper<MediaDraft> update) {
+        // 参数指纹变了: 旧准备清单不能继续用, 换 preparationId 与媒体版本重做
+        long nextPreparationId = IdWorker.getId();
+        log.info("Draft re-prepares media draftId={} reason=PARAMETERS_CHANGED previousPreparationId={} nextPreparationId={} mediaVersion={}",
+                draft.getId(), draft.getPreparationId(), nextPreparationId, draft.getMediaVersion() + 1);
+        update.eq(MediaDraft::getRevision, draft.getRevision()).setIncrBy(MediaDraft::getRevision, 1)
+                .set(MediaDraft::getMediaVersion, draft.getMediaVersion() + 1)
+                .set(MediaDraft::getPreparationId, nextPreparationId).set(MediaDraft::getPreparationAttempt, 0)
+                .set(MediaDraft::getPreparationRetry, false).set(MediaDraft::getPreparedJson, null)
+                .set(MediaDraft::getPreparedCoverObjectKey, null).set(
+                        MediaDraft::getExpiresAt,
+                        LocalDateTime.now().plusDays(7));
+        if (Objects.equals(draft.getSubmissionRevision(), draft.getRevision()))
+            update.set(MediaDraft::getSubmissionRevision, draft.getRevision() + 1);
     }
 
     @Scheduled(fixedDelay = 1000, initialDelay = 1000)
@@ -131,14 +137,28 @@ public class DraftPreparationService {
                 media,
                 draft.getCoverObjectKey());
         tasks.prepare(request);
+        PreparationContracts.View result = tasks.preparation(draft.getPreparationId());
+        if (result == null || !Objects.equals(result.preparationId(), draft.getPreparationId()))
+            throw new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "无法确认媒体准备状态，请稍后重试", null);
+        if (result.parametersChanged()) {
+            LambdaUpdateWrapper<MediaDraft> update = version(draft)
+                    .eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
+                    .set(MediaDraft::getPreparationAfter, LocalDateTime.now())
+                    .set(MediaDraft::getErrorMessage, null);
+            reprepare(draft, update);
+            observation.update(draft.getId(), update);
+            return;
+        }
+
         if (Boolean.TRUE.equals(draft.getPreparationRetry())) {
             if (!tasks.retryPreparation(draft.getPreparationId())) {
                 throw new IllegalStateException("Preparation retry rejected");
             }
             drafts.update(null, version(draft).eq(MediaDraft::getStatus, MediaDraftStatusEnum.PROCESSING)
                     .set(MediaDraft::getPreparationRetry, false));
+            result = tasks.preparation(draft.getPreparationId());
         }
-        PreparationContracts.View result = tasks.preparation(draft.getPreparationId());
+
         if (result == null || !Objects.equals(result.preparationId(), draft.getPreparationId())
                 || result.attempt() < draft.getPreparationAttempt()) {
             log.debug("Draft preparation reconciliation deferred draftId={} preparationId={} reason=STALE_RESULT",

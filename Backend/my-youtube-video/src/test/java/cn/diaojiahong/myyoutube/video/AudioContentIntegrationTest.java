@@ -164,7 +164,8 @@ class AudioContentIntegrationTest {
             var media = new DynamicMedia("vertical", 1080, 1920, "cut", 0,
                     List.of(new DynamicMedia.Image("image/" + id, 0, 3000, .5, .5)),
                     audioId == null ? null : new DynamicMedia.Audio(audioId, "audio/" + audioId, "音频", 3000), 3000);
-            if (id == 9) videos.insert(new Video().setId(id).setObjectKey("video/9.mp4").setDurationMs(3000L));
+            if (id == 9) videos.insert(new Video().setId(id).setObjectKey("video/9.mp4").setDurationMs(3000L)
+                    .setPlaybackJson(JsonUtil.toJson(new cn.diaojiahong.myyoutube.common.media.VideoPlayback(1920, 1080, List.of()))));
             else dynamics.insert(new Dynamic().setId(id).setMediaJson(JsonUtil.toJson(media)));
         }
     }

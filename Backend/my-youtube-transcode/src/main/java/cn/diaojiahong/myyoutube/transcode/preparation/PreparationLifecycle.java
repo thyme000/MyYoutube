@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.preparation;
 
+import cn.diaojiahong.myyoutube.transcode.domain.enums.PreparationState;
 import cn.diaojiahong.myyoutube.common.media.ContentMedia;
 import cn.diaojiahong.myyoutube.transcode.domain.po.MediaPreparation;
 import cn.diaojiahong.myyoutube.transcode.mapper.MediaPreparationMapper;
@@ -19,7 +20,7 @@ public class PreparationLifecycle {
     public void requireActive(Long id) {
         MediaPreparation row = lock(id);
         if (row == null
-                || !"ACTIVE".equals(row.getLifecycle())) throw new IllegalStateException("Preparation is retired or missing");
+                || !PreparationState.ACTIVE.equals(row.getLifecycle())) throw new IllegalStateException("Preparation is retired or missing");
     }
 
     public void requireActive(ContentMedia media) {

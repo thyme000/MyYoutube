@@ -6,7 +6,6 @@ import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.common.resilience.ModelCallGuard;
 import cn.diaojiahong.myyoutube.common.utils.*;
 import cn.diaojiahong.myyoutube.transcode.api.*;
-import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
 import cn.diaojiahong.myyoutube.transcode.cover.*;
 import cn.diaojiahong.myyoutube.transcode.ffmpeg.FFmpegUtil;
 import cn.diaojiahong.myyoutube.transcode.preparation.PreparationStorage;
@@ -45,8 +44,16 @@ class PreparedInputsExecutorTest {
         String cover = null;
         if (video) {
             input = new ContentMedia("video", new VideoMedia("uploaded-video", 0), null);
-            items.add(new Item("VIDEO", 0, prefix + "video", prefix + "video", 0, 0, 0));
-            for (int i = 0; i < frameCount; i++) items.add(new Item("FRAME", i, prefix + "video", prefix + "frame-" + i, i * 100L, 80, 60));
+            items.add(new Item(ItemRole.VIDEO, 0, prefix + "video", prefix + "video", 0, 1920, 1080, 0, null));
+            for (PlaybackQuality quality : PlaybackQuality.forVideo(1920, 1080)) {
+                items.add(new Item(ItemRole.HLS_MEDIA, quality.code(), prefix + "video",
+                        prefix + quality.code() + ".mp4", 0, quality == PlaybackQuality.SOURCE ? 1920 : quality.code() * 2,
+                        quality == PlaybackQuality.SOURCE ? 1080 : quality.code(), 1000000, new PlaybackMetadata("avc1.64001f,mp4a.40.2", 1000000, 25)));
+                items.add(new Item(ItemRole.HLS_PLAYLIST, quality.code(), prefix + "video",
+                        prefix + quality.code() + ".m3u8", 0, quality == PlaybackQuality.SOURCE ? 1920 : quality.code() * 2,
+                        quality == PlaybackQuality.SOURCE ? 1080 : quality.code(), 0, null));
+            }
+            for (int i = 0; i < frameCount; i++) items.add(new Item(ItemRole.FRAME, i, prefix + "video", prefix + "frame-" + i, i * 100L, 80, 60, 0, null));
         } else {
             input = new ContentMedia("dynamic", null, new DynamicMedia("horizontal", 1920, 1080, "cut", 0,
                     List.of(new DynamicMedia.Image("upload-a", 0, 3000, .5, .5), new DynamicMedia.Image("upload-b", 3000, 3000, .5, .5)),
@@ -54,8 +61,8 @@ class PreparedInputsExecutorTest {
                     6000));
             cover = "upload-b";
             for (int i = 0; i < 2; i++) {
-                items.add(new Item("IMAGE", i, prefix + "image-" + i, prefix + "image-" + i, i * 3000L, 0, 0));
-                items.add(new Item("OCR_IMAGE", i, prefix + "image-" + i, prefix + "ocr-" + i, i * 3000L, 80, 60));
+                items.add(new Item(ItemRole.IMAGE, i, prefix + "image-" + i, prefix + "image-" + i, i * 3000L, 0, 0, 0, null));
+                items.add(new Item(ItemRole.OCR_IMAGE, i, prefix + "image-" + i, prefix + "ocr-" + i, i * 3000L, 80, 60, 0, null));
             }
         }
         return PreparedMedia.freeze(new Request(101L, 1L, 2, 9L, input, cover),
@@ -76,7 +83,7 @@ class PreparedInputsExecutorTest {
         PreparationContracts.Manifest base = snapshot(true, 10).media().preparation();
         List<PreparationContracts.Item> items = base.items()
                 .stream()
-                .filter(i -> !"FRAME".equals(i.role()) || i.index() != 2 && i.index() != 7)
+                .filter(i -> !ItemRole.FRAME.equals(i.role()) || i.index() != 2 && i.index() != 7)
                 .toList();
         var manifest = new Manifest(
                 base.preparationId(),
@@ -275,6 +282,39 @@ class PreparedInputsExecutorTest {
                         valid.videoSampling());
         assertThrows(RuntimeException.class, () -> PreparedMedia.freeze(new Request(101L, 1L, 2, 9L,
                 new ContentMedia("video", new VideoMedia("uploaded-video", 0), null), null), incomplete));
+    }
+
+    @Test
+    void incompleteOrMismatchedPlaybackCannotFreeze() {
+        Manifest valid = snapshot(true).media().preparation();
+        Request request = new Request(101L, 1L, 2, 9L,
+                new ContentMedia("video", new VideoMedia("uploaded-video", 0), null), null);
+        for (ItemRole role : java.util.List.of(ItemRole.HLS_MEDIA, ItemRole.HLS_PLAYLIST)) {
+            for (PlaybackQuality quality : PlaybackQuality.forVideo(1920, 1080)) {
+                List<Item> missing = valid.items().stream()
+                        .filter(item -> !role.equals(item.role()) || item.index() != quality.code()).toList();
+                Manifest incomplete = new Manifest(valid.preparationId(), valid.draftId(), valid.mediaVersion(), valid.userId(),
+                        valid.parameterVersion(), missing, valid.durationMs(), valid.hasAudio(), valid.videoFrameCount(), valid.videoSampling());
+                assertThrows(RuntimeException.class, () -> PreparedMedia.freeze(request, incomplete));
+            }
+        }
+        for (String key : List.of("media-prepared/9/102/index.m3u8", "media-prepared/10/101/index.m3u8")) {
+            List<Item> changed = valid.items().stream().map(item -> ItemRole.HLS_PLAYLIST.equals(item.role()) && item.index() == 720
+                    ? new Item(item.role(), item.index(), item.originalObjectKey(), key, item.timeMs(), item.width(), item.height(), 0, item.playback())
+                    : item).toList();
+            Manifest invalid = new Manifest(valid.preparationId(), valid.draftId(), valid.mediaVersion(), valid.userId(),
+                    valid.parameterVersion(), changed, valid.durationMs(), valid.hasAudio(), valid.videoFrameCount(), valid.videoSampling());
+            assertThrows(IllegalArgumentException.class, () -> PreparedMedia.freeze(request, invalid));
+        }
+
+        List<Item> changed = valid.items().stream().map(item -> ItemRole.HLS_MEDIA.equals(item.role())
+                        && item.index() == PlaybackQuality.SOURCE.code()
+                ? new Item(item.role(), item.index(), item.originalObjectKey(), item.objectKey(), item.timeMs(), 1280, 720, item.bandwidth(), item.playback())
+                : item).toList();
+        Manifest resizedSource = new Manifest(valid.preparationId(), valid.draftId(), valid.mediaVersion(), valid.userId(),
+                valid.parameterVersion(), changed, valid.durationMs(), valid.hasAudio(), valid.videoFrameCount(), valid.videoSampling());
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> PreparedMedia.freeze(request, resizedSource));
+        assertEquals("Source rendition dimensions mismatch", error.getMessage());
     }
 
     @Test

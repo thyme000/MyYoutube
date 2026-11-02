@@ -278,7 +278,7 @@ class ContentDraftIntegrationTest {
                   duration_ms BIGINT,error_message VARCHAR(500),create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
                 """);
-        jdbc.execute("CREATE TABLE video(id BIGINT PRIMARY KEY,object_key VARCHAR(512),duration_ms BIGINT)");
+        jdbc.execute("CREATE TABLE video(id BIGINT PRIMARY KEY,object_key VARCHAR(512),duration_ms BIGINT,playback_json TEXT NOT NULL)");
         jdbc.execute("CREATE TABLE dynamic(id BIGINT PRIMARY KEY,media_json TEXT)");
         jdbc.execute("CREATE TABLE content(id BIGINT PRIMARY KEY,type VARCHAR(16),author_id BIGINT,audio_id BIGINT,title VARCHAR(100),description TEXT,cover_object_key VARCHAR(512),category_code VARCHAR(32),tags TEXT,allow_comment INT,region VARCHAR(32),is_delete INT DEFAULT 0,status VARCHAR(16),visibility VARCHAR(16),index_version BIGINT NOT NULL DEFAULT 1,play_count BIGINT DEFAULT 0,like_count BIGINT DEFAULT 0,collect_count BIGINT DEFAULT 0,comment_count BIGINT DEFAULT 0,share_count BIGINT DEFAULT 0,create_time TIMESTAMP,update_time TIMESTAMP)");
         when(understanding.enroll(any(), any())).thenReturn(100L);
@@ -858,6 +858,32 @@ class ContentDraftIntegrationTest {
         verify(tasks, times(2)).prepare(argThat(r -> r.preparationId().equals(created.preparationId())));
     }
 
+    @ParameterizedTest
+    @EnumSource(value = MediaTaskStatus.class, names = {"RUNNING", "SUCCESS", "DEAD"})
+    void configurationChangeAutomaticallyReplacesProcessingPreparation(MediaTaskStatus status) {
+        Long id = mediaDrafts.createDraft(9L, "uploads/video/9/20261011/original.mp4", "original.mp4");
+        assertTrue(coordinator.uploaded(id));
+        MediaDraft before = rows.selectById(id);
+        jdbc.update("UPDATE media_draft SET title='测试视频' WHERE id=?", id);
+        publications.request(id, 9L, before.getRevision());
+        when(tasks.preparation(before.getPreparationId())).thenReturn(new PreparationContracts.View(
+                before.getPreparationId(), status, 1, 0, null, null, true));
+        reconcileDue();
+
+        MediaDraft renewed = rows.selectById(id);
+        assertEquals(MediaDraftStatusEnum.PROCESSING, renewed.getStatus());
+        assertNotEquals(before.getPreparationId(), renewed.getPreparationId());
+        assertEquals(before.getMediaVersion() + 1, renewed.getMediaVersion());
+        assertEquals(before.getObjectKey(), renewed.getObjectKey());
+        assertEquals("RELEASED", reference(id, before.getPreparationId(), before.getMediaVersion()));
+        ready(id);
+        verify(tasks, never()).retryPreparation(anyLong());
+        assertEquals("ready", drafts.get(id, 9L).status());
+        assertEquals(renewed.getRevision(), renewed.getSubmissionRevision());
+        publicationDue();
+        assertEquals(MediaDraftStatusEnum.SUBMITTED, rows.selectById(id).getStatus());
+    }
+
     @Test
     void videoRetryAfterServerConfigurationChangeCreatesNewVersionWithoutReupload() {
         Long id = mediaDrafts.createDraft(9L, "uploads/video/9/20261011/original.mp4", "original.mp4");
@@ -879,9 +905,12 @@ class ContentDraftIntegrationTest {
                 3,
                 PreparationContracts.PARAMETERS_CHANGED_MESSAGE,
                 null,
-                true));
+                false));
         reconcileDue();
         assertEquals("failed", drafts.get(id, 9L).status());
+        when(tasks.preparation(before.getPreparationId())).thenReturn(new PreparationContracts.View(
+                before.getPreparationId(), MediaTaskStatus.DEAD, 4, 3,
+                PreparationContracts.PARAMETERS_CHANGED_MESSAGE, null, true));
         assertTrue(coordinator.retry(id, 9L));
         MediaDraft renewed = rows.selectById(id);
         assertEquals(before.getMediaVersion() + 1, renewed.getMediaVersion());
@@ -916,7 +945,8 @@ class ContentDraftIntegrationTest {
                 "旧配置",
                 null,
                 true);
-        when(tasks.preparation(created.preparationId())).thenReturn(dead);
+        when(tasks.preparation(created.preparationId())).thenReturn(new PreparationContracts.View(
+                created.preparationId(), MediaTaskStatus.DEAD, 4, 3, "失败", null, false));
         reconcileDue();
         when(tasks.preparation(created.preparationId())).thenAnswer(call -> {
             DynamicDraftDTO replacement = dynamic();
@@ -1327,9 +1357,11 @@ class ContentDraftIntegrationTest {
         ContentDraftVO draft = drafts.saveDynamic(null, 9L, dynamic());
         publications.request(draft.draftId(), 9L, 0);
         when(tasks.preparation(draft.preparationId())).thenReturn(new PreparationContracts.View(
-                draft.preparationId(), MediaTaskStatus.DEAD, 4, 3, "配置变化", null, true));
+                draft.preparationId(), MediaTaskStatus.DEAD, 4, 3, "执行失败", null, false));
         reconcileDue();
         publicationDue();
+        when(tasks.preparation(draft.preparationId())).thenReturn(new PreparationContracts.View(
+                draft.preparationId(), MediaTaskStatus.DEAD, 4, 3, "配置变化", null, true));
         assertEquals("pending", publications.retry(draft.draftId(), 9L, 0).submissionState());
         MediaDraft renewed = rows.selectById(draft.draftId());
         assertEquals(renewed.getRevision(), renewed.getSubmissionRevision());

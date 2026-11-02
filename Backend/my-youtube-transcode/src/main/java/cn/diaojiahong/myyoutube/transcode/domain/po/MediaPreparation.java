@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.domain.po;
 
+import cn.diaojiahong.myyoutube.transcode.domain.enums.PreparationState;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 import lombok.experimental.Accessors;
@@ -15,7 +16,7 @@ public class MediaPreparation {
     private Long userId;
     private String requestJson;
     private String parameterVersion;
-    private String lifecycle;
+    private PreparationState lifecycle;
     private java.time.LocalDateTime reclaimAfter;
     private java.time.LocalDateTime retiredAt;
 }

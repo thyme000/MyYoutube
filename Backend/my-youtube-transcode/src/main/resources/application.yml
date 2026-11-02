@@ -90,3 +90,10 @@ my-youtube.media-preparation:
   source-long-edge: ${MEDIA_PREPARATION_SOURCE_LONG_EDGE:16000}
   video-source-bytes: ${MEDIA_PREPARATION_VIDEO_SOURCE_BYTES:2147483648}
   video-max-level: ${MEDIA_PREPARATION_VIDEO_MAX_LEVEL:51}
+  playback:
+    # 0 为自动：按 JVM 可见 CPU 数预留一个逻辑 CPU 的额度，再按草稿并发平分，最少 1 线程。
+    threads: ${MEDIA_PREPARATION_PLAYBACK_THREADS:0}
+    startup-timeout: ${MEDIA_PREPARATION_PLAYBACK_STARTUP_TIMEOUT:2m}
+    stall-timeout: ${MEDIA_PREPARATION_PLAYBACK_STALL_TIMEOUT:2m}
+    # 核数不能预测编码速度，默认保留 3 倍时长的预算；按目标机器的真实素材实测后覆盖。
+    duration-multiplier: ${MEDIA_PREPARATION_PLAYBACK_DURATION_MULTIPLIER:3.0}

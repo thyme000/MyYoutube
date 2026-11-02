@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.video;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.*;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
@@ -90,6 +91,11 @@ class DraftSubmissionTest {
         verify(videos).insert(media.capture());
         assertEquals("media-prepared/9/101/video", media.getValue().getObjectKey());
         assertEquals(1501L,media.getValue().getDurationMs());
+        VideoPlayback playback = JsonUtil.fromJson(media.getValue().getPlaybackJson(), VideoPlayback.class);
+        assertEquals(1280, playback.width());
+        assertEquals(720, playback.height());
+        assertEquals("media-prepared/9/101/playback-480.mp4", playback.renditions().get(0).mediaObjectKey());
+        assertEquals("media-prepared/9/101/index-480.m3u8", playback.renditions().get(0).playlistObjectKey());
         ArgumentCaptor<Content> common = org.mockito.ArgumentCaptor.forClass(cn.diaojiahong.myyoutube.content.domain.po.Content.class);
         verify(contents).insert(common.capture());
         assertEquals("简介",common.getValue().getDescription());
