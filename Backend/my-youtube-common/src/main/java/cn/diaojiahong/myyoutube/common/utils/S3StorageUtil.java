@@ -8,6 +8,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.http.SdkHttpMethod;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -206,6 +208,22 @@ public class S3StorageUtil {
         } catch (Exception e) {
             log.warn("生成 GET 预签名失败，降级返回原值: {}", objectKey, e);
             return keyOrUrl;
+        }
+    }
+
+    /** 播放重定向使用严格签名；GET/HEAD 分别签名，失败时禁止降级为未签名地址。 */
+    public String presignReadUrl(String objectKey, long expireSeconds, SdkHttpMethod method) {
+        Duration duration = Duration.ofSeconds(expireSeconds);
+        try {
+            return switch (method) {
+                case GET -> s3Presigner.presignGetObject(b -> b.signatureDuration(duration)
+                        .getObjectRequest(r -> r.bucket(properties.getBucketName()).key(objectKey))).url().toString();
+                case HEAD -> s3Presigner.presignHeadObject(b -> b.signatureDuration(duration)
+                        .headObjectRequest(r -> r.bucket(properties.getBucketName()).key(objectKey))).url().toString();
+                default -> throw new IllegalArgumentException("Only GET and HEAD can read stored media");
+            };
+        } catch (SdkException e) {
+            throw new DependencyException(ErrorCode.DEPENDENCY_FAILURE, "生成媒体访问签名失败", e);
         }
     }
 

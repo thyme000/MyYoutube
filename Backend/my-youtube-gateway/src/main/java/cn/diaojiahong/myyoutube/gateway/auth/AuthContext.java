@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.gateway.auth;
 
 import cn.diaojiahong.myyoutube.security.JwtPayload;
+import cn.diaojiahong.myyoutube.security.PlaybackTokens;
 import org.springframework.web.server.ServerWebExchange;
 
 /**
@@ -26,6 +27,7 @@ public class AuthContext {
     private Decision decision = Decision.CONTINUE;
     private Long principalUserId;
     private JwtPayload jwtPayload;
+    private PlaybackTokens.Grant playbackGrant;
 
     private AuthContext(ServerWebExchange exchange, String path, boolean connectionPath) {
         this.exchange = exchange;
@@ -55,9 +57,13 @@ public class AuthContext {
         this.decision = Decision.REJECT;
     }
 
-    /** Bearer 步骤验签通过后暂存载荷, 作废校验步骤接着消费 */
+    /** JWT 凭证验签通过后暂存用户与签发时间，统一交给作废校验步骤。 */
     public void jwtPayload(JwtPayload payload) {
         this.jwtPayload = payload;
+    }
+
+    public boolean hasVerifiedCredential() {
+        return jwtPayload != null;
     }
 
     public ServerWebExchange getExchange() {
@@ -83,4 +89,8 @@ public class AuthContext {
     public JwtPayload getJwtPayload() {
         return jwtPayload;
     }
+
+    public void playbackGrant(PlaybackTokens.Grant grant) { this.playbackGrant = grant; }
+
+    public PlaybackTokens.Grant getPlaybackGrant() { return playbackGrant; }
 }

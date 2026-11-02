@@ -27,6 +27,7 @@ public class BearerAuthStep implements ChainStep<AuthContext> {
 
     @Override
     public Mono<Void> apply(AuthContext ctx) {
+        if (ctx.hasVerifiedCredential()) return Mono.empty();
         String header = ctx.getExchange().getRequest().getHeaders().getFirst(AuthConstants.AUTH_HEADER);
         if (header == null || !header.startsWith(AuthConstants.BEARER_PREFIX)) {
             return Mono.empty();

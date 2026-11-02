@@ -3,10 +3,12 @@ package cn.diaojiahong.myyoutube.gateway.filter;
 import cn.diaojiahong.myyoutube.gateway.auth.AuthContext;
 import cn.diaojiahong.myyoutube.gateway.auth.GatewayAuthChain;
 import cn.diaojiahong.myyoutube.security.AuthConstants;
+import cn.diaojiahong.myyoutube.security.PlaybackTokens;
 import cn.diaojiahong.myyoutube.common.chain.ChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -26,9 +28,9 @@ import java.util.stream.Collectors;
 
 /**
  * 网关统一鉴权的编排器: 只做请求分类与决策落地, 判定逻辑全部在鉴权步骤链上
- * (白名单 → 连接票 → Bearer 验签 → 作废校验, 通用链见 security.chain.ChainStepRegistry, 见决策即短路)。
+ * (白名单 → 连接票 → 播放票 → Bearer 验签 → 作废校验, 见决策即短路)。
  * 通过后把 userId 透传给下游服务(X-User-Id 头), 配置了内部密钥时附带 X-Internal-Token;
- * 凭证验完即从 query 剥掉换头转发, 下游链路不出现明文凭证。
+ * query 凭证校验后剥除；播放票以内部头传递，避免出现在下游请求 URL 中。
  */
 @Component
 public class GatewayAuthFilter implements GlobalFilter, Ordered {
@@ -44,8 +46,8 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
     private final ObjectMapper objectMapper;
 
     public GatewayAuthFilter(ChainStepRegistry chainRegistry,
-                             @org.springframework.beans.factory.annotation.Value("${jwt.secret}") String jwtSecret,
-                             @org.springframework.beans.factory.annotation.Value("${my-youtube.internal-token:}") String internalToken,
+                             @Value("${jwt.secret}") String jwtSecret,
+                             @Value("${my-youtube.internal-token:}") String internalToken,
                              ObjectMapper objectMapper) {
         this.chainRegistry = chainRegistry;
         this.internalToken = internalToken;
@@ -71,7 +73,7 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
                 ServerHttpRequest request = buildDownstreamRequest(
                         exchange,
                         String.valueOf(ctx.getPrincipalUserId()),
-                        ctx.isConnectionPath());
+                        ctx.isConnectionPath(), ctx.getPlaybackGrant());
                 yield chain.filter(exchange.mutate().request(request).build());
             }
             // REJECT 与"链走完仍无凭证"统一 401, 不区分原因避免给探测者提供信息
@@ -82,9 +84,10 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
     private ServerHttpRequest buildDownstreamRequest(
             ServerWebExchange exchange,
             String userId,
-            boolean connectionPath) {
+            boolean connectionPath, PlaybackTokens.Grant playbackGrant) {
         ServerHttpRequest.Builder builder = exchange.getRequest().mutate()
                 .header(AuthConstants.USER_ID_HEADER, userId);
+        builder.headers(headers -> headers.remove(PlaybackTokens.INTERNAL_HEADER));
         if (!internalToken.isBlank()) {
             // 下游 UserIdHeaderFilter 据此拒绝绕过网关直连时伪造的 X-User-Id
             builder.header(AuthConstants.INTERNAL_TOKEN_HEADER, internalToken);
@@ -92,17 +95,26 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
         if (connectionPath) {
             builder.uri(stripConnectionParams(exchange.getRequest().getURI()));
         }
+        if (playbackGrant != null) {
+            builder.headers(headers -> headers.remove(AuthConstants.AUTH_HEADER));
+            builder.header(PlaybackTokens.INTERNAL_HEADER, playbackGrant.token());
+            builder.uri(stripParams(exchange.getRequest().getURI(), List.of(PlaybackTokens.QUERY_PARAM)));
+        }
         return builder.build();
     }
 
     private static java.net.URI stripConnectionParams(java.net.URI uri) {
+        return stripParams(uri, CONNECTION_CREDENTIAL_PARAMS);
+    }
+
+    private static java.net.URI stripParams(java.net.URI uri, List<String> names) {
         String rawQuery = uri.getRawQuery();
         if (rawQuery == null || rawQuery.isEmpty()) {
             return uri;
         }
 
         String stripped = Arrays.stream(rawQuery.split("&"))
-                .filter(p -> CONNECTION_CREDENTIAL_PARAMS.stream()
+                .filter(p -> names.stream()
                         .noneMatch(n -> p.equals(n) || p.startsWith(n + "=")))
                 .collect(Collectors.joining("&"));
         return UriComponentsBuilder.fromUri(uri)
@@ -121,6 +133,7 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
 
     private Mono<Void> unauthorized(ServerWebExchange exchange) {
         ServerHttpResponse response = exchange.getResponse();
+        response.getHeaders().setCacheControl("no-store");
         response.setStatusCode(HttpStatus.valueOf(ErrorCode.UNAUTHORIZED.getHttpStatus()));
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
         return Mono.fromCallable(() -> objectMapper.writeValueAsBytes(Result.fail(ErrorCode.UNAUTHORIZED)))
