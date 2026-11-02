@@ -54,7 +54,7 @@ class PoolSettings(Settings):
 class AsrSettings(Settings):
     model: Path
     vad: Path
-    language: str = Field(default="zh", min_length=1)
+    language: str = Field(default="auto", min_length=1)
     cue_length: int = Field(default=32, ge=1)
     timeout: float = Field(default=1200, gt=0)
 
@@ -136,7 +136,7 @@ def load_settings(identity, directory=None):
                                                   ("recovery_max_delay", 30))})
     if identity.kind == "asr":
         engine = AsrSettings(model=_path(values, "ASR_MODEL", directory), vad=_path(values, "ASR_VAD_MODEL", directory),
-                             language=values.get("ASR_LANGUAGE", "zh"), cue_length=values.get("ASR_CUE_LENGTH", 32),
+                             language=values.get("ASR_LANGUAGE", "auto"), cue_length=values.get("ASR_CUE_LENGTH", 32),
                              timeout=values.get("ASR_EXECUTION_TIMEOUT", 1200))
     else:
         optional = {}

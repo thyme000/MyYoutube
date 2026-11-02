@@ -23,7 +23,7 @@ class SettingsTests(unittest.TestCase):
         settings = load_settings(SERVICES["asr"], self.directory)
         self.assertEqual(settings.pool.concurrency, 2)
         self.assertEqual(settings.port, 18089)
-        self.assertEqual(settings.engine.language, "zh")
+        self.assertEqual(settings.engine.language, "auto")
         self.assertEqual(settings.engine.model, self.directory / "speech.bin")
         self.assertEqual(settings.log_directory, self.directory / "logs")
         self.assertEqual(os.environ["NACOS_ENABLED"], "false")
@@ -63,7 +63,7 @@ class SettingsTests(unittest.TestCase):
         service_env(self.directory)
         settings = load_settings(SERVICES["asr"], self.directory)
         service_env(self.directory, extra="ASR_LANGUAGE=en\n")
-        self.assertEqual(settings.engine.language, "zh")
+        self.assertEqual(settings.engine.language, "auto")
         with self.assertRaises(ValueError):
             settings.engine.language = "en"
 
