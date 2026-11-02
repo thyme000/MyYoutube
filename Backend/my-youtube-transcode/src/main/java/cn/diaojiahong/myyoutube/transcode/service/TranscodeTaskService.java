@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.service;
 
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeSubmitDTO;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
@@ -10,12 +11,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-
-import java.security.MessageDigest;
 import org.redisson.api.RedissonClient;
 import org.redisson.api.RLock;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,9 +55,7 @@ public class TranscodeTaskService {
                 m.put("focusY", it.getFocusY());
                 return m;
             }).toList());
-            byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(objectMapper.writeValueAsBytes(content));
-            return HexFormat.of().formatHex(hash);
+            return DigestUtil.sha256Hex(objectMapper.writeValueAsBytes(content));
         } catch (Exception e) {
             throw new IllegalStateException("计算 taskKey 失败", e);
         }

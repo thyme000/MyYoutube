@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.common.prompt;
 
+import cn.hutool.crypto.digest.DigestAlgorithm;
+import cn.hutool.crypto.digest.DigestUtil;
 import java.io.InputStream;
 import java.util.regex.Matcher;
 import org.springframework.core.io.ClassPathResource;
@@ -7,11 +9,9 @@ import org.springframework.stereotype.Component;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -89,13 +89,9 @@ public class PromptTemplates {
 
         private Snapshot(Map<String, String> templates) {
             this.templates = Map.copyOf(templates);
-            try {
-                MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                templates.forEach((key, value) -> digest.update((key + ":" + value.length() + ":" + value).getBytes(StandardCharsets.UTF_8)));
-                version = HexFormat.of().formatHex(digest.digest());
-            } catch (NoSuchAlgorithmException e) {
-                throw new IllegalStateException(e);
-            }
+            MessageDigest digest = DigestUtil.digester(DigestAlgorithm.SHA256).getDigest();
+            templates.forEach((key, value) -> digest.update((key + ":" + value.length() + ":" + value).getBytes(StandardCharsets.UTF_8)));
+            version = HexFormat.of().formatHex(digest.digest());
         }
 
         public String version() {

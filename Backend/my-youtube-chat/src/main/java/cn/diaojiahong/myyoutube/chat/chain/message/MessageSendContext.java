@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ack.ChatMessageAckDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.MessageStatusEnum;
@@ -7,9 +8,6 @@ import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatMessageDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
 import lombok.Getter;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 
 /**
  * 发消息守卫链上下文: 各守卫步骤查到的会话文档与互关判定沉淀在此,
@@ -70,11 +68,6 @@ public class MessageSendContext {
     }
 
     public static String messageId(Long senderId, String clientMsgId) {
-        try {
-            byte[] key = (senderId + "\n" + clientMsgId).getBytes(StandardCharsets.UTF_8);
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(key));
-        } catch (java.security.NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
+        return DigestUtil.sha256Hex(senderId + "\n" + clientMsgId);
     }
 }

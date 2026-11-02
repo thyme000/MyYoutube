@@ -1,11 +1,13 @@
 package cn.diaojiahong.myyoutube.observability;
 
+import cn.hutool.crypto.digest.DigestAlgorithm;
+import cn.hutool.crypto.digest.DigestUtil;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.security.*;
+import java.security.MessageDigest;
 import java.util.HexFormat;
 
 final class PendingDlq {
@@ -19,14 +21,10 @@ final class PendingDlq {
     }
 
     Path key(byte[] body) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(group.getBytes(StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            return directory.resolve(HexFormat.of().formatHex(digest.digest(body)) + ".pending");
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
+        MessageDigest digest = DigestUtil.digester(DigestAlgorithm.SHA256).getDigest();
+        digest.update(group.getBytes(StandardCharsets.UTF_8));
+        digest.update((byte) 0);
+        return directory.resolve(HexFormat.of().formatHex(digest.digest(body)) + ".pending");
     }
 
     boolean contains(byte[] body) throws IOException {

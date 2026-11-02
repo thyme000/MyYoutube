@@ -1,9 +1,9 @@
 package cn.diaojiahong.myyoutube.video.service.impl;
 
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.diaojiahong.myyoutube.search.api.AudioSearchPort;
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioPage;
 import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts;
-
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -35,9 +35,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -334,11 +331,7 @@ public class AudioServiceImpl implements IAudioService {
     }
 
     private static String fingerprint(AudioUploadDTO dto, String title) {
-        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                .digest(JsonUtil.toJson(Arrays.asList(dto.getAudio(), dto.getCover(), title)).getBytes(StandardCharsets.UTF_8))); }
-        catch (java.security.NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
+        return DigestUtil.sha256Hex(JsonUtil.toJson(Arrays.asList(dto.getAudio(), dto.getCover(), title)));
     }
 
     private static Long getUserId() {

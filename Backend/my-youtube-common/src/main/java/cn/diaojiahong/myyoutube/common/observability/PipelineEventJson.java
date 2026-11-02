@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.common.observability;
 
+import cn.hutool.crypto.digest.DigestUtil;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.*;
@@ -7,9 +8,6 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.databind.cfg.*;
 import com.fasterxml.jackson.databind.type.LogicalType;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import java.nio.charset.StandardCharsets;
-import java.security.*;
-import java.util.*;
 
 public final class PipelineEventJson {
     private static final ObjectMapper JSON = JsonMapper.builder().addModule(new JavaTimeModule())
@@ -52,11 +50,6 @@ public final class PipelineEventJson {
     }
 
     public static String digest(PipelineEvent event) {
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(encode(event).getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
+        return DigestUtil.sha256Hex(encode(event));
     }
 }

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.hot;
 
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -11,7 +12,6 @@ import org.springframework.data.redis.core.types.Expiration;
 import org.springframework.data.redis.connection.RedisStringCommands.SetOption;
 import org.springframework.data.redis.connection.RedisZSetCommands.ZAddArgs;
 import org.springframework.stereotype.Component;
-
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -102,13 +102,7 @@ public class HotSearchStore {
     }
 
     static String digest(String text) {
-        try {
-            return HexFormat.of()
-                    .formatHex(java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(text.getBytes(StandardCharsets.UTF_8)));
-        } catch (java.security.NoSuchAlgorithmException error) {
-            throw new IllegalStateException(error);
-        }
+        return DigestUtil.sha256Hex(text);
     }
 
     public boolean record(Event event) {
