@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.domain.po;
 
+import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewDecision;
+import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewSource;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 import lombok.experimental.Accessors;
@@ -16,8 +18,8 @@ public class ContentReviewRecord {
     private Long contentId;
     private Long pipelineId;
     private Integer attempt;
-    private String source;
-    private String decision;
+    private ContentReviewSource source;
+    private ContentReviewDecision decision;
     private Double riskScore;
     private Double confidence;
     private String reason;

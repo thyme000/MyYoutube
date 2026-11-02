@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewDecision;
+import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewSource;
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
 import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
@@ -967,7 +969,7 @@ class ReviewTransactionIntegrationTest {
         jdbc.update("UPDATE content SET status='published' WHERE id=1");
         assertTrue(decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 3)));
         ContentReviewRecord previous = reviewRecords.selectList(null).get(0);
-        reviewRecords.insert(new ContentReviewRecord().setContentId(1L).setAttempt(0).setSource("MANUAL").setDecision("BAN")
+        reviewRecords.insert(new ContentReviewRecord().setContentId(1L).setAttempt(0).setSource(ContentReviewSource.MANUAL).setDecision(ContentReviewDecision.BAN)
                 .setReason("后续人工决定的内部备注").setCreateTime(previous.getCreateTime().plusSeconds(1)));
         IUserNotificationService notifications = mock(IUserNotificationService.class);
         when(notifications.save(any())).thenReturn(true);

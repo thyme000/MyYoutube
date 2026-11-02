@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.video.schedule;
 
+import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
-
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import io.micrometer.core.instrument.*;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,7 +9,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.slf4j.*;
-
 import java.time.*;
 import java.time.Clock;
 import java.util.*;
@@ -18,7 +17,9 @@ import java.util.*;
 public class BusinessBacklogMetrics {
     private static final Logger log = LoggerFactory.getLogger(BusinessBacklogMetrics.class);
 
-    private static final List<String> DRAFT_STATES = List.of("UPLOADING", "PROCESSING", "READY", "FAILED");
+    private static final List<MediaDraftStatusEnum> DRAFT_STATES = List.of(
+            MediaDraftStatusEnum.UPLOADING, MediaDraftStatusEnum.PROCESSING,
+            MediaDraftStatusEnum.READY, MediaDraftStatusEnum.FAILED);
 
     private static final List<String> BRANCHES = List.of("search", "notice", "audio_count");
     private static final int LIMIT = 2000;
@@ -45,7 +46,8 @@ public class BusinessBacklogMetrics {
         this.jdbc = jdbc;
         this.enabled = enabled;
         health = new SampleHealth(registry, Clock.systemUTC(), "business_backlog", () -> enabled);
-        for (String state : DRAFT_STATES) {
+        for (MediaDraftStatusEnum status : DRAFT_STATES) {
+            String state = status.name();
             Gauge.builder(
                     MetricNames.BUSINESS_DRAFTS_LOWERBOUND,
                     this,
@@ -79,10 +81,10 @@ public class BusinessBacklogMetrics {
         if (!enabled) return;
         try {
             var drafts = new HashMap<String, Long>();
-            for (String state : DRAFT_STATES) drafts.put(state, Objects.requireNonNull(jdbc.queryForObject(
+            for (MediaDraftStatusEnum status : DRAFT_STATES) drafts.put(status.name(), Objects.requireNonNull(jdbc.queryForObject(
                     "SELECT COUNT(*) FROM (SELECT id FROM media_draft WHERE status=? LIMIT 2001) bounded_rows",
                     Long.class,
-                    state)));
+                    status.getCode())));
             List<BusinessBacklogMetrics.Branch> rows = jdbc.query("SELECT search_done,notice_done,audio_count_done,TIMESTAMPDIFF(SECOND,create_time,CURRENT_TIMESTAMP) AS age "
                     + "FROM content_publication_event WHERE completed=0 ORDER BY create_time,id LIMIT 2001",
                     (rs, i) -> new Branch(

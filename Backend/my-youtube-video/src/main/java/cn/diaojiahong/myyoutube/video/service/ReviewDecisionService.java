@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewDecision;
+import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewSource;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
@@ -61,17 +63,17 @@ public class ReviewDecisionService {
         boolean changed = transition(id, pass ? ContentStatusEnum.PUBLISHED : ContentStatusEnum.BANNED, reason, false);
         if (!changed) return false;
         records.insert(new ContentReviewRecord().setContentId(id).setPipelineId(row.getPipelineId())
-                .setAttempt(row.getReviewAttempt()).setSource("MANUAL").setDecision(pass ? "PASS" : "REJECT")
+                .setAttempt(row.getReviewAttempt()).setSource(ContentReviewSource.MANUAL).setDecision(pass ? ContentReviewDecision.PASS : ContentReviewDecision.REJECT)
                 .setReason(reason.trim()).setActorId(actor).setCreateTime(LocalDateTime.now()));
         understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>().eq(
                 ContentUnderstanding::getContentId,
                 id)
-                .set(ContentUnderstanding::getState, pass ? "APPROVED" : "REJECTED"));
+                .set(ContentUnderstanding::getState, pass ? ContentReviewState.APPROVED : ContentReviewState.REJECTED));
         observation.record(
                 row,
                 pass ? "REVIEW_APPROVED" : "REVIEW_REJECTED",
                 row.getState().name(),
-                pass ? "APPROVED" : "REJECTED");
+                pass ? ContentReviewState.APPROVED.name() : ContentReviewState.REJECTED.name());
         log.info("Manual review decision contentId={} pipelineId={} attempt={} decision={} actor={} reason={}",
                 id, row.getPipelineId(), row.getReviewAttempt(), pass ? "PASS" : "REJECT", actor, brief(reason));
         return true;
@@ -92,8 +94,8 @@ public class ReviewDecisionService {
             understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>().eq(
                     ContentUnderstanding::getContentId,
                     id)
-                    .set(ContentUnderstanding::getState, "CANCELLED"));
-            observation.record(row, "CONTENT_CANCELLED", row.getState().name(), "CANCELLED");
+                    .set(ContentUnderstanding::getState, ContentReviewState.CANCELLED));
+            observation.record(row, "CONTENT_CANCELLED", row.getState().name(), ContentReviewState.CANCELLED.name());
             log.info("Machine review cancelled contentId={} pipelineId={} attempt={} reason=CONTENT_STATE_CHANGED",
                     id, row.getPipelineId(), attempt);
             return false;
@@ -101,12 +103,12 @@ public class ReviewDecisionService {
         understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>().eq(
                 ContentUnderstanding::getContentId,
                 id)
-                .set(ContentUnderstanding::getState, pass ? "APPROVED" : "MANUAL_PENDING"));
+                .set(ContentUnderstanding::getState, pass ? ContentReviewState.APPROVED : ContentReviewState.MANUAL_PENDING));
         observation.record(
                 row,
                 pass ? "REVIEW_APPROVED" : "REVIEW_MANUAL_PENDING",
                 row.getState().name(),
-                pass ? "APPROVED" : "MANUAL_PENDING");
+                pass ? ContentReviewState.APPROVED.name() : ContentReviewState.MANUAL_PENDING.name());
         log.info("Machine review decision contentId={} pipelineId={} attempt={} decision={} risk={} confidence={} maxRisk={} minConfidence={} model={} reason={}",
                 id, row.getPipelineId(), attempt, pass ? "PASS" : "MANUAL", verdict.riskScore(), verdict.confidence(),
                 properties.getMaxRisk(), properties.getMinConfidence(), verdict.model(), brief(verdict.reason()));
@@ -162,10 +164,10 @@ public class ReviewDecisionService {
                 row.getContentId())
                 .set(ContentUnderstanding::getReviewAttempt, attempt).set(
                         ContentUnderstanding::getState,
-                        "AUTO_RUNNING"));
+                        ContentReviewState.AUTO_RUNNING));
         if (row.getState() != ContentReviewState.AUTO_RUNNING || row.getReviewAttempt() != attempt) {
             row.setReviewAttempt(attempt);
-            observation.record(row, "REVIEW_STARTED", row.getState().name(), "AUTO_RUNNING");
+            observation.record(row, "REVIEW_STARTED", row.getState().name(), ContentReviewState.AUTO_RUNNING.name());
         }
         return spec(true);
     }
@@ -199,8 +201,8 @@ public class ReviewDecisionService {
                     null,
                     new LambdaUpdateWrapper<ContentUnderstanding>()
                             .eq(ContentUnderstanding::getContentId, row.getContentId())
-                            .set(ContentUnderstanding::getState, "MANUAL_PENDING"));
-            observation.record(row, "REVIEW_MANUAL_PENDING", row.getState().name(), "MANUAL_PENDING");
+                            .set(ContentUnderstanding::getState, ContentReviewState.MANUAL_PENDING));
+            observation.record(row, "REVIEW_MANUAL_PENDING", row.getState().name(), ContentReviewState.MANUAL_PENDING.name());
             log.info("Review handed to manual contentId={} pipelineId={} attempt={} reason={}",
                     row.getContentId(), row.getPipelineId(), result.attempt(),
                     properties.isAutoReview() ? "TASK_CANCELLED" : "AUTO_REVIEW_DISABLED");
@@ -223,10 +225,10 @@ public class ReviewDecisionService {
                     ContentReviewRecord::getPipelineId,
                     result.pipelineId())
                     .eq(ContentReviewRecord::getAttempt, result.attempt())
-                    .eq(ContentReviewRecord::getSource, "AUTO")) > 0;
+                    .eq(ContentReviewRecord::getSource, ContentReviewSource.AUTO)) > 0;
             if (!exists) records.insert(new ContentReviewRecord().setContentId(row.getContentId()).setPipelineId(row.getPipelineId()).setAttempt(result.attempt())
-                    .setSource("AUTO")
-                    .setDecision("ERROR")
+                    .setSource(ContentReviewSource.AUTO)
+                    .setDecision(ContentReviewDecision.ERROR)
                     .setReason(result.error())
                     .setModel(properties.getReviewModel())
                     .setCreateTime(LocalDateTime.now()));
@@ -235,15 +237,15 @@ public class ReviewDecisionService {
                     row.getContentId())
                     .set(ContentUnderstanding::getReviewAttempt, result.attempt()).set(
                             ContentUnderstanding::getState,
-                            result.exhausted() ? "MANUAL_PENDING" : "AUTO_PENDING"));
-            String target = result.exhausted() ? "MANUAL_PENDING" : "AUTO_PENDING";
-            if (!row.getState().name().equals(target)) {
+                            result.exhausted() ? ContentReviewState.MANUAL_PENDING : ContentReviewState.AUTO_PENDING));
+            ContentReviewState target = result.exhausted() ? ContentReviewState.MANUAL_PENDING : ContentReviewState.AUTO_PENDING;
+            if (row.getState() != target) {
                 row.setReviewAttempt(result.attempt());
                 observation.record(
                         row,
                         result.exhausted() ? "REVIEW_MANUAL_PENDING" : "REVIEW_AUTO_PENDING",
                         row.getState().name(),
-                        target);
+                        target.name());
             }
             log.warn("Review attempt failed contentId={} pipelineId={} attempt={} exhausted={} next={} error={}",
                     row.getContentId(), row.getPipelineId(), result.attempt(), result.exhausted(), target,
@@ -262,8 +264,8 @@ public class ReviewDecisionService {
         }
         boolean changed = transition(id, ContentStatusEnum.BANNED, reason, true);
         if (changed) {
-            records.insert(new ContentReviewRecord().setContentId(id).setPipelineId(row == null ? null : row.getPipelineId()).setAttempt(0).setSource("MANUAL")
-                    .setDecision("BAN").setReason(reason).setActorId(actor).setCreateTime(LocalDateTime.now()));
+            records.insert(new ContentReviewRecord().setContentId(id).setPipelineId(row == null ? null : row.getPipelineId()).setAttempt(0).setSource(ContentReviewSource.MANUAL)
+                    .setDecision(ContentReviewDecision.BAN).setReason(reason).setActorId(actor).setCreateTime(LocalDateTime.now()));
             observation.record(row, "CONTENT_BANNED", "published", "banned");
             log.info("Published content banned contentId={} actor={} reason={}", id, actor, brief(reason));
         }
@@ -297,7 +299,7 @@ public class ReviewDecisionService {
             return false;
         }
         records.insert(new ContentReviewRecord().setContentId(content.getId()).setPipelineId(row == null ? null : row.getPipelineId())
-                .setAttempt(0).setSource("AUDIO").setDecision("BAN").setReason(reason)
+                .setAttempt(0).setSource(ContentReviewSource.AUDIO).setDecision(ContentReviewDecision.BAN).setReason(reason)
                 .setEvidenceJson(JsonUtil.toJson(message)).setCreateTime(LocalDateTime.now()));
         if (row != null) understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>().eq(
                 ContentUnderstanding::getContentId,
@@ -318,8 +320,8 @@ public class ReviewDecisionService {
                 .setContentId(row.getContentId())
                 .setPipelineId(row.getPipelineId())
                 .setAttempt(attempt)
-                .setSource("AUTO")
-                .setDecision(verdict.decision())
+                .setSource(ContentReviewSource.AUTO)
+                .setDecision(ContentReviewDecision.valueOf(verdict.decision()))
                 .setRiskScore(verdict.riskScore())
                 .setConfidence(verdict.confidence())
                 .setReason(verdict.reason())

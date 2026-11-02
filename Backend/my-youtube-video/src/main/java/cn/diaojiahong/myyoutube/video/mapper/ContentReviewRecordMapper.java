@@ -1,4 +1,7 @@
 package cn.diaojiahong.myyoutube.video.mapper;
+
+import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewDecision;
+import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewSource;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentReviewRecord;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -13,8 +16,8 @@ public interface ContentReviewRecordMapper extends BaseMapper<ContentReviewRecor
     default Set<Long> audioBannedContentIds(Collection<Long> contentIds) {
         if (contentIds.isEmpty()) return Set.of();
         return selectList(new LambdaQueryWrapper<ContentReviewRecord>().select(ContentReviewRecord::getContentId)
-                .in(ContentReviewRecord::getContentId, contentIds).eq(ContentReviewRecord::getSource, "AUDIO")
-                .eq(ContentReviewRecord::getDecision, "BAN")
+                .in(ContentReviewRecord::getContentId, contentIds).eq(ContentReviewRecord::getSource, ContentReviewSource.AUDIO)
+                .eq(ContentReviewRecord::getDecision, ContentReviewDecision.BAN)
                 .notExists("""
                         SELECT 1 FROM content_review_record newer
                         WHERE newer.content_id = content_review_record.content_id

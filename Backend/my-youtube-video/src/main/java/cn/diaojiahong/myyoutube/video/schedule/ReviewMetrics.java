@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.video.schedule;
 
+import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewState;
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
-
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.video.domain.po.*;
@@ -62,11 +62,11 @@ public class ReviewMetrics {
         try {
             long automatic = rows.selectCount(new LambdaQueryWrapper<ContentUnderstanding>().in(
                     ContentUnderstanding::getState,
-                    "AUTO_PENDING",
-                    "AUTO_RUNNING"));
+                    ContentReviewState.AUTO_PENDING,
+                    ContentReviewState.AUTO_RUNNING));
             long manual = rows.selectCount(new LambdaQueryWrapper<ContentUnderstanding>().eq(
                     ContentUnderstanding::getState,
-                    "MANUAL_PENDING"));
+                    ContentReviewState.MANUAL_PENDING));
             long pending = events.selectCount(new LambdaQueryWrapper<ContentPublicationEvent>().eq(
                     ContentPublicationEvent::getCompleted,
                     false));
