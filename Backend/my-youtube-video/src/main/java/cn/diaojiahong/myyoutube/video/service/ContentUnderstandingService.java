@@ -195,6 +195,7 @@ public class ContentUnderstandingService {
                 .set(ContentUnderstanding::getReceivedAt, LocalDateTime.ofInstant(Instant.ofEpochMilli(readyAt), ZoneOffset.UTC))
                 .set(ContentUnderstanding::getState,
                         properties.isAutoReview() ? ContentReviewState.AUTO_PENDING : ContentReviewState.MANUAL_PENDING));
+        cacheInvalidator.evictAfterCommit(ContentResourceRegion.UNDERSTANDING, content.getId().toString());
         observation.record(row, PipelineEventCode.ARTIFACTS_STORED, row.getState().name(),
                 properties.isAutoReview() ? ContentReviewState.AUTO_PENDING.name() : ContentReviewState.MANUAL_PENDING.name());
         if (properties.isAutoReview()) afterCommit(() -> requestReview(manifest.pipelineId()));
@@ -343,6 +344,7 @@ public class ContentUnderstandingService {
         return understanding.selectOne(new LambdaQueryWrapper<ContentUnderstanding>().eq(ContentUnderstanding::getContentId, id).last("FOR UPDATE"));
     }
 
+    /** 直接查库，供提交回执等业务读取；展示产物请使用 ContentUnderstandingResources。 */
     public ContentUnderstanding get(Long id) {
         return understanding.selectById(id);
     }

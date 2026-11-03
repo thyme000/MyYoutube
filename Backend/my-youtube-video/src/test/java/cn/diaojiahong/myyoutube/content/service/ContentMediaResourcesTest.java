@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.media.ContentMedia;
+import cn.diaojiahong.myyoutube.common.media.ContentArtifacts;
 import cn.diaojiahong.myyoutube.common.media.DynamicMedia;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackMetadata;
 import cn.diaojiahong.myyoutube.common.media.VideoPlayback;
@@ -32,7 +33,7 @@ import cn.diaojiahong.myyoutube.content.cache.ContentResourceCacheProperties;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
-import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
+import cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,7 +71,7 @@ class ContentMediaResourcesTest {
     private final VideoMapper videos = mock(VideoMapper.class);
     private final AudioContentAccess audioAccess = mock(AudioContentAccess.class);
     private final DynamicMapper dynamics = mock(DynamicMapper.class);
-    private final ContentUnderstandingService understanding = mock(ContentUnderstandingService.class);
+    private final ContentUnderstandingMapper understandingRows = mock(ContentUnderstandingMapper.class);
     private final ContentFeedServiceImpl cards = mock(ContentFeedServiceImpl.class);
     private final S3StorageUtil storage = mock(S3StorageUtil.class);
     private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
@@ -109,6 +110,7 @@ class ContentMediaResourcesTest {
         var access = new ContentDisplayAccess(cache, new ContentAccessSnapshotLoader(contents, audioAccess),
                 new ContentAccessService(contents, audioAccess));
         streams = new ContentStreamService(access, resources, storage, tokens);
+        var understanding = new ContentUnderstandingResources(cache, new ContentUnderstandingResourceLoader(understandingRows));
         reads = new ContentReadService(access, resources, cards, understanding, storage, streams);
 
         content = new Content().setId(1L).setType(ContentTypeEnum.VIDEO).setAuthorId(9L)
@@ -144,7 +146,9 @@ class ContentMediaResourcesTest {
         verify(audioAccess).isReferenceBlocked(content);
         verify(cards, never()).assembleCards(anyLong(), anyList(), anySet());
         verify(values, times(3)).get(ContentResourceRegion.CONTENT_MEDIA.key("1"));
-        assertEquals(2, entries.size());
+        assertEquals(Set.of(ContentResourceRegion.CONTENT_STATE.key("1"),
+                ContentResourceRegion.CONTENT_MEDIA.key("1"), ContentResourceRegion.UNDERSTANDING.key("1")), entries.keySet());
+        assertEquals("null", entries.get(ContentResourceRegion.UNDERSTANDING.key("1")));
         assertTrue(entries.values().stream().noneMatch(payload -> payload.contains("playbackToken")));
         verifyNoInteractions(storage);
     }
@@ -161,6 +165,29 @@ class ContentMediaResourcesTest {
         verify(storage).readObject(playlistKey, Duration.ofSeconds(10));
         verify(storage, times(2)).presignReadUrl(mediaKey, 1200, SdkHttpMethod.GET);
         assertEquals(rawPlaylist, JsonUtil.fromJson(entries.get(ContentResourceRegion.PLAYLIST.key(playlistKey)), String.class));
+    }
+
+    @Test
+    void completedUnderstandingIsSharedWithoutSharingSignaturesOrAuthorization() {
+        ContentArtifacts.Chapter chapter = new ContentArtifacts.Chapter(1000, "第一章");
+        when(understandingRows.selectById(1L)).thenReturn(new ContentUnderstanding().setReceived(true)
+                .setSummary("摘要").setChaptersJson(JsonUtil.toJson(List.of(chapter))).setSubtitleKey("subtitles/one.vtt"));
+
+        ContentDetailVO first = reads.detail(1L, 9L);
+        ContentDetailVO second = reads.detail(1L, 10L);
+
+        assertEquals("摘要", second.getSummary());
+        assertEquals(List.of(chapter), second.getChapters());
+        assertNotEquals(first.getSubtitleUrl(), second.getSubtitleUrl());
+        verify(understandingRows).selectById(1L);
+        verify(storage, times(2)).signGetUrl("subtitles/one.vtt", 1200);
+        assertFalse(entries.get(ContentResourceRegion.UNDERSTANDING.key("1")).contains("signature="));
+
+        content.setStatus(ContentStatusEnum.BANNED);
+        cache.evict(ContentResourceRegion.CONTENT_STATE, "1");
+        assertThrows(BizException.class, () -> reads.detail(1L, 9L));
+        verify(understandingRows).selectById(1L);
+        verify(storage, times(2)).signGetUrl("subtitles/one.vtt", 1200);
     }
 
     @Test
@@ -188,7 +215,9 @@ class ContentMediaResourcesTest {
         assertNotEquals(first.getMedia().dynamic().audio().url(), second.getMedia().dynamic().audio().url());
         verify(dynamics).selectBatchIds(List.of(1L));
         verifyNoInteractions(videos);
-        assertEquals(2, entries.size());
+        assertEquals(Set.of(ContentResourceRegion.CONTENT_STATE.key("1"),
+                ContentResourceRegion.CONTENT_MEDIA.key("1"), ContentResourceRegion.UNDERSTANDING.key("1")), entries.keySet());
+        assertEquals("null", entries.get(ContentResourceRegion.UNDERSTANDING.key("1")));
         String payload = entries.get(ContentResourceRegion.CONTENT_MEDIA.key("1"));
         assertTrue(payload.contains("image-one"));
         assertTrue(payload.contains("music.mp3"));
@@ -212,8 +241,8 @@ class ContentMediaResourcesTest {
 
     @Test
     void subtitleTextIsCachedByItsObjectKeyAndRegeneratedKeysGetFreshText() {
-        ContentUnderstanding row = new ContentUnderstanding().setSubtitleKey("subtitles/version-one.vtt");
-        when(understanding.get(1L)).thenReturn(row);
+        ContentUnderstanding row = new ContentUnderstanding().setReceived(true).setSubtitleKey("subtitles/version-one.vtt");
+        when(understandingRows.selectById(1L)).thenReturn(row);
         when(storage.readObject(eq("subtitles/version-one.vtt"), any(Duration.class)))
                 .thenReturn("WEBVTT\nfirst".getBytes(StandardCharsets.UTF_8));
         when(storage.readObject(eq("subtitles/version-two.vtt"), any(Duration.class)))
@@ -222,10 +251,12 @@ class ContentMediaResourcesTest {
         assertEquals("WEBVTT\nfirst", reads.subtitles(1L, 9L));
         assertEquals("WEBVTT\nfirst", reads.subtitles(1L, 10L));
         row.setSubtitleKey("subtitles/version-two.vtt");
+        cache.evict(ContentResourceRegion.UNDERSTANDING, "1");
         assertEquals("WEBVTT\nsecond", reads.subtitles(1L, 9L));
 
         verify(storage).readObject("subtitles/version-one.vtt", Duration.ofSeconds(10));
         verify(storage).readObject("subtitles/version-two.vtt", Duration.ofSeconds(10));
+        verify(understandingRows, times(2)).selectById(1L);
         content.setIsDelete(1);
         cache.evict(ContentResourceRegion.CONTENT_STATE, "1");
         assertThrows(BizException.class, () -> reads.subtitles(1L, 9L));
@@ -236,13 +267,14 @@ class ContentMediaResourcesTest {
     @NullAndEmptySource
     @ValueSource(strings = {" ", "\t\n"})
     void absentSubtitleKeysAreRejectedBeforeReadingTheSubtitleCacheOrStorage(String key) {
-        when(understanding.get(1L)).thenReturn(new ContentUnderstanding().setSubtitleKey(key));
+        when(understandingRows.selectById(1L)).thenReturn(new ContentUnderstanding().setReceived(true).setSubtitleKey(key));
 
         BizException failure = assertThrows(BizException.class, () -> reads.subtitles(1L, 9L));
 
         assertEquals(ErrorCode.NOT_FOUND, failure.getErrorCode());
         verifyNoInteractions(storage);
-        assertEquals(Set.of(ContentResourceRegion.CONTENT_STATE.key("1")), entries.keySet());
+        assertEquals(Set.of(ContentResourceRegion.CONTENT_STATE.key("1"),
+                ContentResourceRegion.UNDERSTANDING.key("1")), entries.keySet());
     }
 
     @ParameterizedTest

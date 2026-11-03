@@ -4,9 +4,11 @@ import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackMetadata;
 import cn.diaojiahong.myyoutube.common.media.VideoPlayback;
+import cn.diaojiahong.myyoutube.common.media.ContentArtifacts;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
@@ -15,7 +17,9 @@ import cn.diaojiahong.myyoutube.security.PlaybackTokens;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
+import cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -202,6 +206,39 @@ class LiveContentResourceCacheTest {
         assertEquals("old-resource", get(first, resourceId, () -> "old-resource"));
         second.evict(ContentResourceRegion.PLAYLIST, resourceId);
         assertEquals("new-resource", get(first, resourceId, () -> "new-resource"));
+    }
+
+    @Test
+    void completedUnderstandingReplacesNegativeCacheAndIsSharedAcrossClients() {
+        long id = ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE);
+        String key = ContentResourceRegion.UNDERSTANDING.key(Long.toString(id));
+        keys.add(key);
+        ContentUnderstandingMapper rows = mock(ContentUnderstandingMapper.class);
+        ContentArtifacts.Chapter chapter = new ContentArtifacts.Chapter(1000, "第一章");
+        ContentUnderstanding row = new ContentUnderstanding().setContentId(id).setReceived(false)
+                .setSummary("摘要").setChaptersJson(JsonUtil.toJson(List.of(chapter)))
+                .setSubtitleKey(resourceId + "/subtitle.vtt");
+        when(rows.selectById(id)).thenReturn(row);
+        var loader = new ContentUnderstandingResourceLoader(rows);
+        var firstResources = new ContentUnderstandingResources(first, loader);
+        var secondResources = new ContentUnderstandingResources(second, loader);
+        assertNull(firstResources.get(id));
+        assertNull(secondResources.get(id));
+        verify(rows).selectById(id);
+
+        row.setReceived(true);
+        var invalidator = new ContentResourceInvalidator(first, mock(TaskScheduler.class), properties, metrics);
+        invalidator.evictAfterCommit(ContentResourceRegion.UNDERSTANDING, Long.toString(id));
+        ContentUnderstandingResource loaded = secondResources.get(id);
+        ContentUnderstandingResource cached = firstResources.get(id);
+
+        assertEquals(loaded, cached);
+        assertEquals(List.of(chapter), cached.summary().chapters());
+        assertEquals(row.getSubtitleKey(), cached.subtitleKey());
+        verify(rows, times(2)).selectById(id);
+        Long ttl = firstRedis.getExpire(key, TimeUnit.MILLISECONDS);
+        assertNotNull(ttl);
+        assertTrue(ttl > 0 && ttl <= TimeUnit.SECONDS.toMillis(properties.getArtifactTtlSeconds()));
     }
 
     @Test

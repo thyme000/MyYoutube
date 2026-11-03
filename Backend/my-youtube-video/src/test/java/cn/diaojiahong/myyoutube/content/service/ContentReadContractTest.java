@@ -23,7 +23,6 @@ import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.dto.VideoPlaybackVO;
-import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
 import cn.diaojiahong.myyoutube.video.mapper.ContentReviewRecordMapper;
 import cn.diaojiahong.myyoutube.transcode.api.TranscodePort;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
@@ -38,7 +37,7 @@ class ContentReadContractTest {
 
     final S3StorageUtil storage=mock(S3StorageUtil.class);
 
-    final ContentUnderstandingService understanding=mock(ContentUnderstandingService.class);
+    final ContentUnderstandingResources understanding=mock(ContentUnderstandingResources.class);
 
     final ContentTypeStrategy strategy=mock(ContentTypeStrategy.class);
 

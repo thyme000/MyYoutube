@@ -1,28 +1,26 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.media.ContentArtifacts;
 import cn.diaojiahong.myyoutube.common.media.ContentMedia;
 import cn.diaojiahong.myyoutube.common.media.DynamicMedia;
-import cn.diaojiahong.myyoutube.common.media.ContentArtifacts.Chapter;
-import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
-import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
-import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
+import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentDetailVO;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentFeedServiceImpl;
-import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens.Scope;
-import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
-import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
+import cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO;
 import cn.hutool.core.bean.BeanUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import java.util.Arrays;
-import cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,7 +32,7 @@ public class ContentReadService {
     private final ContentDisplayAccess access;
     private final ContentMediaResources resources;
     private final ContentFeedServiceImpl cards;
-    private final ContentUnderstandingService understanding;
+    private final ContentUnderstandingResources understanding;
     private final S3StorageUtil storage;
     private final ContentStreamService streams;
 
@@ -53,14 +51,12 @@ public class ContentReadService {
                 ? new ContentMediaVO("video", new ContentMediaVO.Video(media.video().durationMs(),
                         streams.playback(content, resource, viewer, Scope.VIEW)), null)
                 : signedMedia(media));
-        ContentUnderstanding row = understanding.get(id);
-        if (row != null) {
-            detail.setSummary(row.getSummary());
-            detail.setChapters(row.getChaptersJson() == null ? List.of() : Arrays.asList(
-                    JsonUtil.fromJson(
-                            row.getChaptersJson(),
-                            Chapter[].class)));
-            detail.setSubtitleUrl(signed(row.getSubtitleKey()));
+        ContentUnderstandingResource understood = understanding.get(id);
+        if (understood != null) {
+            ContentArtifacts.Summary summary = understood.summary();
+            detail.setSummary(summary.summary());
+            detail.setChapters(summary.chapters());
+            detail.setSubtitleUrl(signed(understood.subtitleKey()));
         }
         return detail;
     }
@@ -68,9 +64,12 @@ public class ContentReadService {
     @ObservedBusiness(BusinessOperation.SUBTITLES)
     public String subtitles(Long id, Long viewer) {
         access.readable(id, viewer);
-        ContentUnderstanding row = understanding.get(id);
-        if (row == null || !StringUtils.hasText(row.getSubtitleKey())) throw new BizException(ErrorCode.NOT_FOUND, "暂无字幕");
-        return resources.subtitle(row.getSubtitleKey());
+        ContentUnderstandingResource understood = understanding.get(id);
+        if (understood == null || !StringUtils.hasText(understood.subtitleKey())) {
+            throw new BizException(ErrorCode.NOT_FOUND, "暂无字幕");
+        }
+
+        return resources.subtitle(understood.subtitleKey());
     }
 
     public ContentMediaVO adminMedia(Long id, Long viewer) {

@@ -2,6 +2,8 @@ package cn.diaojiahong.myyoutube.video;
 
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
+import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
+import cn.diaojiahong.myyoutube.content.service.ContentUnderstandingResourceLoader;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewDecision;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewSource;
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
@@ -41,6 +43,7 @@ import java.nio.file.Path;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentServiceImpl;
@@ -159,6 +162,11 @@ class ReviewTransactionIntegrationTest {
         }
 
         @Bean
+        ContentUnderstandingResourceLoader understandingResourceLoader(ContentUnderstandingMapper rows) {
+            return new ContentUnderstandingResourceLoader(rows);
+        }
+
+        @Bean
         ContentUnderstandingService understandingService(ContentUnderstandingMapper rows, ContentMapper videos,
                 ContentReviewRecordMapper records,
                 ContentPipelineProperties properties,
@@ -253,6 +261,7 @@ class ReviewTransactionIntegrationTest {
     @Autowired ContentMapper contentRows;
     @Autowired PublicationEffectsService effects;
     @Autowired ContentResourceInvalidator cacheInvalidator;
+    @Autowired ContentUnderstandingResourceLoader understandingResourceLoader;
     JdbcTemplate jdbc;
 
     @BeforeEach
@@ -690,13 +699,21 @@ class ReviewTransactionIntegrationTest {
                 System.currentTimeMillis());
     }
 
-    @Test
-    void completionIsIdempotentAndAutoReviewFalseNeverCreatesReview() {
+    static List<ContentArtifacts.Summary> completedSummaries() {
+        return List.of(new ContentArtifacts.Summary("", List.of()),
+                new ContentArtifacts.Summary("视频介绍了缓存命中与失效流程",
+                        List.of(new ContentArtifacts.Chapter(100, "缓存概览"))));
+    }
+
+    @ParameterizedTest
+    @MethodSource("completedSummaries")
+    void completionIsIdempotentAndAutoReviewFalseNeverCreatesReview(ContentArtifacts.Summary expectedSummary) {
         observations.getRecording().setEnabled(true);
         policy.setAutoReview(false);
         state(ContentReviewState.WAITING_PIPELINE);
         ContentUnderstanding row = understanding.selectById(1L);
         PipelineContracts.Input input = JsonUtil.fromJson(row.getInputJson(), Input.class);
+        assertNull(understandingResourceLoader.load(1L));
         Map<String,String> results=Map.of(
                 "COVER",
                 "{\"coverObjectKey\":\"cover\"}",
@@ -715,9 +732,7 @@ class ReviewTransactionIntegrationTest {
                 input,
                 results,
                 System.currentTimeMillis()));
-        when(artifacts.read("summary", ContentArtifacts.Summary.class)).thenReturn(new ContentArtifacts.Summary(
-                "",
-                List.of()));
+        when(artifacts.read("summary", ContentArtifacts.Summary.class)).thenReturn(expectedSummary);
         when(artifacts.read("tag", com.google.gson.JsonObject.class))
                 .thenReturn(StructuredJson.object("{\"category\":\"OTHER\",\"tags\":[]}"));
         when(tags.map(anyString())).thenReturn(new TagResultMapper.Mapped("OTHER",Map.of(),List.of(),List.of()));
@@ -728,12 +743,17 @@ class ReviewTransactionIntegrationTest {
         content.accept(event);
         assertEquals(ContentReviewState.MANUAL_PENDING, understanding.selectById(1L).getState());
         assertTrue(understanding.selectById(1L).getReceived());
-        assertEquals("",understanding.selectById(1L).getSummary());
+        assertEquals(expectedSummary.summary(), understanding.selectById(1L).getSummary());
         assertEquals("cover", jdbc.queryForObject("SELECT cover_object_key FROM content WHERE id=1", String.class));
         assertEquals(2L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
         verify(artifacts,times(1)).read("summary",ContentArtifacts.Summary.class);
         verify(tasks,times(2)).received(100L);
         verify(cacheInvalidator).evictAfterCommit(ContentResourceRegion.CONTENT_STATE, "1");
+        verify(cacheInvalidator).evictAfterCommit(ContentResourceRegion.UNDERSTANDING, "1");
+        ContentUnderstandingResource resource = understandingResourceLoader.load(1L);
+        assertEquals(expectedSummary.summary(), resource.summary().summary());
+        assertEquals(expectedSummary.chapters(), resource.summary().chapters());
+        assertEquals("captions", resource.subtitleKey());
         verifyNoInteractions(mq);
         assertEquals(0,count("content_publication_event"));
         assertEquals(1, count("pipeline_event_outbox"));
