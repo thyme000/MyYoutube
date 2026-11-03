@@ -1,24 +1,21 @@
 package cn.diaojiahong.myyoutube.content.service;
 
 import cn.diaojiahong.myyoutube.common.media.HlsPlaylist;
+import cn.diaojiahong.myyoutube.common.media.ContentRoutes;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.VideoPlayback;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackQuality;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens.Scope;
 import cn.diaojiahong.myyoutube.video.api.dto.VideoPlaybackVO;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
-import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
+import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
 import software.amazon.awssdk.http.SdkHttpMethod;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @Service
@@ -26,7 +23,7 @@ import java.util.List;
 public class ContentStreamService {
     private static final int SIGN_SECONDS = 1200;
     private final ContentAccessService access;
-    private final VideoMapper videos;
+    private final ContentMediaResources resources;
     private final S3StorageUtil storage;
     private final PlaybackTokens tokens;
 
@@ -40,17 +37,21 @@ public class ContentStreamService {
     }
 
     private VideoPlaybackVO playback(Long contentId, Long viewer, Scope scope) {
-        Video video = readableVideo(contentId, viewer, scope);
-        VideoPlayback playback = descriptor(video);
-        PlaybackTokens.Grant grant = tokens.issue(viewer, contentId, video.getDurationMs(), scope);
-        String base = (scope == Scope.REVIEW ? "/admin/content/" : "/contents/") + contentId + "/streams/";
+        Content content = readableContent(contentId, viewer, scope);
+        return playback(content, resources.media(content), viewer, scope);
+    }
+
+    /** 调用方必须按 scope 完成访问检查，且 resource 必须是该 content 的媒体快照。 */
+    VideoPlaybackVO playback(Content content, ContentMediaResource resource, Long viewer, Scope scope) {
+        Long contentId = content.getId();
+        VideoPlayback playback = resource.playback();
+        PlaybackTokens.Grant grant = tokens.issue(viewer, contentId, resource.media().video().durationMs(), scope);
         List<VideoPlaybackVO.Rendition> renditions = playback.renditions().stream().map(rendition ->
                 new VideoPlaybackVO.Rendition(rendition.index(), rendition.width(), rendition.height(),
-                        withToken(base + rendition.index() + "/" + HlsPlaylist.PLAYLIST_FILENAME, grant.token()))).toList();
+                        withToken(ContentRoutes.rendition(scope, contentId, rendition.index()), grant.token()))).toList();
         // 前端分片缓存键与授权续期检查使用此版本；摘要不用于鉴权。
-        String version = DigestUtils.md5DigestAsHex(video.getPlaybackJson().getBytes(StandardCharsets.UTF_8));
-        return new VideoPlaybackVO(playback.width(), playback.height(), version, grant.expiresAt(),
-                withToken(base + HlsPlaylist.MASTER_FILENAME, grant.token()), renditions);
+        return new VideoPlaybackVO(playback.width(), playback.height(), resource.playbackVersion(), grant.expiresAt(),
+                withToken(ContentRoutes.master(scope, contentId), grant.token()), renditions);
     }
 
     public String masterPlaylist(Long contentId, Long viewer, String token) {
@@ -63,10 +64,10 @@ public class ContentStreamService {
     }
 
     private String masterPlaylist(Long contentId, Long viewer, String token, Scope scope) {
-        Video video = readableVideo(contentId, viewer, scope);
-        VideoPlayback playback = descriptor(video);
+        Content content = readableContent(contentId, viewer, scope);
+        VideoPlayback playback = resources.media(content).playback();
         return HlsPlaylist.master(playback.renditions(),
-                rendition -> withToken(rendition.index() + "/" + HlsPlaylist.PLAYLIST_FILENAME, token));
+                rendition -> withToken(ContentRoutes.relativeRendition(rendition.index()), token));
     }
 
     public String playlist(Long contentId, int index, Long viewer, String token) {
@@ -79,23 +80,24 @@ public class ContentStreamService {
 
     private String playlist(Long contentId, int index, Long viewer, String token, Scope scope) {
         PlaybackTokens.Grant grant = requireGrant(contentId, viewer, token, scope);
+        requireSignSeconds(grant);
         VideoPlayback.Rendition rendition = readableRendition(contentId, index, viewer, scope);
-        String text = new String(storage.readObject(rendition.playlistObjectKey()), StandardCharsets.UTF_8);
+        String text = resources.playlist(rendition.playlistObjectKey());
         String mediaKey = rendition.mediaObjectKey();
         String filename = mediaKey.substring(mediaKey.lastIndexOf('/') + 1);
 
-        long seconds = Math.min(SIGN_SECONDS, (grant.expiresAt() - System.currentTimeMillis()) / 1000);
-        if (seconds <= 0) throw new BizException(ErrorCode.UNAUTHORIZED);
+        // 资源读取可能耗时，签名前重算剩余有效期，避免签名超过播放票据的期限。
+        long seconds = requireSignSeconds(grant);
 
         // 同一档位的初始化段和全部字节范围共用一个签名，不再逐片经过应用服务。
         String mediaUrl = storage.presignReadUrl(mediaKey, seconds, SdkHttpMethod.GET);
         return text.replace(filename, mediaUrl);
     }
 
-    private VideoPlayback descriptor(Video video) {
-        if (video.getPlaybackJson() == null || video.getPlaybackJson().isBlank())
-            throw new BizException(ErrorCode.STATE_CONFLICT, "HLS 播放资源尚未准备完成");
-        return JsonUtil.fromJson(video.getPlaybackJson(), VideoPlayback.class);
+    private long requireSignSeconds(PlaybackTokens.Grant grant) {
+        long seconds = Math.min(SIGN_SECONDS, (grant.expiresAt() - System.currentTimeMillis()) / 1000);
+        if (seconds <= 0) throw new BizException(ErrorCode.UNAUTHORIZED);
+        return seconds;
     }
 
     private PlaybackTokens.Grant requireGrant(Long contentId, Long viewer, String token, Scope scope) {
@@ -110,20 +112,18 @@ public class ContentStreamService {
     }
 
     private VideoPlayback.Rendition readableRendition(Long contentId, int index, Long viewer, Scope scope) {
-        Video video = readableVideo(contentId, viewer, scope);
-        VideoPlayback playback = descriptor(video);
+        Content content = readableContent(contentId, viewer, scope);
+        VideoPlayback playback = resources.media(content).playback();
         PlaybackQuality quality = PlaybackQuality.fromCode(index);
         if (quality == null) throw new BizException(ErrorCode.NOT_FOUND, "播放档位不存在");
         return playback.renditions().stream().filter(item -> item.index() == quality.code())
                 .findFirst().orElseThrow(() -> new BizException(ErrorCode.NOT_FOUND, "播放档位不存在"));
     }
 
-    private Video readableVideo(Long contentId, Long viewer, Scope scope) {
+    private Content readableContent(Long contentId, Long viewer, Scope scope) {
         Content content = scope == Scope.REVIEW ? access.forReview(contentId) : access.readable(contentId, viewer);
         if (content.getType() != ContentTypeEnum.VIDEO)
             throw new BizException(ErrorCode.NOT_FOUND, "内容不是视频");
-        Video video = videos.selectById(contentId);
-        if (video == null) throw new BizException(ErrorCode.NOT_FOUND, "视频不存在");
-        return video;
+        return content;
     }
 }

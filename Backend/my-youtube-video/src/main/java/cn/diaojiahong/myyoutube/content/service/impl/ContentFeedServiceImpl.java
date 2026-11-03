@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.page.*;
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
 import cn.diaojiahong.myyoutube.content.domain.dto.AuthorContentCursorQuery;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
+import cn.diaojiahong.myyoutube.common.media.ContentMedia;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
 import cn.diaojiahong.myyoutube.content.domain.vo.AuthorContentCursorVO;
@@ -152,6 +153,21 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     public List<ContentFeedVO> assembleCards(Long viewer, List<Content> rows, Set<Long> blocked) {
         if (rows.isEmpty()) return List.of();
 
+        var media = new HashMap<Long, ContentMedia>();
+        for (Map.Entry<ContentTypeEnum,List<Content>> group : rows.stream()
+                .collect(Collectors.groupingBy(Content::getType))
+                .entrySet()) {
+            media.putAll(strategies.get(group.getKey()).loadMedia(group.getValue().stream().map(Content::getId).toList()));
+        }
+
+        return assembleCardsWithMedia(viewer, rows, blocked, media);
+    }
+
+    /** 详情入口复用已读取的媒体，避免卡片组装时再次查询。 */
+    public List<ContentFeedVO> assembleCardsWithMedia(Long viewer, List<Content> rows, Set<Long> blocked,
+            Map<Long, ContentMedia> media) {
+        if (rows.isEmpty()) return List.of();
+
         List<Long> authorIds = rows.stream().map(Content::getAuthorId).distinct().toList();
         List<UserSummary> authors = users.listByIds(authorIds);
         Map<Long,String> names = UserSummaries.toNicknameMap(authors);
@@ -166,12 +182,6 @@ public class ContentFeedServiceImpl implements IContentFeedService {
                 .eq(ContentLike::getIsLiked, 1)
                 .in(ContentLike::getContentId, rows.stream().map(Content::getId).toList()))
                 .stream().map(ContentLike::getContentId).collect(Collectors.toSet());
-
-        var media = new HashMap<Long, cn.diaojiahong.myyoutube.common.media.ContentMedia>();
-        for (Map.Entry<ContentTypeEnum,List<Content>> group : rows.stream()
-                .collect(Collectors.groupingBy(Content::getType))
-                .entrySet())
-            media.putAll(strategies.get(group.getKey()).loadMedia(group.getValue().stream().map(Content::getId).toList()));
 
         var result = new ArrayList<ContentFeedVO>();
         for (Content row : rows) {

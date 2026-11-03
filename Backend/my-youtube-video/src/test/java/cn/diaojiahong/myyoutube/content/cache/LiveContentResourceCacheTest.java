@@ -1,7 +1,22 @@
 package cn.diaojiahong.myyoutube.content.cache;
 
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackMetadata;
+import cn.diaojiahong.myyoutube.common.media.VideoPlayback;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.content.service.*;
+import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
+import cn.diaojiahong.myyoutube.content.strategy.VideoContentStrategy;
+import cn.diaojiahong.myyoutube.security.PlaybackTokens;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.config.ContentResourceCacheProperties;
+import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -15,7 +30,10 @@ import org.redisson.config.Config;
 import org.redisson.config.SingleServerConfig;
 import org.redisson.spring.data.connection.RedissonConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import software.amazon.awssdk.http.SdkHttpMethod;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -24,11 +42,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * 两个独立客户端连接本机隔离 Redis，仅读写本次 UUID 对应的键，不清库。默认跳过，尚未接入 CI。
@@ -177,6 +197,46 @@ class LiveContentResourceCacheTest {
         assertEquals("old-resource", get(first, resourceId, () -> "old-resource"));
         assertTrue(second.evict(ContentResourceRegion.PLAYLIST, resourceId));
         assertEquals("new-resource", get(first, resourceId, () -> "new-resource"));
+    }
+
+    @Test
+    void realRedisSharesRawPlaybackResourcesButNotSignaturesOrAccessDecisions() {
+        long contentId = ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE);
+        String playlistKey = resourceId + "/index.m3u8";
+        String mediaKey = resourceId + "/media.mp4";
+        keys.add(ContentResourceRegion.CONTENT_MEDIA.key(Long.toString(contentId)));
+        keys.add(ContentResourceRegion.PLAYLIST.key(playlistKey));
+        ContentMapper contents = mock(ContentMapper.class);
+        VideoMapper videos = mock(VideoMapper.class);
+        S3StorageUtil storage = mock(S3StorageUtil.class);
+        Content content = new Content().setId(contentId).setAuthorId(9L).setType(ContentTypeEnum.VIDEO)
+                .setIsDelete(0).setStatus(ContentStatusEnum.PUBLISHED).setVisibility("public");
+        when(contents.selectById(contentId)).thenReturn(content);
+        VideoPlayback playback = new VideoPlayback(1280, 720, List.of(new VideoPlayback.Rendition(
+                720, mediaKey, playlistKey, 1280, 720, 3000000, new PlaybackMetadata("avc1.64001f", 3000000, 25))));
+        when(videos.selectById(contentId)).thenReturn(new Video().setId(contentId).setObjectKey("original.mp4")
+                .setDurationMs(12000L).setPlaybackJson(JsonUtil.toJson(playback)));
+        String raw = "#EXTM3U\n#EXTINF:4.0,\nmedia.mp4\n#EXT-X-ENDLIST\n";
+        when(storage.readObject(playlistKey, Duration.ofSeconds(10))).thenReturn(raw.getBytes(StandardCharsets.UTF_8));
+        when(storage.presignReadUrl(mediaKey, 1200, SdkHttpMethod.GET))
+                .thenReturn("https://signed.example/media.mp4?signature=one", "https://signed.example/media.mp4?signature=two");
+        var strategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos)));
+        var loader = new ContentMediaResourceLoader(strategies);
+        var access = new ContentAccessService(contents, mock(AudioContentAccess.class));
+        var tokens = new PlaybackTokens("live-resource-cache-test-secret-at-least-thirty-two", 21600);
+        var firstStreams = new ContentStreamService(access, new ContentMediaResources(first, loader, storage), storage, tokens);
+        var secondStreams = new ContentStreamService(access, new ContentMediaResources(second, loader, storage), storage, tokens);
+        String ticket = tokens.issue(9, contentId, 12000, PlaybackTokens.Scope.VIEW).token();
+
+        assertTrue(firstStreams.playlist(contentId, 720, 9L, ticket).contains("signature=one"));
+        assertTrue(secondStreams.playlist(contentId, 720, 9L, ticket).contains("signature=two"));
+        content.setStatus(ContentStatusEnum.BANNED);
+        assertThrows(BizException.class, () -> secondStreams.playlist(contentId, 720, 9L, ticket));
+
+        verify(videos).selectById(contentId);
+        verify(storage).readObject(playlistKey, Duration.ofSeconds(10));
+        verify(storage, times(2)).presignReadUrl(mediaKey, 1200, SdkHttpMethod.GET);
+        assertEquals(raw, JsonUtil.fromJson(firstRedis.opsForValue().get(ContentResourceRegion.PLAYLIST.key(playlistKey)), String.class));
     }
 
     @Test

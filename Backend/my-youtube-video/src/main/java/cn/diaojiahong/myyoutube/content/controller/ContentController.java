@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.content.controller;
 
+import cn.diaojiahong.myyoutube.common.media.ContentRoutes;
+
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.*;
@@ -19,7 +21,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/contents")
+@RequestMapping(ContentRoutes.CONTENT_BASE)
 @RequiredArgsConstructor
 public class ContentController {
     private final IContentFeedService feeds;

@@ -1,4 +1,6 @@
-package cn.diaojiahong.myyoutube.video;
+package cn.diaojiahong.myyoutube.content.service;
+
+import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.*;
@@ -10,6 +12,10 @@ import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentFeedServiceImpl;
 import cn.diaojiahong.myyoutube.content.strategy.*;
+import cn.diaojiahong.myyoutube.content.support.ContentResourceTestSupport;
+import cn.diaojiahong.myyoutube.security.PlaybackTokens.Scope;
+import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
@@ -38,26 +44,46 @@ class ContentReadContractTest {
 
     final ContentTypeStrategyRegistry registry=new ContentTypeStrategyRegistry(List.of());
 
+    final VideoMapper videos = mock(VideoMapper.class);
+
+    @Test
+    void emptyCardInputsSkipRemoteAndDatabaseLookupsForBothEntryPoints() {
+        UserPort users = mock(UserPort.class);
+        IUserFollowService follows = mock(IUserFollowService.class);
+        ContentLikeMapper likes = mock(ContentLikeMapper.class);
+        ContentTypeStrategyRegistry strategies = mock(ContentTypeStrategyRegistry.class);
+        var cards = new ContentFeedServiceImpl(mock(IContentService.class), likes, follows, users, storage,
+                mock(RecommendPort.class), strategies, mock(AudioContentAccess.class),
+                mock(ContentReviewRecordMapper.class), mock(AuthorContentPageService.class));
+
+        assertTrue(cards.assembleCards(9L, List.of(), Set.of()).isEmpty());
+        assertTrue(cards.assembleCardsWithMedia(9L, List.of(), Set.of(), Map.of()).isEmpty());
+
+        verifyNoInteractions(users, follows, likes, strategies, storage);
+    }
+
     @Test
     void publishedAndReviewVideoUseHlsThroughTheirRespectiveAccessPaths() {
         Content content = new Content().setId(1L).setType(ContentTypeEnum.VIDEO).setAuthorId(7L)
                 .setVisibility("public").setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0);
         when(contents.selectById(1L)).thenReturn(content);
-        when(strategy.type()).thenReturn(ContentTypeEnum.VIDEO);
-        when(strategy.loadMedia(List.of(1L))).thenReturn(Map.of(1L,
-                new ContentMedia("video", new VideoMedia("single-file", 12000), null)));
+        when(videos.selectById(1L)).thenReturn(new Video().setId(1L).setObjectKey("single-file")
+                .setDurationMs(12000L).setPlaybackJson(cn.diaojiahong.myyoutube.common.utils.JsonUtil.toJson(
+                        new VideoPlayback(1920, 1080, List.of()))));
         ContentFeedServiceImpl cards = mock(ContentFeedServiceImpl.class);
         ContentFeedVO card = new ContentFeedVO();
         card.setId("1");
         card.setType("video");
-        when(cards.assembleCards(9L, List.of(content), Set.of())).thenReturn(List.of(card));
+        when(cards.assembleCardsWithMedia(eq(9L), eq(List.of(content)), eq(Set.of()), anyMap())).thenReturn(List.of(card));
         ContentStreamService streams = mock(ContentStreamService.class);
         VideoPlaybackVO playback = new VideoPlaybackVO(1920, 1080, "version", 123456789,
                 "/contents/1/streams/master.m3u8?playbackToken=ticket", List.of());
-        when(streams.playback(1L, 9L)).thenReturn(playback);
+        when(streams.playback(eq(content), any(ContentMediaResource.class), eq(9L), eq(Scope.VIEW))).thenReturn(playback);
+        var videoStrategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos)));
         ContentReadService reads = new ContentReadService(
                 new ContentAccessService(contents, mock(AudioContentAccess.class)),
-                new ContentTypeStrategyRegistry(List.of(strategy)), cards, understanding, storage, streams);
+                ContentResourceTestSupport.uncached(videoStrategies, storage),
+                cards, understanding, storage, streams);
 
         ContentDetailVO detail = reads.detail(1L, 9L);
         assertSame(playback, detail.getMedia().video().playback());
@@ -65,11 +91,13 @@ class ContentReadContractTest {
         verifyNoInteractions(storage);
 
         content.setStatus(ContentStatusEnum.REVIEW);
-        when(streams.reviewPlayback(1L, 9L)).thenReturn(playback);
+        when(streams.playback(eq(content), any(ContentMediaResource.class), eq(9L), eq(Scope.REVIEW))).thenReturn(playback);
         assertSame(playback, reads.adminMedia(1L, 9L).video().playback());
         verifyNoInteractions(storage);
-        verify(streams).reviewPlayback(1L, 9L);
-        verify(streams, times(1)).playback(1L, 9L);
+        verify(streams).playback(eq(content), any(ContentMediaResource.class), eq(9L), eq(Scope.REVIEW));
+        verify(streams).playback(eq(content), any(ContentMediaResource.class), eq(9L), eq(Scope.VIEW));
+        verify(contents, times(2)).selectById(1L);
+        verify(videos, times(2)).selectById(1L);
     }
 
     @Test
@@ -82,7 +110,7 @@ class ContentReadContractTest {
         var access = new ContentAccessService(contents, audios);
         var reads = new ContentReadService(
                 access,
-                registry,
+                ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
                 understanding,
                 storage, mock(ContentStreamService.class));
@@ -119,7 +147,7 @@ class ContentReadContractTest {
         var dynamic=new DynamicMedia("vertical",1080,1920,"cut",0,List.of(
                 new DynamicMedia.Image("first",0,3000,0.5,0.5), new DynamicMedia.Image("second",3000,3000,0.5,0.5)),
                 new DynamicMedia.Audio(20L,"music","原配乐",120000),6000);
-        when(strategy.loadMedia(List.of(1L))).thenReturn(Map.of(1L,new ContentMedia("dynamic",null,dynamic)));
+        when(strategy.loadResource(1L)).thenReturn(new ContentMediaResource(new ContentMedia("dynamic", null, dynamic), null, null));
         when(storage.signGetUrl(anyString(),anyLong())).thenAnswer(call -> "signed/"+call.getArgument(0));
         AudioContentAccess audios = mock(AudioContentAccess.class);
         var cards=new ContentFeedServiceImpl(mock(IContentService.class),mock(ContentLikeMapper.class),
@@ -133,7 +161,7 @@ class ContentReadContractTest {
                 mock(AuthorContentPageService.class));
         var service=new ContentReadService(
                 new ContentAccessService(contents,audios),
-                registry,
+                ContentResourceTestSupport.uncached(registry, storage),
                 cards,
                 understanding,
                 storage, mock(ContentStreamService.class));
@@ -152,6 +180,8 @@ class ContentReadContractTest {
         assertEquals(120000L,detail.getMedia().dynamic().audio().durationMs());
         assertEquals("signed/music",detail.getMedia().dynamic().audio().url());
         verify(audios, times(1)).blocked(List.of(content));
+        verify(strategy).loadResource(1L);
+        verify(contents).selectById(1L);
     }
 
     @Test
@@ -173,11 +203,11 @@ class ContentReadContractTest {
                 List.of(new DynamicMedia.Image("image",0,3000,.5,.5)),
                 null,
                 3000);
-        when(strategy.loadMedia(List.of(1L))).thenReturn(Map.of(1L,new ContentMedia("dynamic",null,media)));
+        when(strategy.loadResource(1L)).thenReturn(new ContentMediaResource(new ContentMedia("dynamic", null, media), null, null));
         when(storage.signGetUrl("image",1200)).thenReturn("signed/image");
         var service = new ContentReadService(
                 new ContentAccessService(contents,mock(AudioContentAccess.class)),
-                registry,
+                ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
                 understanding,
                 storage, mock(ContentStreamService.class));
@@ -192,7 +222,7 @@ class ContentReadContractTest {
                 .thenReturn(new Content().setId(1L).setAuthorId(7L).setVisibility("private").setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0));
         var service=new ContentReadService(
                 new ContentAccessService(contents,mock(AudioContentAccess.class)),
-                registry,
+                ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
                 understanding,
                 storage, mock(ContentStreamService.class));

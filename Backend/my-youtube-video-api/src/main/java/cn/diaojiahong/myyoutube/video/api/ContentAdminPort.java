@@ -18,8 +18,11 @@ import org.springframework.web.bind.annotation.RequestBody;
  */
 @PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT, ErrorCode.NOT_FOUND, ErrorCode.STATE_CONFLICT, ErrorCode.UNAUTHORIZED})
 @FeignClient(name = "my-youtube-video-service", contextId = "contentAdminPort",
-        path = "/internal/admin/content", url = "${my-youtube.video-service.url:}")
+        path = ContentAdminPort.BASE_PATH, url = "${my-youtube.video-service.url:}")
 public interface ContentAdminPort {
+    String BASE_PATH = "/internal/admin/content";
+    String MASTER_PLAYLIST_PATH = "/streams/master";
+    String RENDITION_PLAYLIST_PATH = "/streams/playlist";
 
     @PostMapping("/media")
     ContentMediaVO media(@RequestBody ReviewMedia request);
@@ -28,10 +31,10 @@ public interface ContentAdminPort {
 
     record ReviewStream(Long contentId, Long viewer, int index, String token) {}
 
-    @PostMapping("/streams/master")
+    @PostMapping(MASTER_PLAYLIST_PATH)
     String masterPlaylist(@RequestBody ReviewStream request);
 
-    @PostMapping("/streams/playlist")
+    @PostMapping(RENDITION_PLAYLIST_PATH)
     String playlist(@RequestBody ReviewStream request);
 
     @PostMapping("/mark-status")

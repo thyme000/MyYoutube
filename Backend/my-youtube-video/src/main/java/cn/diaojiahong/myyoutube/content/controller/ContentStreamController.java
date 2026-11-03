@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.content.controller;
 
 
 import cn.diaojiahong.myyoutube.common.media.HlsPlaylist;
+import cn.diaojiahong.myyoutube.common.media.ContentRoutes;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.service.ContentStreamService;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens;
@@ -19,7 +20,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/contents/{contentId}")
+@RequestMapping(ContentRoutes.VIEW_STREAM_BASE)
 @RequiredArgsConstructor
 public class ContentStreamController {
     private final ContentStreamService streams;
@@ -29,7 +30,7 @@ public class ContentStreamController {
         response.setHeader(HttpHeaders.CACHE_CONTROL, CacheControl.noStore().getHeaderValue());
     }
 
-    @GetMapping("/streams/{index}/" + HlsPlaylist.PLAYLIST_FILENAME)
+    @GetMapping(ContentRoutes.RENDITION_PATH)
     public ResponseEntity<String> playlist(@PathVariable Long contentId, @PathVariable int index,
                                            @RequestHeader(PlaybackTokens.INTERNAL_HEADER) String token) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
@@ -37,7 +38,7 @@ public class ContentStreamController {
                 .body(streams.playlist(contentId, index, UserContext.requireUserId(), token));
     }
 
-    @GetMapping("/streams/" + HlsPlaylist.MASTER_FILENAME)
+    @GetMapping(ContentRoutes.MASTER_PATH)
     public ResponseEntity<String> masterPlaylist(@PathVariable Long contentId,
                                                  @RequestHeader(PlaybackTokens.INTERNAL_HEADER) String token) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())

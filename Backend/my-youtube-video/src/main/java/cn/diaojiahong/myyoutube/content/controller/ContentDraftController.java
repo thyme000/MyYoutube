@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.content.controller;
 
+import cn.diaojiahong.myyoutube.common.media.ContentRoutes;
+
 import cn.diaojiahong.myyoutube.common.media.DynamicMedia;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -16,7 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/contents/drafts")
+@RequestMapping(ContentRoutes.DRAFT_BASE)
 @RequiredArgsConstructor
 public class ContentDraftController {
     private final ContentDraftService drafts;

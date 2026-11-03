@@ -37,7 +37,7 @@ import java.util.Map;
  * video 服务内部接口: 管理端视频操作
  */
 @RestController
-@RequestMapping("/internal/admin/content")
+@RequestMapping(ContentAdminPort.BASE_PATH)
 @RequiredArgsConstructor
 public class InternalAdminContentController implements ContentAdminPort {
 
@@ -55,12 +55,12 @@ public class InternalAdminContentController implements ContentAdminPort {
         return reads.adminMedia(request.contentId(), request.viewer());
     }
 
-    @PostMapping("/streams/master")
+    @PostMapping(ContentAdminPort.MASTER_PLAYLIST_PATH)
     public String masterPlaylist(@RequestBody ReviewStream request) {
         return streams.reviewMasterPlaylist(request.contentId(), request.viewer(), request.token());
     }
 
-    @PostMapping("/streams/playlist")
+    @PostMapping(ContentAdminPort.RENDITION_PLAYLIST_PATH)
     public String playlist(@RequestBody ReviewStream request) {
         return streams.reviewPlaylist(request.contentId(), request.index(), request.viewer(), request.token());
     }

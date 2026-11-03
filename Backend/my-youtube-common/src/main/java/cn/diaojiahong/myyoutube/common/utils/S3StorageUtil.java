@@ -378,8 +378,16 @@ public class S3StorageUtil {
     }
 
     public byte[] readObject(String objectKey) {
-        return s3Client.getObjectAsBytes(GetObjectRequest.builder()
-                .bucket(properties.getBucketName()).key(normalizeToObjectKey(objectKey)).build()).asByteArray();
+        return readObject(objectKey, null);
+    }
+
+    /** timeout 为 null 时保留客户端的默认超时配置；SDK 异常由调用方按业务翻译。 */
+    public byte[] readObject(String objectKey, Duration timeout) {
+        GetObjectRequest.Builder request = GetObjectRequest.builder()
+                .bucket(properties.getBucketName()).key(normalizeToObjectKey(objectKey));
+        if (timeout != null)
+            request.overrideConfiguration(configuration -> configuration.apiCallTimeout(timeout));
+        return s3Client.getObjectAsBytes(request.build()).asByteArray();
     }
 
     private void putObject(byte[] bytes, String objectKey) {

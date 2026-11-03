@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.content.strategy;
 
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.*;
 import cn.diaojiahong.myyoutube.video.mapper.DynamicMapper;
@@ -48,6 +49,12 @@ public class DynamicContentStrategy implements ContentTypeStrategy {
     public Map<Long, ContentMedia> loadMedia(Collection<Long> ids) {
         if (ids.isEmpty()) return Map.of();
         return dynamics.selectBatchIds(ids).stream().collect(Collectors.toMap(Dynamic::getId,
-                d -> new ContentMedia("dynamic", null, JsonUtil.fromJson(d.getMediaJson(), DynamicMedia.class))));
+                d -> new ContentMedia(ContentTypeEnum.DYNAMIC.getCode(), null, JsonUtil.fromJson(d.getMediaJson(), DynamicMedia.class))));
+    }
+
+    @Override
+    public ContentMediaResource loadResource(Long id) {
+        ContentMedia media = loadMedia(List.of(id)).get(id);
+        return media == null ? null : new ContentMediaResource(media, null, null);
     }
 }

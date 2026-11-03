@@ -16,6 +16,11 @@ import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.content.service.ContentStreamService;
+import cn.diaojiahong.myyoutube.content.service.ContentMediaResources;
+import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
+import cn.diaojiahong.myyoutube.content.strategy.VideoContentStrategy;
+import cn.diaojiahong.myyoutube.content.support.ContentResourceTestSupport;
+import java.time.Duration;
 import cn.diaojiahong.myyoutube.video.api.dto.VideoPlaybackVO;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
@@ -46,7 +51,9 @@ class ContentStreamTest {
     private final S3StorageUtil storage = mock(S3StorageUtil.class);
     private final PlaybackTokens tokens = new PlaybackTokens("test-secret-at-least-thirty-two-characters", 21600);
     private final String TOKEN = tokens.issue(9, 1, 12000, PlaybackTokens.Scope.VIEW).token();
-    private final ContentStreamService streams = new ContentStreamService(new ContentAccessService(contents, audio), videos, storage, tokens);
+    private final ContentMediaResources resources = ContentResourceTestSupport.uncached(
+            new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos))), storage);
+    private final ContentStreamService streams = new ContentStreamService(new ContentAccessService(contents, audio), resources, storage, tokens);
     private final String originalKey = "media-prepared/9/101/video-original";
     private final String mediaKey = "media-prepared/9/101/hls_media-720.mp4";
     private final String playlistKey = "media-prepared/9/101/hls_playlist-720.m3u8";
@@ -69,11 +76,11 @@ class ContentStreamTest {
         when(videos.selectById(1L)).thenReturn(video);
         when(storage.presignReadUrl(anyString(), anyLong(), any(SdkHttpMethod.class)))
                 .thenAnswer(call -> "https://storage.example/" + call.getArgument(0) + "?signature=test");
-        when(storage.readObject(playlistKey)).thenReturn(("#EXTM3U\n"
+        when(storage.readObject(eq(playlistKey), any(Duration.class))).thenReturn(("#EXTM3U\n"
                 + "#EXT-X-MAP:URI=\"hls_media-720.mp4\",BYTERANGE=\"800@0\"\n"
                 + "#EXTINF:4.0,\n#EXT-X-BYTERANGE:2000@800\nhls_media-720.mp4\n#EXT-X-ENDLIST\n")
                 .getBytes(StandardCharsets.UTF_8));
-        when(storage.readObject(sourcePlaylistKey)).thenReturn(("#EXTM3U\n"
+        when(storage.readObject(eq(sourcePlaylistKey), any(Duration.class))).thenReturn(("#EXTM3U\n"
                 + "#EXT-X-MAP:URI=\"hls_media-0.mp4\",BYTERANGE=\"800@0\"\n"
                 + "#EXTINF:4.0,\n#EXT-X-BYTERANGE:2000@800\nhls_media-0.mp4\n#EXT-X-ENDLIST\n")
                 .getBytes(StandardCharsets.UTF_8));
@@ -151,7 +158,7 @@ class ContentStreamTest {
         assertTrue(streams.playback(1L, 10L).adaptivePlaylistUrl().startsWith("/contents/1/streams/master.m3u8?playbackToken="));
         assertTrue(streams.masterPlaylist(1L, 10L, TOKEN).contains("RESOLUTION=320x180\n0/index.m3u8"));
         assertEquals(ErrorCode.NOT_FOUND, assertThrows(BizException.class, () -> streams.playlist(1L, 720, 9L, TOKEN)).getErrorCode());
-        verify(storage, never()).readObject(anyString());
+        verify(storage, never()).readObject(anyString(), any(Duration.class));
     }
 
     @Test
@@ -162,7 +169,7 @@ class ContentStreamTest {
         assertTrue(response.contains("#EXT-X-BYTERANGE:2000@800\n" + media + "\n"));
         assertTrue(response.endsWith("#EXT-X-ENDLIST\n"));
         assertFalse(response.contains("playbackToken="));
-        verify(storage).readObject(playlistKey);
+        verify(storage).readObject(eq(playlistKey), any(Duration.class));
         verify(storage).presignReadUrl(mediaKey, 1200, SdkHttpMethod.GET);
         verifyNoMoreInteractions(storage);
     }
@@ -200,7 +207,7 @@ class ContentStreamTest {
         when(signer.verify("short-ticket")).thenReturn(new PlaybackTokens.Grant(9, 1,
                 System.currentTimeMillis() - 1000, System.currentTimeMillis() + 60000,
                 PlaybackTokens.Scope.VIEW, "short-ticket"));
-        ContentStreamService service = new ContentStreamService(new ContentAccessService(contents, audio), videos, storage, signer);
+        ContentStreamService service = new ContentStreamService(new ContentAccessService(contents, audio), resources, storage, signer);
         service.playlist(1L, 720, 9L, "short-ticket");
         verify(storage).presignReadUrl(eq(mediaKey), longThat(seconds -> seconds > 0 && seconds <= 60), eq(SdkHttpMethod.GET));
     }

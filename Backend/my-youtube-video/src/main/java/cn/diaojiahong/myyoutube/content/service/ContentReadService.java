@@ -13,16 +13,18 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentDetailVO;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentFeedServiceImpl;
-import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
+import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
+import cn.diaojiahong.myyoutube.security.PlaybackTokens.Scope;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
 import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
 import cn.hutool.core.bean.BeanUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import java.nio.charset.StandardCharsets;
+import org.springframework.util.StringUtils;
 import java.util.Arrays;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.IntStream;
 
@@ -30,7 +32,7 @@ import java.util.stream.IntStream;
 @RequiredArgsConstructor
 public class ContentReadService {
     private final ContentAccessService access;
-    private final ContentTypeStrategyRegistry strategies;
+    private final ContentMediaResources resources;
     private final ContentFeedServiceImpl cards;
     private final ContentUnderstandingService understanding;
     private final S3StorageUtil storage;
@@ -39,14 +41,14 @@ public class ContentReadService {
     @ObservedBusiness(BusinessOperation.CONTENT_DETAIL)
     public ContentDetailVO detail(Long id, Long viewer) {
         Content content = access.readable(id, viewer);
-        ContentMedia media = strategies.get(content.getType()).loadMedia(List.of(id)).get(id);
-        if (media == null) throw new BizException(ErrorCode.NOT_FOUND, "媒体不存在");
-        List<ContentFeedVO> visible = cards.assembleCards(viewer, List.of(content), Set.of());
+        ContentMediaResource resource = resources.media(content);
+        ContentMedia media = resource.media();
+        List<ContentFeedVO> visible = cards.assembleCardsWithMedia(viewer, List.of(content), Set.of(), Map.of(id, media));
         if (visible.isEmpty()) throw new BizException(ErrorCode.NOT_FOUND, "内容不存在或不可访问");
         ContentDetailVO detail = BeanUtil.copyProperties(visible.get(0), ContentDetailVO.class);
         detail.setMedia(media.video() != null
                 ? new ContentMediaVO("video", new ContentMediaVO.Video(media.video().durationMs(),
-                        streams.playback(id, viewer)), null)
+                        streams.playback(content, resource, viewer, Scope.VIEW)), null)
                 : signedMedia(media));
         ContentUnderstanding row = understanding.get(id);
         if (row != null) {
@@ -64,17 +66,17 @@ public class ContentReadService {
     public String subtitles(Long id, Long viewer) {
         access.readable(id, viewer);
         ContentUnderstanding row = understanding.get(id);
-        if (row == null || row.getSubtitleKey() == null) throw new BizException(ErrorCode.NOT_FOUND, "暂无字幕");
-        return new String(storage.readObject(row.getSubtitleKey()), StandardCharsets.UTF_8);
+        if (row == null || !StringUtils.hasText(row.getSubtitleKey())) throw new BizException(ErrorCode.NOT_FOUND, "暂无字幕");
+        return resources.subtitle(row.getSubtitleKey());
     }
 
     public ContentMediaVO adminMedia(Long id, Long viewer) {
         Content content = access.forReview(id);
-        ContentMedia media = strategies.get(content.getType()).loadMedia(List.of(id)).get(id);
-        if (media == null) throw new BizException(ErrorCode.NOT_FOUND, "媒体不存在");
+        ContentMediaResource resource = resources.media(content);
+        ContentMedia media = resource.media();
         return media.video() != null
                 ? new ContentMediaVO("video", new ContentMediaVO.Video(media.video().durationMs(),
-                        streams.reviewPlayback(id, viewer)), null)
+                        streams.playback(content, resource, viewer, Scope.REVIEW)), null)
                 : signedMedia(media);
     }
 
@@ -97,6 +99,6 @@ public class ContentReadService {
     }
 
     private String signed(String key) {
-        return key == null || key.isBlank() ? null : storage.signGetUrl(key, 1200);
+        return StringUtils.hasText(key) ? storage.signGetUrl(key, 1200) : null;
     }
 }
