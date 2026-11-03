@@ -17,6 +17,8 @@ import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.po.*;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.content.service.ContentStatisticsService;
@@ -49,6 +51,7 @@ public class ReviewDecisionService {
     private final AudioContentAccess audioAccess;
     private final AudioMapper audios;
     private final ContentStatisticsService statistics;
+    private final ContentResourceInvalidator cacheInvalidator;
 
     @Transactional
     @ObservedBusiness(BusinessOperation.MANUAL_REVIEW)
@@ -354,6 +357,7 @@ public class ReviewDecisionService {
                 .set(Content::getStatus, target).update()) {
             return false;
         }
+        cacheInvalidator.evictAfterCommit(ContentResourceRegion.CONTENT_STATE, id.toString());
         statistics.transition(content, target);
 
         boolean countAudio = target == ContentStatusEnum.PUBLISHED && content.getAudioId() != null;

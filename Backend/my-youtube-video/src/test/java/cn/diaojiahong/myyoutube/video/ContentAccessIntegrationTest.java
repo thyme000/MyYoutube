@@ -9,6 +9,7 @@ import cn.diaojiahong.myyoutube.comment.service.impl.ContentCommentServiceImpl;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.*;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
 import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentServiceImpl;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
@@ -90,7 +91,8 @@ class ContentAccessIntegrationTest {
                 ContentMapper mapper,
                 ContentPublicationEventMapper events,
                 PublicationEffectsService effects) {
-            return new ContentSettingsService(access,mapper,events,effects,mock(ContentStatisticsService.class));
+            return new ContentSettingsService(access, mapper, events, effects,
+                    mock(ContentStatisticsService.class), mock(ContentResourceInvalidator.class));
         }
 
         @Bean

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewDecision;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewSource;
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
@@ -220,7 +221,7 @@ class ReviewTransactionIntegrationTest {
                     prompts,
                     observation,
                     frameSettings(),
-                    audioAccess, audios, mock(ContentStatisticsService.class));
+                    audioAccess, audios, mock(ContentStatisticsService.class), mock(ContentResourceInvalidator.class));
         }
     }
 

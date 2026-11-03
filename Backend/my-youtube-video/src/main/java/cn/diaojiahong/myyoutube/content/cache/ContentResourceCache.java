@@ -1,9 +1,10 @@
 package cn.diaojiahong.myyoutube.content.cache;
 
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
-import cn.diaojiahong.myyoutube.video.config.ContentResourceCacheProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -32,6 +33,7 @@ public class ContentResourceCache {
     private final StringRedisTemplate redis;
     private final RedissonClient redisson;
     private final ContentResourceCacheProperties properties;
+    private final MeterRegistry metrics;
 
     /** type 使用具体 DTO、数组或字符串；顶层泛型集合应包装在具体 DTO 中。 */
     public <T> T get(ContentResourceRegion region, String resourceId, Class<T> type, Supplier<T> loader) {
@@ -81,15 +83,18 @@ public class ContentResourceCache {
         }
     }
 
-    /** 尽力删除，返回命令是否成功执行；不保证阻止已经开始的 loader 回填旧值。 */
-    public boolean evict(ContentResourceRegion region, String resourceId) {
+    /** 尽力删除，失败仅记录日志和指标；不阻止已经开始的 loader 回填旧值。 */
+    public void evict(ContentResourceRegion region, String resourceId) {
         String key = region.key(resourceId);
         try {
             redis.delete(key);
-            return true;
         } catch (RuntimeException unavailable) {
             log.warn("Content resource cache eviction failed key={}", key, unavailable);
-            return false;
+            try {
+                metrics.counter(MetricNames.CONTENT_CACHE_EVICT_FAILED).increment();
+            } catch (RuntimeException metricsUnavailable) {
+                /* 缓存和指标均不能影响已提交的业务操作。 */
+            }
         }
     }
 

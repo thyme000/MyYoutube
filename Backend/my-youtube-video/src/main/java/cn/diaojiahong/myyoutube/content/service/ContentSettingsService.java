@@ -3,6 +3,8 @@ package cn.diaojiahong.myyoutube.content.service;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentVisibilityEnum;
@@ -23,6 +25,7 @@ public class ContentSettingsService {
     private final ContentPublicationEventMapper events;
     private final PublicationEffectsService effects;
     private final ContentStatisticsService statistics;
+    private final ContentResourceInvalidator cacheInvalidator;
 
     public record Settings(String visibility, Integer allowComment) {
     }
@@ -45,6 +48,8 @@ public class ContentSettingsService {
                 .setSql(visibilityChanged, "index_version = index_version + 1")
                 .set(Content::getVisibility, target).set(Content::getAllowComment, settings.allowComment()));
 
+        cacheInvalidator.evictAfterCommit(ContentResourceRegion.CONTENT_STATE, id.toString());
+
         statistics.changeVisibility(content, visibility);
         if (visibilityChanged)
             rebuild(content);
@@ -56,6 +61,8 @@ public class ContentSettingsService {
 
         contents.update(null, new LambdaUpdateWrapper<Content>().eq(Content::getId, id)
                 .setSql("index_version = index_version + 1").set(Content::getIsDelete, 1));
+
+        cacheInvalidator.evictAfterCommit(ContentResourceRegion.CONTENT_STATE, id.toString());
 
         statistics.delete(content);
         rebuild(content);

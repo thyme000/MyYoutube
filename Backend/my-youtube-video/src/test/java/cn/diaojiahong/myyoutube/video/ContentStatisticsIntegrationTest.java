@@ -5,6 +5,9 @@ import cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.mapper.ContentStatisticsMapper;
 import cn.diaojiahong.myyoutube.content.domain.dto.AuthorContentCursorQuery;
@@ -21,6 +24,7 @@ import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentVisibilityEnum;
 import cn.diaojiahong.myyoutube.video.config.AuthorContentPageProperties;
 import cn.diaojiahong.myyoutube.video.config.ContentPipelineProperties;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceCacheProperties;
 import cn.diaojiahong.myyoutube.video.mapper.AudioMapper;
 import cn.diaojiahong.myyoutube.video.mapper.ContentPublicationEventMapper;
 import cn.diaojiahong.myyoutube.video.service.AudioHistoricalAuthorCountService;
@@ -29,6 +33,7 @@ import cn.diaojiahong.myyoutube.video.service.PublicationEffectsService;
 import cn.diaojiahong.myyoutube.video.service.ReviewDecisionService;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +49,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.IllegalTransactionStateException;
@@ -53,6 +59,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import javax.sql.DataSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -100,6 +107,22 @@ class ContentStatisticsIntegrationTest {
         }
 
         @Bean
+        ContentResourceCache cache() {
+            return mock(ContentResourceCache.class);
+        }
+
+        @Bean
+        TaskScheduler evictionScheduler() {
+            return mock(TaskScheduler.class);
+        }
+
+        @Bean
+        ContentResourceInvalidator cacheInvalidator(ContentResourceCache cache, TaskScheduler scheduler) {
+            return new ContentResourceInvalidator(cache, scheduler,
+                    new ContentResourceCacheProperties(), new SimpleMeterRegistry());
+        }
+
+        @Bean
         ContentObservation observation() {
             return mock(ContentObservation.class);
         }
@@ -144,11 +167,13 @@ class ContentStatisticsIntegrationTest {
     @MockitoSpyBean IContentService pageContents;
     @Autowired PublicationEffectsService effects;
     @Autowired TransactionTemplate transaction;
+    @Autowired ContentResourceCache cache;
+    @Autowired TaskScheduler evictionScheduler;
     JdbcTemplate jdbc;
 
     @BeforeEach
     void setup() throws Exception {
-        reset(effects);
+        reset(effects, cache, evictionScheduler);
         jdbc = new JdbcTemplate(source);
         String schema = Files.readString(Path.of("../../resources/schema.sql"));
         for (String table : List.of("content", "author_content_stat", "audio_author_usage", "audio",
@@ -245,6 +270,7 @@ class ContentStatisticsIntegrationTest {
         pending(2, 7, "dynamic", "public", 20L);
         pending(3, 7, "dynamic", "public", null);
         for (long id = 1; id <= 3; id++) publish(id);
+        clearInvocations(cache, evictionScheduler);
         assertEquals(3, summary.displayCount(7, null, ContentVisibilityEnum.PUBLIC));
 
         jdbc.update("UPDATE audio SET review_status='banned' WHERE id=20");
@@ -256,6 +282,9 @@ class ContentStatisticsIntegrationTest {
 
         assertTrue(decisions.banByAudio(new AudioContentBanMessage(2L, 20L, 1L)));
         assertFalse(decisions.banByAudio(new AudioContentBanMessage(2L, 20L, 1L)));
+        verify(cache).evict(ContentResourceRegion.CONTENT_STATE, "1");
+        verify(cache).evict(ContentResourceRegion.CONTENT_STATE, "2");
+        verifyNoMoreInteractions(cache);
         assertEquals(1, published(7, "dynamic", "public"));
         assertEquals(0, references(7, "dynamic", "public"));
         assertEquals(1, summary.displayCount(7, null, ContentVisibilityEnum.PUBLIC));
@@ -501,7 +530,61 @@ class ContentStatisticsIntegrationTest {
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM author_content_stat", Long.class));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM audio_author_usage", Long.class));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content_publication_event", Long.class));
-        verifyNoInteractions(effects);
+        verifyNoInteractions(effects, cache, evictionScheduler);
+    }
+
+    @Test
+    void publicationAndManualBanInvalidateOnlyAfterTheirTransactionCommits() {
+        pending(1, 7, "video", "public", null);
+        transaction.executeWithoutResult(status -> {
+            publish(1);
+            verifyNoInteractions(cache, evictionScheduler);
+        });
+        verify(cache).evict(ContentResourceRegion.CONTENT_STATE, "1");
+        clearInvocations(cache, evictionScheduler);
+
+        transaction.executeWithoutResult(status -> {
+            assertTrue(decisions.banPublished(1L, "违规内容", 99L));
+            verifyNoInteractions(cache, evictionScheduler);
+        });
+        verify(cache).evict(ContentResourceRegion.CONTENT_STATE, "1");
+        verify(evictionScheduler).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    void settingsInvalidateAfterCommitAndRollbackLeavesTheCacheUntouched() {
+        pending(1, 7, "dynamic", "public", 20L);
+        publish(1);
+        clearInvocations(cache, evictionScheduler);
+
+        transaction.executeWithoutResult(status -> {
+            settings.update(1L, 7L, new ContentSettingsService.Settings("private", 1));
+            verifyNoInteractions(cache, evictionScheduler);
+        });
+        verify(cache).evict(ContentResourceRegion.CONTENT_STATE, "1");
+        clearInvocations(cache, evictionScheduler);
+
+        transaction.executeWithoutResult(status -> {
+            settings.delete(1L, 7L);
+            status.setRollbackOnly();
+        });
+        verifyNoInteractions(cache, evictionScheduler);
+        assertEquals(0, contents.selectById(1L).getIsDelete());
+
+        settings.delete(1L, 7L);
+        verify(cache).evict(ContentResourceRegion.CONTENT_STATE, "1");
+    }
+
+    @Test
+    void commentSettingAlsoInvalidatesButRejectedWritesDoNot() {
+        pending(1, 7, "video", "public", null);
+        publish(1);
+        clearInvocations(cache, evictionScheduler);
+
+        assertThrows(BizException.class, () -> settings.delete(1L, 8L));
+        verifyNoInteractions(cache, evictionScheduler);
+        settings.update(1L, 7L, new ContentSettingsService.Settings("public", 0));
+        verify(cache).evict(ContentResourceRegion.CONTENT_STATE, "1");
     }
 
     @Test

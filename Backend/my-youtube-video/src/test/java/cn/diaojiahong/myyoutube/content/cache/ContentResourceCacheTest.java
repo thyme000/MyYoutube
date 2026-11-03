@@ -1,9 +1,11 @@
 package cn.diaojiahong.myyoutube.content.cache;
 
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
-import cn.diaojiahong.myyoutube.video.config.ContentResourceCacheProperties;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RLock;
@@ -30,7 +32,8 @@ class ContentResourceCacheTest {
     private final RedissonClient redisson = mock(RedissonClient.class);
     private final RLock lock = mock(RLock.class);
     private final ContentResourceCacheProperties properties = new ContentResourceCacheProperties();
-    private final ContentResourceCache cache = new ContentResourceCache(redis, redisson, properties);
+    private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
+    private final ContentResourceCache cache = new ContentResourceCache(redis, redisson, properties, metrics);
     @SuppressWarnings("unchecked")
     private final Supplier<String> loader = mock(Supplier.class);
     private final String key = ContentResourceRegion.PLAYLIST.key("prepared/1/index.m3u8");
@@ -271,7 +274,7 @@ class ContentResourceCacheTest {
 
     @Test
     void evictionOnlyDeletesTheRequestedResource() {
-        assertTrue(cache.evict(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8"));
+        cache.evict(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8");
         verify(redis).delete(key);
         verifyNoInteractions(redisson, lock, loader);
     }
@@ -279,13 +282,27 @@ class ContentResourceCacheTest {
     @Test
     void evictingAnAbsentEntryIsAlsoSuccessful() {
         when(redis.delete(key)).thenReturn(false);
-        assertTrue(cache.evict(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8"));
+        assertDoesNotThrow(() -> cache.evict(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8"));
+        assertNull(metrics.find(MetricNames.CONTENT_CACHE_EVICT_FAILED).counter());
     }
 
     @Test
     void failedEvictionReportsFailureWithoutThrowing() {
         when(redis.delete(key)).thenThrow(new RedisConnectionFailureException("delete failed"));
-        assertFalse(cache.evict(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8"));
+        assertDoesNotThrow(() -> cache.evict(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8"));
+        assertEquals(1, metrics.get(MetricNames.CONTENT_CACHE_EVICT_FAILED).counter().count());
+    }
+
+    @Test
+    void failureMetricsCannotMakeEvictionThrow() {
+        MeterRegistry unavailable = mock(MeterRegistry.class);
+        when(unavailable.counter(MetricNames.CONTENT_CACHE_EVICT_FAILED))
+                .thenThrow(new IllegalStateException("metrics unavailable"));
+        when(redis.delete(key)).thenThrow(new RedisConnectionFailureException("delete failed"));
+        var measuredCache = new ContentResourceCache(redis, redisson, properties, unavailable);
+
+        assertDoesNotThrow(() -> measuredCache.evict(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8"));
+        verify(unavailable).counter(MetricNames.CONTENT_CACHE_EVICT_FAILED);
     }
 
     @Test

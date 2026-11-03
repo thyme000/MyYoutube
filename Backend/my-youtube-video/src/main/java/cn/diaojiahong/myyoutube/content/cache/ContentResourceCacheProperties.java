@@ -1,4 +1,4 @@
-package cn.diaojiahong.myyoutube.video.config;
+package cn.diaojiahong.myyoutube.content.cache;
 
 import jakarta.annotation.PostConstruct;
 import lombok.Data;
@@ -14,6 +14,7 @@ public class ContentResourceCacheProperties {
     private long artifactTtlSeconds = 1800;
     private long negativeTtlSeconds = 3;
     private long lockWaitMillis = 2000;
+    private long doubleDeleteDelayMillis = 1000;
 
     @PostConstruct
     public void validate() {
@@ -25,5 +26,7 @@ public class ContentResourceCacheProperties {
             throw new IllegalStateException("内容空值缓存有效期必须为 1～10 秒");
         if (lockWaitMillis < 0 || lockWaitMillis > 5000)
             throw new IllegalStateException("内容缓存锁等待时间必须为 0～5000 毫秒");
+        if (doubleDeleteDelayMillis < 1 || doubleDeleteDelayMillis > 5000)
+            throw new IllegalStateException("内容缓存延迟删除间隔必须为 1～5000 毫秒");
     }
 }

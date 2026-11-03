@@ -28,11 +28,12 @@ import cn.diaojiahong.myyoutube.security.PlaybackTokens;
 import cn.diaojiahong.myyoutube.video.api.dto.VideoPlaybackVO;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
-import cn.diaojiahong.myyoutube.video.config.ContentResourceCacheProperties;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceCacheProperties;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
 import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -100,7 +101,7 @@ class ContentMediaResourcesTest {
         }).when(values).set(anyString(), anyString(), any(Duration.class));
         when(redisson.getLock(anyString())).thenReturn(lock);
         when(lock.tryLock(anyLong(), any())).thenReturn(true);
-        cache = new ContentResourceCache(redis, redisson, new ContentResourceCacheProperties());
+        cache = new ContentResourceCache(redis, redisson, new ContentResourceCacheProperties(), new SimpleMeterRegistry());
         var registry = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos),
                 new DynamicContentStrategy(dynamics, mock(IAudioService.class))));
         resources = new ContentMediaResources(cache, new ContentMediaResourceLoader(registry), storage);

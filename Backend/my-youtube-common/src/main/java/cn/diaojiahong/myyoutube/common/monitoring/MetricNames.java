@@ -8,6 +8,9 @@ public final class MetricNames {
     public static final String ASYNC_REJECTED = "myyoutube.async.rejected";
     public static final String ASYNC_TIMEOUTS = "myyoutube.async.timeouts";
 
+    public static final String CONTENT_CACHE_EVICT_FAILED = "myyoutube.content.cache.evict.failed";
+    public static final String CONTENT_CACHE_DELAYED_EVICT_DROPPED = "myyoutube.content.cache.delayed.evict.dropped";
+
     public static final String AUDIO_CASCADE_NOTIFICATION_FAILED = "audio.cascade.notification.failed";
     public static final String AUDIO_CASCADE_RECOVERY_FAILED = "audio.cascade.recovery.failed";
     public static final String AUDIO_INDEX_DELIVERY_FAILURES = "myyoutube.audio.index.delivery.failures";

@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
+
 import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.video.config.ContentPipelineProperties;
 import cn.diaojiahong.myyoutube.common.media.*;
@@ -116,7 +118,8 @@ class ReviewPolicyTest {
                 new PromptTemplates(),
                 mock(cn.diaojiahong.myyoutube.video.service.ContentObservation.class),
                 new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(),
-                mock(AudioContentAccess.class), mock(AudioMapper.class), mock(ContentStatisticsService.class));
+                mock(AudioContentAccess.class), mock(AudioMapper.class), mock(ContentStatisticsService.class),
+                mock(ContentResourceInvalidator.class));
         assertFalse(service.machine(
                 1L,
                 1,

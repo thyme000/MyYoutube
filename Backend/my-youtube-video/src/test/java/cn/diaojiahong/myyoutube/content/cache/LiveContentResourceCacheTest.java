@@ -14,9 +14,9 @@ import cn.diaojiahong.myyoutube.content.strategy.VideoContentStrategy;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
-import cn.diaojiahong.myyoutube.video.config.ContentResourceCacheProperties;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -24,16 +24,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.mockito.ArgumentCaptor;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
 import org.redisson.config.SingleServerConfig;
 import org.redisson.spring.data.connection.RedissonConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.TaskScheduler;
 import software.amazon.awssdk.http.SdkHttpMethod;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -71,6 +74,7 @@ class LiveContentResourceCacheTest {
     private final String resourceId = "cache-test:" + UUID.randomUUID();
     private final List<String> keys = new ArrayList<>();
     private final ContentResourceCacheProperties properties = new ContentResourceCacheProperties();
+    private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
     private ContentResourceCache first;
     private ContentResourceCache second;
 
@@ -106,14 +110,15 @@ class LiveContentResourceCacheTest {
 
     @BeforeEach
     void setup() {
-        first = new ContentResourceCache(firstRedis, firstClient, properties);
-        second = new ContentResourceCache(secondRedis, secondClient, properties);
+        first = new ContentResourceCache(firstRedis, firstClient, properties, metrics);
+        second = new ContentResourceCache(secondRedis, secondClient, properties, metrics);
         keys.add(ContentResourceRegion.PLAYLIST.key(resourceId));
     }
 
     @AfterEach
     void removeEntries() {
         firstRedis.delete(keys);
+        metrics.close();
     }
 
     @AfterAll
@@ -195,8 +200,77 @@ class LiveContentResourceCacheTest {
     @Test
     void evictionMakesTheNextClientReloadTheResource() {
         assertEquals("old-resource", get(first, resourceId, () -> "old-resource"));
-        assertTrue(second.evict(ContentResourceRegion.PLAYLIST, resourceId));
+        second.evict(ContentResourceRegion.PLAYLIST, resourceId);
         assertEquals("new-resource", get(first, resourceId, () -> "new-resource"));
+    }
+
+    @Test
+    void secondDeletionRemovesAStaleLoaderRefillAcrossClients() throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        var loading = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        TaskScheduler scheduler = mock(TaskScheduler.class);
+        var invalidator = new ContentResourceInvalidator(second, scheduler, properties, metrics);
+        try {
+            Future<String> oldRead = pool.submit(() -> get(first, resourceId, () -> {
+                loading.countDown();
+                await(release);
+                return "old-resource";
+            }));
+            assertTrue(loading.await(5, TimeUnit.SECONDS));
+            invalidator.evictAfterCommit(ContentResourceRegion.PLAYLIST, resourceId);
+            assertNull(secondRedis.opsForValue().get(keys.get(0)));
+
+            release.countDown();
+            assertEquals("old-resource", oldRead.get(5, TimeUnit.SECONDS));
+            assertNotNull(secondRedis.opsForValue().get(keys.get(0)));
+
+            ArgumentCaptor<Runnable> delayed = ArgumentCaptor.forClass(Runnable.class);
+            verify(scheduler).schedule(delayed.capture(), any(Instant.class));
+            delayed.getValue().run();
+            assertNull(firstRedis.opsForValue().get(keys.get(0)));
+            assertEquals("new-resource", get(second, resourceId, () -> "new-resource"));
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void refillAfterBothDeletionsReliesOnTheStateTtl() throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        var loading = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        TaskScheduler scheduler = mock(TaskScheduler.class);
+        var invalidator = new ContentResourceInvalidator(second, scheduler, properties, metrics);
+        ContentResourceRegion region = ContentResourceRegion.CONTENT_STATE;
+        String key = region.key(resourceId);
+        keys.add(key);
+        try {
+            Future<String> oldRead = pool.submit(() -> first.get(region, resourceId, String.class, () -> {
+                loading.countDown();
+                await(release);
+                return "old-state";
+            }));
+            assertTrue(loading.await(5, TimeUnit.SECONDS));
+            invalidator.evictAfterCommit(region, resourceId);
+            ArgumentCaptor<Runnable> delayed = ArgumentCaptor.forClass(Runnable.class);
+            verify(scheduler).schedule(delayed.capture(), any(Instant.class));
+            delayed.getValue().run();
+            assertNull(secondRedis.opsForValue().get(key));
+
+            // 两次删除都已完成，再放行旧 loader；双删不阻止这次迟到回填。
+            release.countDown();
+            assertEquals("old-state", oldRead.get(5, TimeUnit.SECONDS));
+            assertEquals("old-state", second.get(region, resourceId, String.class,
+                    () -> fail("late refill remains cached until its TTL expires")));
+            Long ttl = secondRedis.getExpire(key, TimeUnit.MILLISECONDS);
+            assertNotNull(ttl);
+            assertTrue(ttl > 0 && ttl <= TimeUnit.SECONDS.toMillis(properties.getStateTtlSeconds()));
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
     }
 
     @Test
