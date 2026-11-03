@@ -43,17 +43,17 @@ public class AsrTaskExecutor implements MediaTaskExecutor {
             storage.uploadWithKey("WEBVTT\n\n".getBytes(StandardCharsets.UTF_8), vtt);
             String emptySegments = artifacts.write(
                     msg.getPipelineId(),
-                    "ASR",
+                    MediaTaskType.ASR.name(),
                     msg.getAttempt(),
                     new ContentArtifacts.Transcript(List.of()));
             log.info("ASR completed pipelineId={} taskId={} attempt={} reason=NO_AUDIO segmentCount=0 elapsedMs={}",
                     msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), System.currentTimeMillis() - startedAt);
-            return JsonUtil.toJson(Map.of("vttKey", vtt, "segmentsKey", emptySegments, "durationMs", 0,
+            return JsonUtil.toJson(Map.of(ContentArtifacts.VTT_KEY, vtt, ContentArtifacts.SEGMENTS_KEY, emptySegments, ContentArtifacts.DURATION_MS, 0,
                     "segmentCount", 0, "speechEmpty", true, "noAudio", true));
         }
         String source = media.video() != null ? media.video().objectKey() : media.dynamic().audio().objectKey();
         AsrPort.Response result = guard.call(
-                "ASR",
+                MediaTaskType.ASR.name(),
                 () -> asr.transcribe(new AsrPort.Request(storage.signGetUrl(source, 3600),
                 storage.presignPutUrl(vtt, 3600), storage.presignPutUrl(segments, 3600),
                 input.title(),
@@ -64,8 +64,8 @@ public class AsrTaskExecutor implements MediaTaskExecutor {
         log.info("ASR completed pipelineId={} taskId={} attempt={} durationMs={} segmentCount={} speechEmpty={} elapsedMs={}",
                 msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), result.durationMs(), result.segmentCount(),
                 result.speechEmpty(), System.currentTimeMillis() - startedAt);
-        return JsonUtil.toJson(Map.of("vttKey", vtt, "segmentsKey", segments,
-                "durationMs",
+        return JsonUtil.toJson(Map.of(ContentArtifacts.VTT_KEY, vtt, ContentArtifacts.SEGMENTS_KEY, segments,
+                ContentArtifacts.DURATION_MS,
                 result.durationMs(),
                 "segmentCount",
                 result.segmentCount(),

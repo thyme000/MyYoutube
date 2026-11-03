@@ -22,7 +22,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ContentStreamService {
     private static final int SIGN_SECONDS = 1200;
-    private final ContentAccessService access;
+    private final ContentDisplayAccess access;
     private final ContentMediaResources resources;
     private final S3StorageUtil storage;
     private final PlaybackTokens tokens;

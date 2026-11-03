@@ -279,6 +279,7 @@ class LiveContentResourceCacheTest {
         String playlistKey = resourceId + "/index.m3u8";
         String mediaKey = resourceId + "/media.mp4";
         keys.add(ContentResourceRegion.CONTENT_MEDIA.key(Long.toString(contentId)));
+        keys.add(ContentResourceRegion.CONTENT_STATE.key(Long.toString(contentId)));
         keys.add(ContentResourceRegion.PLAYLIST.key(playlistKey));
         ContentMapper contents = mock(ContentMapper.class);
         VideoMapper videos = mock(VideoMapper.class);
@@ -296,18 +297,25 @@ class LiveContentResourceCacheTest {
                 .thenReturn("https://signed.example/media.mp4?signature=one", "https://signed.example/media.mp4?signature=two");
         var strategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos)));
         var loader = new ContentMediaResourceLoader(strategies);
-        var access = new ContentAccessService(contents, mock(AudioContentAccess.class));
+        AudioContentAccess audioAccess = mock(AudioContentAccess.class);
+        var access = new ContentAccessService(contents, audioAccess);
+        var stateLoader = new ContentAccessSnapshotLoader(contents, audioAccess);
+        var firstAccess = new ContentDisplayAccess(first, stateLoader, access);
+        var secondAccess = new ContentDisplayAccess(second, stateLoader, access);
         var tokens = new PlaybackTokens("live-resource-cache-test-secret-at-least-thirty-two", 21600);
-        var firstStreams = new ContentStreamService(access, new ContentMediaResources(first, loader, storage), storage, tokens);
-        var secondStreams = new ContentStreamService(access, new ContentMediaResources(second, loader, storage), storage, tokens);
+        var firstStreams = new ContentStreamService(firstAccess, new ContentMediaResources(first, loader, storage), storage, tokens);
+        var secondStreams = new ContentStreamService(secondAccess, new ContentMediaResources(second, loader, storage), storage, tokens);
         String ticket = tokens.issue(9, contentId, 12000, PlaybackTokens.Scope.VIEW).token();
 
         assertTrue(firstStreams.playlist(contentId, 720, 9L, ticket).contains("signature=one"));
         assertTrue(secondStreams.playlist(contentId, 720, 9L, ticket).contains("signature=two"));
+        verify(contents).selectById(contentId);
         content.setStatus(ContentStatusEnum.BANNED);
+        first.evict(ContentResourceRegion.CONTENT_STATE, Long.toString(contentId));
         assertThrows(BizException.class, () -> secondStreams.playlist(contentId, 720, 9L, ticket));
 
         verify(videos).selectById(contentId);
+        verify(contents, times(2)).selectById(contentId);
         verify(storage).readObject(playlistKey, Duration.ofSeconds(10));
         verify(storage, times(2)).presignReadUrl(mediaKey, 1200, SdkHttpMethod.GET);
         assertEquals(raw, JsonUtil.fromJson(firstRedis.opsForValue().get(ContentResourceRegion.PLAYLIST.key(playlistKey)), String.class));

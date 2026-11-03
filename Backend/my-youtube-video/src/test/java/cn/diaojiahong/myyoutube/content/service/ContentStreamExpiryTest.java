@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ContentStreamExpiryTest {
-    private final ContentAccessService access = mock(ContentAccessService.class);
+    private final ContentDisplayAccess access = mock(ContentDisplayAccess.class);
     private final ContentMediaResources resources = mock(ContentMediaResources.class);
     private final S3StorageUtil storage = mock(S3StorageUtil.class);
     private final PlaybackTokens tokens = mock(PlaybackTokens.class);

@@ -15,6 +15,8 @@ import cn.diaojiahong.myyoutube.video.mapper.AudioMapper;
 import org.apache.rocketmq.client.producer.SendCallback;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import java.util.List;
 import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
@@ -74,5 +76,22 @@ class AudioContentAccessTest {
         assertTrue(access.blocked(List.of(new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC).setAudioId(20L).setStatus(ContentStatusEnum.BANNED)))
                 .isEmpty());
         verifyNoInteractions(audios, mq);
+    }
+
+    @ParameterizedTest
+    @EnumSource(ContentStatusEnum.class)
+    void singleReferenceChecksBannedAudioIndependentlyOfContentStatus(ContentStatusEnum status) {
+        Content content = new Content().setId(1L).setAudioId(20L).setStatus(status);
+        when(audios.selectById(20L)).thenReturn(new Audio().setId(20L)
+                .setIndexVersion(1L).setReviewStatus(AudioReviewStatus.BANNED));
+
+        assertTrue(access.isReferenceBlocked(content));
+
+        verify(audios).selectById(20L);
+        if (status == ContentStatusEnum.BANNED) {
+            verifyNoInteractions(mq);
+        } else {
+            verify(mq).asyncSend(anyString(), any(AudioContentBanMessage.class), any(SendCallback.class));
+        }
     }
 }

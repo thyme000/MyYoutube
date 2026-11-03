@@ -95,6 +95,7 @@ class ContentMediaResourcesTest {
     void setup() throws Exception {
         when(redis.opsForValue()).thenReturn(values);
         when(values.get(anyString())).thenAnswer(call -> entries.get(call.getArgument(0)));
+        when(redis.delete(anyString())).thenAnswer(call -> entries.remove(call.getArgument(0)) != null);
         doAnswer(call -> {
             entries.put(call.getArgument(0), call.getArgument(1));
             return null;
@@ -105,7 +106,8 @@ class ContentMediaResourcesTest {
         var registry = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos),
                 new DynamicContentStrategy(dynamics, mock(IAudioService.class))));
         resources = new ContentMediaResources(cache, new ContentMediaResourceLoader(registry), storage);
-        var access = new ContentAccessService(contents, audioAccess);
+        var access = new ContentDisplayAccess(cache, new ContentAccessSnapshotLoader(contents, audioAccess),
+                new ContentAccessService(contents, audioAccess));
         streams = new ContentStreamService(access, resources, storage, tokens);
         reads = new ContentReadService(access, resources, cards, understanding, storage, streams);
 
@@ -138,12 +140,12 @@ class ContentMediaResourcesTest {
         assertEquals(first.getMedia().video().playback().playbackVersion(),
                 second.getMedia().video().playback().playbackVersion());
         verify(videos).selectById(1L);
-        verify(contents, times(2)).selectById(1L);
-        verify(audioAccess, times(2)).blocked(List.of(content));
+        verify(contents).selectById(1L);
+        verify(audioAccess).isReferenceBlocked(content);
         verify(cards, never()).assembleCards(anyLong(), anyList(), anySet());
         verify(values, times(3)).get(ContentResourceRegion.CONTENT_MEDIA.key("1"));
-        assertEquals(1, entries.size());
-        assertFalse(entries.values().iterator().next().contains("playbackToken"));
+        assertEquals(2, entries.size());
+        assertTrue(entries.values().stream().noneMatch(payload -> payload.contains("playbackToken")));
         verifyNoInteractions(storage);
     }
 
@@ -166,8 +168,10 @@ class ContentMediaResourcesTest {
         streams.playlist(1L, 720, 10L, ticket(10));
 
         content.setStatus(ContentStatusEnum.BANNED);
+        cache.evict(ContentResourceRegion.CONTENT_STATE, "1");
         assertThrows(BizException.class, () -> streams.playlist(1L, 720, 10L, ticket(10)));
         content.setStatus(ContentStatusEnum.PUBLISHED).setVisibility("private");
+        cache.evict(ContentResourceRegion.CONTENT_STATE, "1");
         assertThrows(BizException.class, () -> streams.playlist(1L, 720, 10L, ticket(10)));
 
         verify(storage).presignReadUrl(mediaKey, 1200, SdkHttpMethod.GET);
@@ -184,7 +188,7 @@ class ContentMediaResourcesTest {
         assertNotEquals(first.getMedia().dynamic().audio().url(), second.getMedia().dynamic().audio().url());
         verify(dynamics).selectBatchIds(List.of(1L));
         verifyNoInteractions(videos);
-        assertEquals(1, entries.size());
+        assertEquals(2, entries.size());
         String payload = entries.get(ContentResourceRegion.CONTENT_MEDIA.key("1"));
         assertTrue(payload.contains("image-one"));
         assertTrue(payload.contains("music.mp3"));
@@ -193,11 +197,12 @@ class ContentMediaResourcesTest {
     }
 
     @Test
-    void warmDynamicResourcesStillRespectTheExistingAudioRestrictionCheck() {
+    void warmDynamicResourcesRecheckAudioWhenTheStateSnapshotExpires() {
         dynamic();
         reads.detail(1L, 9L);
         int signedBeforeBan = signatures.get();
-        when(audioAccess.blocked(List.of(content))).thenReturn(Set.of(1L));
+        when(audioAccess.isReferenceBlocked(content)).thenReturn(true);
+        entries.remove(ContentResourceRegion.CONTENT_STATE.key("1"));
 
         assertThrows(BizException.class, () -> reads.detail(1L, 9L));
 
@@ -222,20 +227,22 @@ class ContentMediaResourcesTest {
         verify(storage).readObject("subtitles/version-one.vtt", Duration.ofSeconds(10));
         verify(storage).readObject("subtitles/version-two.vtt", Duration.ofSeconds(10));
         content.setIsDelete(1);
+        cache.evict(ContentResourceRegion.CONTENT_STATE, "1");
         assertThrows(BizException.class, () -> reads.subtitles(1L, 9L));
-        verify(contents, times(4)).selectById(1L);
+        verify(contents, times(2)).selectById(1L);
     }
 
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {" ", "\t\n"})
-    void absentSubtitleKeysAreRejectedBeforeReadingTheCacheOrStorage(String key) {
+    void absentSubtitleKeysAreRejectedBeforeReadingTheSubtitleCacheOrStorage(String key) {
         when(understanding.get(1L)).thenReturn(new ContentUnderstanding().setSubtitleKey(key));
 
         BizException failure = assertThrows(BizException.class, () -> reads.subtitles(1L, 9L));
 
         assertEquals(ErrorCode.NOT_FOUND, failure.getErrorCode());
-        verifyNoInteractions(storage, values, redisson, lock);
+        verifyNoInteractions(storage);
+        assertEquals(Set.of(ContentResourceRegion.CONTENT_STATE.key("1")), entries.keySet());
     }
 
     @ParameterizedTest

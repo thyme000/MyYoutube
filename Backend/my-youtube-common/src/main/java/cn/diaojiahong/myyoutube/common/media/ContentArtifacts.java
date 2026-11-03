@@ -3,6 +3,12 @@ package cn.diaojiahong.myyoutube.common.media;
 import java.util.List;
 
 public final class ContentArtifacts {
+    public static final String ARTIFACT_KEY = "artifactKey";
+    public static final String COVER_OBJECT_KEY = "coverObjectKey";
+    public static final String VTT_KEY = "vttKey";
+    public static final String SEGMENTS_KEY = "segmentsKey";
+    public static final String DURATION_MS = "durationMs";
+
     private ContentArtifacts() {
     }
 

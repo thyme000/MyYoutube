@@ -81,7 +81,7 @@ class ContentReadContractTest {
         when(streams.playback(eq(content), any(ContentMediaResource.class), eq(9L), eq(Scope.VIEW))).thenReturn(playback);
         var videoStrategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos)));
         ContentReadService reads = new ContentReadService(
-                new ContentAccessService(contents, mock(AudioContentAccess.class)),
+                ContentResourceTestSupport.uncachedAccess(contents, mock(AudioContentAccess.class)),
                 ContentResourceTestSupport.uncached(videoStrategies, storage),
                 cards, understanding, storage, streams);
 
@@ -107,9 +107,10 @@ class ContentReadContractTest {
         when(contents.selectById(1L)).thenReturn(row);
         AudioContentAccess audios = mock(AudioContentAccess.class);
         when(audios.blocked(anyList())).thenReturn(Set.of(1L));
+        when(audios.isReferenceBlocked(any())).thenReturn(true);
         var access = new ContentAccessService(contents, audios);
         var reads = new ContentReadService(
-                access,
+                ContentResourceTestSupport.uncachedAccess(contents, audios),
                 ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
                 understanding,
@@ -160,7 +161,7 @@ class ContentReadContractTest {
                 mock(ContentReviewRecordMapper.class),
                 mock(AuthorContentPageService.class));
         var service=new ContentReadService(
-                new ContentAccessService(contents,audios),
+                ContentResourceTestSupport.uncachedAccess(contents, audios),
                 ContentResourceTestSupport.uncached(registry, storage),
                 cards,
                 understanding,
@@ -179,7 +180,7 @@ class ContentReadContractTest {
                 detail.getMedia().dynamic().items().stream().map(i -> i.url()).toList());
         assertEquals(120000L,detail.getMedia().dynamic().audio().durationMs());
         assertEquals("signed/music",detail.getMedia().dynamic().audio().url());
-        verify(audios, times(1)).blocked(List.of(content));
+        verify(audios).isReferenceBlocked(content);
         verify(strategy).loadResource(1L);
         verify(contents).selectById(1L);
     }
@@ -206,7 +207,7 @@ class ContentReadContractTest {
         when(strategy.loadResource(1L)).thenReturn(new ContentMediaResource(new ContentMedia("dynamic", null, media), null, null));
         when(storage.signGetUrl("image",1200)).thenReturn("signed/image");
         var service = new ContentReadService(
-                new ContentAccessService(contents,mock(AudioContentAccess.class)),
+                ContentResourceTestSupport.uncachedAccess(contents, mock(AudioContentAccess.class)),
                 ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
                 understanding,
@@ -221,7 +222,7 @@ class ContentReadContractTest {
         when(contents.selectById(1L))
                 .thenReturn(new Content().setId(1L).setAuthorId(7L).setVisibility("private").setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0));
         var service=new ContentReadService(
-                new ContentAccessService(contents,mock(AudioContentAccess.class)),
+                ContentResourceTestSupport.uncachedAccess(contents, mock(AudioContentAccess.class)),
                 ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
                 understanding,

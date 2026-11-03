@@ -26,9 +26,9 @@ public class TagTaskExecutor implements MediaTaskExecutor {
     @Override
     public String execute(MediaTaskMessage message) {
         long startedAt = System.currentTimeMillis();
-        JsonObject pointer = StructuredJson.object(message.getDependencies().get("SUMMARY"));
+        JsonObject pointer = StructuredJson.object(message.getDependencies().get(MediaTaskType.SUMMARY.name()));
         ContentArtifacts.Summary summary = artifacts.read(
-                pointer.get("artifactKey").getAsString(),
+                pointer.get(ContentArtifacts.ARTIFACT_KEY).getAsString(),
                 ContentArtifacts.Summary.class);
         JsonObject result = StructuredJson.object(content.generateTags(new TagRequest(
                 message.getInput().title(),
@@ -40,7 +40,7 @@ public class TagTaskExecutor implements MediaTaskExecutor {
                 result.has("category") ? result.get("category").getAsString() : null, tags,
                 System.currentTimeMillis() - startedAt);
         return JsonUtil.toJson(Map.of(
-                "artifactKey",
-                artifacts.write(message.getPipelineId(), "TAG", message.getAttempt(), result)));
+                ContentArtifacts.ARTIFACT_KEY,
+                artifacts.write(message.getPipelineId(), MediaTaskType.TAG.name(), message.getAttempt(), result)));
     }
 }

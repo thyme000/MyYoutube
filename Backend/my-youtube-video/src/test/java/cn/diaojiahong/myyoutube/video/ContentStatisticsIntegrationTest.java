@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.domain.ContentAccessSnapshot;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
@@ -15,6 +16,8 @@ import cn.diaojiahong.myyoutube.content.service.AuthorContentPageService;
 import cn.diaojiahong.myyoutube.content.service.AfterCommitNotifications;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
+import cn.diaojiahong.myyoutube.content.service.ContentAccessSnapshotLoader;
+import cn.diaojiahong.myyoutube.content.service.ContentDisplayAccess;
 import cn.diaojiahong.myyoutube.content.service.ContentSettingsService;
 import cn.diaojiahong.myyoutube.content.service.ContentStatisticsService;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
@@ -62,6 +65,9 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Supplier;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -76,7 +82,8 @@ class ContentStatisticsIntegrationTest {
     @EnableTransactionManagement
     @MapperScan(basePackageClasses = {ContentMapper.class, AudioMapper.class})
     @Import({ContentStatisticsService.class, ContentSettingsService.class, ContentAccessService.class,
-            ReviewDecisionService.class, ContentServiceImpl.class, AuthorContentPageService.class})
+            ReviewDecisionService.class, ContentServiceImpl.class, AuthorContentPageService.class,
+            ContentAccessSnapshotLoader.class, ContentDisplayAccess.class})
     static class Config {
         @Bean
         DataSource dataSource() {
@@ -169,6 +176,8 @@ class ContentStatisticsIntegrationTest {
     @Autowired TransactionTemplate transaction;
     @Autowired ContentResourceCache cache;
     @Autowired TaskScheduler evictionScheduler;
+    @Autowired ContentAccessSnapshotLoader snapshotLoader;
+    @Autowired ContentDisplayAccess display;
     JdbcTemplate jdbc;
 
     @BeforeEach
@@ -585,6 +594,50 @@ class ContentStatisticsIntegrationTest {
         verifyNoInteractions(cache, evictionScheduler);
         settings.update(1L, 7L, new ContentSettingsService.Settings("public", 0));
         verify(cache).evict(ContentResourceRegion.CONTENT_STATE, "1");
+    }
+
+    @Test
+    void committedSettingsAndBansInvalidateTheDisplaySnapshot() {
+        pending(1, 7, "dynamic", "public", 20L);
+        publish(1);
+        Map<String, ContentAccessSnapshot> snapshots = new HashMap<>();
+        when(cache.get(eq(ContentResourceRegion.CONTENT_STATE), anyString(), eq(ContentAccessSnapshot.class), any()))
+                .thenAnswer(call -> {
+                    String id = call.getArgument(1);
+                    return snapshots.computeIfAbsent(id, ignored -> {
+                        Supplier<ContentAccessSnapshot> load = call.getArgument(3);
+                        return load.get();
+                    });
+                });
+        doAnswer(call -> snapshots.remove(call.<String>getArgument(1)))
+                .when(cache).evict(eq(ContentResourceRegion.CONTENT_STATE), anyString());
+
+        assertEquals("public", display.readable(1L, 9L).getVisibility());
+        transaction.executeWithoutResult(status -> {
+            settings.update(1L, 7L, new ContentSettingsService.Settings("private", 1));
+            assertEquals("public", snapshots.get("1").content().getVisibility());
+        });
+        assertTrue(snapshots.isEmpty());
+        assertThrows(BizException.class, () -> display.readable(1L, 9L));
+        assertEquals("private", display.readable(1L, 7L).getVisibility());
+
+        assertTrue(decisions.banPublished(1L, "违规内容", 99L));
+        assertTrue(snapshots.isEmpty());
+        assertThrows(BizException.class, () -> display.readable(1L, 7L));
+    }
+
+    @Test
+    void databaseSnapshotLoaderPreservesHistoricalAudioRules() {
+        pending(1, 7, "dynamic", "public", 20L);
+        publish(1);
+        assertFalse(snapshotLoader.load(1L).audioBlocked());
+
+        jdbc.update("UPDATE audio SET visibility='private', is_delete=1 WHERE id=20");
+        assertFalse(snapshotLoader.load(1L).audioBlocked());
+        jdbc.update("UPDATE audio SET review_status='banned' WHERE id=20");
+        assertTrue(snapshotLoader.load(1L).audioBlocked());
+        jdbc.update("DELETE FROM audio WHERE id=20");
+        assertTrue(snapshotLoader.load(1L).audioBlocked());
     }
 
     @Test

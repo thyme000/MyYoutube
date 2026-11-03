@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.service;
 
+import cn.diaojiahong.myyoutube.common.pipeline.PipelineEventCode;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewDecision;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewSource;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
@@ -74,11 +75,12 @@ public class ReviewDecisionService {
                 .set(ContentUnderstanding::getState, pass ? ContentReviewState.APPROVED : ContentReviewState.REJECTED));
         observation.record(
                 row,
-                pass ? "REVIEW_APPROVED" : "REVIEW_REJECTED",
+                pass ? PipelineEventCode.REVIEW_APPROVED : PipelineEventCode.REVIEW_REJECTED,
                 row.getState().name(),
                 pass ? ContentReviewState.APPROVED.name() : ContentReviewState.REJECTED.name());
         log.info("Manual review decision contentId={} pipelineId={} attempt={} decision={} actor={} reason={}",
-                id, row.getPipelineId(), row.getReviewAttempt(), pass ? "PASS" : "REJECT", actor, brief(reason));
+                id, row.getPipelineId(), row.getReviewAttempt(),
+                pass ? ContentReviewDecision.PASS : ContentReviewDecision.REJECT, actor, brief(reason));
         return true;
     }
 
@@ -98,7 +100,8 @@ public class ReviewDecisionService {
                     ContentUnderstanding::getContentId,
                     id)
                     .set(ContentUnderstanding::getState, ContentReviewState.CANCELLED));
-            observation.record(row, "CONTENT_CANCELLED", row.getState().name(), ContentReviewState.CANCELLED.name());
+            observation.record(row, PipelineEventCode.CONTENT_CANCELLED,
+                    row.getState().name(), ContentReviewState.CANCELLED.name());
             log.info("Machine review cancelled contentId={} pipelineId={} attempt={} reason=CONTENT_STATE_CHANGED",
                     id, row.getPipelineId(), attempt);
             return false;
@@ -109,11 +112,13 @@ public class ReviewDecisionService {
                 .set(ContentUnderstanding::getState, pass ? ContentReviewState.APPROVED : ContentReviewState.MANUAL_PENDING));
         observation.record(
                 row,
-                pass ? "REVIEW_APPROVED" : "REVIEW_MANUAL_PENDING",
+                pass ? PipelineEventCode.REVIEW_APPROVED : PipelineEventCode.REVIEW_MANUAL_PENDING,
                 row.getState().name(),
                 pass ? ContentReviewState.APPROVED.name() : ContentReviewState.MANUAL_PENDING.name());
         log.info("Machine review decision contentId={} pipelineId={} attempt={} decision={} risk={} confidence={} maxRisk={} minConfidence={} model={} reason={}",
-                id, row.getPipelineId(), attempt, pass ? "PASS" : "MANUAL", verdict.riskScore(), verdict.confidence(),
+                id, row.getPipelineId(), attempt,
+                pass ? ContentReviewDecision.PASS.name() : ContentReviewSource.MANUAL.name(),
+                verdict.riskScore(), verdict.confidence(),
                 properties.getMaxRisk(), properties.getMinConfidence(), verdict.model(), brief(verdict.reason()));
         return true;
     }
@@ -170,7 +175,8 @@ public class ReviewDecisionService {
                         ContentReviewState.AUTO_RUNNING));
         if (row.getState() != ContentReviewState.AUTO_RUNNING || row.getReviewAttempt() != attempt) {
             row.setReviewAttempt(attempt);
-            observation.record(row, "REVIEW_STARTED", row.getState().name(), ContentReviewState.AUTO_RUNNING.name());
+            observation.record(row, PipelineEventCode.REVIEW_STARTED,
+                    row.getState().name(), ContentReviewState.AUTO_RUNNING.name());
         }
         return spec(true);
     }
@@ -205,7 +211,8 @@ public class ReviewDecisionService {
                     new LambdaUpdateWrapper<ContentUnderstanding>()
                             .eq(ContentUnderstanding::getContentId, row.getContentId())
                             .set(ContentUnderstanding::getState, ContentReviewState.MANUAL_PENDING));
-            observation.record(row, "REVIEW_MANUAL_PENDING", row.getState().name(), ContentReviewState.MANUAL_PENDING.name());
+            observation.record(row, PipelineEventCode.REVIEW_MANUAL_PENDING,
+                    row.getState().name(), ContentReviewState.MANUAL_PENDING.name());
             log.info("Review handed to manual contentId={} pipelineId={} attempt={} reason={}",
                     row.getContentId(), row.getPipelineId(), result.attempt(),
                     properties.isAutoReview() ? "TASK_CANCELLED" : "AUTO_REVIEW_DISABLED");
@@ -246,7 +253,7 @@ public class ReviewDecisionService {
                 row.setReviewAttempt(result.attempt());
                 observation.record(
                         row,
-                        result.exhausted() ? "REVIEW_MANUAL_PENDING" : "REVIEW_AUTO_PENDING",
+                        result.exhausted() ? PipelineEventCode.REVIEW_MANUAL_PENDING : PipelineEventCode.REVIEW_AUTO_PENDING,
                         row.getState().name(),
                         target.name());
             }
@@ -269,7 +276,8 @@ public class ReviewDecisionService {
         if (changed) {
             records.insert(new ContentReviewRecord().setContentId(id).setPipelineId(row == null ? null : row.getPipelineId()).setAttempt(0).setSource(ContentReviewSource.MANUAL)
                     .setDecision(ContentReviewDecision.BAN).setReason(reason).setActorId(actor).setCreateTime(LocalDateTime.now()));
-            observation.record(row, "CONTENT_BANNED", "published", "banned");
+            observation.record(row, PipelineEventCode.CONTENT_BANNED,
+                    ContentStatusEnum.PUBLISHED.getCode(), ContentStatusEnum.BANNED.getCode());
             log.info("Published content banned contentId={} actor={} reason={}", id, actor, brief(reason));
         }
         return changed;
@@ -308,7 +316,8 @@ public class ReviewDecisionService {
                 ContentUnderstanding::getContentId,
                 content.getId())
                 .set(ContentUnderstanding::getState, ContentReviewState.CANCELLED));
-        observation.record(row, "CONTENT_AUDIO_BANNED", content.getStatus().getCode(), "banned");
+        observation.record(row, PipelineEventCode.CONTENT_AUDIO_BANNED,
+                content.getStatus().getCode(), ContentStatusEnum.BANNED.getCode());
         return true;
     }
 

@@ -42,17 +42,17 @@ public class ReviewTaskExecutor implements MediaTaskExecutor {
             return "{\"cancelled\":true}";
         }
 
-        JsonObject asrPointer = StructuredJson.object(message.getDependencies().get("ASR"));
-        JsonObject ocrPointer = StructuredJson.object(message.getDependencies().get("OCR"));
-        JsonObject summaryPointer = StructuredJson.object(message.getDependencies().get("SUMMARY"));
+        JsonObject asrPointer = StructuredJson.object(message.getDependencies().get(MediaTaskType.ASR.name()));
+        JsonObject ocrPointer = StructuredJson.object(message.getDependencies().get(MediaTaskType.OCR.name()));
+        JsonObject summaryPointer = StructuredJson.object(message.getDependencies().get(MediaTaskType.SUMMARY.name()));
         ContentArtifacts.Transcript transcript = artifacts.read(
-                asrPointer.get("segmentsKey").getAsString(),
+                asrPointer.get(ContentArtifacts.SEGMENTS_KEY).getAsString(),
                 ContentArtifacts.Transcript.class);
         ContentArtifacts.Ocr ocr = artifacts.read(
-                ocrPointer.get("artifactKey").getAsString(),
+                ocrPointer.get(ContentArtifacts.ARTIFACT_KEY).getAsString(),
                 ContentArtifacts.Ocr.class);
         ContentArtifacts.Summary summary = artifacts.read(
-                summaryPointer.get("artifactKey").getAsString(),
+                summaryPointer.get(ContentArtifacts.ARTIFACT_KEY).getAsString(),
                 ContentArtifacts.Summary.class);
         PipelineContracts.Input input = message.getInput();
         String evidence = EvidenceText.full(input.title(), input.description(), transcript, ocr) + "\n摘要：" + summary.summary();

@@ -31,7 +31,7 @@ import java.util.stream.IntStream;
 @Service
 @RequiredArgsConstructor
 public class ContentReadService {
-    private final ContentAccessService access;
+    private final ContentDisplayAccess access;
     private final ContentMediaResources resources;
     private final ContentFeedServiceImpl cards;
     private final ContentUnderstandingService understanding;
@@ -44,7 +44,10 @@ public class ContentReadService {
         ContentMediaResource resource = resources.media(content);
         ContentMedia media = resource.media();
         List<ContentFeedVO> visible = cards.assembleCardsWithMedia(viewer, List.of(content), Set.of(), Map.of(id, media));
-        if (visible.isEmpty()) throw new BizException(ErrorCode.NOT_FOUND, "内容不存在或不可访问");
+        if (visible.isEmpty()) {
+            throw ContentAccessService.notReadable();
+        }
+
         ContentDetailVO detail = BeanUtil.copyProperties(visible.get(0), ContentDetailVO.class);
         detail.setMedia(media.video() != null
                 ? new ContentMediaVO("video", new ContentMediaVO.Video(media.video().durationMs(),

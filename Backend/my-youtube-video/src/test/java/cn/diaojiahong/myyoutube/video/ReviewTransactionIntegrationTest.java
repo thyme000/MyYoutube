@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.video;
 
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewDecision;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewSource;
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
@@ -153,6 +154,11 @@ class ReviewTransactionIntegrationTest {
         }
 
         @Bean
+        ContentResourceInvalidator cacheInvalidator() {
+            return mock(ContentResourceInvalidator.class);
+        }
+
+        @Bean
         ContentUnderstandingService understandingService(ContentUnderstandingMapper rows, ContentMapper videos,
                 ContentReviewRecordMapper records,
                 ContentPipelineProperties properties,
@@ -161,11 +167,12 @@ class ReviewTransactionIntegrationTest {
                 TagResultMapper tags,
                 RocketMQTemplate mq,
                 TransactionTemplate tx,
-                cn.diaojiahong.myyoutube.video.service.ContentObservation observation) {
+                cn.diaojiahong.myyoutube.video.service.ContentObservation observation,
+                ContentResourceInvalidator cacheInvalidator) {
             return new ContentUnderstandingService(rows, videos, records, properties, tasks, artifacts,
                     tags,
                     mock(cn.diaojiahong.myyoutube.recommend.service.IContentTagService.class),
-                    mq, tx, new SimpleMeterRegistry(), observation);
+                    mq, tx, new SimpleMeterRegistry(), observation, cacheInvalidator);
         }
 
         @Bean
@@ -245,11 +252,12 @@ class ReviewTransactionIntegrationTest {
     @Autowired IContentService contents;
     @Autowired ContentMapper contentRows;
     @Autowired PublicationEffectsService effects;
+    @Autowired ContentResourceInvalidator cacheInvalidator;
     JdbcTemplate jdbc;
 
     @BeforeEach
     void schema() throws Exception {
-        reset(tasks, artifacts, tags, mq, effects);
+        reset(tasks, artifacts, tags, mq, effects, cacheInvalidator);
         observations.getRecording().setEnabled(false);
         policy.setAutoReview(true);
         policy.setReviewVisionEnabled(true);
@@ -725,6 +733,7 @@ class ReviewTransactionIntegrationTest {
         assertEquals(2L, jdbc.queryForObject("SELECT index_version FROM content WHERE id=1", Long.class));
         verify(artifacts,times(1)).read("summary",ContentArtifacts.Summary.class);
         verify(tasks,times(2)).received(100L);
+        verify(cacheInvalidator).evictAfterCommit(ContentResourceRegion.CONTENT_STATE, "1");
         verifyNoInteractions(mq);
         assertEquals(0,count("content_publication_event"));
         assertEquals(1, count("pipeline_event_outbox"));

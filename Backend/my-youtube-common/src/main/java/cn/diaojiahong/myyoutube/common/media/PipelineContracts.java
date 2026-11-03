@@ -1,8 +1,13 @@
 package cn.diaojiahong.myyoutube.common.media;
 
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public final class PipelineContracts {
+    private static final Set<String> CONTENT_RESULT_TYPES = MediaTaskType.contentTypes().stream()
+            .map(MediaTaskType::name).collect(Collectors.toUnmodifiableSet());
+
     private PipelineContracts() {
     }
 
@@ -12,6 +17,13 @@ public final class PipelineContracts {
 
     public record Manifest(Long pipelineId, Long contentId, PipelineStatus status, Input input,
                            Map<String, String> results, long completedAt) {
+        public boolean hasCompleteResults() {
+            return results.keySet().equals(CONTENT_RESULT_TYPES);
+        }
+
+        public String result(MediaTaskType type) {
+            return results.get(type.name());
+        }
     }
 
     public record ReviewSpec(boolean enabled, String model, String rulesVersion, String rules, double maxRisk,

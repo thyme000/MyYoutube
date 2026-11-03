@@ -68,10 +68,10 @@ public class OcrTaskExecutor implements MediaTaskExecutor {
                         keys.get(i),
                         item.text()));
             }
-            return JsonUtil.toJson(Map.of("durationMs", durationMs, "videoSampling", plan, "videoFrameCount", frames.size(),
-                    "artifactKey", artifacts.write(
+            return JsonUtil.toJson(Map.of(ContentArtifacts.DURATION_MS, durationMs, "videoSampling", plan, "videoFrameCount", frames.size(),
+                    ContentArtifacts.ARTIFACT_KEY, artifacts.write(
                             msg.getPipelineId(),
-                            "OCR",
+                            MediaTaskType.OCR.name(),
                             msg.getAttempt(),
                             new ContentArtifacts.Ocr(results))));
         } finally {
@@ -103,8 +103,8 @@ public class OcrTaskExecutor implements MediaTaskExecutor {
                     recognized.get(i).text(),
                     input.objectKey()));
         }
-        return JsonUtil.toJson(Map.of("durationMs", media.durationMs(), "artifactKey",
-                artifacts.write(msg.getPipelineId(), "OCR", msg.getAttempt(), new ContentArtifacts.Ocr(frames))));
+        return JsonUtil.toJson(Map.of(ContentArtifacts.DURATION_MS, media.durationMs(), ContentArtifacts.ARTIFACT_KEY,
+                artifacts.write(msg.getPipelineId(), MediaTaskType.OCR.name(), msg.getAttempt(), new ContentArtifacts.Ocr(frames))));
     }
 
     private String recognizeImages(MediaTaskMessage msg, int batchSize) {
@@ -119,8 +119,8 @@ public class OcrTaskExecutor implements MediaTaskExecutor {
             DynamicMedia.Image image = media.items().get(i);
             frames.add(new ContentArtifacts.Frame(i, image.startMs(), image.imageObjectKey(), result.text()));
         }
-        return JsonUtil.toJson(Map.of("durationMs", media.exportDurationMs(), "artifactKey",
-                artifacts.write(msg.getPipelineId(), "OCR", msg.getAttempt(), new ContentArtifacts.Ocr(frames))));
+        return JsonUtil.toJson(Map.of(ContentArtifacts.DURATION_MS, media.exportDurationMs(), ContentArtifacts.ARTIFACT_KEY,
+                artifacts.write(msg.getPipelineId(), MediaTaskType.OCR.name(), msg.getAttempt(), new ContentArtifacts.Ocr(frames))));
     }
 
     private List<OcrPort.Item> recognize(List<String> keys, MediaTaskMessage msg, int batchSize) {
@@ -133,7 +133,7 @@ public class OcrTaskExecutor implements MediaTaskExecutor {
             log.debug("OCR batch started pipelineId={} taskId={} attempt={} images={}..{} total={}",
                     msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), start, end - 1, keys.size());
             List<String> urls = keys.subList(start, end).stream().map(k -> storage.signGetUrl(k, 600)).toList();
-            OcrPort.Response response = guard.call("OCR", () -> ocr.recognize(new OcrPort.Request(urls)));
+            OcrPort.Response response = guard.call(MediaTaskType.OCR.name(), () -> ocr.recognize(new OcrPort.Request(urls)));
             if (response == null || response.results() == null || response.results().size() != urls.size())
                 throw new IllegalStateException("OCR 返回不完整: images=" + start + ".." + (end - 1));
             for (int i = 0; i < urls.size(); i++) {

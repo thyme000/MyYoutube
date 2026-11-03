@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.task;
 
+import cn.diaojiahong.myyoutube.common.media.ContentArtifacts;
+
 import cn.diaojiahong.myyoutube.common.media.ContentMedia;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
@@ -52,6 +54,6 @@ public class CoverTaskExecutor implements MediaTaskExecutor {
                 source,
                 coverKey,
                 System.currentTimeMillis() - startedAt);
-        return JsonUtil.toJson(Map.of("coverObjectKey", coverKey));
+        return JsonUtil.toJson(Map.of(ContentArtifacts.COVER_OBJECT_KEY, coverKey));
     }
 }

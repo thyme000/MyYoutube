@@ -35,17 +35,20 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
     public String execute(MediaTaskMessage msg) {
         PipelineContracts.Input input = msg.getInput();
         long startedAt = System.currentTimeMillis();
-        JsonObject asr = StructuredJson.object(msg.getDependencies().get("ASR"));
-        JsonObject ocr = StructuredJson.object(msg.getDependencies().get("OCR"));
+        JsonObject asr = StructuredJson.object(msg.getDependencies().get(MediaTaskType.ASR.name()));
+        JsonObject ocr = StructuredJson.object(msg.getDependencies().get(MediaTaskType.OCR.name()));
         ContentArtifacts.Transcript transcript = artifacts.read(
-                asr.get("segmentsKey").getAsString(),
+                asr.get(ContentArtifacts.SEGMENTS_KEY).getAsString(),
                 ContentArtifacts.Transcript.class);
-        ContentArtifacts.Ocr frames = artifacts.read(ocr.get("artifactKey").getAsString(), ContentArtifacts.Ocr.class);
+        ContentArtifacts.Ocr frames = artifacts.read(
+                ocr.get(ContentArtifacts.ARTIFACT_KEY).getAsString(), ContentArtifacts.Ocr.class);
         if (EvidenceText.empty(input.title(), input.description(), transcript, frames)) {
             log.info("Summary completed pipelineId={} taskId={} attempt={} reason=NO_TEXT_EVIDENCE summaryLength=0 elapsedMs={}",
                     msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), System.currentTimeMillis() - startedAt);
-            return JsonUtil.toJson(Map.of("artifactKey", artifacts.write(msg.getPipelineId(), "SUMMARY", msg.getAttempt(),
-                    new ContentArtifacts.Summary("", List.of()))));
+            return JsonUtil.toJson(Map.of(
+                    ContentArtifacts.ARTIFACT_KEY,
+                    artifacts.write(msg.getPipelineId(), MediaTaskType.SUMMARY.name(), msg.getAttempt(),
+                            new ContentArtifacts.Summary("", List.of()))));
         }
         PromptTemplates.Snapshot templates = prompts.snapshot();
         String evidence = EvidenceText.full(input.title(), input.description(), transcript, frames);
@@ -60,7 +63,7 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
             if (!result.summary().isEmpty()) summaries.add(result.summary());
             for (ContentArtifacts.Chapter chapter : timedText && input.media().video() != null ? result.chapters() : List.<ContentArtifacts.Chapter>of()) {
                 if (chapter.startMs() < 0
-                        || chapter.startMs() > ocr.get("durationMs").getAsLong()
+                        || chapter.startMs() > ocr.get(ContentArtifacts.DURATION_MS).getAsLong()
                         || chapter.title() == null
                         || chapter.title().isBlank())
                     throw new IllegalArgumentException("章节位置非法");
@@ -99,8 +102,8 @@ public class SummaryTaskExecutor implements MediaTaskExecutor {
                 msg.getPipelineId(), msg.getTaskId(), msg.getAttempt(), evidence.length(), chunks, mergeRounds,
                 result.chapters().size(), summary.codePointCount(0, summary.length()), System.currentTimeMillis() - startedAt);
         return JsonUtil.toJson(Map.of(
-                "artifactKey",
-                artifacts.write(msg.getPipelineId(), "SUMMARY", msg.getAttempt(), result)));
+                ContentArtifacts.ARTIFACT_KEY,
+                artifacts.write(msg.getPipelineId(), MediaTaskType.SUMMARY.name(), msg.getAttempt(), result)));
     }
 
     private ContentArtifacts.Summary summarize(

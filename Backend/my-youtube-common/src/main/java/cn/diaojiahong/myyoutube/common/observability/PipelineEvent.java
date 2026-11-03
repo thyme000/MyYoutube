@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.common.observability;
 
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
+import cn.diaojiahong.myyoutube.common.pipeline.PipelineEventCode;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 import java.util.Arrays;
@@ -15,31 +16,8 @@ public record PipelineEvent(@JsonProperty("@timestamp") Instant occurredAt, Serv
                             Instant nextRetryAt, State state, Failure failure) {
     private static final Set<String> TYPES = Arrays.stream(MediaTaskType.values())
             .map(Enum::name).collect(Collectors.toUnmodifiableSet());
-    private static final Set<String> CONTENT_CODES = Set.of(
-            "RETRY_BATCH_CREATED",
-            "RETRY_BATCH_STARTED",
-            "RETRY_BATCH_COMPLETED",
-            "CONTENT_SUBMITTED",
-            "ARTIFACTS_STORED",
-            "PIPELINE_COMPLETED",
-            "PIPELINE_WAITING_ARTIFACTS",
-            "REVIEW_AUTO_PENDING",
-            "REVIEW_MANUAL_PENDING",
-            "REVIEW_APPROVED",
-            "REVIEW_REJECTED",
-            "CONTENT_BANNED",
-            "CONTENT_AUDIO_BANNED",
-            "DRAFT_READY",
-            "DRAFT_FAILED",
-            "DRAFT_SUBMITTED",
-            "DRAFT_PROCESSING",
-            "DRAFT_UPLOADING",
-            "DRAFT_MEDIA_CHANGED",
-            "DRAFT_EXPIRED",
-            "PIPELINE_STARTED",
-            "PIPELINE_RESUMED",
-            "REVIEW_STARTED",
-            "CONTENT_CANCELLED");
+    private static final Set<String> LIFECYCLE_CODES = Arrays.stream(PipelineEventCode.values())
+            .map(Enum::name).collect(Collectors.toUnmodifiableSet());
 
     public PipelineEvent {
         if (occurredAt == null || service == null || event == null || aggregate == null || state == null) {
@@ -49,7 +27,7 @@ public record PipelineEvent(@JsonProperty("@timestamp") Instant occurredAt, Serv
             throw new IllegalArgumentException("Negative attempt");
         }
         if (state.to().equals(state.from())
-                && !Set.of("DRAFT_MEDIA_CHANGED", "REVIEW_STARTED").contains(event.code())) {
+                && !Set.of(PipelineEventCode.DRAFT_MEDIA_CHANGED.name(), PipelineEventCode.REVIEW_STARTED.name()).contains(event.code())) {
             throw new IllegalArgumentException("Unchanged state is not a transition");
         }
         for (String id : new String[]{pipelineId, contentId, taskId, draftId, preparationId, mediaVersion}) {
@@ -91,7 +69,7 @@ public record PipelineEvent(@JsonProperty("@timestamp") Instant occurredAt, Serv
             PipelineEvent.id(code);
             boolean taskCode = TYPES.stream().anyMatch(t -> Set.of(t + "_READY", t + "_STARTED", t + "_SUCCEEDED",
                     t + "_FAILED", t + "_DEFERRED", t + "_BLOCKED", t + "_RETRY_REQUESTED").contains(code));
-            if (sequence < 1 || !(taskCode || CONTENT_CODES.contains(code))) {
+            if (sequence < 1 || !(taskCode || LIFECYCLE_CODES.contains(code))) {
                 throw new IllegalArgumentException("Invalid event code or sequence");
             }
         }
