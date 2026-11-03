@@ -9,6 +9,7 @@ public final class MetricNames {
     public static final String ASYNC_TIMEOUTS = "myyoutube.async.timeouts";
 
     public static final String CONTENT_CACHE_EVICT_FAILED = "myyoutube.content.cache.evict.failed";
+    public static final String CONTENT_CACHE_BATCH_READ_FAILED = "myyoutube.content.cache.batch.read.failed";
     public static final String CONTENT_CACHE_DELAYED_EVICT_DROPPED = "myyoutube.content.cache.delayed.evict.dropped";
 
     public static final String AUDIO_CASCADE_NOTIFICATION_FAILED = "audio.cascade.notification.failed";

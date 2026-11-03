@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
@@ -38,7 +39,11 @@ public class ContentMediaResources {
     private final S3StorageUtil storage;
 
     public ContentMediaResource media(Content content) {
-        ContentMediaResource resource = cache.get(ContentResourceRegion.CONTENT_MEDIA, content.getId().toString(),
+        return media(content, cache);
+    }
+
+    public ContentMediaResource media(Content content, ContentResourceReader reader) {
+        ContentMediaResource resource = reader.get(ContentResourceRegion.CONTENT_MEDIA, content.getId().toString(),
                 ContentMediaResource.class, () -> loader.load(content));
         if (resource == null) throw new BizException(ErrorCode.NOT_FOUND, "媒体不存在");
         return resource;

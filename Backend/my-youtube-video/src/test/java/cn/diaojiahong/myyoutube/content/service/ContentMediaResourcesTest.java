@@ -44,6 +44,7 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import software.amazon.awssdk.http.SdkHttpMethod;
@@ -56,6 +57,7 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -96,6 +98,10 @@ class ContentMediaResourcesTest {
     void setup() throws Exception {
         when(redis.opsForValue()).thenReturn(values);
         when(values.get(anyString())).thenAnswer(call -> entries.get(call.getArgument(0)));
+        when(values.multiGet(anyCollection())).thenAnswer(call -> {
+            Collection<String> keys = call.getArgument(0);
+            return keys.stream().map(entries::get).toList();
+        });
         when(redis.delete(anyString())).thenAnswer(call -> entries.remove(call.getArgument(0)) != null);
         doAnswer(call -> {
             entries.put(call.getArgument(0), call.getArgument(1));
@@ -109,9 +115,9 @@ class ContentMediaResourcesTest {
         resources = new ContentMediaResources(cache, new ContentMediaResourceLoader(registry), storage);
         var access = new ContentDisplayAccess(cache, new ContentAccessSnapshotLoader(contents, audioAccess),
                 new ContentAccessService(contents, audioAccess));
-        streams = new ContentStreamService(access, resources, storage, tokens);
+        streams = new ContentStreamService(cache, access, resources, storage, tokens);
         var understanding = new ContentUnderstandingResources(cache, new ContentUnderstandingResourceLoader(understandingRows));
-        reads = new ContentReadService(access, resources, cards, understanding, storage, streams);
+        reads = new ContentReadService(cache, access, resources, cards, understanding, storage, streams);
 
         content = new Content().setId(1L).setType(ContentTypeEnum.VIDEO).setAuthorId(9L)
                 .setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0).setVisibility("public");
@@ -145,12 +151,100 @@ class ContentMediaResourcesTest {
         verify(contents).selectById(1L);
         verify(audioAccess).isReferenceBlocked(content);
         verify(cards, never()).assembleCards(anyLong(), anyList(), anySet());
-        verify(values, times(3)).get(ContentResourceRegion.CONTENT_MEDIA.key("1"));
+        verify(values).get(ContentResourceRegion.CONTENT_MEDIA.key("1"));
+        verify(values, times(2)).multiGet(List.of(ContentResourceRegion.CONTENT_STATE.key("1"),
+                ContentResourceRegion.CONTENT_MEDIA.key("1"), ContentResourceRegion.UNDERSTANDING.key("1")));
         assertEquals(Set.of(ContentResourceRegion.CONTENT_STATE.key("1"),
                 ContentResourceRegion.CONTENT_MEDIA.key("1"), ContentResourceRegion.UNDERSTANDING.key("1")), entries.keySet());
         assertEquals("null", entries.get(ContentResourceRegion.UNDERSTANDING.key("1")));
         assertTrue(entries.values().stream().noneMatch(payload -> payload.contains("playbackToken")));
         verifyNoInteractions(storage);
+    }
+
+    @Test
+    void warmDetailUsesOneMultiGetAndNoIndividualCacheReads() {
+        reads.detail(1L, 9L);
+        clearInvocations(values, contents, videos, understandingRows, redisson);
+
+        reads.detail(1L, 10L);
+
+        verify(values).multiGet(List.of(ContentResourceRegion.CONTENT_STATE.key("1"),
+                ContentResourceRegion.CONTENT_MEDIA.key("1"), ContentResourceRegion.UNDERSTANDING.key("1")));
+        verify(values, never()).get(anyString());
+        verifyNoInteractions(contents, videos, understandingRows, redisson);
+    }
+
+    @Test
+    void warmPlaybackAndMasterEachUseOneMultiGet() {
+        streams.playback(1L, 9L);
+        clearInvocations(values, contents, videos, redisson);
+
+        streams.playback(1L, 10L);
+        streams.masterPlaylist(1L, 10L, ticket(10));
+
+        verify(values, times(2)).multiGet(List.of(ContentResourceRegion.CONTENT_STATE.key("1"),
+                ContentResourceRegion.CONTENT_MEDIA.key("1")));
+        verify(values, never()).get(anyString());
+        verifyNoInteractions(contents, videos, redisson);
+    }
+
+    @Test
+    void warmRenditionReadsTheDependentPlaylistAfterOneMultiGet() {
+        streams.playlist(1L, 720, 9L, ticket(9));
+        clearInvocations(values, contents, videos, storage, redisson);
+
+        streams.playlist(1L, 720, 10L, ticket(10));
+
+        verify(values).multiGet(List.of(ContentResourceRegion.CONTENT_STATE.key("1"),
+                ContentResourceRegion.CONTENT_MEDIA.key("1")));
+        verify(values).get(ContentResourceRegion.PLAYLIST.key(playlistKey));
+        verify(values, times(1)).get(anyString());
+        verifyNoInteractions(contents, videos, redisson);
+        verify(storage, never()).readObject(anyString(), any(Duration.class));
+    }
+
+    @Test
+    void warmSubtitlesReadTheDependentTextAfterOneMultiGet() {
+        String subtitleKey = "subtitles/version-one.vtt";
+        when(understandingRows.selectById(1L)).thenReturn(new ContentUnderstanding().setReceived(true).setSubtitleKey(subtitleKey));
+        when(storage.readObject(eq(subtitleKey), any(Duration.class))).thenReturn("WEBVTT".getBytes(StandardCharsets.UTF_8));
+        reads.subtitles(1L, 9L);
+        clearInvocations(values, contents, understandingRows, storage, redisson);
+
+        assertEquals("WEBVTT", reads.subtitles(1L, 10L));
+
+        verify(values).multiGet(List.of(ContentResourceRegion.CONTENT_STATE.key("1"), ContentResourceRegion.UNDERSTANDING.key("1")));
+        verify(values).get(ContentResourceRegion.SUBTITLE.key(subtitleKey));
+        verify(values, times(1)).get(anyString());
+        verifyNoInteractions(contents, understandingRows, storage, redisson);
+    }
+
+    @Test
+    void deniedAccessDoesNotDecodeOrLoadPrefetchedArtifacts() {
+        content.setStatus(ContentStatusEnum.BANNED);
+        entries.put(ContentResourceRegion.CONTENT_MEDIA.key("1"), "invalid-json");
+        entries.put(ContentResourceRegion.UNDERSTANDING.key("1"), "invalid-json");
+
+        assertEquals(ErrorCode.NOT_FOUND, assertThrows(BizException.class, () -> reads.detail(1L, 9L)).getErrorCode());
+
+        verifyNoInteractions(videos, understandingRows, cards, storage);
+        verify(values, never()).get(ContentResourceRegion.CONTENT_MEDIA.key("1"));
+        verify(values, never()).get(ContentResourceRegion.UNDERSTANDING.key("1"));
+    }
+
+    @Test
+    void failedMultiGetStillReturnsAuthorizedDetailWithoutFillingCaches() {
+        when(values.multiGet(anyCollection())).thenThrow(new RedisConnectionFailureException("unavailable"));
+
+        assertEquals(9, grant(reads.detail(1L, 9L).getMedia().video().playback()).userId());
+
+        verify(contents).selectById(1L);
+        verify(videos).selectById(1L);
+        verify(understandingRows).selectById(1L);
+        verify(values, never()).get(anyString());
+        verify(values, never()).set(anyString(), anyString(), any(Duration.class));
+        verifyNoInteractions(redisson);
+        assertTrue(entries.isEmpty());
     }
 
     @Test

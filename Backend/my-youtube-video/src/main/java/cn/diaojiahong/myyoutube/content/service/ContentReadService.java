@@ -8,6 +8,9 @@ import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
 import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
@@ -16,6 +19,7 @@ import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentFeedServiceImpl;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens.Scope;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentMediaVO;
+import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.hutool.core.bean.BeanUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -29,6 +33,7 @@ import java.util.stream.IntStream;
 @Service
 @RequiredArgsConstructor
 public class ContentReadService {
+    private final ContentResourceCache cache;
     private final ContentDisplayAccess access;
     private final ContentMediaResources resources;
     private final ContentFeedServiceImpl cards;
@@ -38,8 +43,10 @@ public class ContentReadService {
 
     @ObservedBusiness(BusinessOperation.CONTENT_DETAIL)
     public ContentDetailVO detail(Long id, Long viewer) {
-        Content content = access.readable(id, viewer);
-        ContentMediaResource resource = resources.media(content);
+        ContentResourceReader reader = cache.readTogether(id.toString(), ContentResourceRegion.CONTENT_STATE,
+                ContentResourceRegion.CONTENT_MEDIA, ContentResourceRegion.UNDERSTANDING);
+        Content content = access.readable(id, viewer, reader);
+        ContentMediaResource resource = resources.media(content, reader);
         ContentMedia media = resource.media();
         List<ContentFeedVO> visible = cards.assembleCardsWithMedia(viewer, List.of(content), Set.of(), Map.of(id, media));
         if (visible.isEmpty()) {
@@ -48,10 +55,11 @@ public class ContentReadService {
 
         ContentDetailVO detail = BeanUtil.copyProperties(visible.get(0), ContentDetailVO.class);
         detail.setMedia(media.video() != null
-                ? new ContentMediaVO("video", new ContentMediaVO.Video(media.video().durationMs(),
+                ? new ContentMediaVO(ContentTypeEnum.VIDEO.getCode(),
+                        new ContentMediaVO.Video(media.video().durationMs(),
                         streams.playback(content, resource, viewer, Scope.VIEW)), null)
                 : signedMedia(media));
-        ContentUnderstandingResource understood = understanding.get(id);
+        ContentUnderstandingResource understood = understanding.get(id, reader);
         if (understood != null) {
             ContentArtifacts.Summary summary = understood.summary();
             detail.setSummary(summary.summary());
@@ -63,8 +71,10 @@ public class ContentReadService {
 
     @ObservedBusiness(BusinessOperation.SUBTITLES)
     public String subtitles(Long id, Long viewer) {
-        access.readable(id, viewer);
-        ContentUnderstandingResource understood = understanding.get(id);
+        ContentResourceReader reader = cache.readTogether(id.toString(), ContentResourceRegion.CONTENT_STATE,
+                ContentResourceRegion.UNDERSTANDING);
+        access.readable(id, viewer, reader);
+        ContentUnderstandingResource understood = understanding.get(id, reader);
         if (understood == null || !StringUtils.hasText(understood.subtitleKey())) {
             throw new BizException(ErrorCode.NOT_FOUND, "暂无字幕");
         }
@@ -77,7 +87,8 @@ public class ContentReadService {
         ContentMediaResource resource = resources.media(content);
         ContentMedia media = resource.media();
         return media.video() != null
-                ? new ContentMediaVO("video", new ContentMediaVO.Video(media.video().durationMs(),
+                ? new ContentMediaVO(ContentTypeEnum.VIDEO.getCode(),
+                        new ContentMediaVO.Video(media.video().durationMs(),
                         streams.playback(content, resource, viewer, Scope.REVIEW)), null)
                 : signedMedia(media);
     }
@@ -90,7 +101,7 @@ public class ContentReadService {
                     image.durationMs(), image.focusX(), image.focusY());
         }).toList();
         DynamicMedia.Audio audio = dynamic.audio();
-        return new ContentMediaVO("dynamic", null,
+        return new ContentMediaVO(ContentTypeEnum.DYNAMIC.getCode(), null,
                 new ContentMediaVO.Dynamic(dynamic.canvasType(), dynamic.canvasW(), dynamic.canvasH(),
                         dynamic.transition(), dynamic.fadeMs(), images, audio == null ? null :
                         new ContentMediaVO.Audio(audio.id()

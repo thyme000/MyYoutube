@@ -150,7 +150,8 @@ class LiveContentResourceCacheTest {
             for (int index = 0; index < 6; index++) {
                 readers.add(pool.submit(() -> {
                     readersStarted.countDown();
-                    return get(second, resourceId, () -> {
+                    ContentResourceReader reader = second.readTogether(resourceId, ContentResourceRegion.PLAYLIST);
+                    return reader.get(ContentResourceRegion.PLAYLIST, resourceId, String.class, () -> {
                         loads.incrementAndGet();
                         return "duplicate-load";
                     });
@@ -311,6 +312,26 @@ class LiveContentResourceCacheTest {
     }
 
     @Test
+    void batchPreservesHitsNegativesAndRechecksMissesAcrossClients() {
+        keys.add(ContentResourceRegion.CONTENT_STATE.key(resourceId));
+        keys.add(ContentResourceRegion.CONTENT_MEDIA.key(resourceId));
+        keys.add(ContentResourceRegion.UNDERSTANDING.key(resourceId));
+        first.get(ContentResourceRegion.CONTENT_STATE, resourceId, String.class, () -> "state");
+        first.get(ContentResourceRegion.UNDERSTANDING, resourceId, String.class, () -> null);
+
+        ContentResourceReader reader = second.readTogether(resourceId, ContentResourceRegion.CONTENT_STATE,
+                ContentResourceRegion.CONTENT_MEDIA, ContentResourceRegion.UNDERSTANDING);
+        first.get(ContentResourceRegion.CONTENT_MEDIA, resourceId, String.class, () -> "media");
+
+        assertEquals("state", reader.get(ContentResourceRegion.CONTENT_STATE, resourceId, String.class,
+                () -> fail("state must be read from MGET")));
+        assertNull(reader.get(ContentResourceRegion.UNDERSTANDING, resourceId, String.class,
+                () -> fail("negative entry must be read from MGET")));
+        assertEquals("media", reader.get(ContentResourceRegion.CONTENT_MEDIA, resourceId, String.class,
+                () -> fail("miss must be rechecked after locking")));
+    }
+
+    @Test
     void realRedisSharesRawPlaybackResourcesButNotSignaturesOrAccessDecisions() {
         long contentId = ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE);
         String playlistKey = resourceId + "/index.m3u8";
@@ -340,8 +361,8 @@ class LiveContentResourceCacheTest {
         var firstAccess = new ContentDisplayAccess(first, stateLoader, access);
         var secondAccess = new ContentDisplayAccess(second, stateLoader, access);
         var tokens = new PlaybackTokens("live-resource-cache-test-secret-at-least-thirty-two", 21600);
-        var firstStreams = new ContentStreamService(firstAccess, new ContentMediaResources(first, loader, storage), storage, tokens);
-        var secondStreams = new ContentStreamService(secondAccess, new ContentMediaResources(second, loader, storage), storage, tokens);
+        var firstStreams = new ContentStreamService(first, firstAccess, new ContentMediaResources(first, loader, storage), storage, tokens);
+        var secondStreams = new ContentStreamService(second, secondAccess, new ContentMediaResources(second, loader, storage), storage, tokens);
         String ticket = tokens.issue(9, contentId, 12000, PlaybackTokens.Scope.VIEW).token();
 
         assertTrue(firstStreams.playlist(contentId, 720, 9L, ticket).contains("signature=one"));

@@ -80,6 +80,7 @@ class ContentReadContractTest {
         when(streams.playback(eq(content), any(ContentMediaResource.class), eq(9L), eq(Scope.VIEW))).thenReturn(playback);
         var videoStrategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos)));
         ContentReadService reads = new ContentReadService(
+                ContentResourceTestSupport.uncachedCache(),
                 ContentResourceTestSupport.uncachedAccess(contents, mock(AudioContentAccess.class)),
                 ContentResourceTestSupport.uncached(videoStrategies, storage),
                 cards, understanding, storage, streams);
@@ -109,6 +110,7 @@ class ContentReadContractTest {
         when(audios.isReferenceBlocked(any())).thenReturn(true);
         var access = new ContentAccessService(contents, audios);
         var reads = new ContentReadService(
+                ContentResourceTestSupport.uncachedCache(),
                 ContentResourceTestSupport.uncachedAccess(contents, audios),
                 ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
@@ -160,6 +162,7 @@ class ContentReadContractTest {
                 mock(ContentReviewRecordMapper.class),
                 mock(AuthorContentPageService.class));
         var service=new ContentReadService(
+                ContentResourceTestSupport.uncachedCache(),
                 ContentResourceTestSupport.uncachedAccess(contents, audios),
                 ContentResourceTestSupport.uncached(registry, storage),
                 cards,
@@ -206,6 +209,7 @@ class ContentReadContractTest {
         when(strategy.loadResource(1L)).thenReturn(new ContentMediaResource(new ContentMedia("dynamic", null, media), null, null));
         when(storage.signGetUrl("image",1200)).thenReturn("signed/image");
         var service = new ContentReadService(
+                ContentResourceTestSupport.uncachedCache(),
                 ContentResourceTestSupport.uncachedAccess(contents, mock(AudioContentAccess.class)),
                 ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
@@ -221,6 +225,7 @@ class ContentReadContractTest {
         when(contents.selectById(1L))
                 .thenReturn(new Content().setId(1L).setAuthorId(7L).setVisibility("private").setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0));
         var service=new ContentReadService(
+                ContentResourceTestSupport.uncachedCache(),
                 ContentResourceTestSupport.uncachedAccess(contents, mock(AudioContentAccess.class)),
                 ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),

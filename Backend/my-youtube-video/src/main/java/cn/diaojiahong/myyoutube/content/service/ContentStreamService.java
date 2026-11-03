@@ -7,6 +7,9 @@ import cn.diaojiahong.myyoutube.common.media.VideoPlayback;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackQuality;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens.Scope;
@@ -22,6 +25,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ContentStreamService {
     private static final int SIGN_SECONDS = 1200;
+    private final ContentResourceCache cache;
     private final ContentDisplayAccess access;
     private final ContentMediaResources resources;
     private final S3StorageUtil storage;
@@ -37,8 +41,9 @@ public class ContentStreamService {
     }
 
     private VideoPlaybackVO playback(Long contentId, Long viewer, Scope scope) {
-        Content content = readableContent(contentId, viewer, scope);
-        return playback(content, resources.media(content), viewer, scope);
+        ContentResourceReader reader = reader(contentId, scope);
+        Content content = readableContent(contentId, viewer, scope, reader);
+        return playback(content, resources.media(content, reader), viewer, scope);
     }
 
     /** 调用方必须按 scope 完成访问检查，且 resource 必须是该 content 的媒体快照。 */
@@ -64,8 +69,9 @@ public class ContentStreamService {
     }
 
     private String masterPlaylist(Long contentId, Long viewer, String token, Scope scope) {
-        Content content = readableContent(contentId, viewer, scope);
-        VideoPlayback playback = resources.media(content).playback();
+        ContentResourceReader reader = reader(contentId, scope);
+        Content content = readableContent(contentId, viewer, scope, reader);
+        VideoPlayback playback = resources.media(content, reader).playback();
         return HlsPlaylist.master(playback.renditions(),
                 rendition -> withToken(ContentRoutes.relativeRendition(rendition.index()), token));
     }
@@ -112,16 +118,29 @@ public class ContentStreamService {
     }
 
     private VideoPlayback.Rendition readableRendition(Long contentId, int index, Long viewer, Scope scope) {
-        Content content = readableContent(contentId, viewer, scope);
-        VideoPlayback playback = resources.media(content).playback();
+        ContentResourceReader reader = reader(contentId, scope);
+        Content content = readableContent(contentId, viewer, scope, reader);
+        VideoPlayback playback = resources.media(content, reader).playback();
         PlaybackQuality quality = PlaybackQuality.fromCode(index);
         if (quality == null) throw new BizException(ErrorCode.NOT_FOUND, "播放档位不存在");
         return playback.renditions().stream().filter(item -> item.index() == quality.code())
                 .findFirst().orElseThrow(() -> new BizException(ErrorCode.NOT_FOUND, "播放档位不存在"));
     }
 
-    private Content readableContent(Long contentId, Long viewer, Scope scope) {
-        Content content = scope == Scope.REVIEW ? access.forReview(contentId) : access.readable(contentId, viewer);
+    /** 审核访问状态实时查库，不预取展示状态；媒体仍使用单项缓存读取。 */
+    private ContentResourceReader reader(Long contentId, Scope scope) {
+        if (scope == Scope.REVIEW) {
+            return cache;
+        }
+
+        return cache.readTogether(contentId.toString(),
+                ContentResourceRegion.CONTENT_STATE, ContentResourceRegion.CONTENT_MEDIA);
+    }
+
+    private Content readableContent(Long contentId, Long viewer, Scope scope, ContentResourceReader reader) {
+        Content content = scope == Scope.REVIEW
+                ? access.forReview(contentId)
+                : access.readable(contentId, viewer, reader);
         if (content.getType() != ContentTypeEnum.VIDEO)
             throw new BizException(ErrorCode.NOT_FOUND, "内容不是视频");
         return content;

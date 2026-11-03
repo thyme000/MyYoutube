@@ -13,6 +13,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -26,7 +27,7 @@ import java.util.function.Supplier;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ContentResourceCache {
+public class ContentResourceCache implements ContentResourceReader {
     private static final String NULL_PAYLOAD = "null";
     private static final String LOAD_LOCK_PREFIX = "lock:";
 
@@ -35,10 +36,56 @@ public class ContentResourceCache {
     private final ContentResourceCacheProperties properties;
     private final MeterRegistry metrics;
 
-    /** type 使用具体 DTO、数组或字符串；顶层泛型集合应包装在具体 DTO 中。 */
+    @Override
     public <T> T get(ContentResourceRegion region, String resourceId, Class<T> type, Supplier<T> loader) {
         String key = region.key(resourceId);
         CachedValue<T> cached = read(key, type);
+        return get(region, key, type, loader, cached);
+    }
+
+    /**
+     * 合并当前请求已知的 key；返回的 reader 仅供本次请求使用，不能跨请求保存。
+     * 仅保存原始 JSON 字符串，使用时才解码；预取不构成访问校验，仍由调用方完成。
+     * 未命中仍逐项加锁、重新读取，不能把批量读取结果用作锁内双检。
+     * 当前部署为单节点 Redis；改用 Cluster 时需重新评估跨 slot 的批量读取。
+     */
+    public ContentResourceReader readTogether(String resourceId, ContentResourceRegion... regions) {
+        List<String> keys = Arrays.stream(regions).map(region -> region.key(resourceId)).distinct().toList();
+        List<String> values;
+        try {
+            values = redis.opsForValue().multiGet(keys);
+        } catch (RuntimeException unavailable) {
+            log.warn("Content resource cache batch read failed, loading from source keys={}", keys, unavailable);
+            recordFailure(MetricNames.CONTENT_CACHE_BATCH_READ_FAILED);
+            return new ContentResourceReader() {
+                @Override
+                public <T> T get(ContentResourceRegion region, String id, Class<T> type, Supplier<T> loader) {
+                    return loader.get();
+                }
+            };
+        }
+
+        Map<String, String> payloads = new HashMap<>();
+        for (int index = 0; index < keys.size(); index++) {
+            payloads.put(keys.get(index), Objects.requireNonNull(values).get(index));
+        }
+
+        return new ContentResourceReader() {
+            @Override
+            public <T> T get(ContentResourceRegion region, String id, Class<T> type, Supplier<T> loader) {
+                String key = region.key(id);
+                if (!payloads.containsKey(key)) {
+                    return ContentResourceCache.this.get(region, id, type, loader);
+                }
+
+                CachedValue<T> cached = decode(key, payloads.get(key), type);
+                return ContentResourceCache.this.get(region, key, type, loader, cached);
+            }
+        };
+    }
+
+    private <T> T get(ContentResourceRegion region, String key, Class<T> type, Supplier<T> loader,
+                      CachedValue<T> cached) {
         if (cached.status() == ReadStatus.HIT) return cached.value();
         if (cached.status() == ReadStatus.UNAVAILABLE) return loader.get();
 
@@ -90,11 +137,15 @@ public class ContentResourceCache {
             redis.delete(key);
         } catch (RuntimeException unavailable) {
             log.warn("Content resource cache eviction failed key={}", key, unavailable);
-            try {
-                metrics.counter(MetricNames.CONTENT_CACHE_EVICT_FAILED).increment();
-            } catch (RuntimeException metricsUnavailable) {
-                /* 缓存和指标均不能影响已提交的业务操作。 */
-            }
+            recordFailure(MetricNames.CONTENT_CACHE_EVICT_FAILED);
+        }
+    }
+
+    private void recordFailure(String metricName) {
+        try {
+            metrics.counter(metricName).increment();
+        } catch (RuntimeException metricsUnavailable) {
+            /* 指标故障不能改变缓存降级或失效结果。 */
         }
     }
 
@@ -106,6 +157,10 @@ public class ContentResourceCache {
             log.warn("Content resource cache read failed, loading from source key={}", key, unavailable);
             return new CachedValue<>(ReadStatus.UNAVAILABLE, null);
         }
+        return decode(key, payload, type);
+    }
+
+    private <T> CachedValue<T> decode(String key, String payload, Class<T> type) {
         if (payload == null) return new CachedValue<>(ReadStatus.MISS, null);
         if (NULL_PAYLOAD.equals(payload)) return new CachedValue<>(ReadStatus.HIT, null);
 

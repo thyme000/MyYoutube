@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.content.service;
 
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +21,11 @@ public class ContentUnderstandingResources {
     private final ContentUnderstandingResourceLoader loader;
 
     public ContentUnderstandingResource get(Long id) {
-        return cache.get(ContentResourceRegion.UNDERSTANDING, id.toString(),
+        return get(id, cache);
+    }
+
+    public ContentUnderstandingResource get(Long id, ContentResourceReader reader) {
+        return reader.get(ContentResourceRegion.UNDERSTANDING, id.toString(),
                 ContentUnderstandingResource.class, () -> loader.load(id));
     }
 }

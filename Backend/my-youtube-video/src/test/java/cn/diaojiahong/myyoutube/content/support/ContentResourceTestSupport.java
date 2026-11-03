@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.content.support;
 
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
@@ -33,12 +34,13 @@ public final class ContentResourceTestSupport {
                 new ContentAccessService(contents, audio));
     }
 
-    private static ContentResourceCache uncachedCache() {
+    public static ContentResourceCache uncachedCache() {
         ContentResourceCache cache = mock(ContentResourceCache.class);
         when(cache.get(any(), anyString(), any(), any())).thenAnswer(call -> {
             Supplier<?> loader = call.getArgument(3);
             return loader.get();
         });
+        when(cache.readTogether(anyString(), any(ContentResourceRegion[].class))).thenReturn(cache);
         return cache;
     }
 }

@@ -17,6 +17,7 @@ import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -377,6 +378,116 @@ class ContentResourceCacheTest {
         assertNotEquals(ContentResourceRegion.PLAYLIST.key("1"), ContentResourceRegion.PLAYLIST.key("2"));
         assertEquals(ContentResourceRegion.TtlGroup.ARTIFACT, ContentResourceRegion.CONTENT_MEDIA.ttlGroup());
         assertEquals(ContentResourceRegion.TtlGroup.STATE, ContentResourceRegion.AUDIO_STATE.ttlGroup());
+    }
+
+    @Test
+    void batchHitsUseOneMultiGetIncludingNegativeEntriesAndLiteralNullStrings() {
+        List<String> keys = List.of(ContentResourceRegion.CONTENT_STATE.key("1"),
+                ContentResourceRegion.CONTENT_MEDIA.key("1"), ContentResourceRegion.UNDERSTANDING.key("1"));
+        when(values.multiGet(keys)).thenReturn(List.of(JsonUtil.toJson("state"), "null", JsonUtil.toJson("null")));
+
+        ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE,
+                ContentResourceRegion.CONTENT_MEDIA, ContentResourceRegion.UNDERSTANDING);
+
+        assertEquals("state", reader.get(ContentResourceRegion.CONTENT_STATE, "1", String.class, loader));
+        assertNull(reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader));
+        assertEquals("null", reader.get(ContentResourceRegion.UNDERSTANDING, "1", String.class, loader));
+        verify(values).multiGet(keys);
+        verify(values, never()).get(anyString());
+        verify(values, never()).set(anyString(), anyString(), any(Duration.class));
+        verifyNoInteractions(redisson, loader);
+        assertNull(metrics.find(MetricNames.CONTENT_CACHE_BATCH_READ_FAILED).counter());
+    }
+
+    @Test
+    void batchMissRechecksRedisAfterAcquiringTheLock() {
+        String mediaKey = ContentResourceRegion.CONTENT_MEDIA.key("1");
+        when(values.multiGet(List.of(mediaKey))).thenReturn(Arrays.asList((String) null));
+        when(values.get(mediaKey)).thenReturn(JsonUtil.toJson("filled-while-waiting"));
+
+        ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_MEDIA);
+
+        assertEquals("filled-while-waiting", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader));
+        verify(values).get(mediaKey);
+        verify(lock).unlock();
+        verifyNoInteractions(loader);
+    }
+
+    @Test
+    void batchLoadsOnlyMissingItemsAndKeepsTheOtherHits() {
+        String mediaKey = ContentResourceRegion.CONTENT_MEDIA.key("1");
+        String stateKey = ContentResourceRegion.CONTENT_STATE.key("1");
+        when(values.multiGet(List.of(stateKey, mediaKey))).thenReturn(Arrays.asList(JsonUtil.toJson("state"), null));
+
+        ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE, ContentResourceRegion.CONTENT_MEDIA);
+
+        assertEquals("state", reader.get(ContentResourceRegion.CONTENT_STATE, "1", String.class, loader));
+        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader));
+        verify(loader).get();
+        verify(values).get(mediaKey);
+        verify(values, never()).get(stateKey);
+        verify(values).set(eq(mediaKey), eq(JsonUtil.toJson("#EXTM3U\n")), any(Duration.class));
+    }
+
+    @Test
+    void malformedBatchPayloadIsRebuiltUnderTheLock() {
+        String stateKey = ContentResourceRegion.CONTENT_STATE.key("1");
+        when(values.multiGet(List.of(stateKey))).thenReturn(List.of("{\"updatedAt\":\"bad-date\"}"));
+        DatedValue expected = new DatedValue(LocalDateTime.of(2026, 1, 1, 0, 0));
+
+        ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE);
+
+        assertEquals(expected, reader.get(ContentResourceRegion.CONTENT_STATE, "1", DatedValue.class, () -> expected));
+        verify(values).get(stateKey);
+        verify(values).set(eq(stateKey), eq(JsonUtil.toJson(expected)), any(Duration.class));
+        verify(lock).unlock();
+    }
+
+    @Test
+    void batchReadFailureLoadsFromSourceWithoutLockingOrFilling() {
+        when(values.multiGet(anyCollection())).thenThrow(new RedisConnectionFailureException("unavailable"));
+        ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE, ContentResourceRegion.CONTENT_MEDIA);
+
+        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_STATE, "1", String.class, loader));
+        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader));
+
+        assertEquals(1, metrics.get(MetricNames.CONTENT_CACHE_BATCH_READ_FAILED).counter().count());
+        verify(values).multiGet(anyCollection());
+        verify(loader, times(2)).get();
+        verify(values, never()).get(anyString());
+        verify(values, never()).set(anyString(), anyString(), any(Duration.class));
+        verifyNoInteractions(redisson);
+    }
+
+    @Test
+    void failureMetricsCannotPreventBatchReadFallback() {
+        MeterRegistry unavailable = mock(MeterRegistry.class);
+        when(unavailable.counter(MetricNames.CONTENT_CACHE_BATCH_READ_FAILED))
+                .thenThrow(new IllegalStateException("metrics unavailable"));
+        when(values.multiGet(anyCollection())).thenThrow(new RedisConnectionFailureException("unavailable"));
+        var measuredCache = new ContentResourceCache(redis, redisson, properties, unavailable);
+
+        ContentResourceReader reader = measuredCache.readTogether("1", ContentResourceRegion.CONTENT_MEDIA);
+
+        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader));
+        verify(unavailable).counter(MetricNames.CONTENT_CACHE_BATCH_READ_FAILED);
+        verify(loader).get();
+        verify(values, never()).get(anyString());
+        verify(values, never()).set(anyString(), anyString(), any(Duration.class));
+        verifyNoInteractions(redisson);
+    }
+
+    @Test
+    void keysOutsideTheBatchUseTheRegularCachePath() {
+        String stateKey = ContentResourceRegion.CONTENT_STATE.key("1");
+        when(values.multiGet(List.of(stateKey))).thenReturn(List.of(JsonUtil.toJson("state")));
+        when(values.get(key)).thenReturn(JsonUtil.toJson("playlist"));
+        ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE);
+
+        assertEquals("playlist", reader.get(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8", String.class, loader));
+
+        verify(values).get(key);
+        verifyNoInteractions(redisson, loader);
     }
 
     private String get() {
