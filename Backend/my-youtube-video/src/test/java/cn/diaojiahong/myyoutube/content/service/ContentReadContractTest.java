@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceCacheProperties;
 import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
-
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
@@ -83,7 +83,7 @@ class ContentReadContractTest {
                 ContentResourceTestSupport.uncachedCache(),
                 ContentResourceTestSupport.uncachedAccess(contents, mock(AudioContentAccess.class)),
                 ContentResourceTestSupport.uncached(videoStrategies, storage),
-                cards, understanding, storage, streams);
+                cards, understanding, storage, streams, new ContentResourceCacheProperties());
 
         ContentDetailVO detail = reads.detail(1L, 9L);
         assertSame(playback, detail.getMedia().video().playback());
@@ -115,7 +115,7 @@ class ContentReadContractTest {
                 ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
                 understanding,
-                storage, mock(ContentStreamService.class));
+                storage, mock(ContentStreamService.class), new ContentResourceCacheProperties());
         TranscodePort transcode = mock(TranscodePort.class);
         var task = new TranscodeTaskVO();
         task.setTaskId(5L);
@@ -167,7 +167,7 @@ class ContentReadContractTest {
                 ContentResourceTestSupport.uncached(registry, storage),
                 cards,
                 understanding,
-                storage, mock(ContentStreamService.class));
+                storage, mock(ContentStreamService.class), new ContentResourceCacheProperties());
         ContentDetailVO detail=service.detail(1L,9L);
         assertEquals("1",detail.getId());
         assertEquals("dynamic",detail.getType());
@@ -214,7 +214,7 @@ class ContentReadContractTest {
                 ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
                 understanding,
-                storage, mock(ContentStreamService.class));
+                storage, mock(ContentStreamService.class), new ContentResourceCacheProperties());
         assertEquals("signed/image", service.adminMedia(1L, 9L).dynamic().items().get(0).url());
         content.setIsDelete(1);
         assertThrows(BizException.class, () -> service.adminMedia(1L, 9L));
@@ -230,7 +230,7 @@ class ContentReadContractTest {
                 ContentResourceTestSupport.uncached(registry, storage),
                 mock(ContentFeedServiceImpl.class),
                 understanding,
-                storage, mock(ContentStreamService.class));
+                storage, mock(ContentStreamService.class), new ContentResourceCacheProperties());
         assertThrows(BizException.class, () -> service.detail(1L,9L));
         assertThrows(BizException.class, () -> service.subtitles(1L,9L));
         verifyNoInteractions(understanding,storage,strategy);

@@ -8,7 +8,9 @@ import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackQualit
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceCacheProperties;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens;
@@ -30,6 +32,7 @@ public class ContentStreamService {
     private final ContentMediaResources resources;
     private final S3StorageUtil storage;
     private final PlaybackTokens tokens;
+    private final ContentResourceCacheProperties properties;
 
     public VideoPlaybackVO playback(Long contentId, Long viewer) {
         return playback(contentId, viewer, Scope.VIEW);
@@ -43,7 +46,8 @@ public class ContentStreamService {
     private VideoPlaybackVO playback(Long contentId, Long viewer, Scope scope) {
         ContentResourceReader reader = reader(contentId, scope);
         Content content = readableContent(contentId, viewer, scope, reader);
-        return playback(content, resources.media(content, reader), viewer, scope);
+        FillPolicy policy = properties.artifactFillPolicy(content.getPlayCount());
+        return playback(content, resources.media(content, reader, policy), viewer, scope);
     }
 
     /** 调用方必须按 scope 完成访问检查，且 resource 必须是该 content 的媒体快照。 */
@@ -71,7 +75,8 @@ public class ContentStreamService {
     private String masterPlaylist(Long contentId, Long viewer, String token, Scope scope) {
         ContentResourceReader reader = reader(contentId, scope);
         Content content = readableContent(contentId, viewer, scope, reader);
-        VideoPlayback playback = resources.media(content, reader).playback();
+        FillPolicy policy = properties.artifactFillPolicy(content.getPlayCount());
+        VideoPlayback playback = resources.media(content, reader, policy).playback();
         return HlsPlaylist.master(playback.renditions(),
                 rendition -> withToken(ContentRoutes.relativeRendition(rendition.index()), token));
     }
@@ -87,8 +92,12 @@ public class ContentStreamService {
     private String playlist(Long contentId, int index, Long viewer, String token, Scope scope) {
         PlaybackTokens.Grant grant = requireGrant(contentId, viewer, token, scope);
         requireSignSeconds(grant);
-        VideoPlayback.Rendition rendition = readableRendition(contentId, index, viewer, scope);
-        String text = resources.playlist(rendition.playlistObjectKey());
+        ContentResourceReader reader = reader(contentId, scope);
+        Content content = readableContent(contentId, viewer, scope, reader);
+        FillPolicy policy = properties.artifactFillPolicy(content.getPlayCount());
+        VideoPlayback playback = resources.media(content, reader, policy).playback();
+        VideoPlayback.Rendition rendition = rendition(playback, index);
+        String text = resources.playlist(rendition.playlistObjectKey(), reader, policy);
         String mediaKey = rendition.mediaObjectKey();
         String filename = mediaKey.substring(mediaKey.lastIndexOf('/') + 1);
 
@@ -117,10 +126,7 @@ public class ContentStreamService {
         return url + "?" + PlaybackTokens.QUERY_PARAM + "=" + token;
     }
 
-    private VideoPlayback.Rendition readableRendition(Long contentId, int index, Long viewer, Scope scope) {
-        ContentResourceReader reader = reader(contentId, scope);
-        Content content = readableContent(contentId, viewer, scope, reader);
-        VideoPlayback playback = resources.media(content, reader).playback();
+    private VideoPlayback.Rendition rendition(VideoPlayback playback, int index) {
         PlaybackQuality quality = PlaybackQuality.fromCode(index);
         if (quality == null) throw new BizException(ErrorCode.NOT_FOUND, "播放档位不存在");
         return playback.renditions().stream().filter(item -> item.index() == quality.code())

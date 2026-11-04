@@ -11,7 +11,6 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
-
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
@@ -23,6 +22,7 @@ import java.util.function.Supplier;
  * Redis 读取或取锁异常时直接回源，本次不填充缓存；填充失败不影响成功结果。
  * 正常锁竞争只等待配置的时间，超时且仍未命中则返回 503，避免并发绕锁回源。
  * loader 必须自行限制数据库或对象存储调用时间，锁等待时间不限制 loader 的执行时间。
+ * 两种产物 TTL 均使用锁与双检；调用方在访问校验后根据累计播放量选择策略。
  */
 @Slf4j
 @Component
@@ -37,16 +37,17 @@ public class ContentResourceCache implements ContentResourceReader {
     private final MeterRegistry metrics;
 
     @Override
-    public <T> T get(ContentResourceRegion region, String resourceId, Class<T> type, Supplier<T> loader) {
+    public <T> T get(ContentResourceRegion region, String resourceId, Class<T> type,
+            Supplier<T> loader, FillPolicy policy) {
         String key = region.key(resourceId);
         CachedValue<T> cached = read(key, type);
-        return get(region, key, type, loader, cached);
+        return get(region, key, type, loader, cached, policy);
     }
 
     /**
      * 合并当前请求已知的 key；返回的 reader 仅供本次请求使用，不能跨请求保存。
      * 仅保存原始 JSON 字符串，使用时才解码；预取不构成访问校验，仍由调用方完成。
-     * 未命中仍逐项加锁、重新读取，不能把批量读取结果用作锁内双检。
+     * 未命中时逐项加锁、重新读取，不能把批量读取结果用作锁内双检。
      * 当前部署为单节点 Redis；改用 Cluster 时需重新评估跨 slot 的批量读取。
      */
     public ContentResourceReader readTogether(String resourceId, ContentResourceRegion... regions) {
@@ -59,8 +60,9 @@ public class ContentResourceCache implements ContentResourceReader {
             recordFailure(MetricNames.CONTENT_CACHE_BATCH_READ_FAILED);
             return new ContentResourceReader() {
                 @Override
-                public <T> T get(ContentResourceRegion region, String id, Class<T> type, Supplier<T> loader) {
-                    return loader.get();
+                public <T> T get(ContentResourceRegion region, String id, Class<T> type,
+                        Supplier<T> loader, FillPolicy policy) {
+                    return loadFromSource(region, policy, loader);
                 }
             };
         }
@@ -72,22 +74,23 @@ public class ContentResourceCache implements ContentResourceReader {
 
         return new ContentResourceReader() {
             @Override
-            public <T> T get(ContentResourceRegion region, String id, Class<T> type, Supplier<T> loader) {
+            public <T> T get(ContentResourceRegion region, String id, Class<T> type,
+                    Supplier<T> loader, FillPolicy policy) {
                 String key = region.key(id);
                 if (!payloads.containsKey(key)) {
-                    return ContentResourceCache.this.get(region, id, type, loader);
+                    return ContentResourceCache.this.get(region, id, type, loader, policy);
                 }
 
                 CachedValue<T> cached = decode(key, payloads.get(key), type);
-                return ContentResourceCache.this.get(region, key, type, loader, cached);
+                return ContentResourceCache.this.get(region, key, type, loader, cached, policy);
             }
         };
     }
 
     private <T> T get(ContentResourceRegion region, String key, Class<T> type, Supplier<T> loader,
-                      CachedValue<T> cached) {
+                      CachedValue<T> cached, FillPolicy policy) {
         if (cached.status() == ReadStatus.HIT) return cached.value();
-        if (cached.status() == ReadStatus.UNAVAILABLE) return loader.get();
+        if (cached.status() == ReadStatus.UNAVAILABLE) return loadFromSource(region, policy, loader);
 
         RLock lock;
         boolean acquired;
@@ -100,25 +103,25 @@ public class ContentResourceCache implements ContentResourceReader {
             throw new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "等待内容资源缓存加载被中断", interrupted);
         } catch (RuntimeException unavailable) {
             log.warn("Content resource cache lock unavailable, loading from source key={}", key, unavailable);
-            return loader.get();
+            return loadFromSource(region, policy, loader);
         }
 
         // 获取锁超时, 尝试读取缓存, 缓存不存在直接返回异常, 避免长时间等待
         if (!acquired) {
             CachedValue<T> latest = read(key, type);
             if (latest.status() == ReadStatus.HIT) return latest.value();
-            if (latest.status() == ReadStatus.UNAVAILABLE) return loader.get();
+            if (latest.status() == ReadStatus.UNAVAILABLE) return loadFromSource(region, policy, loader);
             throw new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "内容资源正在加载，请稍后重试", null);
         }
 
         try {
             CachedValue<T> latest = read(key, type);
             if (latest.status() == ReadStatus.HIT) return latest.value();
-            if (latest.status() == ReadStatus.UNAVAILABLE) return loader.get();
+            if (latest.status() == ReadStatus.UNAVAILABLE) return loadFromSource(region, policy, loader);
 
             // 只有正常返回的 null 表示不存在，回源异常不能写成空值缓存。
-            T value = loader.get();
-            populate(key, region, value);
+            T value = loadFromSource(region, policy, loader);
+            populate(key, region, value, policy);
             return value;
         } finally {
             try {
@@ -175,21 +178,42 @@ public class ContentResourceCache implements ContentResourceReader {
         }
     }
 
-    private void populate(String key, ContentResourceRegion region, Object value) {
+    private <T> T loadFromSource(ContentResourceRegion region, FillPolicy policy, Supplier<T> loader) {
+        recordCounter(MetricNames.CONTENT_CACHE_SOURCE_LOADS, region, policy);
         try {
-            String payload = value == null ? NULL_PAYLOAD : JsonUtil.toJson(value);
-            long ttlSeconds = ttlSeconds(region, value);
-            redis.opsForValue().set(key, payload, randomizedTtl(ttlSeconds));
-        } catch (RuntimeException unavailable) {
-            log.warn("Content resource cache fill failed key={}", key, unavailable);
+            return loader.get();
+        } catch (RuntimeException failure) {
+            recordCounter(MetricNames.CONTENT_CACHE_SOURCE_LOAD_FAILED, region, policy);
+            throw failure;
         }
     }
 
-    private long ttlSeconds(ContentResourceRegion region, Object value) {
+    private void recordCounter(String name, ContentResourceRegion region, FillPolicy policy) {
+        try {
+            metrics.counter(name, "region", region.name(), "policy", policy.name()).increment();
+        } catch (RuntimeException metricsUnavailable) {
+            /* 指标故障不能影响缓存和回源。 */
+        }
+    }
+
+    private void populate(String key, ContentResourceRegion region, Object value, FillPolicy policy) {
+        try {
+            String payload = value == null ? NULL_PAYLOAD : JsonUtil.toJson(value);
+            long ttlSeconds = ttlSeconds(region, value, policy);
+            redis.opsForValue().set(key, payload, randomizedTtl(ttlSeconds));
+            recordCounter(MetricNames.CONTENT_CACHE_FILLS, region, policy);
+        } catch (RuntimeException unavailable) {
+            log.warn("Content resource cache fill failed key={}", key, unavailable);
+            recordCounter(MetricNames.CONTENT_CACHE_FILL_FAILED, region, policy);
+        }
+    }
+
+    private long ttlSeconds(ContentResourceRegion region, Object value, FillPolicy policy) {
         if (value == null) return properties.getNegativeTtlSeconds();
         return switch (region.ttlGroup()) {
             case STATE -> properties.getStateTtlSeconds();
-            case ARTIFACT -> properties.getArtifactTtlSeconds();
+            case ARTIFACT -> policy == FillPolicy.SHORT_TTL
+                    ? properties.getShortArtifactTtlSeconds() : properties.getArtifactTtlSeconds();
         };
     }
 

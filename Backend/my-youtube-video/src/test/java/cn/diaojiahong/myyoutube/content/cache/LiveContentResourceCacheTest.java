@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.cache;
 
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackMetadata;
@@ -26,6 +27,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.mockito.ArgumentCaptor;
@@ -37,7 +40,6 @@ import org.redisson.spring.data.connection.RedissonConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import software.amazon.awssdk.http.SdkHttpMethod;
-
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -131,20 +133,21 @@ class LiveContentResourceCacheTest {
         if (firstClient != null) firstClient.shutdown();
     }
 
-    @Test
-    void concurrentRequestsAcrossClientsOnlyLoadOnce() throws Exception {
+    @ParameterizedTest
+    @EnumSource(FillPolicy.class)
+    void concurrentRequestsAcrossClientsOnlyLoadOnce(FillPolicy policy) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(7);
         var loading = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var readersStarted = new CountDownLatch(6);
         var loads = new AtomicInteger();
         try {
-            Future<String> owner = pool.submit(() -> get(first, resourceId, () -> {
+            Future<String> owner = pool.submit(() -> first.get(ContentResourceRegion.PLAYLIST, resourceId, String.class, () -> {
                 loads.incrementAndGet();
                 loading.countDown();
                 await(release);
                 return "#EXTM3U\n";
-            }));
+            }, policy));
             assertTrue(loading.await(5, TimeUnit.SECONDS));
             List<Future<String>> readers = new ArrayList<>();
             for (int index = 0; index < 6; index++) {
@@ -154,7 +157,7 @@ class LiveContentResourceCacheTest {
                     return reader.get(ContentResourceRegion.PLAYLIST, resourceId, String.class, () -> {
                         loads.incrementAndGet();
                         return "duplicate-load";
-                    });
+                    }, policy);
                 }));
             }
             assertTrue(readersStarted.await(5, TimeUnit.SECONDS));
@@ -170,6 +173,40 @@ class LiveContentResourceCacheTest {
             release.countDown();
             pool.shutdownNow();
         }
+    }
+
+    @Test
+    void shortAndStandardTtlsShareResultsAcrossClientsWithoutChangingNegativeTtl() {
+        var loads = new AtomicInteger();
+        Supplier<String> source = () -> "value-" + loads.incrementAndGet();
+
+        assertEquals("value-1", first.get(ContentResourceRegion.PLAYLIST, resourceId, String.class,
+                source, FillPolicy.SHORT_TTL));
+        assertEquals("value-1", second.get(ContentResourceRegion.PLAYLIST, resourceId, String.class,
+                source, FillPolicy.SHORT_TTL));
+        Long shortTtl = secondRedis.getExpire(keys.get(0), TimeUnit.MILLISECONDS);
+        assertNotNull(shortTtl);
+        assertTrue(shortTtl > 0 && shortTtl <= 60000);
+        assertEquals(1, loads.get());
+
+        first.evict(ContentResourceRegion.PLAYLIST, resourceId);
+        assertEquals("value-2", first.get(ContentResourceRegion.PLAYLIST, resourceId, String.class,
+                source, FillPolicy.STANDARD));
+        assertEquals("value-2", second.get(ContentResourceRegion.PLAYLIST, resourceId, String.class,
+                source, FillPolicy.SHORT_TTL));
+        Long standardTtl = secondRedis.getExpire(keys.get(0), TimeUnit.MILLISECONDS);
+        assertNotNull(standardTtl);
+        assertTrue(standardTtl > 60000 && standardTtl <= 1800000);
+        assertEquals(2, loads.get());
+
+        first.evict(ContentResourceRegion.PLAYLIST, resourceId);
+        assertNull(first.get(ContentResourceRegion.PLAYLIST, resourceId, String.class,
+                () -> null, FillPolicy.SHORT_TTL));
+        assertNull(second.get(ContentResourceRegion.PLAYLIST, resourceId, String.class,
+                () -> fail("negative entry must be shared"), FillPolicy.SHORT_TTL));
+        Long ttl = secondRedis.getExpire(keys.get(0), TimeUnit.MILLISECONDS);
+        assertNotNull(ttl);
+        assertTrue(ttl > 0 && ttl <= 3000);
     }
 
     @Test
@@ -189,6 +226,22 @@ class LiveContentResourceCacheTest {
         Long ttl = firstRedis.getExpire(keys.get(0), TimeUnit.MILLISECONDS);
         assertNotNull(ttl);
         assertTrue(ttl > 0 && ttl <= 3000);
+    }
+
+    @ParameterizedTest
+    @EnumSource(FillPolicy.class)
+    void malformedEntryIsRebuiltAndSharedWithTheSelectedTtl(FillPolicy policy) {
+        String key = keys.get(0);
+        firstRedis.opsForValue().set(key, "{broken", Duration.ofMinutes(30));
+
+        assertEquals("rebuilt", first.get(ContentResourceRegion.PLAYLIST, resourceId, String.class, () -> "rebuilt", policy));
+        assertEquals("rebuilt", second.get(ContentResourceRegion.PLAYLIST, resourceId, String.class,
+                () -> fail("another client must use the repaired entry"), policy));
+        assertEquals(JsonUtil.toJson("rebuilt"), secondRedis.opsForValue().get(key));
+        Long ttl = secondRedis.getExpire(key, TimeUnit.MILLISECONDS);
+        assertNotNull(ttl);
+        long maximum = policy == FillPolicy.SHORT_TTL ? 60000 : 1800000;
+        assertTrue(ttl > 0 && ttl <= maximum);
     }
 
     @Test
@@ -221,17 +274,17 @@ class LiveContentResourceCacheTest {
                 .setSubtitleKey(resourceId + "/subtitle.vtt");
         when(rows.selectById(id)).thenReturn(row);
         var loader = new ContentUnderstandingResourceLoader(rows);
-        var firstResources = new ContentUnderstandingResources(first, loader);
-        var secondResources = new ContentUnderstandingResources(second, loader);
-        assertNull(firstResources.get(id));
-        assertNull(secondResources.get(id));
+        var firstResources = new ContentUnderstandingResources(loader);
+        var secondResources = new ContentUnderstandingResources(loader);
+        assertNull(firstResources.get(id, first, FillPolicy.STANDARD));
+        assertNull(secondResources.get(id, second, FillPolicy.STANDARD));
         verify(rows).selectById(id);
 
         row.setReceived(true);
         var invalidator = new ContentResourceInvalidator(first, mock(TaskScheduler.class), properties, metrics);
         invalidator.evictAfterCommit(ContentResourceRegion.UNDERSTANDING, Long.toString(id));
-        ContentUnderstandingResource loaded = secondResources.get(id);
-        ContentUnderstandingResource cached = firstResources.get(id);
+        ContentUnderstandingResource loaded = secondResources.get(id, second, FillPolicy.STANDARD);
+        ContentUnderstandingResource cached = firstResources.get(id, first, FillPolicy.STANDARD);
 
         assertEquals(loaded, cached);
         assertEquals(List.of(chapter), cached.summary().chapters());
@@ -289,7 +342,7 @@ class LiveContentResourceCacheTest {
                 loading.countDown();
                 await(release);
                 return "old-state";
-            }));
+            }, FillPolicy.STANDARD));
             assertTrue(loading.await(5, TimeUnit.SECONDS));
             invalidator.evictAfterCommit(region, resourceId);
             ArgumentCaptor<Runnable> delayed = ArgumentCaptor.forClass(Runnable.class);
@@ -301,7 +354,7 @@ class LiveContentResourceCacheTest {
             release.countDown();
             assertEquals("old-state", oldRead.get(5, TimeUnit.SECONDS));
             assertEquals("old-state", second.get(region, resourceId, String.class,
-                    () -> fail("late refill remains cached until its TTL expires")));
+                    () -> fail("late refill remains cached until its TTL expires"), FillPolicy.STANDARD));
             Long ttl = secondRedis.getExpire(key, TimeUnit.MILLISECONDS);
             assertNotNull(ttl);
             assertTrue(ttl > 0 && ttl <= TimeUnit.SECONDS.toMillis(properties.getStateTtlSeconds()));
@@ -316,19 +369,19 @@ class LiveContentResourceCacheTest {
         keys.add(ContentResourceRegion.CONTENT_STATE.key(resourceId));
         keys.add(ContentResourceRegion.CONTENT_MEDIA.key(resourceId));
         keys.add(ContentResourceRegion.UNDERSTANDING.key(resourceId));
-        first.get(ContentResourceRegion.CONTENT_STATE, resourceId, String.class, () -> "state");
-        first.get(ContentResourceRegion.UNDERSTANDING, resourceId, String.class, () -> null);
+        first.get(ContentResourceRegion.CONTENT_STATE, resourceId, String.class, () -> "state", FillPolicy.STANDARD);
+        first.get(ContentResourceRegion.UNDERSTANDING, resourceId, String.class, () -> null, FillPolicy.STANDARD);
 
         ContentResourceReader reader = second.readTogether(resourceId, ContentResourceRegion.CONTENT_STATE,
                 ContentResourceRegion.CONTENT_MEDIA, ContentResourceRegion.UNDERSTANDING);
-        first.get(ContentResourceRegion.CONTENT_MEDIA, resourceId, String.class, () -> "media");
+        first.get(ContentResourceRegion.CONTENT_MEDIA, resourceId, String.class, () -> "media", FillPolicy.STANDARD);
 
         assertEquals("state", reader.get(ContentResourceRegion.CONTENT_STATE, resourceId, String.class,
-                () -> fail("state must be read from MGET")));
+                () -> fail("state must be read from MGET"), FillPolicy.STANDARD));
         assertNull(reader.get(ContentResourceRegion.UNDERSTANDING, resourceId, String.class,
-                () -> fail("negative entry must be read from MGET")));
+                () -> fail("negative entry must be read from MGET"), FillPolicy.STANDARD));
         assertEquals("media", reader.get(ContentResourceRegion.CONTENT_MEDIA, resourceId, String.class,
-                () -> fail("miss must be rechecked after locking")));
+                () -> fail("miss must be rechecked after locking"), FillPolicy.STANDARD));
     }
 
     @Test
@@ -343,7 +396,7 @@ class LiveContentResourceCacheTest {
         VideoMapper videos = mock(VideoMapper.class);
         S3StorageUtil storage = mock(S3StorageUtil.class);
         Content content = new Content().setId(contentId).setAuthorId(9L).setType(ContentTypeEnum.VIDEO)
-                .setIsDelete(0).setStatus(ContentStatusEnum.PUBLISHED).setVisibility("public");
+                .setIsDelete(0).setStatus(ContentStatusEnum.PUBLISHED).setVisibility("public").setPlayCount(100L);
         when(contents.selectById(contentId)).thenReturn(content);
         VideoPlayback playback = new VideoPlayback(1280, 720, List.of(new VideoPlayback.Rendition(
                 720, mediaKey, playlistKey, 1280, 720, 3000000, new PlaybackMetadata("avc1.64001f", 3000000, 25))));
@@ -361,8 +414,8 @@ class LiveContentResourceCacheTest {
         var firstAccess = new ContentDisplayAccess(first, stateLoader, access);
         var secondAccess = new ContentDisplayAccess(second, stateLoader, access);
         var tokens = new PlaybackTokens("live-resource-cache-test-secret-at-least-thirty-two", 21600);
-        var firstStreams = new ContentStreamService(first, firstAccess, new ContentMediaResources(first, loader, storage), storage, tokens);
-        var secondStreams = new ContentStreamService(second, secondAccess, new ContentMediaResources(second, loader, storage), storage, tokens);
+        var firstStreams = new ContentStreamService(first, firstAccess, new ContentMediaResources(loader, storage), storage, tokens, properties);
+        var secondStreams = new ContentStreamService(second, secondAccess, new ContentMediaResources(loader, storage), storage, tokens, properties);
         String ticket = tokens.issue(9, contentId, 12000, PlaybackTokens.Scope.VIEW).token();
 
         assertTrue(firstStreams.playlist(contentId, 720, 9L, ticket).contains("signature=one"));
@@ -433,7 +486,7 @@ class LiveContentResourceCacheTest {
     }
 
     private static String get(ContentResourceCache cache, String id, Supplier<String> loader) {
-        return cache.get(ContentResourceRegion.PLAYLIST, id, String.class, loader);
+        return cache.get(ContentResourceRegion.PLAYLIST, id, String.class, loader, FillPolicy.STANDARD);
     }
 
     private static void await(CountDownLatch latch) {

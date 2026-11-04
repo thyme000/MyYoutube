@@ -22,6 +22,13 @@ server:
 # 全部服务已注册进 Nacos, 置空走负载均衡
 my-youtube:
   db-name: video_db
+  play-count:
+    # 启动后及每轮落库完成后等待的间隔；默认 1 分钟，单位毫秒。
+    flush-interval-ms: ${CONTENT_PLAY_COUNT_FLUSH_INTERVAL_MS:60000}
+  content-resource-cache:
+    # 累计播放量达到门槛使用常规产物 TTL，否则使用短 TTL；0 表示全部使用常规 TTL。
+    artifact-min-play-count: ${CONTENT_RESOURCE_CACHE_MIN_PLAY_COUNT:100}
+    short-artifact-ttl-seconds: ${CONTENT_RESOURCE_CACHE_SHORT_TTL_SECONDS:60}
   audio-cascade:
     scan-interval-ms: 300000
     batch-size: 200

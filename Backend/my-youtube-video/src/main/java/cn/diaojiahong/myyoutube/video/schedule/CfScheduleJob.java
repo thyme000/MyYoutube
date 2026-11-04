@@ -23,7 +23,7 @@ public class CfScheduleJob {
      */
     @Scheduled(cron = "0 40 3 * * ?")
     public void rebuildSimilarity() {
-        roundLock.run("schedule:lock:video:cf-rebuild", itemSimilarityService::rebuildAll);
+        roundLock.run(VideoScheduleLocks.CF_REBUILD, itemSimilarityService::rebuildAll);
     }
 
     /**
@@ -31,6 +31,6 @@ public class CfScheduleJob {
      */
     @Scheduled(cron = "0 10 * * * ?")
     public void refreshSimilarity() {
-        roundLock.run("schedule:lock:video:cf-incremental", itemSimilarityService::refreshIncremental);
+        roundLock.run(VideoScheduleLocks.CF_INCREMENTAL, itemSimilarityService::refreshIncremental);
     }
 }

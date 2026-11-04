@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
@@ -58,7 +59,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
-
 import javax.sql.DataSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -601,7 +601,7 @@ class ContentStatisticsIntegrationTest {
         pending(1, 7, "dynamic", "public", 20L);
         publish(1);
         Map<String, ContentAccessSnapshot> snapshots = new HashMap<>();
-        when(cache.get(eq(ContentResourceRegion.CONTENT_STATE), anyString(), eq(ContentAccessSnapshot.class), any()))
+        when(cache.get(eq(ContentResourceRegion.CONTENT_STATE), anyString(), eq(ContentAccessSnapshot.class), any(), eq(FillPolicy.STANDARD)))
                 .thenAnswer(call -> {
                     String id = call.getArgument(1);
                     return snapshots.computeIfAbsent(id, ignored -> {

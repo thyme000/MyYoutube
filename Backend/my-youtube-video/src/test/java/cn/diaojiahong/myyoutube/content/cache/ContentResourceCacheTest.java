@@ -4,17 +4,20 @@ import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.RedisException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
-
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -84,13 +87,13 @@ class ContentResourceCacheTest {
     void stateUsesItsOwnShortTtlAndRoundTripsDomainEnumsAndLongIds() {
         String stateKey = ContentResourceRegion.CONTENT_STATE.key("1");
         TestState state = new TestState(9007199254740993L, Visibility.PRIVATE);
-        cache.get(ContentResourceRegion.CONTENT_STATE, "1", TestState.class, () -> state);
+        cache.get(ContentResourceRegion.CONTENT_STATE, "1", TestState.class, () -> state, FillPolicy.STANDARD);
         verify(values).set(eq(stateKey), eq(JsonUtil.toJson(state)),
                 argThat(ttl -> within(ttl, 8000, 10000)));
 
         when(values.get(stateKey)).thenReturn(JsonUtil.toJson(state));
         assertEquals(state, cache.get(ContentResourceRegion.CONTENT_STATE, "1", TestState.class,
-                () -> fail("cache hit must not load")));
+                () -> fail("cache hit must not load"), FillPolicy.STANDARD));
     }
 
     @Test
@@ -154,7 +157,7 @@ class ContentResourceCacheTest {
         when(values.get(datedKey)).thenReturn("{\"updatedAt\":\"not-a-date\"}");
         DatedValue fresh = new DatedValue(LocalDateTime.of(2026, 11, 2, 12, 0));
 
-        assertEquals(fresh, cache.get(ContentResourceRegion.UNDERSTANDING, "1", DatedValue.class, () -> fresh));
+        assertEquals(fresh, cache.get(ContentResourceRegion.UNDERSTANDING, "1", DatedValue.class, () -> fresh, FillPolicy.STANDARD));
 
         verify(values).set(eq(datedKey), eq(JsonUtil.toJson(fresh)), any(Duration.class));
         verify(lock).unlock();
@@ -229,7 +232,7 @@ class ContentResourceCacheTest {
 
     @Test
     void failedCacheEncodingPreservesTheSuccessfulSourceResult() {
-        assertTrue(cache.get(ContentResourceRegion.UNDERSTANDING, "1", Double.class, () -> Double.NaN).isNaN());
+        assertTrue(cache.get(ContentResourceRegion.UNDERSTANDING, "1", Double.class, () -> Double.NaN, FillPolicy.STANDARD).isNaN());
         verify(values, never()).set(anyString(), anyString(), any(Duration.class));
         verify(lock).unlock();
     }
@@ -267,7 +270,7 @@ class ContentResourceCacheTest {
         when(values.get(collectionKey)).thenReturn(JsonUtil.toJson(expected));
 
         DatedValues actual = cache.get(ContentResourceRegion.UNDERSTANDING, "1", DatedValues.class,
-                () -> fail("concrete DTO must deserialize without loading"));
+                () -> fail("concrete DTO must deserialize without loading"), FillPolicy.STANDARD);
 
         assertEquals(value, actual.items().get(0));
         verifyNoInteractions(redisson, lock);
@@ -389,9 +392,9 @@ class ContentResourceCacheTest {
         ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE,
                 ContentResourceRegion.CONTENT_MEDIA, ContentResourceRegion.UNDERSTANDING);
 
-        assertEquals("state", reader.get(ContentResourceRegion.CONTENT_STATE, "1", String.class, loader));
-        assertNull(reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader));
-        assertEquals("null", reader.get(ContentResourceRegion.UNDERSTANDING, "1", String.class, loader));
+        assertEquals("state", reader.get(ContentResourceRegion.CONTENT_STATE, "1", String.class, loader, FillPolicy.STANDARD));
+        assertNull(reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader, FillPolicy.STANDARD));
+        assertEquals("null", reader.get(ContentResourceRegion.UNDERSTANDING, "1", String.class, loader, FillPolicy.STANDARD));
         verify(values).multiGet(keys);
         verify(values, never()).get(anyString());
         verify(values, never()).set(anyString(), anyString(), any(Duration.class));
@@ -407,7 +410,7 @@ class ContentResourceCacheTest {
 
         ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_MEDIA);
 
-        assertEquals("filled-while-waiting", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader));
+        assertEquals("filled-while-waiting", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader, FillPolicy.STANDARD));
         verify(values).get(mediaKey);
         verify(lock).unlock();
         verifyNoInteractions(loader);
@@ -421,8 +424,8 @@ class ContentResourceCacheTest {
 
         ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE, ContentResourceRegion.CONTENT_MEDIA);
 
-        assertEquals("state", reader.get(ContentResourceRegion.CONTENT_STATE, "1", String.class, loader));
-        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader));
+        assertEquals("state", reader.get(ContentResourceRegion.CONTENT_STATE, "1", String.class, loader, FillPolicy.STANDARD));
+        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader, FillPolicy.STANDARD));
         verify(loader).get();
         verify(values).get(mediaKey);
         verify(values, never()).get(stateKey);
@@ -437,7 +440,7 @@ class ContentResourceCacheTest {
 
         ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE);
 
-        assertEquals(expected, reader.get(ContentResourceRegion.CONTENT_STATE, "1", DatedValue.class, () -> expected));
+        assertEquals(expected, reader.get(ContentResourceRegion.CONTENT_STATE, "1", DatedValue.class, () -> expected, FillPolicy.STANDARD));
         verify(values).get(stateKey);
         verify(values).set(eq(stateKey), eq(JsonUtil.toJson(expected)), any(Duration.class));
         verify(lock).unlock();
@@ -448,8 +451,8 @@ class ContentResourceCacheTest {
         when(values.multiGet(anyCollection())).thenThrow(new RedisConnectionFailureException("unavailable"));
         ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE, ContentResourceRegion.CONTENT_MEDIA);
 
-        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_STATE, "1", String.class, loader));
-        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader));
+        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_STATE, "1", String.class, loader, FillPolicy.STANDARD));
+        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader, FillPolicy.STANDARD));
 
         assertEquals(1, metrics.get(MetricNames.CONTENT_CACHE_BATCH_READ_FAILED).counter().count());
         verify(values).multiGet(anyCollection());
@@ -469,7 +472,7 @@ class ContentResourceCacheTest {
 
         ContentResourceReader reader = measuredCache.readTogether("1", ContentResourceRegion.CONTENT_MEDIA);
 
-        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader));
+        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.CONTENT_MEDIA, "1", String.class, loader, FillPolicy.STANDARD));
         verify(unavailable).counter(MetricNames.CONTENT_CACHE_BATCH_READ_FAILED);
         verify(loader).get();
         verify(values, never()).get(anyString());
@@ -484,14 +487,195 @@ class ContentResourceCacheTest {
         when(values.get(key)).thenReturn(JsonUtil.toJson("playlist"));
         ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE);
 
-        assertEquals("playlist", reader.get(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8", String.class, loader));
+        assertEquals("playlist", reader.get(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8", String.class, loader, FillPolicy.STANDARD));
 
         verify(values).get(key);
         verifyNoInteractions(redisson, loader);
     }
 
+    @Test
+    void shortTtlMissLocksRechecksAndFillsPositiveResults() {
+        assertEquals("#EXTM3U\n", getShortLived());
+
+        verify(loader).get();
+        verify(values, times(2)).get(key);
+        verify(values).set(eq(key), eq(JsonUtil.toJson("#EXTM3U\n")), argThat(ttl -> within(ttl, 48000, 60000)));
+        verify(lock).unlock();
+    }
+
+    @Test
+    void shortPolicyRetainsTheNegativeTtlAndSharesTheResult() {
+        when(loader.get()).thenReturn(null);
+        when(values.get(key)).thenReturn(null, null, "null");
+
+        assertNull(getShortLived());
+        assertNull(getShortLived());
+
+        verify(loader).get();
+        verify(values).set(eq(key), eq("null"), argThat(ttl -> within(ttl, 2400, 3000)));
+        verify(lock).unlock();
+    }
+
+    @Test
+    void shortPolicyCanUseAnExistingPositiveEntry() {
+        when(values.get(key)).thenReturn(JsonUtil.toJson("already-cached"));
+
+        assertEquals("already-cached", getShortLived());
+
+        verifyNoInteractions(loader, redisson, lock);
+        verify(values, never()).set(anyString(), anyString(), any(Duration.class));
+    }
+
+    @Test
+    void shortPolicyLoaderFailureReleasesTheLockAndDoesNotFill() {
+        var failure = new IllegalStateException("source unavailable");
+        when(loader.get()).thenThrow(failure);
+
+        assertSame(failure, assertThrows(IllegalStateException.class, this::getShortLived));
+
+        verify(values, never()).set(anyString(), anyString(), any(Duration.class));
+        verify(lock).unlock();
+    }
+
+    @Test
+    void shortBatchMissStillLocksAndRechecksRedis() {
+        when(values.multiGet(List.of(key))).thenReturn(Arrays.asList((String) null));
+        when(values.get(key)).thenReturn(JsonUtil.toJson("filled-by-another-reader"));
+        ContentResourceReader reader = cache.readTogether("prepared/1/index.m3u8", ContentResourceRegion.PLAYLIST);
+
+        assertEquals("filled-by-another-reader", reader.get(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8",
+                String.class, loader, FillPolicy.SHORT_TTL));
+
+        verify(values).get(key);
+        verifyNoInteractions(loader);
+        verify(lock).unlock();
+    }
+
+    @Test
+    void unprefetchedResourcePreservesTheShortTtlPolicy() {
+        String stateKey = ContentResourceRegion.CONTENT_STATE.key("1");
+        when(values.multiGet(List.of(stateKey))).thenReturn(List.of(JsonUtil.toJson("state")));
+        ContentResourceReader reader = cache.readTogether("1", ContentResourceRegion.CONTENT_STATE);
+
+        assertEquals("#EXTM3U\n", reader.get(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8",
+                String.class, loader, FillPolicy.SHORT_TTL));
+
+        verify(values, times(2)).get(key);
+        verify(values).set(eq(key), anyString(), argThat(ttl -> within(ttl, 48000, 60000)));
+        verify(lock).unlock();
+    }
+
+    @Test
+    void unavailableRedisDoesNotWriteEvenTheShortPolicyNegativeEntry() {
+        when(values.get(key)).thenThrow(new RedisConnectionFailureException("offline"));
+        when(loader.get()).thenReturn(null);
+
+        assertNull(getShortLived());
+
+        verify(values, never()).set(anyString(), anyString(), any(Duration.class));
+        verifyNoInteractions(redisson, lock);
+    }
+
+    @ParameterizedTest
+    @EnumSource(FillPolicy.class)
+    void malformedArtifactIsRebuiltUnderTheLockWithTheSelectedTtl(FillPolicy policy) {
+        String malformed = "{\"updatedAt\":\"bad-date\"}";
+        when(values.get(key)).thenReturn(malformed);
+        DatedValue expected = new DatedValue(LocalDateTime.of(2026, 1, 1, 0, 0));
+
+        assertEquals(expected, cache.get(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8", DatedValue.class,
+                () -> expected, policy));
+
+        verify(values, times(2)).get(key);
+        long maximumMillis = policy == FillPolicy.SHORT_TTL ? 60000 : 1800000;
+        verify(values).set(eq(key), eq(JsonUtil.toJson(expected)),
+                argThat(ttl -> within(ttl, maximumMillis * 4 / 5, maximumMillis)));
+        verify(lock).unlock();
+        verify(redis, never()).delete(anyString());
+    }
+
+    @Test
+    void shortPolicyDoesNotChangeStateTtl() {
+        assertEquals("state", cache.get(ContentResourceRegion.CONTENT_STATE, "1", String.class,
+                () -> "state", FillPolicy.SHORT_TTL));
+
+        verify(values).set(eq(ContentResourceRegion.CONTENT_STATE.key("1")), eq(JsonUtil.toJson("state")),
+                argThat(ttl -> within(ttl, 8000, 10000)));
+    }
+
+    @Test
+    void metricsCountActualLoadsAndSuccessfulFillsButNotHits() {
+        when(values.get(key)).thenReturn(null, null, JsonUtil.toJson("#EXTM3U\n"));
+
+        assertEquals("#EXTM3U\n", getShortLived());
+        assertEquals("#EXTM3U\n", getShortLived());
+
+        assertEquals(1, metricCount(MetricNames.CONTENT_CACHE_SOURCE_LOADS, FillPolicy.SHORT_TTL));
+        assertEquals(1, metricCount(MetricNames.CONTENT_CACHE_FILLS, FillPolicy.SHORT_TTL));
+        assertEquals(0, metricCount(MetricNames.CONTENT_CACHE_SOURCE_LOAD_FAILED, FillPolicy.SHORT_TTL));
+        assertEquals(0, metricCount(MetricNames.CONTENT_CACHE_FILL_FAILED, FillPolicy.SHORT_TTL));
+        assertEquals(0, metricCount(MetricNames.CONTENT_CACHE_SOURCE_LOADS, FillPolicy.STANDARD));
+    }
+
+    @Test
+    void loaderAndFillFailuresHaveSeparatePolicyMetrics() {
+        var failure = new IllegalStateException("source unavailable");
+        when(loader.get()).thenThrow(failure);
+        assertSame(failure, assertThrows(IllegalStateException.class, this::getShortLived));
+        assertEquals(1, metricCount(MetricNames.CONTENT_CACHE_SOURCE_LOADS, FillPolicy.SHORT_TTL));
+        assertEquals(1, metricCount(MetricNames.CONTENT_CACHE_SOURCE_LOAD_FAILED, FillPolicy.SHORT_TTL));
+        assertEquals(0, metricCount(MetricNames.CONTENT_CACHE_FILLS, FillPolicy.SHORT_TTL));
+        assertEquals(0, metricCount(MetricNames.CONTENT_CACHE_FILL_FAILED, FillPolicy.SHORT_TTL));
+
+        doReturn("recovered").when(loader).get();
+        doThrow(new RedisConnectionFailureException("set failed"))
+                .when(values).set(anyString(), anyString(), any(Duration.class));
+        assertEquals("recovered", get());
+        assertEquals(1, metricCount(MetricNames.CONTENT_CACHE_SOURCE_LOADS, FillPolicy.STANDARD));
+        assertEquals(0, metricCount(MetricNames.CONTENT_CACHE_SOURCE_LOAD_FAILED, FillPolicy.STANDARD));
+        assertEquals(0, metricCount(MetricNames.CONTENT_CACHE_FILLS, FillPolicy.STANDARD));
+        assertEquals(1, metricCount(MetricNames.CONTENT_CACHE_FILL_FAILED, FillPolicy.STANDARD));
+    }
+
+    @Test
+    void taggedMetricsCannotFailSourceReadsFillsOrHideTheSourceException() {
+        MeterRegistry unavailable = mock(MeterRegistry.class);
+        when(unavailable.counter(anyString(), any(String[].class))).thenThrow(new IllegalStateException("metrics unavailable"));
+        var measuredCache = new ContentResourceCache(redis, redisson, properties, unavailable);
+
+        assertEquals("#EXTM3U\n", measuredCache.get(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8",
+                String.class, loader, FillPolicy.SHORT_TTL));
+        verify(values).set(eq(key), anyString(), any(Duration.class));
+
+        var failure = new IllegalStateException("source unavailable");
+        when(loader.get()).thenThrow(failure);
+        assertSame(failure, assertThrows(IllegalStateException.class, () -> measuredCache.get(ContentResourceRegion.PLAYLIST,
+                "prepared/1/index.m3u8", String.class, loader, FillPolicy.STANDARD)));
+    }
+
+    @Test
+    void unavailableRedisCountsTheSourceReadButDoesNotClaimAFill() {
+        when(values.get(key)).thenThrow(new RedisConnectionFailureException("offline"));
+
+        assertEquals("#EXTM3U\n", getShortLived());
+
+        assertEquals(1, metricCount(MetricNames.CONTENT_CACHE_SOURCE_LOADS, FillPolicy.SHORT_TTL));
+        assertEquals(0, metricCount(MetricNames.CONTENT_CACHE_FILLS, FillPolicy.SHORT_TTL));
+        assertEquals(0, metricCount(MetricNames.CONTENT_CACHE_FILL_FAILED, FillPolicy.SHORT_TTL));
+    }
+
+    private double metricCount(String name, FillPolicy policy) {
+        Counter counter = metrics.find(name)
+                .tags("region", ContentResourceRegion.PLAYLIST.name(), "policy", policy.name()).counter();
+        return counter == null ? 0 : counter.count();
+    }
+
     private String get() {
-        return cache.get(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8", String.class, loader);
+        return cache.get(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8", String.class, loader, FillPolicy.STANDARD);
+    }
+
+    private String getShortLived() {
+        return cache.get(ContentResourceRegion.PLAYLIST, "prepared/1/index.m3u8", String.class, loader, FillPolicy.SHORT_TTL);
     }
 
     private static boolean within(Duration value, long minimumMillis, long maximumMillis) {

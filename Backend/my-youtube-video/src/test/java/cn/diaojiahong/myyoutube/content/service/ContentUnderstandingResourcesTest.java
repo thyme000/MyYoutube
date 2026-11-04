@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.content.service;
 
 import cn.diaojiahong.myyoutube.common.media.ContentArtifacts;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCacheProperties;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
@@ -25,7 +26,6 @@ import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.scheduling.TaskScheduler;
-
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -45,10 +45,10 @@ class ContentUnderstandingResourcesTest {
     private final ContentResourceCacheProperties properties = new ContentResourceCacheProperties();
     private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
     private final ContentResourceCache cache = new ContentResourceCache(redis, redisson, properties, metrics);
-    private final ContentUnderstandingResources resources = new ContentUnderstandingResources(cache,
-            new ContentUnderstandingResourceLoader(rows));
+    private final ContentUnderstandingResources resources = new ContentUnderstandingResources(new ContentUnderstandingResourceLoader(rows));
     private final Map<String, String> entries = new HashMap<>();
     private final Map<String, Duration> ttls = new HashMap<>();
+    private FillPolicy policy = FillPolicy.STANDARD;
     private final String key = ContentResourceRegion.UNDERSTANDING.key("1");
     private final ContentUnderstanding row = new ContentUnderstanding().setContentId(1L).setReceived(true)
             .setState(ContentReviewState.AUTO_PENDING).setReviewAttempt(1).setInputJson("input-not-for-display")
@@ -77,10 +77,10 @@ class ContentUnderstandingResourcesTest {
 
     @Test
     void warmResourceUsesOneRedisReadAndPreservesTypedChapters() {
-        resources.get(1L);
+        resources.get(1L, cache, policy);
         clearInvocations(values, redisson, lock);
 
-        ContentUnderstandingResource cached = resources.get(1L);
+        ContentUnderstandingResource cached = resources.get(1L, cache, policy);
 
         assertEquals("完整摘要", cached.summary().summary());
         assertEquals(new ContentArtifacts.Chapter(1000, "第一章"), cached.summary().chapters().get(0));
@@ -94,9 +94,9 @@ class ContentUnderstandingResourcesTest {
 
     @Test
     void reviewProgressIsExcludedFromTheCachedResource() {
-        resources.get(1L);
+        resources.get(1L, cache, policy);
         row.setState(ContentReviewState.APPROVED).setReviewAttempt(2);
-        assertEquals("完整摘要", resources.get(1L).summary().summary());
+        assertEquals("完整摘要", resources.get(1L, cache, policy).summary().summary());
         verify(rows).selectById(1L);
         String payload = entries.get(key);
         assertFalse(payload.contains("state"));
@@ -108,19 +108,33 @@ class ContentUnderstandingResourcesTest {
     @NullSource
     @ValueSource(booleans = false)
     void unfinishedRowsOnlyUseTheShortNegativeTtl(Boolean received) {
+        policy = FillPolicy.SHORT_TTL;
         row.setReceived(received).setChaptersJson("not-ready-json");
-        assertNull(resources.get(1L));
-        assertNull(resources.get(1L));
+        assertNull(resources.get(1L, cache, policy));
+        assertNull(resources.get(1L, cache, policy));
         verify(rows).selectById(1L);
         assertEquals("null", entries.get(key));
         assertTrue(ttls.get(key).toMillis() >= 2400 && ttls.get(key).toMillis() <= 3000);
+        verify(lock).unlock();
+    }
+
+    @Test
+    void lowPlayResourceIsSharedWithAShortPositiveTtl() {
+        policy = FillPolicy.SHORT_TTL;
+
+        assertEquals("完整摘要", resources.get(1L, cache, policy).summary().summary());
+        assertEquals("完整摘要", resources.get(1L, cache, policy).summary().summary());
+
+        verify(rows).selectById(1L);
+        verify(lock).unlock();
+        assertTrue(ttls.get(key).toMillis() >= 48000 && ttls.get(key).toMillis() <= 60000);
     }
 
     @Test
     void missingRowsAreNegativelyCached() {
         when(rows.selectById(1L)).thenReturn(null);
-        assertNull(resources.get(1L));
-        assertNull(resources.get(1L));
+        assertNull(resources.get(1L, cache, policy));
+        assertNull(resources.get(1L, cache, policy));
         verify(rows).selectById(1L);
         assertEquals("null", entries.get(key));
     }
@@ -128,7 +142,7 @@ class ContentUnderstandingResourcesTest {
     @Test
     void emptySummaryAndAbsentChaptersRemainACompletedResource() {
         row.setSummary("").setChaptersJson(null).setSubtitleKey(null);
-        ContentUnderstandingResource resource = resources.get(1L);
+        ContentUnderstandingResource resource = resources.get(1L, cache, policy);
         assertEquals("", resource.summary().summary());
         assertTrue(resource.summary().chapters().isEmpty());
         assertNull(resource.subtitleKey());
@@ -138,14 +152,14 @@ class ContentUnderstandingResourcesTest {
     @Test
     void completionInvalidationRemovesAnEarlierNegativeEntry() {
         row.setReceived(false);
-        assertNull(resources.get(1L));
+        assertNull(resources.get(1L, cache, policy));
         row.setReceived(true);
-        assertNull(resources.get(1L));
+        assertNull(resources.get(1L, cache, policy));
 
         var invalidator = new ContentResourceInvalidator(cache, mock(TaskScheduler.class), properties, metrics);
         invalidator.evictAfterCommit(ContentResourceRegion.UNDERSTANDING, "1");
 
-        assertEquals("完整摘要", resources.get(1L).summary().summary());
+        assertEquals("完整摘要", resources.get(1L, cache, policy).summary().summary());
         verify(rows, times(2)).selectById(1L);
     }
 
@@ -153,30 +167,30 @@ class ContentUnderstandingResourcesTest {
     @ValueSource(strings = {"not-json", "{}", "{\"summary\":{\"chapters\":null}}"})
     void malformedCacheEntriesAreReloaded(String payload) {
         entries.put(key, payload);
-        assertEquals("完整摘要", resources.get(1L).summary().summary());
+        assertEquals("完整摘要", resources.get(1L, cache, policy).summary().summary());
         verify(rows).selectById(1L);
     }
 
     @Test
     void failedDatabaseLoadsDoNotBecomeNegativeEntries() {
         when(rows.selectById(1L)).thenThrow(new QueryTimeoutException("slow query")).thenReturn(row);
-        assertThrows(QueryTimeoutException.class, () -> resources.get(1L));
+        assertThrows(QueryTimeoutException.class, () -> resources.get(1L, cache, policy));
         assertTrue(entries.isEmpty());
-        assertEquals("完整摘要", resources.get(1L).summary().summary());
+        assertEquals("完整摘要", resources.get(1L, cache, policy).summary().summary());
     }
 
     @Test
     void invalidStoredChaptersAreNotCachedAsMissingResources() {
         row.setChaptersJson("{");
-        assertThrows(JsonParseException.class, () -> resources.get(1L));
+        assertThrows(JsonParseException.class, () -> resources.get(1L, cache, policy));
         assertTrue(entries.isEmpty());
     }
 
     @Test
     void redisFailureLoadsTheResourceWithoutFillingOrLocking() {
         when(values.get(key)).thenThrow(new RedisConnectionFailureException("offline"));
-        assertEquals("完整摘要", resources.get(1L).summary().summary());
-        assertEquals("完整摘要", resources.get(1L).summary().summary());
+        assertEquals("完整摘要", resources.get(1L, cache, policy).summary().summary());
+        assertEquals("完整摘要", resources.get(1L, cache, policy).summary().summary());
         verify(rows, times(2)).selectById(1L);
         verifyNoInteractions(redisson, lock);
         assertTrue(entries.isEmpty());

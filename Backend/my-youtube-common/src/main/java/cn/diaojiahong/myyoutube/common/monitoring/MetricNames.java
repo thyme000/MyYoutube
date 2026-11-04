@@ -11,6 +11,14 @@ public final class MetricNames {
     public static final String CONTENT_CACHE_EVICT_FAILED = "myyoutube.content.cache.evict.failed";
     public static final String CONTENT_CACHE_BATCH_READ_FAILED = "myyoutube.content.cache.batch.read.failed";
     public static final String CONTENT_CACHE_DELAYED_EVICT_DROPPED = "myyoutube.content.cache.delayed.evict.dropped";
+    public static final String CONTENT_CACHE_SOURCE_LOADS = "myyoutube.content.cache.source.loads";
+    public static final String CONTENT_CACHE_SOURCE_LOAD_FAILED = "myyoutube.content.cache.source.load.failed";
+    public static final String CONTENT_CACHE_FILLS = "myyoutube.content.cache.fills";
+    public static final String CONTENT_CACHE_FILL_FAILED = "myyoutube.content.cache.fill.failed";
+
+    public static final String CONTENT_PLAY_COUNT_FLUSH_DURATION = "myyoutube.content.play.count.flush.duration";
+    public static final String CONTENT_PLAY_COUNT_FLUSH_PROCESSED = "myyoutube.content.play.count.flush.processed";
+    public static final String CONTENT_PLAY_COUNT_FLUSH_FAILED = "myyoutube.content.play.count.flush.failed";
 
     public static final String AUDIO_CASCADE_NOTIFICATION_FAILED = "audio.cascade.notification.failed";
     public static final String AUDIO_CASCADE_RECOVERY_FAILED = "audio.cascade.recovery.failed";

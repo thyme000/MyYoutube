@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.content.service;
 
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.domain.ContentAccessSnapshot;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
@@ -28,7 +29,7 @@ public class ContentDisplayAccess {
 
     public Content readable(Long id, Long viewer, ContentResourceReader reader) {
         ContentAccessSnapshot snapshot = reader.get(ContentResourceRegion.CONTENT_STATE, id.toString(),
-                ContentAccessSnapshot.class, () -> loader.load(id));
+                ContentAccessSnapshot.class, () -> loader.load(id), FillPolicy.STANDARD);
         if (snapshot == null || snapshot.audioBlocked()) {
             throw ContentAccessService.notReadable();
         }

@@ -9,7 +9,9 @@ import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceCacheProperties;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
 import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
@@ -24,7 +26,6 @@ import cn.hutool.core.bean.BeanUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,13 +41,15 @@ public class ContentReadService {
     private final ContentUnderstandingResources understanding;
     private final S3StorageUtil storage;
     private final ContentStreamService streams;
+    private final ContentResourceCacheProperties properties;
 
     @ObservedBusiness(BusinessOperation.CONTENT_DETAIL)
     public ContentDetailVO detail(Long id, Long viewer) {
         ContentResourceReader reader = cache.readTogether(id.toString(), ContentResourceRegion.CONTENT_STATE,
                 ContentResourceRegion.CONTENT_MEDIA, ContentResourceRegion.UNDERSTANDING);
         Content content = access.readable(id, viewer, reader);
-        ContentMediaResource resource = resources.media(content, reader);
+        FillPolicy policy = properties.artifactFillPolicy(content.getPlayCount());
+        ContentMediaResource resource = resources.media(content, reader, policy);
         ContentMedia media = resource.media();
         List<ContentFeedVO> visible = cards.assembleCardsWithMedia(viewer, List.of(content), Set.of(), Map.of(id, media));
         if (visible.isEmpty()) {
@@ -59,7 +62,7 @@ public class ContentReadService {
                         new ContentMediaVO.Video(media.video().durationMs(),
                         streams.playback(content, resource, viewer, Scope.VIEW)), null)
                 : signedMedia(media));
-        ContentUnderstandingResource understood = understanding.get(id, reader);
+        ContentUnderstandingResource understood = understanding.get(id, reader, policy);
         if (understood != null) {
             ContentArtifacts.Summary summary = understood.summary();
             detail.setSummary(summary.summary());
@@ -73,18 +76,20 @@ public class ContentReadService {
     public String subtitles(Long id, Long viewer) {
         ContentResourceReader reader = cache.readTogether(id.toString(), ContentResourceRegion.CONTENT_STATE,
                 ContentResourceRegion.UNDERSTANDING);
-        access.readable(id, viewer, reader);
-        ContentUnderstandingResource understood = understanding.get(id, reader);
+        Content content = access.readable(id, viewer, reader);
+        FillPolicy policy = properties.artifactFillPolicy(content.getPlayCount());
+        ContentUnderstandingResource understood = understanding.get(id, reader, policy);
         if (understood == null || !StringUtils.hasText(understood.subtitleKey())) {
             throw new BizException(ErrorCode.NOT_FOUND, "暂无字幕");
         }
 
-        return resources.subtitle(understood.subtitleKey());
+        return resources.subtitle(understood.subtitleKey(), reader, policy);
     }
 
     public ContentMediaVO adminMedia(Long id, Long viewer) {
         Content content = access.forReview(id);
-        ContentMediaResource resource = resources.media(content);
+        FillPolicy policy = properties.artifactFillPolicy(content.getPlayCount());
+        ContentMediaResource resource = resources.media(content, cache, policy);
         ContentMedia media = resource.media();
         return media.video() != null
                 ? new ContentMediaVO(ContentTypeEnum.VIDEO.getCode(),

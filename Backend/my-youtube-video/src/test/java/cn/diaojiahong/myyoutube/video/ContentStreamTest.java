@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceCacheProperties;
 import cn.diaojiahong.myyoutube.common.media.PreparationContracts.PlaybackMetadata;
-
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
@@ -32,7 +32,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import software.amazon.awssdk.http.SdkHttpMethod;
-
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -51,7 +50,7 @@ class ContentStreamTest {
     private final String TOKEN = tokens.issue(9, 1, 12000, PlaybackTokens.Scope.VIEW).token();
     private final ContentMediaResources resources = ContentResourceTestSupport.uncached(
             new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos))), storage);
-    private final ContentStreamService streams = new ContentStreamService(ContentResourceTestSupport.uncachedCache(), ContentResourceTestSupport.uncachedAccess(contents, audio), resources, storage, tokens);
+    private final ContentStreamService streams = new ContentStreamService(ContentResourceTestSupport.uncachedCache(), ContentResourceTestSupport.uncachedAccess(contents, audio), resources, storage, tokens, new ContentResourceCacheProperties());
     private final String originalKey = "media-prepared/9/101/video-original";
     private final String mediaKey = "media-prepared/9/101/hls_media-720.mp4";
     private final String playlistKey = "media-prepared/9/101/hls_playlist-720.m3u8";
@@ -205,7 +204,7 @@ class ContentStreamTest {
         when(signer.verify("short-ticket")).thenReturn(new PlaybackTokens.Grant(9, 1,
                 System.currentTimeMillis() - 1000, System.currentTimeMillis() + 60000,
                 PlaybackTokens.Scope.VIEW, "short-ticket"));
-        ContentStreamService service = new ContentStreamService(ContentResourceTestSupport.uncachedCache(), ContentResourceTestSupport.uncachedAccess(contents, audio), resources, storage, signer);
+        ContentStreamService service = new ContentStreamService(ContentResourceTestSupport.uncachedCache(), ContentResourceTestSupport.uncachedAccess(contents, audio), resources, storage, signer, new ContentResourceCacheProperties());
         service.playlist(1L, 720, 9L, "short-ticket");
         verify(storage).presignReadUrl(eq(mediaKey), longThat(seconds -> seconds > 0 && seconds <= 60), eq(SdkHttpMethod.GET));
     }

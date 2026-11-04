@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
-
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.media.ContentMedia;
@@ -41,6 +41,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -54,7 +55,6 @@ import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
-
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collection;
@@ -82,12 +82,14 @@ class ContentMediaResourcesTest {
     private final RedissonClient redisson = mock(RedissonClient.class);
     private final RLock lock = mock(RLock.class);
     private final Map<String, String> entries = new HashMap<>();
+    private final Map<String, Duration> ttls = new HashMap<>();
     private final PlaybackTokens tokens = new PlaybackTokens("resource-cache-test-secret-at-least-thirty-two", 21600);
     private final AtomicInteger signatures = new AtomicInteger();
     private final String mediaKey = "media-prepared/9/101/hls_media-720.mp4";
     private final String playlistKey = "media-prepared/9/101/hls_playlist-720.m3u8";
     private final String rawPlaylist = "#EXTM3U\n#EXT-X-MAP:URI=\"hls_media-720.mp4\"\n"
             + "#EXTINF:4.0,\nhls_media-720.mp4\n#EXT-X-ENDLIST\n";
+    private final ContentResourceCacheProperties properties = spy(new ContentResourceCacheProperties());
     private Content content;
     private ContentResourceCache cache;
     private ContentMediaResources resources;
@@ -105,22 +107,23 @@ class ContentMediaResourcesTest {
         when(redis.delete(anyString())).thenAnswer(call -> entries.remove(call.getArgument(0)) != null);
         doAnswer(call -> {
             entries.put(call.getArgument(0), call.getArgument(1));
+            ttls.put(call.getArgument(0), call.getArgument(2));
             return null;
         }).when(values).set(anyString(), anyString(), any(Duration.class));
         when(redisson.getLock(anyString())).thenReturn(lock);
         when(lock.tryLock(anyLong(), any())).thenReturn(true);
-        cache = new ContentResourceCache(redis, redisson, new ContentResourceCacheProperties(), new SimpleMeterRegistry());
+        cache = new ContentResourceCache(redis, redisson, properties, new SimpleMeterRegistry());
         var registry = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos),
                 new DynamicContentStrategy(dynamics, mock(IAudioService.class))));
-        resources = new ContentMediaResources(cache, new ContentMediaResourceLoader(registry), storage);
+        resources = new ContentMediaResources(new ContentMediaResourceLoader(registry), storage);
         var access = new ContentDisplayAccess(cache, new ContentAccessSnapshotLoader(contents, audioAccess),
                 new ContentAccessService(contents, audioAccess));
-        streams = new ContentStreamService(cache, access, resources, storage, tokens);
-        var understanding = new ContentUnderstandingResources(cache, new ContentUnderstandingResourceLoader(understandingRows));
-        reads = new ContentReadService(cache, access, resources, cards, understanding, storage, streams);
+        streams = new ContentStreamService(cache, access, resources, storage, tokens, properties);
+        var understanding = new ContentUnderstandingResources(new ContentUnderstandingResourceLoader(understandingRows));
+        reads = new ContentReadService(cache, access, resources, cards, understanding, storage, streams, properties);
 
         content = new Content().setId(1L).setType(ContentTypeEnum.VIDEO).setAuthorId(9L)
-                .setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0).setVisibility("public");
+                .setStatus(ContentStatusEnum.PUBLISHED).setIsDelete(0).setVisibility("public").setPlayCount(100L);
         when(contents.selectById(1L)).thenReturn(content);
         VideoPlayback playback = new VideoPlayback(1280, 720, List.of(new VideoPlayback.Rendition(
                 720, mediaKey, playlistKey, 1280, 720, 3000000,
@@ -136,6 +139,129 @@ class ContentMediaResourcesTest {
                 .thenAnswer(call -> "https://signed.example/" + call.getArgument(0) + "?signature=" + signatures.incrementAndGet());
         when(storage.signGetUrl(anyString(), anyLong()))
                 .thenAnswer(call -> "https://signed.example/" + call.getArgument(0) + "?signature=" + signatures.incrementAndGet());
+    }
+
+    @Test
+    void cachedStateDelaysTheLongTtlUntilItIsReloadedAfterPlayCountFlush() {
+        content.setPlayCount(99L);
+        when(understandingRows.selectById(1L)).thenReturn(new ContentUnderstanding().setReceived(true).setSummary("摘要"));
+
+        assertEquals("摘要", reads.detail(1L, 9L).getSummary());
+        content.setPlayCount(100L);
+        assertEquals("摘要", reads.detail(1L, 10L).getSummary());
+        assertTtl(ContentResourceRegion.CONTENT_MEDIA.key("1"), 48000, 60000);
+        verify(properties, times(2)).artifactFillPolicy(99L);
+        verify(contents).selectById(1L);
+
+        // 模拟状态及短期产物到期；重新读取累计播放量后，下一次填充使用常规 TTL。
+        entries.clear();
+        reads.detail(1L, 9L);
+        reads.detail(1L, 10L);
+
+        assertTtl(ContentResourceRegion.CONTENT_MEDIA.key("1"), 1440000, 1800000);
+        assertTtl(ContentResourceRegion.UNDERSTANDING.key("1"), 1440000, 1800000);
+        verify(properties, times(2)).artifactFillPolicy(100L);
+        verify(contents, times(2)).selectById(1L);
+        verify(videos, times(2)).selectById(1L);
+        verify(understandingRows, times(2)).selectById(1L);
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(longs = {0, 99})
+    void lowPlayDetailSharesShortLivedArtifactsAndSelectsPolicyOncePerRequest(Long playCount) {
+        content.setPlayCount(playCount);
+        when(understandingRows.selectById(1L)).thenReturn(new ContentUnderstanding().setReceived(true).setSummary("摘要"));
+
+        assertEquals("摘要", reads.detail(1L, 9L).getSummary());
+        assertEquals("摘要", reads.detail(1L, 10L).getSummary());
+
+        assertEquals(Set.of(ContentResourceRegion.CONTENT_STATE.key("1"), ContentResourceRegion.CONTENT_MEDIA.key("1"),
+                ContentResourceRegion.UNDERSTANDING.key("1")), entries.keySet());
+        assertTtl(ContentResourceRegion.CONTENT_STATE.key("1"), 8000, 10000);
+        assertTtl(ContentResourceRegion.CONTENT_MEDIA.key("1"), 48000, 60000);
+        assertTtl(ContentResourceRegion.UNDERSTANDING.key("1"), 48000, 60000);
+        verify(contents).selectById(1L);
+        verify(videos).selectById(1L);
+        verify(understandingRows).selectById(1L);
+        verify(properties, times(2)).artifactFillPolicy(playCount);
+    }
+
+    @Test
+    void lowPlayRenditionsShareShortLivedMediaAndTextButSignEveryRequest() {
+        content.setPlayCount(0L);
+
+        String first = streams.playlist(1L, 720, 9L, ticket(9));
+        String second = streams.playlist(1L, 720, 10L, ticket(10));
+
+        assertNotEquals(first, second);
+        assertEquals(Set.of(ContentResourceRegion.CONTENT_STATE.key("1"), ContentResourceRegion.CONTENT_MEDIA.key("1"),
+                ContentResourceRegion.PLAYLIST.key(playlistKey)), entries.keySet());
+        assertTtl(ContentResourceRegion.CONTENT_MEDIA.key("1"), 48000, 60000);
+        assertTtl(ContentResourceRegion.PLAYLIST.key(playlistKey), 48000, 60000);
+        verify(videos).selectById(1L);
+        verify(storage).readObject(playlistKey, Duration.ofSeconds(10));
+        verify(properties, times(2)).artifactFillPolicy(0L);
+    }
+
+    @Test
+    void lowPlaySubtitlesUseOnePolicyForPointerAndText() {
+        content.setPlayCount(0L);
+        String subtitleKey = "subtitles/short.vtt";
+        when(understandingRows.selectById(1L)).thenReturn(new ContentUnderstanding().setReceived(true).setSubtitleKey(subtitleKey));
+        when(storage.readObject(subtitleKey, Duration.ofSeconds(10))).thenReturn("WEBVTT".getBytes(StandardCharsets.UTF_8));
+
+        assertEquals("WEBVTT", reads.subtitles(1L, 9L));
+        assertEquals("WEBVTT", reads.subtitles(1L, 10L));
+
+        assertEquals(Set.of(ContentResourceRegion.CONTENT_STATE.key("1"), ContentResourceRegion.UNDERSTANDING.key("1"),
+                ContentResourceRegion.SUBTITLE.key(subtitleKey)), entries.keySet());
+        assertTtl(ContentResourceRegion.UNDERSTANDING.key("1"), 48000, 60000);
+        assertTtl(ContentResourceRegion.SUBTITLE.key(subtitleKey), 48000, 60000);
+        verify(understandingRows).selectById(1L);
+        verify(storage).readObject(subtitleKey, Duration.ofSeconds(10));
+        verify(properties, times(2)).artifactFillPolicy(0L);
+    }
+
+    @Test
+    void dynamicContentUsesShortMediaTtlAndUnchangedNegativeTtl() {
+        dynamic();
+        content.setPlayCount(0L);
+
+        assertNotNull(reads.detail(1L, 9L).getMedia().dynamic());
+        assertNotNull(reads.detail(1L, 10L).getMedia().dynamic());
+
+        assertEquals(Set.of(ContentResourceRegion.CONTENT_STATE.key("1"), ContentResourceRegion.CONTENT_MEDIA.key("1"),
+                ContentResourceRegion.UNDERSTANDING.key("1")), entries.keySet());
+        assertEquals("null", entries.get(ContentResourceRegion.UNDERSTANDING.key("1")));
+        assertTtl(ContentResourceRegion.CONTENT_MEDIA.key("1"), 48000, 60000);
+        assertTtl(ContentResourceRegion.UNDERSTANDING.key("1"), 2400, 3000);
+        verify(dynamics).selectBatchIds(List.of(1L));
+    }
+
+    @Test
+    void increasingThresholdKeepsExistingArtifactsUsableUntilTheirTtlExpires() {
+        reads.detail(1L, 9L);
+        properties.setArtifactMinPlayCount(1000);
+        clearInvocations(contents, videos, understandingRows, redisson);
+
+        assertNotNull(reads.detail(1L, 10L).getMedia().video());
+
+        verifyNoInteractions(contents, videos, understandingRows, redisson);
+    }
+
+    @Test
+    void reviewResourcesUseShortTtlAndKeepAccessChecksInTheDatabase() {
+        content.setStatus(ContentStatusEnum.REVIEW).setPlayCount(0L);
+
+        assertNotNull(reads.adminMedia(1L, 9L).video());
+        assertNotNull(reads.adminMedia(1L, 9L).video());
+
+        assertEquals(Set.of(ContentResourceRegion.CONTENT_MEDIA.key("1")), entries.keySet());
+        assertTtl(ContentResourceRegion.CONTENT_MEDIA.key("1"), 48000, 60000);
+        verify(contents, times(2)).selectById(1L);
+        verify(videos).selectById(1L);
+        verify(properties, times(2)).artifactFillPolicy(0L);
     }
 
     @Test
@@ -316,7 +442,7 @@ class ContentMediaResourcesTest {
         assertTrue(payload.contains("image-one"));
         assertTrue(payload.contains("music.mp3"));
         assertFalse(payload.contains("signed.example"));
-        assertEquals(media, resources.media(content).media());
+        assertEquals(media, resources.media(content, cache, FillPolicy.STANDARD).media());
     }
 
     @Test
@@ -414,7 +540,7 @@ class ContentMediaResourcesTest {
         when(videos.selectById(1L)).thenReturn(null);
 
         for (int request = 0; request < 2; request++) {
-            assertEquals(ErrorCode.NOT_FOUND, assertThrows(BizException.class, () -> resources.media(content)).getErrorCode());
+            assertEquals(ErrorCode.NOT_FOUND, assertThrows(BizException.class, () -> resources.media(content, cache, FillPolicy.STANDARD)).getErrorCode());
         }
 
         verify(videos).selectById(1L);
@@ -452,4 +578,9 @@ class ContentMediaResourcesTest {
     private PlaybackTokens.Grant grant(VideoPlaybackVO playback) {
         return tokens.verify(playback.adaptivePlaylistUrl().split("playbackToken=")[1]);
     }
+    private void assertTtl(String key, long minimumMillis, long maximumMillis) {
+        long ttl = ttls.get(key).toMillis();
+        assertTrue(ttl >= minimumMillis && ttl <= maximumMillis, key + " ttl=" + ttl);
+    }
+
 }

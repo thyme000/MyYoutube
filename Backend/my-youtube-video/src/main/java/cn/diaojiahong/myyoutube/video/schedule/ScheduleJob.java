@@ -2,11 +2,13 @@ package cn.diaojiahong.myyoutube.video.schedule;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.counter.CounterFlushService;
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 import cn.diaojiahong.myyoutube.common.schedule.ScheduleRoundLock;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
@@ -16,10 +18,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -43,13 +45,14 @@ public class ScheduleJob {
     private final ContentDocPort contentDocPort;
     private final CounterFlushService counterFlushService;
     private final ScheduleRoundLock roundLock;
+    private final MeterRegistry metrics;
 
     /**
      * 每 30s 把点赞缓冲落库。
      */
     @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
     public void flushContentCounters() {
-        roundLock.run("schedule:lock:video:counter:flush", counterFlushService::flushRound);
+        roundLock.run(VideoScheduleLocks.COUNTER_FLUSH, counterFlushService::flushRound);
     }
 
     /**
@@ -57,19 +60,36 @@ public class ScheduleJob {
      */
     @Scheduled(cron = "0 20 * * * ?")
     public void reconcileContentCounters() {
-        roundLock.run("schedule:lock:video:counter:reconcile", counterFlushService::reconcileRound);
+        roundLock.run(VideoScheduleLocks.COUNTER_RECONCILE, counterFlushService::reconcileRound);
     }
 
     /**
-     * 每小时更新一次播放量：分片刷,避免单 Hash (热点key)过大,影响性能
+     * 按配置间隔将分片播放增量落库，每轮完成后再等待，避免慢轮次连续追赶。
      */
-    @Scheduled(cron = "0 0 * * * ?")
+    @Scheduled(fixedDelayString = "${my-youtube.play-count.flush-interval-ms:60000}",
+            initialDelayString = "${my-youtube.play-count.flush-interval-ms:60000}")
     public void updateVideoPlayCount() {
-        roundLock.run("schedule:lock:video:play-count", () -> {
+        roundLock.run(VideoScheduleLocks.PLAY_COUNT_FLUSH, this::flushPlayCounts);
+    }
+
+    private void flushPlayCounts() {
+        long started = System.nanoTime();
+        try {
             for (int s = 0; s < RedisConstants.VIDEO_PLAY_COUNT_SHARD_COUNT; s++) {
                 flushPendingHash(RedisConstants.videoPlayCountShardKey(s));
             }
-        });
+        } catch (RuntimeException failure) {
+            // 中断整轮的异常只计一次；单条 update 返回 false 的失败在条目处计数。
+            recordPlayCountMetric(MetricNames.CONTENT_PLAY_COUNT_FLUSH_FAILED);
+            throw failure;
+        } finally {
+            try {
+                metrics.timer(MetricNames.CONTENT_PLAY_COUNT_FLUSH_DURATION)
+                        .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+            } catch (RuntimeException metricsUnavailable) {
+                /* 指标故障不能改变本轮结果。 */
+            }
+        }
     }
 
     private void flushPendingHash(String redisHashKey) {
@@ -84,14 +104,25 @@ public class ScheduleJob {
             if (claimed == null) {
                 continue;
             }
+            // 已认领并开始处理的内容条数，包含后续写入失败；空增量不计数。
+            recordPlayCountMetric(MetricNames.CONTENT_PLAY_COUNT_FLUSH_PROCESSED);
             long playCount = Long.parseLong(claimed);
             boolean success = contentService.lambdaUpdate()
                     .setIncrBy(Content::getPlayCount, playCount)
                     .eq(Content::getId, Long.valueOf(contentId.toString()))
                     .update();
             if (!success) {
+                recordPlayCountMetric(MetricNames.CONTENT_PLAY_COUNT_FLUSH_FAILED);
                 log.warn("更新内容播放量失败, redisKey={}, 内容id:{}", redisHashKey, contentId);
             }
+        }
+    }
+
+    private void recordPlayCountMetric(String name) {
+        try {
+            metrics.counter(name).increment();
+        } catch (RuntimeException metricsUnavailable) {
+            /* 指标故障不能影响认领和落库。 */
         }
     }
 
@@ -125,7 +156,7 @@ public class ScheduleJob {
      */
     @Scheduled(cron = "0 */30 * * * *")
     public void flushLikeCountAndPlayCount4ES() {
-        roundLock.run("schedule:lock:video:es-count-sync", this::syncCountsToEs);
+        roundLock.run(VideoScheduleLocks.ES_COUNT_SYNC, this::syncCountsToEs);
     }
 
     private void syncCountsToEs() {

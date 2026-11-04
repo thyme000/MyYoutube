@@ -11,6 +11,14 @@ public interface ContentResourceReader {
     /**
      * type 使用具体 DTO、数组或字符串；顶层泛型集合应包装在具体 DTO 中。
      * loader 正常返回 null 表示不存在，抛出异常不能作为不存在的结果缓存。
+     * 所有读取均须显式传入策略；状态和负缓存仍使用各自的 TTL。
      */
-    <T> T get(ContentResourceRegion region, String resourceId, Class<T> type, Supplier<T> loader);
+    <T> T get(ContentResourceRegion region, String resourceId, Class<T> type, Supplier<T> loader, FillPolicy policy);
+
+    enum FillPolicy {
+        /** 达到累计播放量门槛的产物使用常规 TTL。 */
+        STANDARD,
+        /** 未达门槛的产物使用短 TTL，同样加锁、双检和回填。 */
+        SHORT_TTL
+    }
 }
