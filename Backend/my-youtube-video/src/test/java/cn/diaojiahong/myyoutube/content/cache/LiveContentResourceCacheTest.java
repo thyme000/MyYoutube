@@ -176,6 +176,152 @@ class LiveContentResourceCacheTest {
     }
 
     @Test
+    void warmupSkipsAnActiveViewerLoadAndReleasesOtherAcquiredLocks() throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        var loading = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var warmupLoads = new AtomicInteger();
+        String unusedKey = ContentResourceRegion.UNDERSTANDING.key(resourceId);
+        keys.add(unusedKey);
+        firstRedis.opsForValue().set(unusedKey, JsonUtil.toJson("old-value"), Duration.ofSeconds(60));
+        try {
+            Future<String> owner = pool.submit(() -> get(first, resourceId, () -> {
+                loading.countDown();
+                await(release);
+                return "viewer-loaded";
+            }));
+            assertTrue(loading.await(5, TimeUnit.SECONDS));
+
+            ContentResourceWarmupException failure = assertThrows(ContentResourceWarmupException.class,
+                    () -> second.warmupTogether(resourceId, Runnable::run,
+                            new WarmupResource<>(ContentResourceRegion.PLAYLIST, () -> {
+                                warmupLoads.incrementAndGet();
+                                return "warmup-loaded";
+                            }, FillPolicy.STANDARD),
+                            new WarmupResource<>(ContentResourceRegion.UNDERSTANDING,
+                                    () -> "independent", FillPolicy.STANDARD)));
+            assertInstanceOf(ContentResourceBusyException.class, failure.getCause());
+
+            assertEquals(0, warmupLoads.get());
+            assertFalse(owner.isDone());
+            assertNull(secondRedis.opsForValue().get(keys.get(0)));
+            assertFalse(firstClient.getLock("lock:" + unusedKey).isLocked());
+            assertEquals(JsonUtil.toJson("independent"), firstRedis.opsForValue().get(unusedKey));
+            assertTrue(firstRedis.getExpire(unusedKey, TimeUnit.SECONDS) > 1400);
+            release.countDown();
+            assertEquals("viewer-loaded", owner.get(5, TimeUnit.SECONDS));
+            assertEquals("viewer-loaded", get(second, resourceId, () -> fail("should use viewer cache")));
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void asyncWarmupKeepsTheWatchdogAndReleasesWithItsOriginalOwner() throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        var loading = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try {
+            Future<?> owner = pool.submit(() -> first.warmupTogether(resourceId, Runnable::run,
+                    new WarmupResource<>(ContentResourceRegion.PLAYLIST, () -> {
+                        loading.countDown();
+                        await(release);
+                        return "async-warmed";
+                    }, FillPolicy.STANDARD)));
+            assertTrue(loading.await(5, TimeUnit.SECONDS));
+            assertThrows(TimeoutException.class, () -> owner.get(2300, TimeUnit.MILLISECONDS));
+            properties.setLockWaitMillis(0);
+            assertThrows(ContentResourceBusyException.class, () -> get(second, resourceId,
+                    () -> fail("async warmup watchdog must keep the lock")));
+
+            release.countDown();
+            owner.get(5, TimeUnit.SECONDS);
+            assertFalse(secondClient.getLock("lock:" + keys.get(0)).isLocked());
+            assertEquals("async-warmed", get(second, resourceId, () -> fail("warmup should have filled the cache")));
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void parallelWarmupKeepsBothLocksUntilBothLoadersFinishAndSharesTheResults() throws Exception {
+        String mediaKey = ContentResourceRegion.CONTENT_MEDIA.key(resourceId);
+        String understandingKey = ContentResourceRegion.UNDERSTANDING.key(resourceId);
+        keys.add(mediaKey);
+        keys.add(understandingKey);
+        var started = new CountDownLatch(2);
+        var release = new CountDownLatch(1);
+        ExecutorService parent = Executors.newSingleThreadExecutor();
+        ExecutorService loaders = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> task = parent.submit(() -> first.warmupTogether(resourceId, loaders,
+                    new WarmupResource<>(ContentResourceRegion.CONTENT_MEDIA, () -> {
+                        started.countDown();
+                        await(release);
+                        return "media";
+                    }, FillPolicy.STANDARD),
+                    new WarmupResource<>(ContentResourceRegion.UNDERSTANDING, () -> {
+                        started.countDown();
+                        await(release);
+                        return "understanding";
+                    }, FillPolicy.STANDARD)));
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            // 等待跨过初始租期，父线程等待子查询期间两把锁仍应由 watchdog 续期。
+            assertThrows(TimeoutException.class, () -> task.get(2300, TimeUnit.MILLISECONDS));
+            properties.setLockWaitMillis(0);
+            for (ContentResourceRegion region : List.of(ContentResourceRegion.CONTENT_MEDIA, ContentResourceRegion.UNDERSTANDING)) {
+                assertNull(secondRedis.opsForValue().get(region.key(resourceId)));
+                assertThrows(ContentResourceBusyException.class, () -> second.get(region, resourceId, String.class,
+                        () -> fail("parallel warmup must keep each loader exclusive"), FillPolicy.STANDARD));
+            }
+
+            release.countDown();
+            task.get(5, TimeUnit.SECONDS);
+            assertEquals("media", second.get(ContentResourceRegion.CONTENT_MEDIA, resourceId, String.class,
+                    () -> fail("media should be cached"), FillPolicy.STANDARD));
+            assertEquals("understanding", second.get(ContentResourceRegion.UNDERSTANDING, resourceId, String.class,
+                    () -> fail("understanding should be cached"), FillPolicy.STANDARD));
+            assertFalse(secondClient.getLock("lock:" + mediaKey).isLocked());
+            assertFalse(secondClient.getLock("lock:" + understandingKey).isLocked());
+        } finally {
+            release.countDown();
+            parent.shutdownNow();
+            loaders.shutdownNow();
+        }
+    }
+
+    @Test
+    void warmupFlushesIndependentKeysBeforeUnlockingAndNormalReadersReuseThem() {
+        String mediaKey = ContentResourceRegion.CONTENT_MEDIA.key(resourceId);
+        String understandingKey = ContentResourceRegion.UNDERSTANDING.key(resourceId);
+        keys.add(mediaKey);
+        keys.add(understandingKey);
+
+        first.warmupTogether(resourceId, Runnable::run,
+                new WarmupResource<>(ContentResourceRegion.CONTENT_MEDIA, () -> "media", FillPolicy.STANDARD),
+                new WarmupResource<>(ContentResourceRegion.UNDERSTANDING, () -> {
+                    assertNull(secondRedis.opsForValue().get(mediaKey));
+                    assertNull(secondRedis.opsForValue().get(understandingKey));
+                    assertTrue(secondClient.getLock("lock:" + mediaKey).isLocked());
+                    assertTrue(secondClient.getLock("lock:" + understandingKey).isLocked());
+                    return "understanding";
+                }, FillPolicy.STANDARD));
+
+        assertEquals("media", second.get(ContentResourceRegion.CONTENT_MEDIA, resourceId,
+                String.class, () -> fail("media should be cached"), FillPolicy.STANDARD));
+        assertEquals("understanding", second.get(ContentResourceRegion.UNDERSTANDING, resourceId,
+                String.class, () -> fail("understanding should be cached"), FillPolicy.STANDARD));
+        for (String key : List.of(mediaKey, understandingKey)) {
+            Long ttl = secondRedis.getExpire(key, TimeUnit.MILLISECONDS);
+            assertNotNull(ttl);
+            assertTrue(ttl >= 1439000 && ttl <= 1800000, "ttl=" + ttl);
+            assertFalse(secondClient.getLock("lock:" + key).isLocked());
+        }
+    }
+
+    @Test
     void shortAndStandardTtlsShareResultsAcrossClientsWithoutChangingNegativeTtl() {
         var loads = new AtomicInteger();
         Supplier<String> source = () -> "value-" + loads.incrementAndGet();
