@@ -13,6 +13,7 @@ import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.mapper.ContentStatisticsMapper;
 import cn.diaojiahong.myyoutube.content.domain.dto.AuthorContentCursorQuery;
+import cn.diaojiahong.myyoutube.content.service.ContentResourceWarmup;
 import cn.diaojiahong.myyoutube.content.service.AuthorContentPageService;
 import cn.diaojiahong.myyoutube.content.service.AfterCommitNotifications;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
@@ -111,6 +112,11 @@ class ContentStatisticsIntegrationTest {
         @Bean
         PublicationEffectsService effects() {
             return mock(PublicationEffectsService.class);
+        }
+
+        @Bean
+        ContentResourceWarmup cacheWarmup() {
+            return mock(ContentResourceWarmup.class);
         }
 
         @Bean

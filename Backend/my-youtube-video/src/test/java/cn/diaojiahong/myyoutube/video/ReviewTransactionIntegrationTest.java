@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.video;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
+import cn.diaojiahong.myyoutube.content.service.ContentResourceWarmup;
 import cn.diaojiahong.myyoutube.content.service.ContentUnderstandingResourceLoader;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewDecision;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewSource;
@@ -217,6 +218,11 @@ class ReviewTransactionIntegrationTest {
         }
 
         @Bean
+        ContentResourceWarmup cacheWarmup() {
+            return mock(ContentResourceWarmup.class);
+        }
+
+        @Bean
         ReviewDecisionService decisions(VideoMapper videos, ContentUnderstandingMapper understanding,
                 ContentReviewRecordMapper records,
                 ContentPublicationEventMapper events,
@@ -225,7 +231,7 @@ class ReviewTransactionIntegrationTest {
                 PublicationEffectsService effects,
                 PromptTemplates prompts,
                 cn.diaojiahong.myyoutube.video.service.ContentObservation observation,
-                AudioContentAccess audioAccess, AudioMapper audios) {
+                AudioContentAccess audioAccess, AudioMapper audios, ContentResourceWarmup cacheWarmup) {
             return new ReviewDecisionService(
                     understanding,
                     records,
@@ -236,7 +242,7 @@ class ReviewTransactionIntegrationTest {
                     prompts,
                     observation,
                     frameSettings(),
-                    audioAccess, audios, mock(ContentStatisticsService.class), mock(ContentResourceInvalidator.class));
+                    audioAccess, audios, mock(ContentStatisticsService.class), mock(ContentResourceInvalidator.class), cacheWarmup);
         }
     }
 
@@ -261,12 +267,13 @@ class ReviewTransactionIntegrationTest {
     @Autowired ContentMapper contentRows;
     @Autowired PublicationEffectsService effects;
     @Autowired ContentResourceInvalidator cacheInvalidator;
+    @Autowired ContentResourceWarmup cacheWarmup;
     @Autowired ContentUnderstandingResourceLoader understandingResourceLoader;
     JdbcTemplate jdbc;
 
     @BeforeEach
     void schema() throws Exception {
-        reset(tasks, artifacts, tags, mq, effects, cacheInvalidator);
+        reset(tasks, artifacts, tags, mq, effects, cacheInvalidator, cacheWarmup);
         observations.getRecording().setEnabled(false);
         policy.setAutoReview(true);
         policy.setReviewVisionEnabled(true);
@@ -290,6 +297,42 @@ class ReviewTransactionIntegrationTest {
                 .setSubmissionAck(true)
                 .setRetryRequested(false)
                 .setSubmittedAt(LocalDateTime.now(ZoneOffset.UTC)));
+    }
+
+    @Test
+    void warmupIsSubmittedOnlyAfterPublicationCommitAndNotForRepeatedApproval() {
+        state(ContentReviewState.AUTO_RUNNING);
+
+        tx.executeWithoutResult(status -> {
+            assertTrue(decisions.machine(1L, 1, verdict("PASS")));
+            verifyNoInteractions(cacheWarmup);
+        });
+
+        verify(cacheWarmup).submit(1L);
+        assertFalse(decisions.machine(1L, 1, verdict("PASS")));
+        verifyNoMoreInteractions(cacheWarmup);
+    }
+
+    @Test
+    void publicationRollbackDoesNotSubmitWarmup() {
+        state(ContentReviewState.MANUAL_PENDING);
+
+        tx.executeWithoutResult(status -> {
+            assertTrue(decisions.manual(1L, true, "通过", 9L));
+            status.setRollbackOnly();
+        });
+
+        assertEquals(ContentStatusEnum.REVIEW, contents.getById(1L).getStatus());
+        verifyNoInteractions(cacheWarmup, effects);
+    }
+
+    @Test
+    void rejectedContentDoesNotSubmitWarmup() {
+        state(ContentReviewState.MANUAL_PENDING);
+
+        assertTrue(decisions.manual(1L, false, "拒绝", 9L));
+
+        verifyNoInteractions(cacheWarmup);
     }
 
     ReviewVerdict verdict(String decision) {

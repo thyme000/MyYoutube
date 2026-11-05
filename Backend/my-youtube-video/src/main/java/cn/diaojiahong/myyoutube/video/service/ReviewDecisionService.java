@@ -23,6 +23,7 @@ import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.content.service.ContentStatisticsService;
+import cn.diaojiahong.myyoutube.content.service.ContentResourceWarmup;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -53,6 +54,7 @@ public class ReviewDecisionService {
     private final AudioMapper audios;
     private final ContentStatisticsService statistics;
     private final ContentResourceInvalidator cacheInvalidator;
+    private final ContentResourceWarmup cacheWarmup;
 
     @Transactional
     @ObservedBusiness(BusinessOperation.MANUAL_REVIEW)
@@ -352,6 +354,7 @@ public class ReviewDecisionService {
         return transitionLocked(content, target, reason, publishedBan);
     }
 
+    // 当前审核发布的统一出口；新增发布路径时须同步接入提交后的缓存预热。
     private boolean transitionLocked(Content content, ContentStatusEnum target, String reason, boolean publishedBan) {
         ContentStatusEnum expected = publishedBan ? ContentStatusEnum.PUBLISHED : ContentStatusEnum.REVIEW;
         if (content == null
@@ -380,6 +383,9 @@ public class ReviewDecisionService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
+                if (target == ContentStatusEnum.PUBLISHED) {
+                    cacheWarmup.submit(id);
+                }
                 effects.trigger(event.getId());
             }
         });

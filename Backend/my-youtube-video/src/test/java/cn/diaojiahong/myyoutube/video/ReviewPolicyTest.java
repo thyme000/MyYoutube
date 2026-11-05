@@ -9,6 +9,7 @@ import cn.diaojiahong.myyoutube.video.service.*;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewState;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
 import cn.diaojiahong.myyoutube.video.mapper.*;
+import cn.diaojiahong.myyoutube.content.service.ContentResourceWarmup;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.content.service.ContentStatisticsService;
@@ -119,7 +120,7 @@ class ReviewPolicyTest {
                 mock(cn.diaojiahong.myyoutube.video.service.ContentObservation.class),
                 new cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings(),
                 mock(AudioContentAccess.class), mock(AudioMapper.class), mock(ContentStatisticsService.class),
-                mock(ContentResourceInvalidator.class));
+                mock(ContentResourceInvalidator.class), mock(ContentResourceWarmup.class));
         assertFalse(service.machine(
                 1L,
                 1,
