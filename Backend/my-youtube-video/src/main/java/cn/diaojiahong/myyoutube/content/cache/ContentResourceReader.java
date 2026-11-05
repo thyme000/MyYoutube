@@ -16,7 +16,7 @@ public interface ContentResourceReader {
     <T> T get(ContentResourceRegion region, String resourceId, Class<T> type, Supplier<T> loader, FillPolicy policy);
 
     enum FillPolicy {
-        /** 达到累计播放量门槛的产物使用常规 TTL。 */
+        /** 达到累计播放量门槛的产物及大 V 发布预热使用常规 TTL。 */
         STANDARD,
         /** 未达门槛的产物使用短 TTL，同样加锁、双检和回填。 */
         SHORT_TTL

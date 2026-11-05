@@ -14,7 +14,7 @@ public class ContentResourceCacheProperties {
     private long stateTtlSeconds = 10;
     private long artifactTtlSeconds = 1800;
     private long shortArtifactTtlSeconds = 60;
-    // 累计播放量达到门槛使用常规产物 TTL；未达到时使用短 TTL。
+    // 普通读取按累计播放量选择产物 TTL；大 V 发布预热是例外，使用常规 TTL。
     private long artifactMinPlayCount = 100;
     private long negativeTtlSeconds = 3;
     private long lockWaitMillis = 2000;

@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
+import cn.diaojiahong.myyoutube.content.cache.WarmupResource;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,10 @@ public class ContentMediaResources {
 
     private final ContentMediaResourceLoader loader;
     private final S3StorageUtil storage;
+
+    public WarmupResource<ContentMediaResource> warmupResource(Content content, FillPolicy policy) {
+        return new WarmupResource<>(ContentResourceRegion.CONTENT_MEDIA, () -> loader.load(content), policy);
+    }
 
     public ContentMediaResource media(Content content, ContentResourceReader reader, FillPolicy policy) {
         ContentMediaResource resource = reader.get(ContentResourceRegion.CONTENT_MEDIA, content.getId().toString(),

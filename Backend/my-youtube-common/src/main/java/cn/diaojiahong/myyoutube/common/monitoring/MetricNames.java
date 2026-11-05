@@ -15,6 +15,10 @@ public final class MetricNames {
     public static final String CONTENT_CACHE_SOURCE_LOAD_FAILED = "myyoutube.content.cache.source.load.failed";
     public static final String CONTENT_CACHE_FILLS = "myyoutube.content.cache.fills";
     public static final String CONTENT_CACHE_FILL_FAILED = "myyoutube.content.cache.fill.failed";
+    public static final String CONTENT_CACHE_WARMUP_SUBMITTED = "myyoutube.content.cache.warmup.submitted";
+    public static final String CONTENT_CACHE_WARMUP_READ_COMPLETED = "myyoutube.content.cache.warmup.read.completed";
+    public static final String CONTENT_CACHE_WARMUP_FAILED = "myyoutube.content.cache.warmup.failed";
+    public static final String CONTENT_CACHE_WARMUP_SKIPPED = "myyoutube.content.cache.warmup.skipped";
 
     public static final String CONTENT_PLAY_COUNT_FLUSH_DURATION = "myyoutube.content.play.count.flush.duration";
     public static final String CONTENT_PLAY_COUNT_FLUSH_PROCESSED = "myyoutube.content.play.count.flush.processed";

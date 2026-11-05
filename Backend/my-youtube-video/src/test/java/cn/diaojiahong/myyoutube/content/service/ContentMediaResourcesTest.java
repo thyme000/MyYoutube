@@ -14,6 +14,7 @@ import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceWarmupProperties;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentDetailVO;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
@@ -44,10 +45,15 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.redisson.api.RLock;
+import org.redisson.misc.CompletableFutureWrapper;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.connection.RedisStringCommands;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.types.Expiration;
 import software.amazon.awssdk.http.SdkHttpMethod;
 import software.amazon.awssdk.core.exception.ApiCallAttemptTimeoutException;
 import software.amazon.awssdk.core.exception.ApiCallTimeoutException;
@@ -62,6 +68,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
@@ -95,6 +102,7 @@ class ContentMediaResourcesTest {
     private ContentMediaResources resources;
     private ContentStreamService streams;
     private ContentReadService reads;
+    private ContentUnderstandingResources understanding;
 
     @BeforeEach
     void setup() throws Exception {
@@ -110,8 +118,26 @@ class ContentMediaResourcesTest {
             ttls.put(call.getArgument(0), call.getArgument(2));
             return null;
         }).when(values).set(anyString(), anyString(), any(Duration.class));
+        RedisConnection connection = mock(RedisConnection.class);
+        RedisStringCommands commands = mock(RedisStringCommands.class);
+        when(connection.stringCommands()).thenReturn(commands);
+        when(commands.set(any(byte[].class), any(byte[].class), any(Expiration.class), any())).thenAnswer(call -> {
+            String key = new String(call.getArgument(0, byte[].class), StandardCharsets.UTF_8);
+            entries.put(key, new String(call.getArgument(1, byte[].class), StandardCharsets.UTF_8));
+            Expiration expiration = call.getArgument(2);
+            ttls.put(key, Duration.ofMillis(expiration.getExpirationTimeInMilliseconds()));
+            return true;
+        });
+        when(redis.executePipelined(any(RedisCallback.class))).thenAnswer(call -> {
+            RedisCallback<?> pipeline = call.getArgument(0);
+            pipeline.doInRedis(connection);
+            return List.of();
+        });
         when(redisson.getLock(anyString())).thenReturn(lock);
         when(lock.tryLock(anyLong(), any())).thenReturn(true);
+        when(lock.tryLockAsync(anyLong(), anyLong(), any(), anyLong())).thenReturn(new CompletableFutureWrapper<>(true));
+        when(lock.unlockAsync(anyLong())).thenReturn(new CompletableFutureWrapper<Void>(
+                CompletableFuture.completedFuture(null)));
         cache = new ContentResourceCache(redis, redisson, properties, new SimpleMeterRegistry());
         var registry = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos),
                 new DynamicContentStrategy(dynamics, mock(IAudioService.class))));
@@ -119,7 +145,7 @@ class ContentMediaResourcesTest {
         var access = new ContentDisplayAccess(cache, new ContentAccessSnapshotLoader(contents, audioAccess),
                 new ContentAccessService(contents, audioAccess));
         streams = new ContentStreamService(cache, access, resources, storage, tokens, properties);
-        var understanding = new ContentUnderstandingResources(new ContentUnderstandingResourceLoader(understandingRows));
+        understanding = new ContentUnderstandingResources(new ContentUnderstandingResourceLoader(understandingRows));
         reads = new ContentReadService(cache, access, resources, cards, understanding, storage, streams, properties);
 
         content = new Content().setId(1L).setType(ContentTypeEnum.VIDEO).setAuthorId(9L)
@@ -139,6 +165,67 @@ class ContentMediaResourcesTest {
                 .thenAnswer(call -> "https://signed.example/" + call.getArgument(0) + "?signature=" + signatures.incrementAndGet());
         when(storage.signGetUrl(anyString(), anyLong()))
                 .thenAnswer(call -> "https://signed.example/" + call.getArgument(0) + "?signature=" + signatures.incrementAndGet());
+    }
+
+    @Test
+    void authorWarmupUsesStandardTtlForNewContentAndTheNextViewerReusesIt() {
+        content.setPlayCount(0L);
+        when(understandingRows.selectById(1L)).thenReturn(new ContentUnderstanding().setReceived(true).setSummary("预热摘要"));
+        ContentResourceWarmupLoader eligible = mock(ContentResourceWarmupLoader.class);
+        when(eligible.loadIfEligible(1L)).thenReturn(content);
+        var warmMetrics = new SimpleMeterRegistry();
+        try {
+            var warmup = new ContentResourceWarmup(Runnable::run, Runnable::run, new ContentResourceWarmupProperties(), eligible,
+                    resources, understanding, cache, warmMetrics);
+
+            warmup.submit(1L);
+
+            assertEquals(Set.of(ContentResourceRegion.CONTENT_MEDIA.key("1"), ContentResourceRegion.UNDERSTANDING.key("1")),
+                    entries.keySet());
+            assertTtl(ContentResourceRegion.CONTENT_MEDIA.key("1"), 1440000, 1800000);
+            assertTtl(ContentResourceRegion.UNDERSTANDING.key("1"), 1440000, 1800000);
+            verifyNoInteractions(values);
+            verify(redis).executePipelined(any(RedisCallback.class));
+            verify(values, never()).set(anyString(), anyString(), any(Duration.class));
+            assertTrue(entries.values().stream().noneMatch(payload -> payload.contains("playbackToken")));
+            verifyNoInteractions(storage);
+            assertEquals("预热摘要", reads.detail(1L, 9L).getSummary());
+            verify(videos).selectById(1L);
+            verify(understandingRows).selectById(1L);
+        } finally {
+            warmMetrics.close();
+        }
+    }
+
+    @Test
+    void authorWarmupRefreshesExistingShortEntriesWithStandardTtl() {
+        content.setPlayCount(0L);
+        when(understandingRows.selectById(1L)).thenReturn(new ContentUnderstanding().setReceived(true).setSummary("摘要"));
+        reads.detail(1L, 9L);
+        Duration mediaTtl = ttls.get(ContentResourceRegion.CONTENT_MEDIA.key("1"));
+        Duration understandingTtl = ttls.get(ContentResourceRegion.UNDERSTANDING.key("1"));
+        clearInvocations(values, videos, understandingRows, redis);
+        ContentResourceWarmupLoader eligible = mock(ContentResourceWarmupLoader.class);
+        when(eligible.loadIfEligible(1L)).thenReturn(content);
+        var warmMetrics = new SimpleMeterRegistry();
+        try {
+            var warmup = new ContentResourceWarmup(Runnable::run, Runnable::run, new ContentResourceWarmupProperties(), eligible,
+                    resources, understanding, cache, warmMetrics);
+
+            warmup.submit(1L);
+
+            assertTtl(ContentResourceRegion.CONTENT_MEDIA.key("1"), 1440000, 1800000);
+            assertTtl(ContentResourceRegion.UNDERSTANDING.key("1"), 1440000, 1800000);
+            assertTrue(ttls.get(ContentResourceRegion.CONTENT_MEDIA.key("1")).compareTo(mediaTtl) > 0);
+            assertTrue(ttls.get(ContentResourceRegion.UNDERSTANDING.key("1")).compareTo(understandingTtl) > 0);
+            verify(values, never()).set(anyString(), anyString(), any(Duration.class));
+            verify(redis, never()).delete(anyString());
+            verify(videos).selectById(1L);
+            verify(understandingRows).selectById(1L);
+            verifyNoInteractions(values);
+        } finally {
+            warmMetrics.close();
+        }
     }
 
     @Test

@@ -26,9 +26,13 @@ my-youtube:
     # 启动后及每轮落库完成后等待的间隔；默认 1 分钟，单位毫秒。
     flush-interval-ms: ${CONTENT_PLAY_COUNT_FLUSH_INTERVAL_MS:60000}
   content-resource-cache:
-    # 累计播放量达到门槛使用常规产物 TTL，否则使用短 TTL；0 表示全部使用常规 TTL。
+    # 普通读取达到累计播放量门槛使用常规产物 TTL，否则使用短 TTL；0 表示全部使用常规 TTL。
+    # 大 V 发布预热不受播放量门槛限制，使用常规产物 TTL。
     artifact-min-play-count: ${CONTENT_RESOURCE_CACHE_MIN_PLAY_COUNT:100}
     short-artifact-ttl-seconds: ${CONTENT_RESOURCE_CACHE_SHORT_TTL_SECONDS:60}
+    warmup:
+      enabled: ${CONTENT_RESOURCE_CACHE_WARMUP_ENABLED:true}
+      min-fans: ${CONTENT_RESOURCE_CACHE_WARMUP_MIN_FANS:10000}
   audio-cascade:
     scan-interval-ms: 300000
     batch-size: 200
