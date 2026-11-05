@@ -2,6 +2,8 @@ package cn.diaojiahong.myyoutube.video.domain.po;
 
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.Data;
 import lombok.experimental.Accessors;
 
@@ -10,13 +12,13 @@ import lombok.experimental.Accessors;
 @TableName("content_publication_event")
 public class ContentPublicationEvent {
     @TableId(type = IdType.ASSIGN_ID)
-    @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.ser.std.ToStringSerializer.class)
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
 
-    @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.ser.std.ToStringSerializer.class)
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long contentId;
 
-    @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.ser.std.ToStringSerializer.class)
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long authorId;
     private ContentStatusEnum status;
     private Long audioId;
