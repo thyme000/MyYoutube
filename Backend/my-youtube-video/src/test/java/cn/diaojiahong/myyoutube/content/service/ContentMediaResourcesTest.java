@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.content.service;
 
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
+import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource.Snapshot;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.media.ContentMedia;
@@ -170,7 +171,10 @@ class ContentMediaResourcesTest {
     @Test
     void authorWarmupUsesStandardTtlForNewContentAndTheNextViewerReusesIt() {
         content.setPlayCount(0L);
-        when(understandingRows.selectById(1L)).thenReturn(new ContentUnderstanding().setReceived(true).setSummary("预热摘要"));
+        String subtitleKey = "subtitles/warmed.vtt";
+        ContentArtifacts.Chapter chapter = new ContentArtifacts.Chapter(100, "预热章节");
+        Snapshot snapshot = new Snapshot(true, "预热摘要", JsonUtil.toJson(List.of(chapter)), subtitleKey);
+        when(storage.readObject(eq(subtitleKey), any(Duration.class))).thenReturn("WEBVTT".getBytes(StandardCharsets.UTF_8));
         ContentResourceWarmupLoader eligible = mock(ContentResourceWarmupLoader.class);
         when(eligible.loadIfEligible(1L)).thenReturn(content);
         var warmMetrics = new SimpleMeterRegistry();
@@ -178,20 +182,30 @@ class ContentMediaResourcesTest {
             var warmup = new ContentResourceWarmup(Runnable::run, Runnable::run, new ContentResourceWarmupProperties(), eligible,
                     resources, understanding, cache, warmMetrics);
 
-            warmup.submit(1L);
+            warmup.submit(1L, snapshot);
 
-            assertEquals(Set.of(ContentResourceRegion.CONTENT_MEDIA.key("1"), ContentResourceRegion.UNDERSTANDING.key("1")),
+            assertEquals(Set.of(ContentResourceRegion.CONTENT_MEDIA.key("1"), ContentResourceRegion.UNDERSTANDING.key("1"),
+                    ContentResourceRegion.PLAYLIST.key(playlistKey), ContentResourceRegion.SUBTITLE.key(subtitleKey)),
                     entries.keySet());
-            assertTtl(ContentResourceRegion.CONTENT_MEDIA.key("1"), 1440000, 1800000);
-            assertTtl(ContentResourceRegion.UNDERSTANDING.key("1"), 1440000, 1800000);
+            entries.keySet().forEach(key -> assertTtl(key, 1440000, 1800000));
+            assertEquals(JsonUtil.toJson(rawPlaylist), entries.get(ContentResourceRegion.PLAYLIST.key(playlistKey)));
+            assertEquals(JsonUtil.toJson("WEBVTT"), entries.get(ContentResourceRegion.SUBTITLE.key(subtitleKey)));
             verifyNoInteractions(values);
-            verify(redis).executePipelined(any(RedisCallback.class));
+            verify(redis, times(2)).executePipelined(any(RedisCallback.class));
             verify(values, never()).set(anyString(), anyString(), any(Duration.class));
             assertTrue(entries.values().stream().noneMatch(payload -> payload.contains("playbackToken")));
-            verifyNoInteractions(storage);
-            assertEquals("预热摘要", reads.detail(1L, 9L).getSummary());
+            verify(storage).readObject(playlistKey, Duration.ofSeconds(10));
+            verify(storage).readObject(subtitleKey, Duration.ofSeconds(10));
+            verifyNoMoreInteractions(storage);
+
+            ContentDetailVO detail = reads.detail(1L, 9L);
+            assertEquals("预热摘要", detail.getSummary());
+            assertEquals(List.of(chapter), detail.getChapters());
+            assertTrue(streams.playlist(1L, 720, 9L, ticket(9)).contains("https://signed.example/"));
+            assertEquals("WEBVTT", reads.subtitles(1L, 9L));
+            verify(storage, times(2)).readObject(anyString(), any(Duration.class));
             verify(videos).selectById(1L);
-            verify(understandingRows).selectById(1L);
+            verifyNoInteractions(understandingRows);
         } finally {
             warmMetrics.close();
         }
@@ -212,7 +226,7 @@ class ContentMediaResourcesTest {
             var warmup = new ContentResourceWarmup(Runnable::run, Runnable::run, new ContentResourceWarmupProperties(), eligible,
                     resources, understanding, cache, warmMetrics);
 
-            warmup.submit(1L);
+            warmup.submit(1L, new Snapshot(true, "摘要", null, null));
 
             assertTtl(ContentResourceRegion.CONTENT_MEDIA.key("1"), 1440000, 1800000);
             assertTtl(ContentResourceRegion.UNDERSTANDING.key("1"), 1440000, 1800000);
@@ -221,7 +235,7 @@ class ContentMediaResourcesTest {
             verify(values, never()).set(anyString(), anyString(), any(Duration.class));
             verify(redis, never()).delete(anyString());
             verify(videos).selectById(1L);
-            verify(understandingRows).selectById(1L);
+            verifyNoInteractions(understandingRows);
             verifyNoInteractions(values);
         } finally {
             warmMetrics.close();

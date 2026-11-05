@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 后台任务刻意绕过 CONTENT_STATE 缓存，重新查库检查发布后的可访问性。
- * 发布回调只传 id，不携带提交前的内容对象或登录上下文。
+ * 审核快照只用于理解产物预热，资格检查使用当前内容和音频状态。
  */
 @Service
 @RequiredArgsConstructor

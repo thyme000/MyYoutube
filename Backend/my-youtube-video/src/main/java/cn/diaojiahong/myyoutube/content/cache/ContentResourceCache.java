@@ -56,17 +56,23 @@ public class ContentResourceCache implements ContentResourceReader {
      * 不检查已有缓存；并发尝试取锁，成功项并行加载，再由当前线程汇总并 pipeline 覆盖写入。
      * 锁竞争或 Redis 取锁故障均不加载该资源；覆盖写入会刷新 TTL。
      * loaderExecutor 必须与运行本方法的线程池独立；子任务仅返回结果，不修改批次状态。
-     * 已获取的锁持有到全部加载和写入结束；成功项写入、锁释放后才统一上报资源加载失败。
+     * 已获取的锁持有到全部加载和写入结束；释放后返回已加载的值及汇总的失败。
      * 取锁与解锁显式使用同一 ownerId，各阶段发出全部请求后统一等待；普通读取仍使用同步锁 API。
      * 多项写入不保证原子性；后续产物加载失败时，仍尽力写入此前成功加载的产物。
+     *
+     * @throws DependencyException 批次线程被中断时，等待已发出的操作结束并尝试释放已取得的锁后抛出，
+     *         保留线程中断标记。
      */
-    public void warmupTogether(String resourceId, Executor loaderExecutor,
-            WarmupResource<?>... resources) {
-        List<String> keys = Arrays.stream(resources).map(resource -> resource.region().key(resourceId)).distinct().toList();
-        var batch = new WarmupBatch();
+    public WarmupResult warmupTogether(Executor loaderExecutor, WarmupResource<?>... resources) {
+        Map<String, WarmupResource<?>> byKey = new LinkedHashMap<>();
+        for (WarmupResource<?> resource : resources) {
+            byKey.putIfAbsent(resource.key(), resource);
+        }
+
+        WarmupBatch batch = new WarmupBatch();
         try {
-            batch.acquireLocks(keys);
-            batch.loadResources(resourceId, loaderExecutor, resources);
+            batch.acquireLocks(byKey.keySet());
+            batch.loadResources(loaderExecutor, byKey);
         } finally {
             try {
                 batch.flush();
@@ -74,7 +80,22 @@ public class ContentResourceCache implements ContentResourceReader {
                 batch.releaseLocks();
             }
         }
-        batch.throwIfFailed(resourceId, resources);
+        return batch.result(byKey);
+    }
+
+    /**
+     * @param loaded 本批成功加载的值，与 Redis 是否写入成功无关；映射、键和值均不得为 null
+     * @param failure 批次内汇总的单项失败；无失败时为 null
+     */
+    public record WarmupResult(Map<String, Object> loaded, ContentResourceWarmupException failure) {
+        public WarmupResult {
+            loaded = Map.copyOf(loaded);
+        }
+
+        /** 跳过、加载失败或加载到 null 时均返回 null；正常加载到 null 仍按负缓存处理。 */
+        public <T> T value(WarmupResource<T> resource, Class<T> type) {
+            return type.cast(loaded.get(resource.key()));
+        }
     }
 
     /**
@@ -289,7 +310,7 @@ public class ContentResourceCache implements ContentResourceReader {
         private final Map<String, CompletableFuture<?>> results = new LinkedHashMap<>();
         private final List<PendingWrite> writes = new ArrayList<>();
 
-        private void acquireLocks(List<String> keys) {
+        private void acquireLocks(Set<String> keys) {
             for (String key : keys) {
                 acquisitions.put(key, acquireAsync(key));
             }
@@ -367,12 +388,12 @@ public class ContentResourceCache implements ContentResourceReader {
             awaitAll(releases);
         }
 
-        private void loadResources(String id, Executor executor, WarmupResource<?>[] resources) {
-            for (WarmupResource<?> resource : resources) {
-                String key = resource.region().key(id);
+        private void loadResources(Executor executor, Map<String, WarmupResource<?>> resources) {
+            for (Map.Entry<String, WarmupResource<?>> entry : resources.entrySet()) {
+                String key = entry.getKey();
                 try {
                     awaitLock(key);
-                    results.put(key, loadAsync(resource, executor));
+                    results.put(key, loadAsync(entry.getValue(), executor));
                 } catch (RuntimeException failure) {
                     results.put(key, CompletableFuture.failedFuture(failure));
                 }
@@ -380,8 +401,9 @@ public class ContentResourceCache implements ContentResourceReader {
             awaitAll(results.values());
             checkInterrupted();
 
-            for (WarmupResource<?> resource : resources) {
-                String key = resource.region().key(id);
+            for (Map.Entry<String, WarmupResource<?>> entry : resources.entrySet()) {
+                String key = entry.getKey();
+                WarmupResource<?> resource = entry.getValue();
                 CompletableFuture<?> result = results.get(key);
                 if (!result.isCompletedExceptionally()) {
                     stage(key, resource.region(), result.getNow(null), resource.policy());
@@ -394,26 +416,27 @@ public class ContentResourceCache implements ContentResourceReader {
                     () -> loadFromSource(resource.region(), resource.policy(), resource.loader()), executor);
         }
 
-        private void throwIfFailed(String id, WarmupResource<?>[] resources) {
+        private WarmupResult result(Map<String, WarmupResource<?>> resources) {
+            Map<String, Object> loaded = new HashMap<>();
             ContentResourceWarmupException firstFailure = null;
-            for (WarmupResource<?> resource : resources) {
-                CompletableFuture<?> result = results.get(resource.region().key(id));
-                if (result.isCompletedExceptionally()) {
-                    try {
-                        result.join();
-                    } catch (CompletionException failure) {
-                        var resourceFailure = new ContentResourceWarmupException(resource.region(), failure.getCause());
-                        if (firstFailure == null) {
-                            firstFailure = resourceFailure;
-                        } else {
-                            firstFailure.addSuppressed(resourceFailure);
-                        }
+            for (Map.Entry<String, WarmupResource<?>> entry : resources.entrySet()) {
+                String key = entry.getKey();
+                try {
+                    Object value = results.get(key).join();
+                    if (value != null) {
+                        loaded.put(key, value);
+                    }
+                } catch (CompletionException failure) {
+                    ContentResourceWarmupException resourceFailure = new ContentResourceWarmupException(
+                        entry.getValue().region(), failure.getCause());
+                    if (firstFailure == null) {
+                        firstFailure = resourceFailure;
+                    } else {
+                        firstFailure.addSuppressed(resourceFailure);
                     }
                 }
             }
-            if (firstFailure != null) {
-                throw firstFailure;
-            }
+            return new WarmupResult(loaded, firstFailure);
         }
 
         private void stage(String key, ContentResourceRegion region, Object value, FillPolicy policy) {

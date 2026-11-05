@@ -1,27 +1,36 @@
 package cn.diaojiahong.myyoutube.content.service;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.media.VideoPlayback;
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceBusyException;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache.WarmupResult;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCacheConfiguration;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceLockUnavailableException;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceWarmupException;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceWarmupProperties;
+import cn.diaojiahong.myyoutube.content.cache.WarmupResource;
+import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
+import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource.Snapshot;
+import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 
 /**
- * 发布提交后尽力异步预热 CONTENT_MEDIA、UNDERSTANDING 元数据；不预热清单、字幕正文和访问状态。
+ * 发布提交后异步预热元数据，再按本轮加载结果预热分档清单和字幕正文；各阶段内并行回源。
  * 大 V 发布预热不受累计播放量门槛限制，使用 STANDARD 覆盖产物并刷新 TTL，不签发用户票据。
  * 已有请求加载时直接跳过；排队满或进程退出丢失的任务由正常读取补缓存。
  */
@@ -54,14 +63,14 @@ public class ContentResourceWarmup {
     }
 
     /** 仅供发布事务的 afterCommit 调用；预热任务提交失败不影响发布结果。 */
-    public void submit(Long id) {
+    public void submit(Long id, Snapshot understandingSnapshot) {
         if (!properties.isEnabled()) {
             skipped(SkipReason.DISABLED);
             return;
         }
 
         try {
-            executor.execute(() -> warm(id));
+            executor.execute(() -> warm(id, understandingSnapshot));
             record(MetricNames.CONTENT_CACHE_WARMUP_SUBMITTED);
         } catch (RejectedExecutionException rejected) {
             skipped(SkipReason.EXECUTOR_REJECTED);
@@ -72,19 +81,34 @@ public class ContentResourceWarmup {
         }
     }
 
-    private void warm(Long id) {
+    private void warm(Long id, Snapshot understandingSnapshot) {
         try {
             Content content = eligibleContent(id);
             if (content == null) {
                 return;
             }
 
-            cache.warmupTogether(id.toString(), loaderExecutor,
-                    media.warmupResource(content, FillPolicy.STANDARD), understanding.warmupResource(id, FillPolicy.STANDARD));
+            WarmupResource<ContentMediaResource> mediaResource = media.warmupResource(content, FillPolicy.STANDARD);
+            WarmupResource<ContentUnderstandingResource> understandingResource = understanding
+                .warmupResource(id, understandingSnapshot, FillPolicy.STANDARD);
+            WarmupResult metadata = cache.warmupTogether(loaderExecutor, mediaResource, understandingResource);
+
+            ContentResourceWarmupException failure = warmTexts(
+                    metadata.value(mediaResource, ContentMediaResource.class),
+                    metadata.value(understandingResource, ContentUnderstandingResource.class));
+            if (metadata.failure() != null) {
+                if (failure != null) {
+                    metadata.failure().addSuppressed(failure);
+                }
+                failure = metadata.failure();
+            }
+            if (failure != null) {
+                failedResource(id, failure);
+                return;
+            }
+
             // null 仍按负缓存处理，不重复校验资源完整性；实际写入结果由缓存填充指标区分。
             record(MetricNames.CONTENT_CACHE_WARMUP_READ_COMPLETED);
-        } catch (ContentResourceWarmupException failure) {
-            failedResource(id, failure);
         } catch (RejectedExecutionException rejected) {
             skipped(SkipReason.EXECUTOR_REJECTED);
         } catch (RuntimeException failure) {
@@ -94,6 +118,27 @@ public class ContentResourceWarmup {
             }
             failed(id, failure);
         }
+    }
+
+    private ContentResourceWarmupException warmTexts(ContentMediaResource loadedMedia,
+            ContentUnderstandingResource loadedUnderstanding) {
+        List<WarmupResource<?>> texts = new ArrayList<>();
+        if (loadedMedia != null && loadedMedia.playback() != null) {
+            loadedMedia.playback().renditions().stream()
+                    .map(VideoPlayback.Rendition::playlistObjectKey)
+                    .filter(StringUtils::hasText)
+                    .distinct()
+                    .map(key -> media.warmupPlaylist(key, FillPolicy.STANDARD))
+                    .forEach(texts::add);
+        }
+        if (loadedUnderstanding != null && StringUtils.hasText(loadedUnderstanding.subtitleKey())) {
+            texts.add(media.warmupSubtitle(loadedUnderstanding.subtitleKey(), FillPolicy.STANDARD));
+        }
+        if (texts.isEmpty()) {
+            return null;
+        }
+
+        return cache.warmupTogether(loaderExecutor, texts.toArray(WarmupResource<?>[]::new)).failure();
     }
 
     private Content eligibleContent(Long id) {
@@ -113,20 +158,25 @@ public class ContentResourceWarmup {
     }
 
     private void failedResource(Long id, ContentResourceWarmupException failure) {
-        SkipReason reason = skipReason(failure);
-        if (reason != null) {
-            for (Throwable other : failure.getSuppressed()) {
-                if (other instanceof ContentResourceWarmupException resourceFailure && skipReason(resourceFailure) == null) {
-                    reason = null;
-                    break;
-                }
-            }
-        }
+        SkipReason reason = batchSkipReason(failure);
         if (reason == null) {
             failed(id, failure);
         } else {
             skipped(reason);
         }
+    }
+
+    private SkipReason batchSkipReason(ContentResourceWarmupException failure) {
+        SkipReason reason = skipReason(failure);
+        if (reason == null) {
+            return null;
+        }
+        for (Throwable other : failure.getSuppressed()) {
+            if (other instanceof ContentResourceWarmupException resourceFailure && batchSkipReason(resourceFailure) == null) {
+                return null;
+            }
+        }
+        return reason;
     }
 
     private SkipReason skipReason(ContentResourceWarmupException failure) {

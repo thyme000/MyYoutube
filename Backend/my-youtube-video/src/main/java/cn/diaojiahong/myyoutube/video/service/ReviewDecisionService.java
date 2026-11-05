@@ -24,6 +24,7 @@ import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.content.service.ContentStatisticsService;
 import cn.diaojiahong.myyoutube.content.service.ContentResourceWarmup;
+import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource.Snapshot;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -66,7 +67,7 @@ public class ReviewDecisionService {
                 || !Boolean.TRUE.equals(row.getReceived())
                 || row.getState() != ContentReviewState.MANUAL_PENDING)
             throw new BizException(ErrorCode.STATE_CONFLICT, "内容尚未转交人工审核");
-        boolean changed = transition(id, pass ? ContentStatusEnum.PUBLISHED : ContentStatusEnum.BANNED, reason, false);
+        boolean changed = transition(id, row, pass ? ContentStatusEnum.PUBLISHED : ContentStatusEnum.BANNED, reason, false);
         if (!changed) return false;
         records.insert(new ContentReviewRecord().setContentId(id).setPipelineId(row.getPipelineId())
                 .setAttempt(row.getReviewAttempt()).setSource(ContentReviewSource.MANUAL).setDecision(pass ? ContentReviewDecision.PASS : ContentReviewDecision.REJECT)
@@ -97,7 +98,7 @@ public class ReviewDecisionService {
         records.insert(record(row, verdict, attempt));
         boolean pass = verdict.passes(properties.getMaxRisk(), properties.getMinConfidence())
                 && properties.isAutoReview();
-        if (pass && !transition(id, ContentStatusEnum.PUBLISHED, verdict.reason(), false)) {
+        if (pass && !transition(id, row, ContentStatusEnum.PUBLISHED, verdict.reason(), false)) {
             understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>().eq(
                     ContentUnderstanding::getContentId,
                     id)
@@ -274,7 +275,7 @@ public class ReviewDecisionService {
                 || actor == null) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "必须填写封禁理由");
         }
-        boolean changed = transition(id, ContentStatusEnum.BANNED, reason, true);
+        boolean changed = transition(id, row, ContentStatusEnum.BANNED, reason, true);
         if (changed) {
             records.insert(new ContentReviewRecord().setContentId(id).setPipelineId(row == null ? null : row.getPipelineId()).setAttempt(0).setSource(ContentReviewSource.MANUAL)
                     .setDecision(ContentReviewDecision.BAN).setReason(reason).setActorId(actor).setCreateTime(LocalDateTime.now()));
@@ -306,6 +307,7 @@ public class ReviewDecisionService {
         String reason = "关联音频已被封禁，audioId=" + audio.getId();
         if (!transitionLocked(
                 content,
+                row,
                 ContentStatusEnum.BANNED,
                 reason,
                 content.getStatus() == ContentStatusEnum.PUBLISHED)) {
@@ -348,14 +350,15 @@ public class ReviewDecisionService {
         return understanding.selectOne(new LambdaQueryWrapper<ContentUnderstanding>().eq(ContentUnderstanding::getContentId, id).last("FOR UPDATE"));
     }
 
-    private boolean transition(Long id, ContentStatusEnum target, String reason, boolean publishedBan) {
+    private boolean transition(Long id, ContentUnderstanding row, ContentStatusEnum target, String reason, boolean publishedBan) {
         Content content = contents.getBaseMapper()
                 .selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, id).last("FOR UPDATE"));
-        return transitionLocked(content, target, reason, publishedBan);
+        return transitionLocked(content, row, target, reason, publishedBan);
     }
 
     // 当前审核发布的统一出口；新增发布路径时须同步接入提交后的缓存预热。
-    private boolean transitionLocked(Content content, ContentStatusEnum target, String reason, boolean publishedBan) {
+    private boolean transitionLocked(Content content, ContentUnderstanding row, ContentStatusEnum target,
+            String reason, boolean publishedBan) {
         ContentStatusEnum expected = publishedBan ? ContentStatusEnum.PUBLISHED : ContentStatusEnum.REVIEW;
         if (content == null
                 || Integer.valueOf(1).equals(content.getIsDelete())
@@ -380,11 +383,12 @@ public class ReviewDecisionService {
                 .setAudioId(content.getAudioId()).setAudioCountDone(!countAudio)
                 .setReason(reason).setSearchDone(false).setNoticeDone(false).setCompleted(false);
         events.insert(event);
+        Snapshot understandingSnapshot = target == ContentStatusEnum.PUBLISHED ? Snapshot.from(row) : null;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                if (target == ContentStatusEnum.PUBLISHED) {
-                    cacheWarmup.submit(id);
+                if (understandingSnapshot != null) {
+                    cacheWarmup.submit(id, understandingSnapshot);
                 }
                 effects.trigger(event.getId());
             }

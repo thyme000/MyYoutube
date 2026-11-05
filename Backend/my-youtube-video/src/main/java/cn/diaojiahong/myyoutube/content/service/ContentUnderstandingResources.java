@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.cache.WarmupResource;
 import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
+import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource.Snapshot;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -20,8 +21,8 @@ import org.springframework.stereotype.Service;
 public class ContentUnderstandingResources {
     private final ContentUnderstandingResourceLoader loader;
 
-    public WarmupResource<ContentUnderstandingResource> warmupResource(Long id, FillPolicy policy) {
-        return new WarmupResource<>(ContentResourceRegion.UNDERSTANDING, () -> loader.load(id), policy);
+    public WarmupResource<ContentUnderstandingResource> warmupResource(Long id, Snapshot snapshot, FillPolicy policy) {
+        return new WarmupResource<>(ContentResourceRegion.UNDERSTANDING, id.toString(), snapshot::toResource, policy);
     }
 
     public ContentUnderstandingResource get(Long id, ContentResourceReader reader, FillPolicy policy) {

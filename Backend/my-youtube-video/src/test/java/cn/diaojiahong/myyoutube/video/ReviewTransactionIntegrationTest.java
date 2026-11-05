@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.video;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
+import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource.Snapshot;
 import cn.diaojiahong.myyoutube.content.service.ContentResourceWarmup;
 import cn.diaojiahong.myyoutube.content.service.ContentUnderstandingResourceLoader;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentReviewDecision;
@@ -299,16 +300,23 @@ class ReviewTransactionIntegrationTest {
                 .setSubmittedAt(LocalDateTime.now(ZoneOffset.UTC)));
     }
 
-    @Test
-    void warmupIsSubmittedOnlyAfterPublicationCommitAndNotForRepeatedApproval() {
-        state(ContentReviewState.AUTO_RUNNING);
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void warmupReceivesReviewedArtifactsOnlyAfterPublicationCommit(boolean automatic) {
+        state(automatic ? ContentReviewState.AUTO_RUNNING : ContentReviewState.MANUAL_PENDING);
+        String chaptersJson = JsonUtil.toJson(List.of(new ContentArtifacts.Chapter(100, "缓存概览")));
+        Snapshot snapshot = new Snapshot(true, "审核通过的摘要", chaptersJson, "subtitle.vtt");
+        jdbc.update("UPDATE content_understanding SET summary=?, chapters_json=?, subtitle_key=? WHERE content_id=?",
+                snapshot.summary(), snapshot.chaptersJson(), snapshot.subtitleKey(), 1L);
 
         tx.executeWithoutResult(status -> {
-            assertTrue(decisions.machine(1L, 1, verdict("PASS")));
+            boolean approved = automatic ? decisions.machine(1L, 1, verdict("PASS"))
+                    : decisions.manual(1L, true, "通过", 9L);
+            assertTrue(approved);
             verifyNoInteractions(cacheWarmup);
         });
 
-        verify(cacheWarmup).submit(1L);
+        verify(cacheWarmup).submit(1L, snapshot);
         assertFalse(decisions.machine(1L, 1, verdict("PASS")));
         verifyNoMoreInteractions(cacheWarmup);
     }

@@ -39,7 +39,16 @@ public class ContentMediaResources {
     private final S3StorageUtil storage;
 
     public WarmupResource<ContentMediaResource> warmupResource(Content content, FillPolicy policy) {
-        return new WarmupResource<>(ContentResourceRegion.CONTENT_MEDIA, () -> loader.load(content), policy);
+        return new WarmupResource<>(ContentResourceRegion.CONTENT_MEDIA, content.getId().toString(),
+                () -> loader.load(content), policy);
+    }
+
+    WarmupResource<String> warmupPlaylist(String objectKey, FillPolicy policy) {
+        return new WarmupResource<>(ContentResourceRegion.PLAYLIST, objectKey, () -> readText(objectKey), policy);
+    }
+
+    WarmupResource<String> warmupSubtitle(String objectKey, FillPolicy policy) {
+        return new WarmupResource<>(ContentResourceRegion.SUBTITLE, objectKey, () -> readText(objectKey), policy);
     }
 
     public ContentMediaResource media(Content content, ContentResourceReader reader, FillPolicy policy) {

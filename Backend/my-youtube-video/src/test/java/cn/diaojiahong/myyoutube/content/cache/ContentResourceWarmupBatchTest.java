@@ -115,6 +115,25 @@ class ContentResourceWarmupBatchTest {
     }
 
     @Test
+    void warmupUsesIndependentLocksAndPayloadsForTwoKeysInTheSameRegion() {
+        WarmupResource<String> first = new WarmupResource<>(
+                ContentResourceRegion.PLAYLIST, "720.m3u8", () -> "720p", FillPolicy.STANDARD);
+        WarmupResource<String> second = new WarmupResource<>(
+                ContentResourceRegion.PLAYLIST, "1080.m3u8", () -> "1080p", FillPolicy.STANDARD);
+        when(redisson.getLock("lock:" + first.key())).thenReturn(mediaLock);
+        when(redisson.getLock("lock:" + second.key())).thenReturn(understandingLock);
+
+        ContentResourceCache.WarmupResult result = cache.warmupTogether(Runnable::run, first, second);
+
+        assertNull(result.failure());
+        assertEquals("720p", result.value(first, String.class));
+        assertEquals("1080p", result.value(second, String.class));
+        assertEquals(Map.of(first.key(), JsonUtil.toJson("720p"), second.key(), JsonUtil.toJson("1080p")), written);
+        verify(redis).executePipelined(any(RedisCallback.class));
+        assertReleased();
+    }
+
+    @Test
     void refreshesWithoutCacheReadsAndHoldsBothLocksUntilFlush() {
         when(mediaLoader.get()).thenAnswer(call -> {
             assertTrue(mediaHeld.get());
@@ -639,9 +658,12 @@ class ContentResourceWarmupBatchTest {
     }
 
     private void prepare(Executor executor) {
-        cache.warmupTogether(id, executor,
-                new WarmupResource<>(ContentResourceRegion.CONTENT_MEDIA, mediaLoader, FillPolicy.STANDARD),
-                new WarmupResource<>(ContentResourceRegion.UNDERSTANDING, understandingLoader, FillPolicy.STANDARD));
+        ContentResourceCache.WarmupResult result = cache.warmupTogether(executor,
+                new WarmupResource<>(ContentResourceRegion.CONTENT_MEDIA, id, mediaLoader, FillPolicy.STANDARD),
+                new WarmupResource<>(ContentResourceRegion.UNDERSTANDING, id, understandingLoader, FillPolicy.STANDARD));
+        if (result.failure() != null) {
+            throw result.failure();
+        }
     }
 
     private void assertReleased() {

@@ -192,15 +192,15 @@ class LiveContentResourceCacheTest {
             }));
             assertTrue(loading.await(5, TimeUnit.SECONDS));
 
-            ContentResourceWarmupException failure = assertThrows(ContentResourceWarmupException.class,
-                    () -> second.warmupTogether(resourceId, Runnable::run,
-                            new WarmupResource<>(ContentResourceRegion.PLAYLIST, () -> {
-                                warmupLoads.incrementAndGet();
-                                return "warmup-loaded";
-                            }, FillPolicy.STANDARD),
-                            new WarmupResource<>(ContentResourceRegion.UNDERSTANDING,
-                                    () -> "independent", FillPolicy.STANDARD)));
-            assertInstanceOf(ContentResourceBusyException.class, failure.getCause());
+            ContentResourceCache.WarmupResult result = second.warmupTogether(Runnable::run,
+                    new WarmupResource<>(ContentResourceRegion.PLAYLIST, resourceId, () -> {
+                        warmupLoads.incrementAndGet();
+                        return "warmup-loaded";
+                    }, FillPolicy.STANDARD),
+                    new WarmupResource<>(ContentResourceRegion.UNDERSTANDING, resourceId,
+                            () -> "independent", FillPolicy.STANDARD));
+            assertNotNull(result.failure());
+            assertInstanceOf(ContentResourceBusyException.class, result.failure().getCause());
 
             assertEquals(0, warmupLoads.get());
             assertFalse(owner.isDone());
@@ -223,8 +223,8 @@ class LiveContentResourceCacheTest {
         var loading = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         try {
-            Future<?> owner = pool.submit(() -> first.warmupTogether(resourceId, Runnable::run,
-                    new WarmupResource<>(ContentResourceRegion.PLAYLIST, () -> {
+            Future<ContentResourceCache.WarmupResult> owner = pool.submit(() -> first.warmupTogether(Runnable::run,
+                    new WarmupResource<>(ContentResourceRegion.PLAYLIST, resourceId, () -> {
                         loading.countDown();
                         await(release);
                         return "async-warmed";
@@ -236,7 +236,7 @@ class LiveContentResourceCacheTest {
                     () -> fail("async warmup watchdog must keep the lock")));
 
             release.countDown();
-            owner.get(5, TimeUnit.SECONDS);
+            assertNull(owner.get(5, TimeUnit.SECONDS).failure());
             assertFalse(secondClient.getLock("lock:" + keys.get(0)).isLocked());
             assertEquals("async-warmed", get(second, resourceId, () -> fail("warmup should have filled the cache")));
         } finally {
@@ -256,13 +256,13 @@ class LiveContentResourceCacheTest {
         ExecutorService parent = Executors.newSingleThreadExecutor();
         ExecutorService loaders = Executors.newFixedThreadPool(2);
         try {
-            Future<?> task = parent.submit(() -> first.warmupTogether(resourceId, loaders,
-                    new WarmupResource<>(ContentResourceRegion.CONTENT_MEDIA, () -> {
+            Future<ContentResourceCache.WarmupResult> task = parent.submit(() -> first.warmupTogether(loaders,
+                    new WarmupResource<>(ContentResourceRegion.CONTENT_MEDIA, resourceId, () -> {
                         started.countDown();
                         await(release);
                         return "media";
                     }, FillPolicy.STANDARD),
-                    new WarmupResource<>(ContentResourceRegion.UNDERSTANDING, () -> {
+                    new WarmupResource<>(ContentResourceRegion.UNDERSTANDING, resourceId, () -> {
                         started.countDown();
                         await(release);
                         return "understanding";
@@ -278,7 +278,7 @@ class LiveContentResourceCacheTest {
             }
 
             release.countDown();
-            task.get(5, TimeUnit.SECONDS);
+            assertNull(task.get(5, TimeUnit.SECONDS).failure());
             assertEquals("media", second.get(ContentResourceRegion.CONTENT_MEDIA, resourceId, String.class,
                     () -> fail("media should be cached"), FillPolicy.STANDARD));
             assertEquals("understanding", second.get(ContentResourceRegion.UNDERSTANDING, resourceId, String.class,
@@ -293,27 +293,26 @@ class LiveContentResourceCacheTest {
     }
 
     @Test
-    void warmupFlushesIndependentKeysBeforeUnlockingAndNormalReadersReuseThem() {
-        String mediaKey = ContentResourceRegion.CONTENT_MEDIA.key(resourceId);
-        String understandingKey = ContentResourceRegion.UNDERSTANDING.key(resourceId);
-        keys.add(mediaKey);
-        keys.add(understandingKey);
+    void warmupFlushesDistinctPlaylistsBeforeUnlockingAndNormalReadersReuseThem() {
+        String secondId = resourceId + ":1080p";
+        String firstKey = ContentResourceRegion.PLAYLIST.key(resourceId);
+        String secondKey = ContentResourceRegion.PLAYLIST.key(secondId);
+        keys.add(secondKey);
 
-        first.warmupTogether(resourceId, Runnable::run,
-                new WarmupResource<>(ContentResourceRegion.CONTENT_MEDIA, () -> "media", FillPolicy.STANDARD),
-                new WarmupResource<>(ContentResourceRegion.UNDERSTANDING, () -> {
-                    assertNull(secondRedis.opsForValue().get(mediaKey));
-                    assertNull(secondRedis.opsForValue().get(understandingKey));
-                    assertTrue(secondClient.getLock("lock:" + mediaKey).isLocked());
-                    assertTrue(secondClient.getLock("lock:" + understandingKey).isLocked());
-                    return "understanding";
+        ContentResourceCache.WarmupResult result = first.warmupTogether(Runnable::run,
+                new WarmupResource<>(ContentResourceRegion.PLAYLIST, resourceId, () -> "720p", FillPolicy.STANDARD),
+                new WarmupResource<>(ContentResourceRegion.PLAYLIST, secondId, () -> {
+                    assertNull(secondRedis.opsForValue().get(firstKey));
+                    assertNull(secondRedis.opsForValue().get(secondKey));
+                    assertTrue(secondClient.getLock("lock:" + firstKey).isLocked());
+                    assertTrue(secondClient.getLock("lock:" + secondKey).isLocked());
+                    return "1080p";
                 }, FillPolicy.STANDARD));
 
-        assertEquals("media", second.get(ContentResourceRegion.CONTENT_MEDIA, resourceId,
-                String.class, () -> fail("media should be cached"), FillPolicy.STANDARD));
-        assertEquals("understanding", second.get(ContentResourceRegion.UNDERSTANDING, resourceId,
-                String.class, () -> fail("understanding should be cached"), FillPolicy.STANDARD));
-        for (String key : List.of(mediaKey, understandingKey)) {
+        assertNull(result.failure());
+        assertEquals("720p", get(second, resourceId, () -> fail("first playlist should be cached")));
+        assertEquals("1080p", get(second, secondId, () -> fail("second playlist should be cached")));
+        for (String key : List.of(firstKey, secondKey)) {
             Long ttl = secondRedis.getExpire(key, TimeUnit.MILLISECONDS);
             assertNotNull(ttl);
             assertTrue(ttl >= 1439000 && ttl <= 1800000, "ttl=" + ttl);
