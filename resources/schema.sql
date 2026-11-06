@@ -52,6 +52,15 @@ CREATE TABLE IF NOT EXISTS `user_check_in` (
     KEY `idx_check_in_date_user` (`check_in_date`, `user_id`)
 ) ENGINE=InnoDB COMMENT='用户手动签到记录';
 
+CREATE TABLE IF NOT EXISTS `user_check_in_month_snapshot` (
+    `month_start` DATE NOT NULL PRIMARY KEY COMMENT '已结束月份的第一天',
+    `signed_users` BIGINT NOT NULL COMMENT '月内去重签到人数',
+    `check_ins` BIGINT NOT NULL COMMENT '月内签到总人次',
+    `year_signed_users` BIGINT DEFAULT NULL COMMENT '全年去重签到人数，仅12月快照保存',
+    `year_check_ins` BIGINT DEFAULT NULL COMMENT '全年签到总人次，仅12月快照保存',
+    `daily_counts` TEXT NOT NULL COMMENT '按日期顺序保存每日人数的 JSON 数组，含零签到日'
+) ENGINE=InnoDB COMMENT='签到月度统计快照';
+
 -- 初始用户, 密码明文: password (BCrypt)
 INSERT INTO `user` (`id`, `username`, `password`, `nickname`, `role`)
 VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'thyme', 'SUPER_ADMIN');

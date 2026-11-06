@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.user;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.filter.UserIdHeaderFilter;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
+import cn.diaojiahong.myyoutube.common.schedule.ScheduleRoundLock;
 import cn.diaojiahong.myyoutube.common.security.InternalApiCredentials;
 import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import cn.diaojiahong.myyoutube.user.api.UserCheckInStatisticsPort.Day;
@@ -13,9 +14,12 @@ import cn.diaojiahong.myyoutube.user.api.UserCheckInStatisticsPort.Yearly;
 import cn.diaojiahong.myyoutube.user.cache.UserCheckInBitmapCache;
 import cn.diaojiahong.myyoutube.user.controller.InternalUserCheckInStatisticsController;
 import cn.diaojiahong.myyoutube.user.controller.UserCheckInController;
+import cn.diaojiahong.myyoutube.user.domain.po.UserCheckInMonthSnapshot;
 import cn.diaojiahong.myyoutube.user.domain.vo.CheckInHeatmapVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.CheckInStatusVO;
 import cn.diaojiahong.myyoutube.user.mapper.UserCheckInMapper;
+import cn.diaojiahong.myyoutube.user.mapper.UserCheckInMonthSnapshotMapper;
+import cn.diaojiahong.myyoutube.user.schedule.UserCheckInStatisticsJob;
 import cn.diaojiahong.myyoutube.user.service.UserCheckInService;
 import cn.diaojiahong.myyoutube.user.service.UserCheckInStatisticsService;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
@@ -41,14 +45,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -63,6 +72,8 @@ class UserCheckInIntegrationTest {
     private static final String INTERNAL_TOKEN = "check-in-test-token";
     private JdbcTemplate jdbc;
     private StringRedisTemplate redis;
+    private UserCheckInMapper checkIns;
+    private UserCheckInMonthSnapshotMapper snapshots;
     private UserCheckInService service;
     private UserCheckInStatisticsService statistics;
     private MockMvc mvc;
@@ -73,21 +84,24 @@ class UserCheckInIntegrationTest {
                 "jdbc:h2:mem:check-in-" + UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
         jdbc = new JdbcTemplate(dataSource);
         String schema = Files.readString(Path.of("../../resources/schema.sql"));
-        int start = schema.indexOf("CREATE TABLE IF NOT EXISTS `user_check_in`");
-        jdbc.execute(schema.substring(start, schema.indexOf(';', start) + 1));
+        jdbc.execute(tableDdl(schema, "user_check_in"));
+        jdbc.execute(tableDdl(schema, "user_check_in_month_snapshot"));
 
         var factoryBean = new MybatisSqlSessionFactoryBean();
         factoryBean.setDataSource(dataSource);
         factoryBean.setMapperLocations(new ClassPathResource("mapper/UserCheckInMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
-        UserCheckInMapper mapper = new SqlSessionTemplate(factory).getMapper(UserCheckInMapper.class);
+        factory.getConfiguration().addMapper(UserCheckInMonthSnapshotMapper.class);
+        var session = new SqlSessionTemplate(factory);
+        checkIns = session.getMapper(UserCheckInMapper.class);
+        snapshots = session.getMapper(UserCheckInMonthSnapshotMapper.class);
         redis = mock(StringRedisTemplate.class);
         when(redis.execute(any(RedisScript.class), anyList(), anyString()))
                 .thenThrow(new RedisConnectionFailureException("Redis unavailable"));
         when(redis.execute(any(RedisCallback.class)))
                 .thenThrow(new RedisConnectionFailureException("Redis unavailable"));
-        service = new UserCheckInService(mapper, new UserCheckInBitmapCache(redis));
-        statistics = new UserCheckInStatisticsService(mapper);
+        service = new UserCheckInService(checkIns, new UserCheckInBitmapCache(redis));
+        statistics = new UserCheckInStatisticsService(checkIns, snapshots);
 
         var filter = new UserIdHeaderFilter(new ObjectMapper());
         ReflectionTestUtils.setField(filter, "internalToken", INTERNAL_TOKEN);
@@ -96,6 +110,14 @@ class UserCheckInIntegrationTest {
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .addFilters(filter)
                 .build();
+    }
+
+    private static String tableDdl(String schema, String table) {
+        int start = schema.indexOf("CREATE TABLE IF NOT EXISTS `%s`".formatted(table));
+        assertTrue(start >= 0, "缺少建表定义: " + table);
+        int end = schema.indexOf(';', start);
+        assertTrue(end > start, "建表定义缺少结束分号: " + table);
+        return schema.substring(start, end);
     }
 
     @AfterEach
@@ -192,6 +214,119 @@ class UserCheckInIntegrationTest {
             assertEquals(today, year.throughDate());
             assertEquals(new Totals(3, 5), year.totals());
             assertEquals(List.of(new Month(1, 0, 0), new Month(2, 2, 3), new Month(3, 2, 2)), year.monthly());
+        }
+    }
+
+    @Test
+    void jobArchivesOnlyThePreviousMonthEvenWhenOlderMonthsAreMissing() {
+        jdbc.update("""
+                INSERT INTO user_check_in (user_id, check_in_date, checked_in_at) VALUES
+                (1, '2024-09-30', '2024-09-30 09:00:00'),
+                (1, '2024-12-31', '2024-12-31 09:00:00'),
+                (2, '2024-12-31', '2024-12-31 09:00:00'),
+                (3, '2025-01-01', '2025-01-01 09:00:00')
+                """);
+        UserCheckInStatisticsJob job = jobWithLockAcquired(statistics);
+
+        try (MockedStatic<BusinessTime> time = mockStatic(BusinessTime.class)) {
+            time.when(BusinessTime::now).thenReturn(LocalDateTime.of(2024, 11, 1, 12, 15));
+            job.archivePreviousMonth();
+            job.archivePreviousMonth();
+            assertEquals(1L, snapshots.selectCount(null));
+            assertNull(snapshots.selectById(LocalDate.of(2024, 9, 1)));
+            assertEquals(new Totals(1, 1), statistics.monthly(2024, 9).totals());
+            UserCheckInMonthSnapshot october = snapshots.selectById(LocalDate.of(2024, 10, 1));
+            assertEquals(0, october.getSignedUsers());
+            assertNull(october.getYearSignedUsers());
+            assertNull(october.getYearCheckIns());
+
+            time.when(BusinessTime::now).thenReturn(LocalDateTime.of(2025, 1, 1, 12, 15));
+            job.archivePreviousMonth();
+            assertEquals(2L, snapshots.selectCount(null));
+            assertNull(snapshots.selectById(LocalDate.of(2024, 11, 1)));
+            assertNull(snapshots.selectById(LocalDate.of(2025, 1, 1)));
+            UserCheckInMonthSnapshot yearEnd = snapshots.selectById(LocalDate.of(2024, 12, 1));
+            assertEquals(2L, yearEnd.getYearSignedUsers());
+            assertEquals(3L, yearEnd.getYearCheckIns());
+            assertEquals(new Totals(2, 3), statistics.yearly(2024).totals());
+        }
+    }
+
+    @Test
+    void jobAcceptsTheSnapshotWhenAnotherWriterInsertsThePreviousMonthFirst() {
+        jdbc.update("""
+                INSERT INTO user_check_in (user_id, check_in_date, checked_in_at) VALUES
+                (1, '2024-11-30', '2024-11-30 09:00:00'),
+                (2, '2024-12-01', '2024-12-01 09:00:00')
+                """);
+        UserCheckInMonthSnapshotMapper competingMapper = mock(
+                UserCheckInMonthSnapshotMapper.class, delegatesTo(snapshots));
+        doAnswer(call -> {
+            UserCheckInMonthSnapshot snapshot = call.getArgument(0);
+            snapshots.insert(snapshot);
+            return snapshots.insert(snapshot);
+        }).when(competingMapper).insert(any(UserCheckInMonthSnapshot.class));
+        var competingStatistics = new UserCheckInStatisticsService(checkIns, competingMapper);
+
+        try (MockedStatic<BusinessTime> time = mockStatic(BusinessTime.class)) {
+            time.when(BusinessTime::now).thenReturn(LocalDateTime.of(2025, 1, 1, 12, 15));
+            jobWithLockAcquired(competingStatistics).archivePreviousMonth();
+            assertEquals(1L, snapshots.selectCount(null));
+            assertEquals(new Totals(1, 1), statistics.monthly(2024, 12).totals());
+        }
+    }
+
+    @Test
+    void archiveRejectsTheCurrentMonthBeforeWritingASnapshot() {
+        try (MockedStatic<BusinessTime> time = mockStatic(BusinessTime.class)) {
+            time.when(BusinessTime::now).thenReturn(LocalDateTime.of(2025, 1, 1, 12, 15));
+            assertThrows(IllegalStateException.class, () -> statistics.archiveMonth(YearMonth.of(2025, 1)));
+            assertEquals(0L, snapshots.selectCount(null));
+        }
+    }
+
+    private UserCheckInStatisticsJob jobWithLockAcquired(UserCheckInStatisticsService archiveService) {
+        ScheduleRoundLock lock = mock(ScheduleRoundLock.class);
+        doAnswer(call -> {
+            Runnable round = call.getArgument(1);
+            round.run();
+            return null;
+        }).when(lock).run(anyString(), any(Runnable.class));
+        return new UserCheckInStatisticsJob(lock, archiveService);
+    }
+
+    @Test
+    void statisticsCombineArchivedDaysWithLiveGapsAndUseClosedYearTotals() {
+        jdbc.update("""
+                INSERT INTO user_check_in (user_id, check_in_date, checked_in_at) VALUES
+                (1, '2024-11-30', '2024-11-30 09:00:00'),
+                (1, '2024-12-01', '2024-12-01 09:00:00'),
+                (2, '2024-12-01', '2024-12-01 09:00:00'),
+                (2, '2024-12-31', '2024-12-31 09:00:00'),
+                (3, '2025-01-02', '2025-01-02 09:00:00')
+                """);
+        try (MockedStatic<BusinessTime> time = mockStatic(BusinessTime.class)) {
+            time.when(BusinessTime::now).thenReturn(LocalDateTime.of(2025, 1, 2, 12, 0));
+            statistics.archiveMonth(YearMonth.of(2024, 12));
+            // 留下未归档月份的明细，确认已归档的日、月、年结果从快照读取。
+            jdbc.update("DELETE FROM user_check_in WHERE check_in_date BETWEEN '2024-12-01' AND '2024-12-31'");
+
+            List<Day> days = statistics.daily(LocalDate.of(2024, 11, 30), LocalDate.of(2025, 1, 2));
+            assertEquals(34, days.size());
+            assertEquals(new Day(LocalDate.of(2024, 11, 30), 1), days.get(0));
+            assertEquals(new Day(LocalDate.of(2024, 12, 1), 2), days.get(1));
+            assertEquals(new Day(LocalDate.of(2024, 12, 31), 1), days.get(31));
+            assertEquals(new Day(LocalDate.of(2025, 1, 1), 0), days.get(32));
+            assertEquals(new Day(LocalDate.of(2025, 1, 2), 1), days.get(33));
+
+            Monthly december = statistics.monthly(2024, 12);
+            assertEquals(new Totals(2, 3), december.totals());
+            assertEquals(new Day(LocalDate.of(2024, 12, 1), 2), december.peakDay());
+            Yearly year = statistics.yearly(2024);
+            assertEquals(new Totals(2, 4), year.totals());
+            assertEquals(new Month(11, 1, 1), year.monthly().get(10));
+            assertEquals(new Month(12, 2, 3), year.monthly().get(11));
+            assertEquals(new Totals(1, 1), statistics.yearly(2025).totals());
         }
     }
 

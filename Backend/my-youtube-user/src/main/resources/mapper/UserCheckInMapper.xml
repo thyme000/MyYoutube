@@ -5,11 +5,19 @@
         WHERE check_in_date &gt;= #{start} AND check_in_date &lt;= #{end}
     </sql>
 
+    <!-- 调用方保证 ranges 非空。 -->
+    <sql id="unarchivedRanges">
+        WHERE
+        <foreach collection="ranges" item="range" separator=" OR ">
+            (check_in_date &gt;= #{range.start} AND check_in_date &lt;= #{range.end})
+        </foreach>
+    </sql>
+
     <!-- 用户和日期的唯一键保证按天计数就是当天签到人数。 -->
     <select id="countByDay" resultType="cn.diaojiahong.myyoutube.user.api.UserCheckInStatisticsPort$Day">
         SELECT check_in_date AS statDate, COUNT(*) AS signedUsers
         FROM user_check_in
-        <include refid="dateRange"/>
+        <include refid="unarchivedRanges"/>
         GROUP BY check_in_date
     </select>
 
@@ -17,7 +25,7 @@
         SELECT EXTRACT(MONTH FROM check_in_date) AS `month`,
                COUNT(DISTINCT user_id) AS signedUsers, COUNT(*) AS checkIns
         FROM user_check_in
-        <include refid="dateRange"/>
+        <include refid="unarchivedRanges"/>
         GROUP BY EXTRACT(MONTH FROM check_in_date)
     </select>
 

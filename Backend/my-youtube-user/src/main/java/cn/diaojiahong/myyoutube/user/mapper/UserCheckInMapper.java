@@ -15,6 +15,9 @@ public interface UserCheckInMapper extends BaseMapper<UserCheckIn> {
     record YearSummary(int daysInYear, LocalDate latestDate) {
     }
 
+    record DateRange(LocalDate start, LocalDate end) {
+    }
+
     @Select("""
             SELECT COUNT(*) AS daysInYear, MAX(check_in_date) AS latestDate
             FROM user_check_in
@@ -25,9 +28,9 @@ public interface UserCheckInMapper extends BaseMapper<UserCheckIn> {
     YearSummary summarizeYear(@Param("userId") Long userId, @Param("yearStart") LocalDate yearStart,
                               @Param("today") LocalDate today);
 
-    List<Day> countByDay(@Param("start") LocalDate start, @Param("end") LocalDate end);
+    List<Day> countByDay(@Param("ranges") List<DateRange> ranges);
 
-    List<Month> countByMonth(@Param("start") LocalDate start, @Param("end") LocalDate end);
+    List<Month> countByMonth(@Param("ranges") List<DateRange> ranges);
 
     Totals countPeriod(@Param("start") LocalDate start, @Param("end") LocalDate end);
 }
