@@ -43,6 +43,14 @@ CREATE TABLE IF NOT EXISTS `user_role_change` (
     KEY `idx_role_change_actor` (`actor_id`, `create_time`, `id`)
 ) ENGINE=InnoDB COMMENT='用户角色变更记录';
 
+CREATE TABLE IF NOT EXISTS `user_check_in` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `user_id` BIGINT NOT NULL,
+    `check_in_date` DATE NOT NULL COMMENT '上海时区签到日期',
+    `checked_in_at` DATETIME NOT NULL COMMENT '上海时区首次签到时间',
+    UNIQUE KEY `uk_check_in_user_date` (`user_id`, `check_in_date`)
+) ENGINE=InnoDB COMMENT='用户手动签到记录';
+
 -- 初始用户, 密码明文: password (BCrypt)
 INSERT INTO `user` (`id`, `username`, `password`, `nickname`, `role`)
 VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'thyme', 'SUPER_ADMIN');

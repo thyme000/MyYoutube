@@ -126,6 +126,9 @@ public class RedisConstants {
     /** 内部契约的用户摘要缓存: user:summary:{userId} hash, 逐字段存; 资料变更时 DEL */
     public static final String USER_SUMMARY = "user:summary:";
 
+    /** 用户本年签到位图：user:check-in:bitmap:{userId}:{year} */
+    public static final String USER_CHECK_IN_BITMAP = "user:check-in:bitmap:";
+
     /** 评论有序名单: comment:list:{tab}:{contentId} string, 值=「排序值.评论id」按榜序逗号相连 */
     public static final String COMMENT_LIST = "comment:list:";
     /** 名单重建单飞锁: comment:list:lock:{tab}:{contentId} */
