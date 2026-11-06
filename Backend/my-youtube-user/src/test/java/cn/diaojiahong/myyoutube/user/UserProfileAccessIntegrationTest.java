@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -48,13 +49,17 @@ class UserProfileAccessIntegrationTest {
                     id BIGINT PRIMARY KEY, username VARCHAR(64), password VARCHAR(128),
                     role VARCHAR(16) NOT NULL DEFAULT 'USER',
                     avatar_url VARCHAR(255), email VARCHAR(128), phone VARCHAR(32),
-                    nickname VARCHAR(64), create_time TIMESTAMP, update_time TIMESTAMP,
+                    nickname VARCHAR(64), create_time TIMESTAMP NOT NULL, update_time TIMESTAMP,
                     is_delete INT DEFAULT 0, fans BIGINT DEFAULT 0, attention_count BIGINT DEFAULT 0,
                     content_count BIGINT DEFAULT 0, introduction VARCHAR(255), bg_image VARCHAR(255),
                     like_count BIGINT DEFAULT 0
                 )
                 """);
-        jdbc.update("INSERT INTO user(id, nickname, introduction) VALUES(1, 'Alice', 'Alice bio'), (2, 'Bob', 'Bob bio')");
+        jdbc.update("""
+                INSERT INTO user(id, nickname, introduction, create_time) VALUES
+                (1, 'Alice', 'Alice bio', '2024-01-01 00:15:00'),
+                (2, 'Bob', 'Bob bio', '2023-12-31 23:45:00')
+                """);
 
         var factoryBean = new MybatisSqlSessionFactoryBean();
         factoryBean.setDataSource(dataSource);
@@ -78,6 +83,23 @@ class UserProfileAccessIntegrationTest {
             session.close();
         }
         UserContext.removeUser();
+    }
+
+    @Test
+    void currentProfileReturnsTheRegistrationYearForTheAuthenticatedUser() throws Exception {
+        mvc.perform(get("/user/info").param("userId", "2")
+                        .header(UserIdHeaderFilter.USER_ID_HEADER, "1")
+                        .header(UserIdHeaderFilter.INTERNAL_TOKEN_HEADER, "profile-test-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(1))
+                .andExpect(jsonPath("$.data.nickname").value("Alice"))
+                .andExpect(jsonPath("$.data.registeredYear").value(2024));
+
+        mvc.perform(get("/user/info/1")
+                        .header(UserIdHeaderFilter.USER_ID_HEADER, "2")
+                        .header(UserIdHeaderFilter.INTERNAL_TOKEN_HEADER, "profile-test-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.registeredYear").doesNotHaveJsonPath());
     }
 
     @Test

@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserHistoryPageQuery;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
+import cn.diaojiahong.myyoutube.user.domain.vo.CurrentUserVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import com.baomidou.mybatisplus.extension.service.IService;
 import org.springframework.web.multipart.MultipartFile;
@@ -36,6 +37,6 @@ public interface IUserService extends IService<User> {
     Map<Long, String> getAuthorAvatarUrls(List<Long> authorIds);
 
 
-    UserVO getCurrentUserInfo();
+    CurrentUserVO getCurrentUserInfo();
 
 }

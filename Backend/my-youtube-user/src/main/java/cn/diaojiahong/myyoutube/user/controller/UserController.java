@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserHistoryPageQuery;
+import cn.diaojiahong.myyoutube.user.domain.vo.CurrentUserVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -50,7 +51,7 @@ public class UserController {
      */
     @Operation(summary = "获取当前用户的信息")
     @GetMapping("/info")
-    public Result<UserVO> getCurrentUserInfo() {
+    public Result<CurrentUserVO> getCurrentUserInfo() {
         return Result.success(userService.getCurrentUserInfo());
     }
 

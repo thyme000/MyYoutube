@@ -14,6 +14,7 @@ import cn.diaojiahong.myyoutube.user.cache.UserSummaryCache;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
+import cn.diaojiahong.myyoutube.user.domain.vo.CurrentUserVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.mapper.UserMapper;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
@@ -159,18 +160,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         return Long.valueOf(userId);
     }
 
-
-    // getShortsHistory 已随 user_shorts_play 行为记录一并退役(统一内容池一期)
-
     @Override
-    public UserVO getCurrentUserInfo() {
+    public CurrentUserVO getCurrentUserInfo() {
         Long userId = getUserId();
         User userInfo = getById(userId);
 
         userInfo.setAvatarUrl(storageUtil.signGetUrl(userInfo.getAvatarUrl(), STORAGE_EXPIRE));
         userInfo.setBgImage(storageUtil.signGetUrl(userInfo.getBgImage(), STORAGE_EXPIRE));
 
-        return BeanUtil.toBean(userInfo, UserVO.class);
+        CurrentUserVO profile = BeanUtil.toBean(userInfo, CurrentUserVO.class);
+        profile.setRegisteredYear(userInfo.getCreateTime().getYear());
+        return profile;
     }
 
 }
