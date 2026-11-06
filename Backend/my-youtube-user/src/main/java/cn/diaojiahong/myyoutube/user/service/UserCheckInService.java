@@ -23,7 +23,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserCheckInService {
     // MySQL DATE 支持的最早日期是 1000-01-01。
-    private static final int MYSQL_DATE_MIN_YEAR = 1000;
+    static final int MYSQL_DATE_MIN_YEAR = 1000;
 
     private final UserCheckInMapper mapper;
     private final UserCheckInBitmapCache bitmapCache;

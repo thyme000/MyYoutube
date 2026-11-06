@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS `user_check_in` (
     `user_id` BIGINT NOT NULL,
     `check_in_date` DATE NOT NULL COMMENT '上海时区签到日期',
     `checked_in_at` DATETIME NOT NULL COMMENT '上海时区首次签到时间',
-    UNIQUE KEY `uk_check_in_user_date` (`user_id`, `check_in_date`)
+    UNIQUE KEY `uk_check_in_user_date` (`user_id`, `check_in_date`),
+    KEY `idx_check_in_date_user` (`check_in_date`, `user_id`)
 ) ENGINE=InnoDB COMMENT='用户手动签到记录';
 
 -- 初始用户, 密码明文: password (BCrypt)

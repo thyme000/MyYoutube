@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.user.mapper.UserCheckInMapper">
+    <sql id="dateRange">
+        WHERE check_in_date &gt;= #{start} AND check_in_date &lt;= #{end}
+    </sql>
+
+    <!-- 用户和日期的唯一键保证按天计数就是当天签到人数。 -->
+    <select id="countByDay" resultType="cn.diaojiahong.myyoutube.user.api.UserCheckInStatisticsPort$Day">
+        SELECT check_in_date AS statDate, COUNT(*) AS signedUsers
+        FROM user_check_in
+        <include refid="dateRange"/>
+        GROUP BY check_in_date
+    </select>
+
+    <select id="countByMonth" resultType="cn.diaojiahong.myyoutube.user.api.UserCheckInStatisticsPort$Month">
+        SELECT EXTRACT(MONTH FROM check_in_date) AS `month`,
+               COUNT(DISTINCT user_id) AS signedUsers, COUNT(*) AS checkIns
+        FROM user_check_in
+        <include refid="dateRange"/>
+        GROUP BY EXTRACT(MONTH FROM check_in_date)
+    </select>
+
+    <select id="countPeriod" resultType="cn.diaojiahong.myyoutube.user.api.UserCheckInStatisticsPort$Totals">
+        SELECT COUNT(DISTINCT user_id) AS signedUsers, COUNT(*) AS checkIns
+        FROM user_check_in
+        <include refid="dateRange"/>
+    </select>
+</mapper>

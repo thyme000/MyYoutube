@@ -1,11 +1,15 @@
 package cn.diaojiahong.myyoutube.user.mapper;
 
+import cn.diaojiahong.myyoutube.user.api.UserCheckInStatisticsPort.Day;
+import cn.diaojiahong.myyoutube.user.api.UserCheckInStatisticsPort.Month;
+import cn.diaojiahong.myyoutube.user.api.UserCheckInStatisticsPort.Totals;
 import cn.diaojiahong.myyoutube.user.domain.po.UserCheckIn;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.time.LocalDate;
+import java.util.List;
 
 public interface UserCheckInMapper extends BaseMapper<UserCheckIn> {
     record YearSummary(int daysInYear, LocalDate latestDate) {
@@ -20,4 +24,10 @@ public interface UserCheckInMapper extends BaseMapper<UserCheckIn> {
             """)
     YearSummary summarizeYear(@Param("userId") Long userId, @Param("yearStart") LocalDate yearStart,
                               @Param("today") LocalDate today);
+
+    List<Day> countByDay(@Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    List<Month> countByMonth(@Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    Totals countPeriod(@Param("start") LocalDate start, @Param("end") LocalDate end);
 }
