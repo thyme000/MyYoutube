@@ -9,16 +9,23 @@ import cn.diaojiahong.myyoutube.comment.mapper.ContentCommentMapper;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.connection.RedisStringCommands.SetOption;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.types.Expiration;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CommentListCacheImpl implements CommentListCache {
@@ -49,20 +56,21 @@ public class CommentListCacheImpl implements CommentListCache {
     @Override
     public List<CommentCursor> get(Long contentId, CommentTab tab) {
         String key = key(contentId, tab);
-        String value = redis.opsForValue().get(key);
-        if (value == null || value.isEmpty()) {
-            return null;
-        }
-
         try {
+            String value = redis.opsForValue().get(key);
+            if (value == null || value.isEmpty()) {
+                return null;
+            }
+
             List<CommentCursor> cursors = new ArrayList<>();
             for (String item : value.split(SEPARATOR)) {
                 cursors.add(CommentCursor.decode(item));
             }
             return cursors;
         } catch (RuntimeException e) {
-            // 名单损坏就当没缓存, 删掉换下次重建
-            redis.delete(key);
+            // 缓存层故障或名单损坏都退化为直查; 名单损坏时顺手清掉, 下次重建
+            log.warn("评论名单缓存读取失败, 本次走 DB contentId={} tab={}", contentId, tab, e);
+            deleteQuietly(key);
             return null;
         }
     }
@@ -74,17 +82,14 @@ public class CommentListCacheImpl implements CommentListCache {
         }
 
         String key = key(contentId, tab);
-        if (redis.hasKey(key)) {
-            return;
-        }
-
         String lockKey = RedisConstants.COMMENT_LIST_LOCK + tab.getCode() + ":" + contentId;
-        // 抢不到锁的这轮直接走 DB, 不等待
-        if (!Boolean.TRUE.equals(redis.opsForValue()
-                .setIfAbsent(lockKey, "1", Duration.ofSeconds(BUILD_LOCK_SECONDS)))) {
-            return;
-        }
         try {
+            // 抢不到锁的这轮直接走 DB, 不等待
+            if (!Boolean.TRUE.equals(redis.opsForValue()
+                    .setIfAbsent(lockKey, "1", Duration.ofSeconds(BUILD_LOCK_SECONDS)))) {
+                return;
+            }
+            // 进锁后核实: 抢锁前看到的"缓存缺失"可能已过期
             if (redis.hasKey(key)) {
                 return;
             }
@@ -94,10 +99,28 @@ public class CommentListCacheImpl implements CommentListCache {
             }
             String value = cursors.stream().map(CommentCursor::encode).collect(Collectors.joining(SEPARATOR));
             // 固定 TTL 不续期: 续期会让持续被读的热内容永不刷新
-            redis.opsForValue().set(key, value, Duration.ofSeconds(
-                    tab == CommentTab.LATEST ? latestTtlSeconds : hotTtlSeconds));
-        } finally {
-            redis.delete(lockKey);
+            Duration ttl = tab == CommentTab.LATEST
+                    ? Duration.ofSeconds(latestTtlSeconds) : Duration.ofSeconds(hotTtlSeconds);
+            // 写榜与放锁互相独立, pipeline 一次往返; pipeline 故障时锁不再显式释放, 由 10s TTL 兜底自愈
+            redis.executePipelined((RedisCallback<Object>) connection -> {
+                connection.stringCommands().set(
+                    Objects.requireNonNull(StringRedisSerializer.UTF_8.serialize(key)),
+                    Objects.requireNonNull(StringRedisSerializer.UTF_8.serialize(value)),
+                        Expiration.from(ttl), SetOption.UPSERT);
+                connection.keyCommands().del(StringRedisSerializer.UTF_8.serialize(lockKey));
+                return null;
+            });
+        } catch (RuntimeException e) {
+            // 缓存层故障不阻断读路径, 本次退化为直查, 下轮再建
+            log.warn("评论名单缓存构建失败 contentId={} tab={}", contentId, tab, e);
+        }
+    }
+
+    private void deleteQuietly(String key) {
+        try {
+            redis.delete(key);
+        } catch (RuntimeException e) {
+            log.warn("评论名单缓存清理失败 key={}", key, e);
         }
     }
 
@@ -106,10 +129,8 @@ public class CommentListCacheImpl implements CommentListCache {
         LambdaQueryWrapper<ContentComment> w = new LambdaQueryWrapper<ContentComment>()
                 .eq(ContentComment::getContentId, contentId)
                 .eq(ContentComment::getLevel, 1)
-                .in(
-                        ContentComment::getStatus,
-                        CommentStatusEnum.VISIBLE.getCode(),
-                        CommentStatusEnum.BLOCKED.getCode());
+                .in(ContentComment::getStatus,
+                    CommentStatusEnum.VISIBLE.getCode(), CommentStatusEnum.BLOCKED.getCode());
         if (latest) {
             w.orderByDesc(ContentComment::getCreateTime).orderByDesc(ContentComment::getId);
         } else {
