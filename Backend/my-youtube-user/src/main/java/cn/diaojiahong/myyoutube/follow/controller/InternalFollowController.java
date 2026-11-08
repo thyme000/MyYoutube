@@ -27,6 +27,11 @@ public class InternalFollowController {
         return userFollowService.getFollowIds(userId);
     }
 
+    @GetMapping("/is-follow")
+    public Boolean isFollow(@RequestParam("userId") Long userId, @RequestParam("authorId") Long authorId) {
+        return userFollowService.isFollow(userId, authorId);
+    }
+
     @PostMapping("/follow-list")
     public List<Boolean> isFollowOnList(@RequestParam("userId") Long userId, @RequestBody List<Long> authorIds) {
         return userFollowService.isFollowOnList(authorIds, userId);

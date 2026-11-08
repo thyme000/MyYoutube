@@ -26,6 +26,9 @@ public interface IUserFollowService extends IService<UserFollow> {
 
     Boolean isFollow(Long authorId);
 
+    /** 显式传 viewer 的关注判定, 供内部契约(/internal/follow/is-follow)使用 */
+    Boolean isFollow(Long userId, Long authorId);
+
     Boolean interrelated(Long userId, List<Long> memberIds);
 
     /** 粉丝数权威值, 供 user 服务对 user.fans 做对账覆盖 */

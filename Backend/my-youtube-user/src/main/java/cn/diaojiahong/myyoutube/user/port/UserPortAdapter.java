@@ -1,9 +1,6 @@
 package cn.diaojiahong.myyoutube.user.port;
 
-import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
-import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
-import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.user.cache.UserSummaryCache;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
@@ -23,7 +20,6 @@ import java.util.stream.Collectors;
 public class UserPortAdapter implements UserPort {
 
     private final cn.diaojiahong.myyoutube.user.service.IUserService userService;
-    private final CounterBuffer counterBuffer;
     private final UserSummaryCache summaryCache;
 
     @Override
@@ -42,19 +38,6 @@ public class UserPortAdapter implements UserPort {
 
         return summaryCache.listByIds(ids, missIds -> userService.listByIds(missIds).stream()
                 .map(UserPortAdapter::toSummary).collect(Collectors.toList()));
-    }
-
-    @Override
-    public void adjustCounters(List<CounterAdjust> adjustments) {
-        for (CounterAdjust a : adjustments) {
-            switch (a.getField()) {
-                // 粉丝数/关注数只累加到 Redis, 由 user 模块的落库任务合并成一次 UPDATE。
-                // 大 V 的单行竞争极高, 而这两个字段本来就不是同步可见的
-                case "fans" -> counterBuffer.add(CounterType.USER_FANS, a.getUserId(), a.getDelta());
-                case "attentionCount" -> counterBuffer.add(CounterType.USER_ATTENTION, a.getUserId(), a.getDelta());
-                default -> throw new IllegalArgumentException("未知计数字段: " + a.getField());
-            }
-        }
     }
 
     private static UserSummary toSummary(User user) {

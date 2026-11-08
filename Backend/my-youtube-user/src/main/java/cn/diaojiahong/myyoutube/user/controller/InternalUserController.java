@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.user.controller;
 
-import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.user.port.UserPortAdapter;
 import lombok.RequiredArgsConstructor;
@@ -32,10 +31,5 @@ public class InternalUserController {
     @PostMapping("/list-by-ids")
     public List<UserSummary> listByIds(@RequestBody Collection<Long> ids) {
         return userPortAdapter.listByIds(ids);
-    }
-
-    @PostMapping("/counters/adjust")
-    public void adjustCounters(@RequestBody List<CounterAdjust> adjustments) {
-        userPortAdapter.adjustCounters(adjustments);
     }
 }

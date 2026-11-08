@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.follow.service.impl;
 
+import cn.diaojiahong.myyoutube.common.counter.AbstractCounterTarget;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
@@ -13,15 +14,16 @@ import cn.diaojiahong.myyoutube.follow.domain.vo.UserRelationshipVO;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
-import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
+import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.port.UserPortAdapter;
+import cn.diaojiahong.myyoutube.user.service.IUserService;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Map;
@@ -36,14 +38,15 @@ import java.util.stream.Collectors;
  * @author thyme
  * @since 2026-04-01
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFollow> implements IUserFollowService {
 
+    private final IUserService userService;
     private final UserPortAdapter userPortAdapter;
     private final S3StorageUtil storageUtil;
     private final EsSyncPublisher esSyncPublisher;
+    private final TransactionTemplate transactionTemplate;
 
     private static final long STORAGE_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
@@ -55,26 +58,17 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "不能关注自己");
         }
 
-        // 存在就修改,不存在就新增; 单条 UPDATE 走自动提交, 计数只进 Redis 缓冲无需事务圈住
+        // 重复关注时 ON DUPLICATE 无实际变更影响行数=0, 计数不会重复累加
         long id = IdWorker.getId();
-        int row = baseMapper.followOrRestore(id, userId, authorId);
-        // 关注成功后，更新用户信息 -> 被关注者粉丝数加一,关注者关注数量加一
-        if (row > 0) {
-            adjustCountersQuietly(List.of(
-                    new CounterAdjust(authorId, "fans", 1),
-                    new CounterAdjust(userId, "attentionCount", 1)));
-        }
-        // 延迟同步 ES 用户文档, 短时间多次变更天然合并(消费端以 MySQL 为准)
+        transactionTemplate.executeWithoutResult(tx -> {
+            int row = baseMapper.followOrRestore(id, userId, authorId);
+            if (row > 0) {
+                AbstractCounterTarget.guardedDelta(userService, User::getId, authorId, User::getFans, 1);
+                AbstractCounterTarget.guardedDelta(userService, User::getId, userId, User::getAttentionCount, 1);
+            }
+        });
+        // ES 文档同步走 MQ 延迟合并, 留在事务外
         esSyncPublisher.syncUserDoc(authorId);
-    }
-
-    /** 计数器尽力而为: 关注关系已落库, 计数缓冲失败只记日志, 不影响关注结果 */
-    private void adjustCountersQuietly(List<CounterAdjust> adjustments) {
-        try {
-            userPortAdapter.adjustCounters(adjustments);
-        } catch (Exception e) {
-            log.warn("关注计数同步失败, 计数已丢弃(无补偿, 计数为最终一致值) adjustments={}", adjustments, e);
-        }
     }
 
     private Long getUserId() {
@@ -92,16 +86,15 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     @ObservedBusiness(BusinessOperation.UNFOLLOW)
     public void cancelFollow(Long authorId) {
         Long userId = getUserId();
-        // 取消关注
-        int row = baseMapper.cancelFollow(userId, authorId);
-        // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一
-        if (row > 0) {
-
-            adjustCountersQuietly(List.of(
-                    new CounterAdjust(authorId, "fans", -1),
-                    new CounterAdjust(userId, "attentionCount", -1)));
-        }
-        // 延迟同步 ES 用户文档
+        transactionTemplate.executeWithoutResult(tx -> {
+            int row = baseMapper.cancelFollow(userId, authorId);
+            // 未关注再取关影响行数=0, 计数不动
+            if (row > 0) {
+                AbstractCounterTarget.guardedDelta(userService, User::getId, authorId, User::getFans, -1);
+                AbstractCounterTarget.guardedDelta(userService, User::getId, userId, User::getAttentionCount, -1);
+            }
+        });
+        // ES 用户文档延迟合并
         esSyncPublisher.syncUserDoc(authorId);
     }
 
@@ -127,7 +120,11 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public Boolean isFollow(Long authorId) {
-        Long userId = getUserId();
+        return isFollow(getUserId(), authorId);
+    }
+
+    @Override
+    public Boolean isFollow(Long userId, Long authorId) {
         UserFollow one = lambdaQuery()
                 .eq(UserFollow::getFollowerId, userId)
                 .eq(UserFollow::getFolloweeId, authorId).one();
@@ -207,16 +204,15 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     @Override
     public void removeFan(Long followerId) {
         Long userId = getUserId();
-        // 取消关注
-        int row = baseMapper.cancelFollow(followerId, userId);
-        // 更新用户信息 -> 被关注者粉丝数减一,关注者关注数量减一
-        if (row > 0) {
-
-            adjustCountersQuietly(List.of(
-                    new CounterAdjust(userId, "fans", -1),
-                    new CounterAdjust(followerId, "attentionCount", -1)));
-        }
-        // 延迟同步 ES 用户文档
+        transactionTemplate.executeWithoutResult(tx -> {
+            // 移除粉丝 = 解除 followerId -> userId 的关注关系
+            int row = baseMapper.cancelFollow(followerId, userId);
+            if (row > 0) {
+                AbstractCounterTarget.guardedDelta(userService, User::getId, userId, User::getFans, -1);
+                AbstractCounterTarget.guardedDelta(userService, User::getId, followerId, User::getAttentionCount, -1);
+            }
+        });
+        // ES 用户文档延迟合并
         esSyncPublisher.syncUserDoc(userId);
     }
 

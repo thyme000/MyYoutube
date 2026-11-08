@@ -22,6 +22,10 @@ public interface FollowPort {
     @GetMapping("/follow-ids")
     List<Long> getFollowIds(@RequestParam("userId") Long userId);
 
+    /** userId 是否关注了 authorId */
+    @GetMapping("/is-follow")
+    Boolean isFollow(@RequestParam("userId") Long userId, @RequestParam("authorId") Long authorId);
+
     /** userId 与 authorIds 中每个人的关注状态, 返回顺序与入参一致 */
     @PostMapping("/follow-list")
     List<Boolean> isFollowOnList(@RequestParam("userId") Long userId, @RequestBody List<Long> authorIds);

@@ -1,8 +1,5 @@
 package cn.diaojiahong.myyoutube.user;
 
-import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
-import cn.diaojiahong.myyoutube.common.counter.CounterType;
-import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.user.cache.UserSummaryCache;
 import cn.diaojiahong.myyoutube.user.controller.InternalUserController;
@@ -24,20 +21,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class UserPortContractTest {
     private final IUserService users = mock(IUserService.class);
 
-    private final CounterBuffer counters = mock(CounterBuffer.class);
-
     private final UserSummaryCache cache = mock(UserSummaryCache.class);
 
-    private final UserPortAdapter adapter = new UserPortAdapter(users, counters, cache);
+    private final UserPortAdapter adapter = new UserPortAdapter(users, cache);
 
     @Test
-    void followsStillUseTheirCounterBuffer() {
-        adapter.adjustCounters(List.of(new CounterAdjust(7L, "fans", 1), new CounterAdjust(8L, "attentionCount", -1)));
-        verify(counters).add(CounterType.USER_FANS, 7L, 1);
-        verify(counters).add(CounterType.USER_ATTENTION, 8L, -1);
-        assertThrows(IllegalArgumentException.class,
-                () -> adapter.adjustCounters(List.of(new CounterAdjust(7L, "contentCount", 1))));
-        verifyNoMoreInteractions(counters);
+    void retiredCounterAdjustEndpointIsUnavailable() throws Exception {
+        MockMvcBuilders.standaloneSetup(new InternalUserController(adapter)).build()
+                .perform(post("/internal/user/counters/adjust")
+                        .contentType("application/json").content("[]"))
+                .andExpect(status().isNotFound());
+        verifyNoInteractions(users, cache);
     }
 
     @Test
@@ -46,7 +40,7 @@ class UserPortContractTest {
                 .perform(post("/internal/user/counters/content-event")
                         .contentType("application/json").content("{\"eventId\":\"old\",\"userId\":7,\"delta\":1}"))
                 .andExpect(status().isNotFound());
-        verifyNoInteractions(users, counters, cache);
+        verifyNoInteractions(users, cache);
     }
 
     @Test

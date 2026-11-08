@@ -2,12 +2,14 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper">
 
+    <!-- 重复关注时行无实际变化, 依赖 MySQL "无变更 UPDATE 影响行数=0" 契约让写侧计数不重复累加;
+         不要无条件 touch update_time, 会破坏该契约 -->
     <insert id="followOrRestore">
         INSERT INTO user_follow (id, follower_id, followee_id, is_deleted, create_time, update_time)
         VALUES (#{id}, #{followerId}, #{followeeId}, 0, NOW(), NOW())
             ON DUPLICATE KEY UPDATE
-                                 is_deleted = IF(is_deleted = 1, 0, is_deleted),
-                                 update_time = IF(is_deleted = 1, NOW(), update_time)
+                                 is_deleted = CASE WHEN is_deleted = 1 THEN 0 ELSE is_deleted END,
+                                 update_time = CASE WHEN is_deleted = 1 THEN NOW() ELSE update_time END
     </insert>
 
     <delete id="cancelFollow">
