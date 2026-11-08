@@ -1,7 +1,5 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
-import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
-import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
@@ -10,6 +8,7 @@ import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import cn.diaojiahong.myyoutube.video.api.NotificationPort;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
+import cn.diaojiahong.myyoutube.share.service.IContentShareService;
 import cn.diaojiahong.myyoutube.video.api.PreferencePort;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
 import cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper;
@@ -43,7 +42,7 @@ public class InternalVideoController {
     private final ContentUnderstandingMapper understandings;
     private final cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper likes;
     private final cn.diaojiahong.myyoutube.content.service.ContentAccessService access;
-    private final CounterBuffer counterBuffer;
+    private final IContentShareService contentShares;
 
     private final NotificationPublisher notificationPublisher;
     private final IUserTagPreferenceService userTagPreferenceService;
@@ -76,8 +75,7 @@ public class InternalVideoController {
 
     @PostMapping("/content/share/{contentId}")
     public boolean incrementShareCount(@PathVariable Long contentId, @RequestParam Long viewerId) {
-        access.readable(contentId, viewerId);
-        counterBuffer.add(CounterType.CONTENT_SHARE, contentId, 1);
+        contentShares.record(contentId, viewerId);
         return true;
     }
 

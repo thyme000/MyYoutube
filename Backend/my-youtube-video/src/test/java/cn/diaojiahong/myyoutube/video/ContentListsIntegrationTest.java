@@ -34,6 +34,7 @@ import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.recommend.service.*;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
+import cn.diaojiahong.myyoutube.share.service.IContentShareService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort.SummaryQuery;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
@@ -72,7 +73,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringJUnitConfig(ContentListsIntegrationTest.Config.class)
 class ContentListsIntegrationTest {
     @Configuration
-    @MapperScan(basePackageClasses = {ContentMapper.class, ContentCollectMapper.class, UserViewHistoryMapper.class, ContentLikeMapper.class, UserNotificationMapper.class})
+    @MapperScan(basePackageClasses = {ContentMapper.class, ContentCollectMapper.class, UserViewHistoryMapper.class, ContentLikeMapper.class, UserNotificationMapper.class, cn.diaojiahong.myyoutube.share.mapper.ContentShareMapper.class})
     static class Config {
         @Bean
         DataSource ds() {
@@ -107,6 +108,13 @@ class ContentListsIntegrationTest {
                     mock(UserPort.class),
                     comments);
         }
+
+        @Bean
+        IContentShareService contentShares(cn.diaojiahong.myyoutube.share.mapper.ContentShareMapper shares,
+                                           IContentService contents, ContentMapper mapper) {
+            return new cn.diaojiahong.myyoutube.share.service.impl.ContentShareServiceImpl(
+                    shares, contents, new ContentAccessService(mapper,mock(AudioContentAccess.class)));
+        }
     }
 
     @Autowired DataSource ds;
@@ -116,6 +124,7 @@ class ContentListsIntegrationTest {
     @Autowired ContentCollectMapper collects;
     @Autowired UserViewHistoryMapper history;
     @Autowired ContentLikeMapper likes;
+    @Autowired IContentShareService contentShares;
     @Autowired IContentCommentService comments;
     @Autowired UserNotificationServiceImpl notifications;
     JdbcTemplate jdbc;
@@ -143,6 +152,7 @@ class ContentListsIntegrationTest {
         jdbc.execute("CREATE TABLE audio(id BIGINT PRIMARY KEY,review_status VARCHAR(16))");
         jdbc.execute("CREATE TABLE content_collect(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,create_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE content_like(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,is_liked INT,create_time TIMESTAMP,update_time TIMESTAMP)");
+        jdbc.execute("CREATE TABLE content_share(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,create_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE user_view_history(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,view_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE user_notification(id BIGINT AUTO_INCREMENT PRIMARY KEY,receiver_id BIGINT,sender_id BIGINT,type VARCHAR(32),title VARCHAR(128),content VARCHAR(500),ref_type VARCHAR(16),ref_id BIGINT,extra_json TEXT,is_read INT,create_time TIMESTAMP)");
         for (int id = 1; id <= 8; id++) {
@@ -485,11 +495,10 @@ class ContentListsIntegrationTest {
 
     @Test
     void forwardingAndShareCounterRecheckCurrentStateWithAuthenticatedViewer() {
-        CounterBuffer counter = mock(CounterBuffer.class);
         var internal = new InternalVideoController(mock(IContentTagService.class),contentService,
                 mock(cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper.class),likes,
                 new ContentAccessService(contents,mock(AudioContentAccess.class)),
-                counter,
+                contentShares,
                 mock(NotificationPublisher.class),mock(IUserTagPreferenceService.class));
         assertEquals("dynamic",internal.forwardInfo(2L,9L).type());
         jdbc.update("UPDATE content SET visibility='private' WHERE id=2");
@@ -497,7 +506,8 @@ class ContentListsIntegrationTest {
         assertThrows(BizException.class, () -> internal.incrementShareCount(2L,9L));
         assertEquals(2L,internal.forwardInfo(2L,7L).contentId());
         assertTrue(internal.incrementShareCount(2L,7L));
-        verify(counter).add(cn.diaojiahong.myyoutube.common.counter.CounterType.CONTENT_SHARE,2L,1);
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM content_share WHERE content_id=2 AND user_id=7",Integer.class));
+        assertEquals(1,jdbc.queryForObject("SELECT share_count FROM content WHERE id=2",Integer.class));
         assertThrows(BizException.class, () -> internal.forwardInfo(5L,7L));
         assertThrows(BizException.class, () -> internal.forwardInfo(6L,7L));
         assertThrows(BizException.class, () -> internal.forwardInfo(7L,7L));

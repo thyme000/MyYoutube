@@ -18,7 +18,7 @@ public enum CounterType {
     /** 收藏数。权威值是 content_collect 行数 */
     CONTENT_COLLECT("content:collect", true),
     /**
-     * 分享数。只增不减、没有可信权威来源(转发无法撤销), 同 USER_LIKE 只走增量路径。
+     * 结构上不会漂移故不做对账。枚举保留供重算工具定位权威值(content_share 行数)。
      */
     CONTENT_SHARE("content:share", false);
 

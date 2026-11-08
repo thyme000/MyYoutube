@@ -171,6 +171,16 @@ CREATE TABLE IF NOT EXISTS `content_collect` (
     KEY `idx_content_id` (`content_id`)
 ) ENGINE=InnoDB COMMENT='内容收藏';
 
+-- 分享事实流水(把内容卡片分享进聊天会话的动作账本, append-only 不去重, 口径为分享动作次数)
+CREATE TABLE IF NOT EXISTS `content_share` (
+    `id`          BIGINT   NOT NULL AUTO_INCREMENT,
+    `user_id`     BIGINT   NOT NULL,
+    `content_id`  BIGINT   NOT NULL,
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_content_id` (`content_id`)
+) ENGINE=InnoDB COMMENT='内容分享';
+
 -- 用户浏览历史表(视频/动态同池, 重复观看 upsert 置顶)
 CREATE TABLE IF NOT EXISTS `user_view_history` (
     `id`         BIGINT   NOT NULL AUTO_INCREMENT,

@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.video;
 
-import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
@@ -10,6 +9,7 @@ import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag;
+import cn.diaojiahong.myyoutube.share.service.IContentShareService;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.controller.InternalVideoController;
@@ -41,7 +41,7 @@ class SearchDocumentContractTest {
                 understanding,
                 mock(ContentLikeMapper.class),
                 access,
-                mock(CounterBuffer.class),
+                mock(IContentShareService.class),
                 mock(NotificationPublisher.class),
                 mock(IUserTagPreferenceService.class));
         ContentDocMessage document = controller.searchDocument(1L);
@@ -66,7 +66,7 @@ class SearchDocumentContractTest {
         when(contents.getById(1L)).thenReturn(content);
         when(understandings.selectById(1L)).thenReturn(new ContentUnderstanding().setSummary("语音与画面生成的摘要"));
         var controller = new InternalVideoController(tags, contents, understandings, mock(ContentLikeMapper.class),
-                mock(ContentAccessService.class), mock(CounterBuffer.class),
+                mock(ContentAccessService.class), mock(IContentShareService.class),
                 mock(NotificationPublisher.class), mock(IUserTagPreferenceService.class));
 
         ContentDocMessage document = controller.searchDocument(1L);
