@@ -16,7 +16,7 @@ import cn.diaojiahong.myyoutube.content.support.ContentResourceTestSupport;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens.Scope;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import cn.diaojiahong.myyoutube.video.mapper.VideoMapper;
-import cn.diaojiahong.myyoutube.user.api.FollowPort;
+import cn.diaojiahong.myyoutube.follow.cache.FollowSnapshotCache;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
@@ -48,7 +48,7 @@ class ContentReadContractTest {
     @Test
     void emptyCardInputsSkipRemoteAndDatabaseLookupsForBothEntryPoints() {
         UserPort users = mock(UserPort.class);
-        FollowPort follows = mock(FollowPort.class);
+        FollowSnapshotCache follows = mock(FollowSnapshotCache.class);
         ContentLikeMapper likes = mock(ContentLikeMapper.class);
         ContentTypeStrategyRegistry strategies = mock(ContentTypeStrategyRegistry.class);
         var cards = new ContentFeedServiceImpl(mock(IContentService.class), likes, follows, users, storage,
@@ -153,7 +153,7 @@ class ContentReadContractTest {
         when(storage.signGetUrl(anyString(),anyLong())).thenAnswer(call -> "signed/"+call.getArgument(0));
         AudioContentAccess audios = mock(AudioContentAccess.class);
         var cards=new ContentFeedServiceImpl(mock(IContentService.class),mock(ContentLikeMapper.class),
-                mock(FollowPort.class),
+                mock(FollowSnapshotCache.class),
                 mock(UserPort.class),
                 storage,
                 mock(RecommendPort.class),

@@ -18,7 +18,7 @@ import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
-import cn.diaojiahong.myyoutube.user.api.FollowPort;
+import cn.diaojiahong.myyoutube.follow.cache.FollowSnapshotCache;
 import cn.diaojiahong.myyoutube.like.domain.constants.ContentLikeConstants;
 import cn.diaojiahong.myyoutube.like.domain.po.ContentCommentLike;
 import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
@@ -69,7 +69,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     private final ContentCommentLikeMapper contentCommentLikeMapper;
     private final IContentCommentService contentCommentService;
     private final RocketMQTemplate rocketMQTemplate;
-    private final FollowPort followPort;
+    private final FollowSnapshotCache followSnapshot;
     private final CounterBuffer counterBuffer;
 
     // 24小时后过期
@@ -227,7 +227,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
             vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), STORAGE_EXPIRE));
         });
         // 填充是否关注作者
-        List<Boolean> isFollows = followPort.isFollowOnList(viewerId, authorIds);
+        List<Boolean> isFollows = followSnapshot.isFollowOnList(viewerId, authorIds);
         for (int i = 0; i < voList.size(); i++) {
 
             voList.get(i).setIsFollow(isFollows.get(i));

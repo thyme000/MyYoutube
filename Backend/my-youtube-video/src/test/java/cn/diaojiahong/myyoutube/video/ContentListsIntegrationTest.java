@@ -24,7 +24,7 @@ import cn.diaojiahong.myyoutube.content.mapper.ContentStatisticsMapper;
 import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.service.impl.*;
 import cn.diaojiahong.myyoutube.content.strategy.*;
-import cn.diaojiahong.myyoutube.user.api.FollowPort;
+import cn.diaojiahong.myyoutube.follow.cache.FollowSnapshotCache;
 import cn.diaojiahong.myyoutube.history.mapper.UserViewHistoryMapper;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
@@ -172,7 +172,7 @@ class ContentListsIntegrationTest {
             return strategy;
         }).toList());
         summaries = new ContentSummaryPortImpl(contents,registry,audioAccess);
-        feeds = new ContentFeedServiceImpl(contentService,likes,mock(FollowPort.class),mock(UserPort.class),
+        feeds = new ContentFeedServiceImpl(contentService,likes,mock(FollowSnapshotCache.class),mock(UserPort.class),
                 mock(S3StorageUtil.class),mock(RecommendPort.class),registry,audioAccess,reviewRecords,
                 new AuthorContentPageService(pageStore, audioAccess, statistics, pageProperties));
     }
@@ -512,12 +512,12 @@ class ContentListsIntegrationTest {
                 summaries,
                 access,
                 mock(UserPort.class),
-                mock(FollowPort.class),
+                mock(FollowSnapshotCache.class),
                 mock(S3StorageUtil.class),
                 counter,
                 mock(NotificationPublisher.class));
         var histories = new cn.diaojiahong.myyoutube.history.service.HistoryServiceImpl(history,summaries,access,
-                mock(UserPort.class),mock(FollowPort.class),mock(S3StorageUtil.class));
+                mock(UserPort.class),mock(FollowSnapshotCache.class),mock(S3StorageUtil.class));
         for (long id : List.of(4L,5L,6L,7L)) {
             assertThrows(BizException.class, () -> collections.collect(id));
             assertThrows(BizException.class, () -> histories.record(id));
@@ -535,7 +535,7 @@ class ContentListsIntegrationTest {
                 summaries,
                 access,
                 mock(UserPort.class),
-                mock(FollowPort.class),
+                mock(FollowSnapshotCache.class),
                 mock(S3StorageUtil.class),
                 mock(CounterBuffer.class),
                 mock(NotificationPublisher.class));

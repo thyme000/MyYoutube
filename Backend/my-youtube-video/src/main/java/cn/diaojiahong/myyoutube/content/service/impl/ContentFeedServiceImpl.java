@@ -11,7 +11,7 @@ import cn.diaojiahong.myyoutube.content.domain.vo.AuthorContentCursorVO;
 import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.content.support.ContentCards;
-import cn.diaojiahong.myyoutube.user.api.FollowPort;
+import cn.diaojiahong.myyoutube.follow.cache.FollowSnapshotCache;
 import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
@@ -37,7 +37,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     private static final long SIGN_SECONDS = 7200;
     private final IContentService contents;
     private final ContentLikeMapper likes;
-    private final FollowPort follows;
+    private final FollowSnapshotCache follows;
     private final UserPort users;
     private final S3StorageUtil storage;
     private final RecommendPort recommendations;

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.user;
 
+import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -26,10 +28,11 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.*;
 
 class FollowSnapshotTest {
     JdbcTemplate jdbc;
+    StringRedisTemplate redis;
     UserFollowServiceImpl follows;
 
     @BeforeEach
@@ -57,8 +60,9 @@ class FollowSnapshotTest {
         var users = new UserServiceImpl(mock(S3StorageUtil.class), mock(EsSyncPublisher.class),
                 mock(UserSummaryCache.class));
         ReflectionTestUtils.setField(users, "baseMapper", sessions.getMapper(UserMapper.class));
+        redis = mock(StringRedisTemplate.class);
         follows = new UserFollowServiceImpl(users, mock(UserPortAdapter.class), mock(S3StorageUtil.class),
-                mock(EsSyncPublisher.class), new TransactionTemplate(new DataSourceTransactionManager(ds)));
+                mock(EsSyncPublisher.class), new TransactionTemplate(new DataSourceTransactionManager(ds)), redis);
         ReflectionTestUtils.setField(follows, "baseMapper", sessions.getMapper(UserFollowMapper.class));
     }
 
@@ -93,6 +97,23 @@ class FollowSnapshotTest {
             follows.follow(8L);
             assertEquals(1, jdbc.queryForObject(
                     "SELECT COUNT(*) FROM user_follow WHERE follower_id=7 AND followee_id=8", Integer.class));
+
+            verify(redis, atLeastOnce()).delete(RedisConstants.FOLLOW_SNAPSHOT + 7);
+        } finally {
+            UserContext.removeUser();
+        }
+    }
+
+    @Test
+    void failedSnapshotEvictionDoesNotFailTheFollow() {
+        jdbc.update("INSERT INTO `user`(id) VALUES (7),(8)");
+        doThrow(new IllegalStateException("redis down")).when(redis).delete(anyString());
+        UserContext.setUser("7");
+        try {
+            follows.follow(8L);
+
+            assertEquals(1L, fansOf(8L));
+            assertEquals(1L, attentionOf(7L));
         } finally {
             UserContext.removeUser();
         }
@@ -116,6 +137,8 @@ class FollowSnapshotTest {
             // 未关注再取关: 影响行数=0, 计数不动
             follows.cancelFollow(8L);
             assertEquals(0L, fansOf(8L));
+
+            verify(redis, atLeastOnce()).delete(RedisConstants.FOLLOW_SNAPSHOT + 7);
         } finally {
             UserContext.removeUser();
         }
@@ -134,6 +157,9 @@ class FollowSnapshotTest {
                     Integer.class));
             assertEquals(0L, fansOf(7L));
             assertEquals(0L, attentionOf(8L));
+
+            // 移除粉丝动的是粉丝自己的关注集合
+            verify(redis).delete(RedisConstants.FOLLOW_SNAPSHOT + 8);
         } finally {
             UserContext.removeUser();
         }

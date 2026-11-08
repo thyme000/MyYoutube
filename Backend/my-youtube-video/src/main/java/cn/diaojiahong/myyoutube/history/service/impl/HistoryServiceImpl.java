@@ -7,7 +7,7 @@ import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.user.api.FollowPort;
+import cn.diaojiahong.myyoutube.follow.cache.FollowSnapshotCache;
 import cn.diaojiahong.myyoutube.history.domain.po.UserViewHistory;
 import cn.diaojiahong.myyoutube.history.domain.vo.HistoryVO;
 import cn.diaojiahong.myyoutube.history.mapper.UserViewHistoryMapper;
@@ -44,7 +44,7 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
     private final ContentSummaryPort contentSummaryPort;
     private final ContentAccessService access;
     private final UserPort userPort;
-    private final FollowPort followPort;
+    private final FollowSnapshotCache followSnapshot;
     private final S3StorageUtil storageUtil;
 
     @Override
@@ -98,7 +98,7 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
         List<UserSummary> authors = userPort.listByIds(authorIds);
         Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(authors);
         Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(authors);
-        List<Boolean> isFollows = followPort.isFollowOnList(userId, authorIds);
+        List<Boolean> isFollows = followSnapshot.isFollowOnList(userId, authorIds);
         for (int i = 0; i < voList.size(); i++) {
 
             HistoryVO vo = voList.get(i);

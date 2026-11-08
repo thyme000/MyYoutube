@@ -78,6 +78,9 @@ public class RedisConstants {
     // 1天后过期
     public static final Long USER_CONVERSATION_EXPIRE = 1L;
 
+    /** 关注快照: value=viewer 的关注 id 逗号串, video 读侧固定 TTL; user 写路径尽力删除, 滞后由 TTL 兜底 */
+    public static final String FOLLOW_SNAPSHOT = "follow:ids:";
+
 
     /** 多实例推送扇出: 聊天 WS 通道(承载聊天事件报文) */
     public static final String PUSH_CHANNEL_WS = "push:channel:ws";

@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.follow.service.impl;
 
 import cn.diaojiahong.myyoutube.common.counter.AbstractCounterTarget;
+import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
@@ -22,6 +23,8 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -38,6 +41,7 @@ import java.util.stream.Collectors;
  * @author thyme
  * @since 2026-04-01
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFollow> implements IUserFollowService {
@@ -47,6 +51,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     private final S3StorageUtil storageUtil;
     private final EsSyncPublisher esSyncPublisher;
     private final TransactionTemplate transactionTemplate;
+    private final StringRedisTemplate redis;
 
     private static final long STORAGE_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
 
@@ -67,8 +72,18 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 AbstractCounterTarget.guardedDelta(userService, User::getId, userId, User::getAttentionCount, 1);
             }
         });
+        evictFollowSnapshotQuietly(userId);
         // ES 文档同步走 MQ 延迟合并, 留在事务外
         esSyncPublisher.syncUserDoc(authorId);
+    }
+
+    /** 尽力而为失效读侧关注快照: 删除失败只记日志, 滞后由缓存 TTL 兜底 */
+    private void evictFollowSnapshotQuietly(Long userId) {
+        try {
+            redis.delete(RedisConstants.FOLLOW_SNAPSHOT + userId);
+        } catch (Exception e) {
+            log.warn("关注快照缓存删除失败 userId={}", userId, e);
+        }
     }
 
     private Long getUserId() {
@@ -94,6 +109,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 AbstractCounterTarget.guardedDelta(userService, User::getId, userId, User::getAttentionCount, -1);
             }
         });
+        evictFollowSnapshotQuietly(userId);
         // ES 用户文档延迟合并
         esSyncPublisher.syncUserDoc(authorId);
     }
@@ -212,6 +228,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 AbstractCounterTarget.guardedDelta(userService, User::getId, followerId, User::getAttentionCount, -1);
             }
         });
+        evictFollowSnapshotQuietly(followerId);
         // ES 用户文档延迟合并
         esSyncPublisher.syncUserDoc(userId);
     }
