@@ -49,7 +49,7 @@ SELECT 'user.fans',
 FROM (SELECT u.id, u.fans - COALESCE(f.cnt, 0) AS diff
       FROM user_db.user u
                LEFT JOIN (SELECT followee_id, COUNT(*) AS cnt
-                          FROM video_db.user_follow
+                          FROM user_db.user_follow
                           WHERE is_deleted = 0
                           GROUP BY followee_id) f ON f.followee_id = u.id) t
 
@@ -66,7 +66,7 @@ SELECT 'user.attention_count',
 FROM (SELECT u.id, u.attention_count - COALESCE(f.cnt, 0) AS diff
       FROM user_db.user u
                LEFT JOIN (SELECT follower_id, COUNT(*) AS cnt
-                          FROM video_db.user_follow
+                          FROM user_db.user_follow
                           WHERE is_deleted = 0
                           GROUP BY follower_id) f ON f.follower_id = u.id) t;
 

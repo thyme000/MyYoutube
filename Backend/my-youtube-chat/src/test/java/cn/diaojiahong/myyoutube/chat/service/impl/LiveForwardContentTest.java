@@ -233,7 +233,7 @@ class LiveForwardContentTest {
     void newConversationMembersReferenceTheGeneratedConversationId() {
         var conversations = new ChatConversationService(
                 mongo,
-                mock(cn.diaojiahong.myyoutube.video.api.FollowPort.class),
+                mock(cn.diaojiahong.myyoutube.user.api.FollowPort.class),
                 mock(UserPort.class), storage, mq, mock(cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher.class),
                 new TransactionTemplate(new MongoTransactionManager(factory)));
         var dto = new cn.diaojiahong.myyoutube.chat.mongo.dto.CreateConversationDTO();

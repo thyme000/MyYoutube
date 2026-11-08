@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.recommend.service.impl;
 
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.recommend.domain.dto.BehaviorDTO;
 import cn.diaojiahong.myyoutube.recommend.domain.enums.EventEnum;
 import cn.diaojiahong.myyoutube.recommend.domain.po.UserVideoBehavior;

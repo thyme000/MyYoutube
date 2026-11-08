@@ -13,7 +13,7 @@ import cn.diaojiahong.myyoutube.search.service.impl.SearchServiceImpl;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
-import cn.diaojiahong.myyoutube.video.api.FollowPort;
+import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchResponse;

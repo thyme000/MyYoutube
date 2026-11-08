@@ -1,14 +1,13 @@
-package cn.diaojiahong.myyoutube.video;
+package cn.diaojiahong.myyoutube.user;
 
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.follow.service.impl.UserFollowServiceImpl;
-import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.port.UserPortAdapter;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,8 +38,8 @@ class FollowSnapshotTest {
         SqlSessionFactory factory = bean.getObject();
         factory.getConfiguration().addMapper(UserFollowMapper.class);
         session = factory.openSession(true);
-        follows = new UserFollowServiceImpl(mock(UserPort.class), mock(S3StorageUtil.class),
-                mock(RocketMQTemplate.class), mock(EsSyncPublisher.class));
+        follows = new UserFollowServiceImpl(mock(UserPortAdapter.class), mock(S3StorageUtil.class),
+                mock(EsSyncPublisher.class));
         ReflectionTestUtils.setField(follows, "baseMapper", session.getMapper(UserFollowMapper.class));
     }
 

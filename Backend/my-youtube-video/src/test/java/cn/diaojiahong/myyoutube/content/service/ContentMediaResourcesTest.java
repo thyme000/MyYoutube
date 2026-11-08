@@ -176,7 +176,8 @@ class ContentMediaResourcesTest {
         Snapshot snapshot = new Snapshot(true, "预热摘要", JsonUtil.toJson(List.of(chapter)), subtitleKey);
         when(storage.readObject(eq(subtitleKey), any(Duration.class))).thenReturn("WEBVTT".getBytes(StandardCharsets.UTF_8));
         ContentResourceWarmupLoader eligible = mock(ContentResourceWarmupLoader.class);
-        when(eligible.loadIfEligible(1L)).thenReturn(content);
+        when(eligible.loadReadable(1L)).thenReturn(content);
+        when(eligible.aboveFanThreshold(content)).thenReturn(true);
         var warmMetrics = new SimpleMeterRegistry();
         try {
             var warmup = new ContentResourceWarmup(Runnable::run, Runnable::run, new ContentResourceWarmupProperties(), eligible,
@@ -220,7 +221,8 @@ class ContentMediaResourcesTest {
         Duration understandingTtl = ttls.get(ContentResourceRegion.UNDERSTANDING.key("1"));
         clearInvocations(values, videos, understandingRows, redis);
         ContentResourceWarmupLoader eligible = mock(ContentResourceWarmupLoader.class);
-        when(eligible.loadIfEligible(1L)).thenReturn(content);
+        when(eligible.loadReadable(1L)).thenReturn(content);
+        when(eligible.aboveFanThreshold(content)).thenReturn(true);
         var warmMetrics = new SimpleMeterRegistry();
         try {
             var warmup = new ContentResourceWarmup(Runnable::run, Runnable::run, new ContentResourceWarmupProperties(), eligible,

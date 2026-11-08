@@ -19,7 +19,7 @@ import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.RefTypeEnum;
-import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
+import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
@@ -54,7 +54,7 @@ ContentCollect> implements IContentCollectService {
     private final ContentSummaryPort contentSummaryPort;
     private final ContentAccessService access;
     private final UserPort userPort;
-    private final IUserFollowService userFollowService;
+    private final FollowPort followPort;
     private final S3StorageUtil storageUtil;
     private final CounterBuffer counterBuffer;
     private final NotificationPublisher notificationPublisher;
@@ -152,7 +152,7 @@ ContentCollect> implements IContentCollectService {
         List<UserSummary> authors = userPort.listByIds(authorIds);
         Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(authors);
         Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(authors);
-        List<Boolean> isFollows = userFollowService.isFollowOnList(authorIds, userId);
+        List<Boolean> isFollows = followPort.isFollowOnList(userId, authorIds);
         for (int i = 0; i < voList.size(); i++) {
 
             CollectVO vo = voList.get(i);

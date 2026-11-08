@@ -61,6 +61,23 @@ CREATE TABLE IF NOT EXISTS `user_check_in_month_snapshot` (
     `daily_counts` TEXT NOT NULL COMMENT '按日期顺序保存每日人数的 JSON 数组，含零签到日'
 ) ENGINE=InnoDB COMMENT='签到月度统计快照';
 
+-- 用户关注关系表
+CREATE TABLE IF NOT EXISTS `user_follow` (
+    `id`          BIGINT      NOT NULL COMMENT '雪花ID',
+    `follower_id` BIGINT      NOT NULL COMMENT '关注者',
+    `followee_id` BIGINT      NOT NULL COMMENT '被关注者',
+    `remark`      VARCHAR(64)          DEFAULT '' COMMENT '备注别名',
+    `is_deleted`  TINYINT(1)  NOT NULL DEFAULT 0 COMMENT '0关注中 1已取消',
+    `create_time` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_follower_followee` (`follower_id`, `followee_id`),
+    KEY `idx_followee_id` (`followee_id`),
+    -- 粉丝数/关注数对账 COUNT(*) 需覆盖 is_deleted, 否则每行回表
+    KEY `idx_followee_deleted` (`followee_id`, `is_deleted`),
+    KEY `idx_follower_deleted` (`follower_id`, `is_deleted`)
+) ENGINE=InnoDB COMMENT='关注关系';
+
 -- 初始用户, 密码明文: password (BCrypt)
 INSERT INTO `user` (`id`, `username`, `password`, `nickname`, `role`)
 VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'thyme', 'SUPER_ADMIN');
@@ -212,23 +229,6 @@ CREATE TABLE IF NOT EXISTS `content_comment_like` (
     UNIQUE KEY `uk_user_comment` (`user_id`, `comment_id`),
     KEY `idx_comment_liked` (`comment_id`, `is_liked`)
 ) ENGINE=InnoDB COMMENT='评论点赞';
-
--- 用户关注关系表
-CREATE TABLE IF NOT EXISTS `user_follow` (
-    `id`          BIGINT      NOT NULL COMMENT '雪花ID',
-    `follower_id` BIGINT      NOT NULL COMMENT '关注者',
-    `followee_id` BIGINT      NOT NULL COMMENT '被关注者',
-    `remark`      VARCHAR(64)          DEFAULT '' COMMENT '备注别名',
-    `is_deleted`  TINYINT(1)  NOT NULL DEFAULT 0 COMMENT '0关注中 1已取消',
-    `create_time` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `update_time` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_follower_followee` (`follower_id`, `followee_id`),
-    KEY `idx_followee_id` (`followee_id`),
-    -- 粉丝数/关注数对账 COUNT(*) 需覆盖 is_deleted, 否则每行回表
-    KEY `idx_followee_deleted` (`followee_id`, `is_deleted`),
-    KEY `idx_follower_deleted` (`follower_id`, `is_deleted`)
-) ENGINE=InnoDB COMMENT='关注关系';
 
 -- 站内通知表
 CREATE TABLE IF NOT EXISTS `user_notification` (

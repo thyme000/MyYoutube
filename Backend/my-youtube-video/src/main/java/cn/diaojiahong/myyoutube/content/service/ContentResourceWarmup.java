@@ -143,9 +143,10 @@ public class ContentResourceWarmup {
 
     private Content eligibleContent(Long id) {
         try {
-            Content content = loader.loadIfEligible(id);
-            if (content == null) {
+            Content content = loader.loadReadable(id);
+            if (!loader.aboveFanThreshold(content)) {
                 skipped(SkipReason.BELOW_FAN_THRESHOLD);
+                return null;
             }
             return content;
         } catch (BizException rejected) {

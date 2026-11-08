@@ -18,7 +18,7 @@ import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.content.strategy.DynamicContentStrategy;
 import cn.diaojiahong.myyoutube.content.strategy.VideoContentStrategy;
 import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
-import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
+import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.search.api.AudioSearchPort;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
@@ -133,7 +133,7 @@ class AudioContentIntegrationTest {
         var strategies = new ContentTypeStrategyRegistry(List.of(
                 new DynamicContentStrategy(dynamics, audioService),
                 new VideoContentStrategy(videos)));
-        var cards = new ContentFeedServiceImpl(contentService, likes, mock(IUserFollowService.class), users, storage,
+        var cards = new ContentFeedServiceImpl(contentService, likes, mock(FollowPort.class), users, storage,
                 mock(RecommendPort.class),
                 strategies,
                 access,

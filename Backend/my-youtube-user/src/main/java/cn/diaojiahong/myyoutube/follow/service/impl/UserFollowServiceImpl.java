@@ -3,7 +3,6 @@ package cn.diaojiahong.myyoutube.follow.service.impl;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -14,15 +13,14 @@ import cn.diaojiahong.myyoutube.follow.domain.vo.UserRelationshipVO;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
-import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.CounterAdjust;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
+import cn.diaojiahong.myyoutube.user.port.UserPortAdapter;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -43,9 +41,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFollow> implements IUserFollowService {
 
-    private final UserPort userPort;
+    private final UserPortAdapter userPortAdapter;
     private final S3StorageUtil storageUtil;
-    private final RocketMQTemplate rocketMQTemplate;
     private final EsSyncPublisher esSyncPublisher;
 
     private static final long STORAGE_READ_SIGN_EXPIRE_SECONDS = 24 * 60 * 60;
@@ -55,16 +52,14 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     public void follow(Long authorId) {
         Long userId = getUserId();
         if (userId.equals(authorId)) {
-
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "不能关注自己");
         }
 
-        // 存在就修改,不存在就新增; 单条 UPDATE 走自动提交, 不开事务圈住下面的远程调用
+        // 存在就修改,不存在就新增; 单条 UPDATE 走自动提交, 计数只进 Redis 缓冲无需事务圈住
         long id = IdWorker.getId();
         int row = baseMapper.followOrRestore(id, userId, authorId);
         // 关注成功后，更新用户信息 -> 被关注者粉丝数加一,关注者关注数量加一
         if (row > 0) {
-
             adjustCountersQuietly(List.of(
                     new CounterAdjust(authorId, "fans", 1),
                     new CounterAdjust(userId, "attentionCount", 1)));
@@ -73,11 +68,10 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         esSyncPublisher.syncUserDoc(authorId);
     }
 
-    /** 计数器尽力而为: 关注关系已落库, 远程计数失败只记日志, 不把 HTTP 调用拖进 DB 连接持有期 */
+    /** 计数器尽力而为: 关注关系已落库, 计数缓冲失败只记日志, 不影响关注结果 */
     private void adjustCountersQuietly(List<CounterAdjust> adjustments) {
-
         try {
-            userPort.adjustCounters(adjustments);
+            userPortAdapter.adjustCounters(adjustments);
         } catch (Exception e) {
             log.warn("关注计数同步失败, 计数已丢弃(无补偿, 计数为最终一致值) adjustments={}", adjustments, e);
         }
@@ -109,7 +103,6 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         }
         // 延迟同步 ES 用户文档
         esSyncPublisher.syncUserDoc(authorId);
-        return;
     }
 
     @Override
@@ -150,7 +143,6 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public Long countFans(Long followeeId) {
-
         return lambdaQuery()
                 .eq(UserFollow::getFolloweeId, followeeId)
                 .eq(UserFollow::getIsDeleted, false)
@@ -159,7 +151,6 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public Long countAttention(Long followerId) {
-
         return lambdaQuery()
                 .eq(UserFollow::getFollowerId, followerId)
                 .eq(UserFollow::getIsDeleted, false)
@@ -175,7 +166,6 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
                 .page(pageQuery.toPage());
         List<UserFollow> follows = page.getRecords();
         if (follows == null || follows.isEmpty()) {
-
             return PageResult.of(page.getTotal(), page.getPages(), List.of());
         }
 
@@ -186,7 +176,6 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public List<Long> getFollowIds(Long userId) {
-
         return lambdaQuery()
                 .eq(UserFollow::getFollowerId, userId)
                 .eq(UserFollow::getIsDeleted, false)
@@ -197,7 +186,6 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     @Override
     public List<Boolean> isFollowOnList(List<Long> authorIds, Long userId) {
-
         if (userId == null) {
 
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
@@ -230,7 +218,6 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
         }
         // 延迟同步 ES 用户文档
         esSyncPublisher.syncUserDoc(userId);
-        return;
     }
 
     @Override
@@ -253,8 +240,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     }
 
     private List<UserRelationshipVO> getUserRelationshipVOS(List<Long> records) {
-
-        List<UserSummary> users = userPort.listByIds(records);
+        List<UserSummary> users = userPortAdapter.listByIds(records);
         // 转换为 Map
         Map<Long, UserSummary> userMap = users.stream()
                 .collect(Collectors.toMap(UserSummary::getId, u -> u));

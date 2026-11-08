@@ -5,10 +5,8 @@ import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
-import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
-import cn.diaojiahong.myyoutube.video.api.FollowPort;
 import cn.diaojiahong.myyoutube.video.api.NotificationPort;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
@@ -47,7 +45,6 @@ public class InternalVideoController {
     private final cn.diaojiahong.myyoutube.content.service.ContentAccessService access;
     private final CounterBuffer counterBuffer;
 
-    private final IUserFollowService userFollowService;
     private final NotificationPublisher notificationPublisher;
     private final IUserTagPreferenceService userTagPreferenceService;
 
@@ -96,11 +93,6 @@ public class InternalVideoController {
                         row -> true));
     }
 
-    @GetMapping("/follow/follow-ids")
-    public List<Long> getFollowIds(@RequestParam("userId") Long userId) {
-        return userFollowService.getFollowIds(userId);
-    }
-
     @GetMapping("/preference/top")
     public List<PreferencePort.TagPreferenceSummary> topPreferences(@RequestParam("userId") Long userId,
                                                                     @RequestParam(value = "limit", defaultValue = "20") int limit) {
@@ -113,21 +105,6 @@ public class InternalVideoController {
                         t.getTagId(),
                         t.getScore() != null ? t.getScore() : 0.0))
                 .toList();
-    }
-
-    @PostMapping("/follow/interrelated")
-    public boolean interrelated(@RequestBody FollowPort.InterrelatedQuery query) {
-        return userFollowService.interrelated(query.getUserId(), query.getMemberIds());
-    }
-
-    @GetMapping("/follow/fans-count")
-    public Long fansCount(@RequestParam("userId") Long userId) {
-        return userFollowService.countFans(userId);
-    }
-
-    @GetMapping("/follow/attention-count")
-    public Long attentionCount(@RequestParam("userId") Long userId) {
-        return userFollowService.countAttention(userId);
     }
 
     @PostMapping("/notification/create")

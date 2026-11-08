@@ -61,7 +61,8 @@ class ContentResourceWarmupTest {
             tasks.add(call.getArgument(0));
             return null;
         }).when(executor).execute(any(Runnable.class));
-        when(loader.loadIfEligible(1L)).thenReturn(content);
+        when(loader.loadReadable(1L)).thenReturn(content);
+        when(loader.aboveFanThreshold(content)).thenReturn(true);
         when(media.warmupResource(content, FillPolicy.STANDARD)).thenReturn(mediaResource);
         when(understanding.warmupResource(1L, snapshot, FillPolicy.STANDARD)).thenReturn(understandingResource);
         when(cache.warmupTogether(same(loaderExecutor), any(WarmupResource[].class)))
@@ -82,7 +83,7 @@ class ContentResourceWarmupTest {
         assertEquals(1, count(MetricNames.CONTENT_CACHE_WARMUP_SUBMITTED));
         tasks.get(0).run();
 
-        verify(loader).loadIfEligible(1L);
+        verify(loader).loadReadable(1L);
         verify(media).warmupResource(content, FillPolicy.STANDARD);
         verify(understanding).warmupResource(1L, snapshot, FillPolicy.STANDARD);
         verifyNoMoreInteractions(media, understanding);
@@ -186,7 +187,8 @@ class ContentResourceWarmupTest {
 
     @Test
     void authorBelowTheThresholdDoesNotLoadArtifacts() {
-        when(loader.loadIfEligible(1L)).thenReturn(null);
+        when(loader.loadReadable(1L)).thenReturn(content);
+        when(loader.aboveFanThreshold(any())).thenReturn(false);
         warmup(metrics).submit(1L, snapshot);
 
         tasks.get(0).run();
@@ -198,7 +200,7 @@ class ContentResourceWarmupTest {
     @Test
     void contentThatBecomesInaccessibleBeforeExecutionIsSkipped() {
         warmup(metrics).submit(1L, snapshot);
-        when(loader.loadIfEligible(1L)).thenThrow(new BizException(ErrorCode.NOT_FOUND));
+        when(loader.loadReadable(1L)).thenThrow(new BizException(ErrorCode.NOT_FOUND));
 
         assertDoesNotThrow(() -> tasks.get(0).run());
 
