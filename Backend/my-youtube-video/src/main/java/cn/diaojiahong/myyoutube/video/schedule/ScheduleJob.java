@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 import cn.diaojiahong.myyoutube.common.schedule.ScheduleRoundLock;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.like.counter.AuthorLikeCountService;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import cn.diaojiahong.myyoutube.video.domain.po.Video;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -46,13 +47,22 @@ public class ScheduleJob {
     private final CounterFlushService counterFlushService;
     private final ScheduleRoundLock roundLock;
     private final MeterRegistry metrics;
+    private final AuthorLikeCountService authorLikeCounts;
 
     /**
      * 每 30s 把点赞缓冲落库。
      */
     @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
     public void flushContentCounters() {
-        roundLock.run(VideoScheduleLocks.COUNTER_FLUSH, counterFlushService::flushRound);
+        roundLock.run(VideoScheduleLocks.COUNTER_FLUSH, this::flushAndPushReceivedLikes);
+    }
+
+    private void flushAndPushReceivedLikes() {
+        try {
+            counterFlushService.flushRound();
+        } finally {
+            authorLikeCounts.pushPending();
+        }
     }
 
     /**
@@ -60,7 +70,15 @@ public class ScheduleJob {
      */
     @Scheduled(cron = "0 20 * * * ?")
     public void reconcileContentCounters() {
-        roundLock.run(VideoScheduleLocks.COUNTER_RECONCILE, counterFlushService::reconcileRound);
+        roundLock.run(VideoScheduleLocks.COUNTER_RECONCILE, this::reconcileAndPushReceivedLikes);
+    }
+
+    private void reconcileAndPushReceivedLikes() {
+        try {
+            counterFlushService.reconcileRound();
+        } finally {
+            authorLikeCounts.pushPending();
+        }
     }
 
     /**

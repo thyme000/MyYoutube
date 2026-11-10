@@ -6,6 +6,7 @@ import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 import cn.diaojiahong.myyoutube.common.schedule.ScheduleRoundLock;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.like.counter.AuthorLikeCountService;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
 import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import io.micrometer.core.instrument.Counter;
@@ -146,7 +147,8 @@ class PlayCountFlushMetricsTest {
     }
 
     private ScheduleJob job(MeterRegistry registry) {
-        return new ScheduleJob(redis, contents, mock(ContentDocPort.class), mock(CounterFlushService.class), roundLock, registry);
+        return new ScheduleJob(redis, contents, mock(ContentDocPort.class), mock(CounterFlushService.class),
+                roundLock, registry, mock(AuthorLikeCountService.class));
     }
 
     private double count(String name) {

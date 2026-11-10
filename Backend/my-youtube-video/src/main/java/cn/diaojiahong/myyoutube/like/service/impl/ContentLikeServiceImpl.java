@@ -14,8 +14,6 @@ import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.content.domain.po.Content;
-import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
 import cn.diaojiahong.myyoutube.follow.cache.FollowSnapshotCache;
@@ -59,7 +57,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, ContentLike> implements IContentLikeService {
 
-    private final IContentService contentService;
     private final cn.diaojiahong.myyoutube.content.service.ContentAccessService access;
     private final ContentSummaryPort contentSummaryPort;
     private final StringRedisTemplate redisTemplate;
@@ -81,7 +78,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     public void likeContent(Long contentId) {
         // 获取用户id
         Long userId = getUserId();
-        Content content = access.readable(contentId, userId);
+        access.readable(contentId, userId);
 
         // 判断用户是否已经点过赞
         ContentLike like = lambdaQuery()
@@ -93,15 +90,11 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
             return;
         }
 
-        // 作者 id 必须在写计数之前取: 原先排在 UPDATE 计数之后, 等于把这次额外查询也算进热点行的锁持有时间
-        Long authorId = content.getAuthorId();
-
-        // 点赞数只累加到 Redis, 由落库任务合并成一次 UPDATE
+        // 点赞数只累加到 Redis, 由落库任务合并成一次 UPDATE。作者获赞在那次落库里跟着作品赞一起改
         counterBuffer.add(CounterType.CONTENT_LIKE, contentId, 1);
 
         // 保存点赞记录
         if (like != null) {
-
             // 已有记录，更新
             like.setIsLiked(ContentLikeConstants.LIKE);
             updateById(like);
@@ -109,21 +102,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
             // 没有记录，新增
             save(new ContentLike().setUserId(userId).setContentId(contentId).setIsLiked(ContentLikeConstants.LIKE));
         }
-        // 更新作者获赞量
-        counterBuffer.add(CounterType.USER_LIKE, authorId, 1);
-
-        return;
-    }
-
-    private Long findAuthorId(Long contentId) {
-
-        Content content = contentService.lambdaQuery().eq(Content::getId, contentId).select(Content::getAuthorId).one();
-        if (content == null) {
-
-            throw new BizException(ErrorCode.NOT_FOUND, "内容不存在");
-        }
-
-        return content.getAuthorId();
     }
 
     private Long getUserId() {
@@ -155,18 +133,11 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
             return;
         }
 
-        Long authorId = findAuthorId(contentId);
-
         counterBuffer.add(CounterType.CONTENT_LIKE, contentId, -1);
 
         // 修改点赞记录
         like.setIsLiked(ContentLikeConstants.CANCEL_LIKE);
         updateById(like);
-
-        // 更新用户获赞量
-        counterBuffer.add(CounterType.USER_LIKE, authorId, -1);
-
-        return;
     }
 
     @Override
@@ -178,7 +149,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         // 用户不喜欢的内容默认存储在redis中
         redisTemplate.opsForSet().add(RedisConstants.USER_DISLIKE + userId, contentId.toString());
         redisTemplate.expire(RedisConstants.USER_DISLIKE + userId, RedisConstants.USER_DISLIKE_EXPIRE, TimeUnit.DAYS);
-        return;
     }
 
     @Override
@@ -284,8 +254,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
             LikeCommentMessage lc = LikeCommentMessage.builder().senderId(userId).commentId(commentId).build();
             rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_LIKE, lc);
         }
-
-        return;
     }
 
     @Override
@@ -317,8 +285,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
             LikeCommentMessage lc = LikeCommentMessage.builder().senderId(userId).commentId(commentId).build();
             rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_UNLIKE, lc);
         }
-
-        return;
     }
 
     /**
