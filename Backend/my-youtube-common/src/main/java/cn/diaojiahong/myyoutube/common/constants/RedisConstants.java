@@ -53,12 +53,6 @@ public class RedisConstants {
     // 用户看过的视频时长记录 ->  {userid} : videoId , 当前时间戳
     public static final String USER_PLAYBACK_RESUME = "user:playback:resume:";
 
-
-    // 用户观看的短视频记录
-    // 30天后过期
-    // 用户获赞量 {userid} string结构 videoId : likeCount
-    public static final String USER_LIKE_COUNT = "user:like:count:";
-
     /**
      * 定时任务：按主键游标轮询，将 video 表中的播放量/点赞量同步到 ES（仅存 lastId，重启可续跑）
      */

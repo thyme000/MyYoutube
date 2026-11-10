@@ -8,9 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * user 域定时任务: 粉丝数/关注数/获赞量的落库与对账。
- * 获赞量此前是手写的认领落库循环(漏扫 inflight、ES 同步压在 ack 前会放大重放),
- * 已收敛为 UserLikeCounterTarget 走标准骨架, 本类只剩调度入口。
+ * user 域定时任务: 粉丝数与关注数的落库和对账。
  */
 @Slf4j
 @Component
@@ -21,7 +19,7 @@ public class ScheduleJob {
     private final ScheduleRoundLock roundLock;
 
     /**
-     * 每 30s 把粉丝数/关注数/获赞量的缓冲落库。
+     * 每 30s 把粉丝数、关注数的缓冲落库。
      */
     @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
     public void flushUserCounters() {
@@ -29,7 +27,7 @@ public class ScheduleJob {
     }
 
     /**
-     * 每小时用 COUNT(*) 覆盖一次(获赞量无权威来源, 由 CounterType.reconcile 自行跳过)。
+     * 每小时用 COUNT(*) 覆盖一次粉丝数和关注数。
      */
     @Scheduled(cron = "0 40 * * * ?")
     public void reconcileUserCounters() {
