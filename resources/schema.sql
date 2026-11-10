@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS `user` (
     `fans`            BIGINT       NOT NULL DEFAULT 0 COMMENT '粉丝数',
     `attention_count` BIGINT       NOT NULL DEFAULT 0 COMMENT '关注数',
     `like_count`      BIGINT       NOT NULL DEFAULT 0 COMMENT '获赞数',
+    `like_version`    BIGINT       NOT NULL DEFAULT 0 COMMENT '已收下的作者获赞版本',
     `create_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `update_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `is_delete`       TINYINT      NOT NULL DEFAULT 0 COMMENT '0正常 1已删除',
@@ -159,6 +160,15 @@ CREATE TABLE IF NOT EXISTS `content_like` (
     -- 对账 COUNT(*) 需覆盖 is_liked, 否则每行回表
     KEY `idx_content_liked` (`content_id`, `is_liked`)
 ) ENGINE=InnoDB COMMENT='内容点赞';
+
+-- 作者获赞冗余。权威仍是 content_like，经作品赞数的落库和对账把差额记到这一行
+CREATE TABLE IF NOT EXISTS `author_like_count` (
+    `author_id`      BIGINT NOT NULL COMMENT '作者用户ID',
+    `like_count`     BIGINT NOT NULL DEFAULT 0 COMMENT '获赞数',
+    `version`        BIGINT NOT NULL DEFAULT 0 COMMENT '获赞数每变一次加一',
+    `synced_version` BIGINT NOT NULL DEFAULT 0 COMMENT '已成功抄到 user.like_count 的版本',
+    PRIMARY KEY (`author_id`)
+) ENGINE=InnoDB COMMENT='作者获赞冗余';
 
 -- 内容收藏表(视频/动态同池, 取消收藏即删行)
 CREATE TABLE IF NOT EXISTS `content_collect` (

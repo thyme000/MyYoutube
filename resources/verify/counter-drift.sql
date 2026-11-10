@@ -68,7 +68,37 @@ FROM (SELECT u.id, u.attention_count - COALESCE(f.cnt, 0) AS diff
                LEFT JOIN (SELECT follower_id, COUNT(*) AS cnt
                           FROM user_db.user_follow
                           WHERE is_deleted = 0
-                          GROUP BY follower_id) f ON f.follower_id = u.id) t;
+                          GROUP BY follower_id) f ON f.follower_id = u.id) t
+
+UNION ALL
+
+-- author_like_count vs SUM(content.like_count)。作品赞对账会把差额写进作者行
+SELECT 'author_like_count',
+       COUNT(*),
+       COALESCE(SUM(diff = 0), 0),
+       COALESCE(SUM(diff > 0), 0),
+       COALESCE(SUM(diff < 0), 0),
+       COALESCE(MIN(diff), 0),
+       COALESCE(MAX(diff), 0)
+FROM (SELECT c.author_id, COALESCE(a.like_count, 0) - c.cnt AS diff
+      FROM (SELECT author_id, SUM(like_count) AS cnt
+            FROM video_db.content
+            GROUP BY author_id) c
+               LEFT JOIN video_db.author_like_count a ON a.author_id = c.author_id) t
+
+UNION ALL
+
+-- user.like_count vs author_like_count。抄写完成前允许短暂落后
+SELECT 'user.like_count',
+       COUNT(*),
+       COALESCE(SUM(diff = 0), 0),
+       COALESCE(SUM(diff > 0), 0),
+       COALESCE(SUM(diff < 0), 0),
+       COALESCE(MIN(diff), 0),
+       COALESCE(MAX(diff), 0)
+FROM (SELECT u.id, u.like_count - COALESCE(a.like_count, 0) AS diff
+      FROM user_db.user u
+               LEFT JOIN video_db.author_like_count a ON a.author_id = u.id) t;
 
 -- 只看偏差明细(排查用, 与上面的汇总二选一)
 -- SELECT * FROM (

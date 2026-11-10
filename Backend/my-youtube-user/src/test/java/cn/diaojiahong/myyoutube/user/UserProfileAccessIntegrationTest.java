@@ -52,7 +52,7 @@ class UserProfileAccessIntegrationTest {
                     nickname VARCHAR(64), create_time TIMESTAMP NOT NULL, update_time TIMESTAMP,
                     is_delete INT DEFAULT 0, fans BIGINT DEFAULT 0, attention_count BIGINT DEFAULT 0,
                     content_count BIGINT DEFAULT 0, introduction VARCHAR(255), bg_image VARCHAR(255),
-                    like_count BIGINT DEFAULT 0
+                    like_count BIGINT DEFAULT 0, like_version BIGINT NOT NULL DEFAULT 0
                 )
                 """);
         jdbc.update("""

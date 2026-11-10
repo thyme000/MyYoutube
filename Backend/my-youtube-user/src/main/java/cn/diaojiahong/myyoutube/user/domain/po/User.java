@@ -105,4 +105,9 @@ public class User implements Serializable {
      * 喜欢数量
      */
     private Long likeCount;
+
+    /**
+     * 已收下的作者获赞版本。不大于该值的抄写不再覆盖 likeCount。
+     */
+    private Long likeVersion;
 }
