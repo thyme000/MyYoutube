@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.user.controller;
 
+import cn.diaojiahong.myyoutube.user.api.dto.ReceivedLikeUpdate;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.user.port.UserPortAdapter;
 import lombok.RequiredArgsConstructor;
@@ -31,5 +32,10 @@ public class InternalUserController {
     @PostMapping("/list-by-ids")
     public List<UserSummary> listByIds(@RequestBody Collection<Long> ids) {
         return userPortAdapter.listByIds(ids);
+    }
+
+    @PostMapping("/received-likes")
+    public List<Long> overwriteReceivedLikes(@RequestBody List<ReceivedLikeUpdate> updates) {
+        return userPortAdapter.overwriteReceivedLikes(updates);
     }
 }
