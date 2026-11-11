@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.security.InternalApiCredentials;
 
 import cn.diaojiahong.myyoutube.auth.controller.AuthController;
 import cn.diaojiahong.myyoutube.auth.domain.dto.ForgetPasswordDTO;
+import cn.diaojiahong.myyoutube.auth.domain.dto.LoginRequestDTO;
 import cn.diaojiahong.myyoutube.auth.service.impl.AuthServiceImpl;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
@@ -108,6 +109,17 @@ class UserRoleIntegrationTest {
         if (jdbc != null) {
             jdbc.execute("SHUTDOWN");
         }
+    }
+
+    @Test
+    void deletedAccountCannotLogIn() {
+        jdbc.update("UPDATE user SET is_delete = 1, password = ? WHERE id = 1", PasswordEncoder.encode("password"));
+        LoginRequestDTO request = new LoginRequestDTO("thyme", "password");
+
+        BizException error = assertThrows(BizException.class, () -> auth().login(request));
+
+        assertEquals(ErrorCode.UNAUTHORIZED, error.getErrorCode());
+        assertEquals("账号已删除", error.getMessage());
     }
 
     @Test

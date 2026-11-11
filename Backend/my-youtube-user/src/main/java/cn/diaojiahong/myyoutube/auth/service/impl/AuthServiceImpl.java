@@ -70,7 +70,9 @@ public class AuthServiceImpl implements IAuthService {
         if (!PasswordEncoder.matches(rawPassword, user.getPassword())) {
             throw new BizException(ErrorCode.UNAUTHORIZED, "密码错误!");
         }
-
+        if (user.deleted()) {
+            throw new BizException(ErrorCode.UNAUTHORIZED, "账号已删除");
+        }
 
         // access JWT 短期有效; refresh UUID 存 Redis 供续签/登出/轮换
         String accessToken = JwtUtil.sign(user.getId());

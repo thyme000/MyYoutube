@@ -110,4 +110,8 @@ public class User implements Serializable {
      * 已收下的作者获赞版本。不大于该值的抄写不再覆盖 likeCount。
      */
     private Long likeVersion;
+
+    public boolean deleted() {
+        return isDelete != null && isDelete != 0;
+    }
 }

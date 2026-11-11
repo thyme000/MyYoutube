@@ -54,7 +54,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     @Override
     public UserVO getUserInfo(Long userId) {
         User user = getById(userId);
-        if (user == null) {
+        if (user == null || user.deleted()) {
             throw new BizException(ErrorCode.NOT_FOUND, "用户不存在");
         }
 

@@ -86,6 +86,17 @@ class UserProfileAccessIntegrationTest {
     }
 
     @Test
+    void deletedUserProfileIsNotFound() throws Exception {
+        jdbc.update("UPDATE user SET is_delete = 1 WHERE id = 1");
+
+        mvc.perform(get("/user/info/1")
+                        .header(UserIdHeaderFilter.USER_ID_HEADER, "2")
+                        .header(UserIdHeaderFilter.INTERNAL_TOKEN_HEADER, "profile-test-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("用户不存在"));
+    }
+
+    @Test
     void currentProfileReturnsTheRegistrationYearForTheAuthenticatedUser() throws Exception {
         mvc.perform(get("/user/info").param("userId", "2")
                         .header(UserIdHeaderFilter.USER_ID_HEADER, "1")

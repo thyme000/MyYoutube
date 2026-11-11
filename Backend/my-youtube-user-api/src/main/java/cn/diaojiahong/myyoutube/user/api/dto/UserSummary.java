@@ -18,4 +18,9 @@ public class UserSummary {
     private Long attentionCount;
     private Long likeCount;
     private LocalDateTime createTime;
+    private Integer isDelete;
+
+    public boolean deleted() {
+        return isDelete != null && isDelete != 0;
+    }
 }
