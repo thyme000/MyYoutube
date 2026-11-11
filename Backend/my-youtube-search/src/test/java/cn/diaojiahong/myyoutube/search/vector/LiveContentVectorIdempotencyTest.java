@@ -308,7 +308,7 @@ class LiveContentVectorIdempotencyTest {
         assertEquals(2, vectors.rebuildReport().counts().succeeded());
         assertTrue(vectors.rebuildReport().scanCompleted());
         ArgumentCaptor<Function> requests = org.mockito.ArgumentCaptor.forClass(Function.class);
-        verify(es, times(2)).search(requests.capture(), eq(Void.class));
+        verify(es, times(1)).search(requests.capture(), eq(Void.class));
         SearchRequest first = (co.elastic.clients.elasticsearch.core.SearchRequest) ((co.elastic.clients.util.ObjectBuilder<?>) requests.getAllValues()
                 .get(0).apply(new co.elastic.clients.elasticsearch.core.SearchRequest.Builder())).build();
         assertTrue(first.searchAfter().isEmpty());

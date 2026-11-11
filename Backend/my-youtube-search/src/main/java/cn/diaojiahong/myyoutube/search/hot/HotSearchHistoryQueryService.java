@@ -16,8 +16,6 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Function;
-
 @Service
 @RequiredArgsConstructor
 public class HotSearchHistoryQueryService {
@@ -54,14 +52,14 @@ public class HotSearchHistoryQueryService {
     public CursorPage<Day, String> dates(String cursor, Integer size) {
         int limit = pageSize(size);
         LocalDate before = empty(cursor) ? today() : pastDate(cursor);
-        return page(mapper.dates(before, limit + 1), limit, row -> row.statDate().toString());
+        return CursorPage.slice(mapper.dates(before, CursorPage.fetchSize(limit)), limit, row -> row.statDate().toString());
     }
 
     public CursorPage<Group, String> groups(String date, String cursor, Integer size) {
         LocalDate day = pastDate(date);
         int limit = pageSize(size);
-        return page(
-                mapper.groups(day, positiveCursor(cursor), 0, limit + 1),
+        return CursorPage.slice(
+                mapper.groups(day, positiveCursor(cursor), 0, CursorPage.fetchSize(limit)),
                 limit,
                 row -> Long.toString(row.rankNo()));
     }
@@ -70,8 +68,8 @@ public class HotSearchHistoryQueryService {
         LocalDate day = pastDate(date);
         requireGroup(groupId);
         int limit = pageSize(size);
-        return page(
-                mapper.keywords(day, groupId, positiveCursor(cursor), limit + 1),
+        return CursorPage.slice(
+                mapper.keywords(day, groupId, positiveCursor(cursor), CursorPage.fetchSize(limit)),
                 limit,
                 row -> Long.toString(row.keywordId()));
     }
@@ -82,8 +80,8 @@ public class HotSearchHistoryQueryService {
         requirePositive(keywordId);
         int limit = pageSize(size);
         Long after = positiveCursor(cursor);
-        return page(
-                mapper.users(day, groupId, keyword(day, groupId, keywordId), after, limit + 1),
+        return CursorPage.slice(
+                mapper.users(day, groupId, keyword(day, groupId, keywordId), after, CursorPage.fetchSize(limit)),
                 limit,
                 row -> Long.toString(row.userId()));
     }
@@ -101,8 +99,8 @@ public class HotSearchHistoryQueryService {
         if (userId != null) requirePositive(userId);
         int limit = pageSize(size);
         EventCursor after = eventCursor(cursor);
-        return page(mapper.events(day, groupId, keyword(day, groupId, keywordId), userId,
-                after == null ? null : after.at(), after == null ? null : after.id(), limit + 1), limit,
+        return CursorPage.slice(mapper.events(day, groupId, keyword(day, groupId, keywordId), userId,
+                after == null ? null : after.at(), after == null ? null : after.id(), CursorPage.fetchSize(limit)), limit,
                 row -> row.happenedAt() + "." + row.id());
     }
 
@@ -174,9 +172,4 @@ public class HotSearchHistoryQueryService {
         throw new BizException(ErrorCode.INVALID_ARGUMENT, "明细游标无效");
     }
 
-    private static <T> CursorPage<T, String> page(List<T> rows, int size, Function<T, String> cursor) {
-        boolean more = rows.size() > size;
-        List<T> items = List.copyOf(rows.subList(0, Math.min(size, rows.size())));
-        return new CursorPage<>(items, more ? cursor.apply(items.get(items.size() - 1)) : null);
-    }
 }

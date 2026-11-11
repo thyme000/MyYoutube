@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.SortOrder;
@@ -74,7 +75,7 @@ public class KeywordRecallStrategy implements RecallStrategy {
         }));
         SearchRequest.Builder query = new SearchRequest.Builder().index("content")
                 .query(ctx.isTagSearch() ? ranking.tag(relevance, ctx) : ranking.keyword(relevance, ctx))
-                .size(size + 1)
+                .size(CursorPage.fetchSize(size))
                 .source(source -> source.fetch(false));
         if (!ctx.isSortByLatest()) query.sort(s -> s.score(score -> score.order(SortOrder.Desc)));
         query.sort(s -> s.field(field -> field.field("createTime").order(SortOrder.Desc)))

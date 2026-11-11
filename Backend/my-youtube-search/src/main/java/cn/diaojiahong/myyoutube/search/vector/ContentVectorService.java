@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.search.vector;
 import cn.diaojiahong.myyoutube.common.idempotent.DuplicatePolicy;
 import cn.diaojiahong.myyoutube.common.idempotent.Idempotent;
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -20,7 +21,9 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -164,7 +167,7 @@ public class ContentVectorService {
                     lease.assertOwned();
                     long cursor = report.cursor();
                     SearchResponse<Void> response = elasticsearchClient.search(search -> {
-                        search.index(CONTENT_INDEX).size(REBUILD_BATCH)
+                        search.index(CONTENT_INDEX).size(CursorPage.fetchSize(REBUILD_BATCH))
                                 .query(query -> query.bool(bool -> bool.filter(filter -> filter.term(term -> term.field("status").value("published")))
                                         .filter(filter -> filter.term(term -> term.field("visibility").value("public")))
                                         .mustNot(filter -> filter.term(term -> term.field("vectorVersion").value(version)))))
@@ -175,13 +178,20 @@ public class ContentVectorService {
                     }, Void.class);
                     List<Hit<Void>> hits = response.hits().hits();
                     if (hits.isEmpty()) break;
-                    ContentVectorBuilder.Counts counts = builder.batch(
-                            hits.stream().map(hit -> Long.valueOf(hit.id())).toList(),
-                            version);
-                    RebuildReport next = new RebuildReport(version, Long.parseLong(hits.get(hits.size() - 1).id()),
+
+                    // 多取的一条只判断后面还有没有。本批不生成向量，下一轮从最后一条已处理 id 之后再查到它。
+                    CursorPage<Hit<Void>, String> page = CursorPage.slice(hits, REBUILD_BATCH, Hit::id);
+                    List<Long> ids = new ArrayList<>();
+                    for (Hit<Void> hit : page.items()) {
+                        ids.add(Long.valueOf(Objects.requireNonNull(hit.id())));
+                    }
+                    ContentVectorBuilder.Counts counts = builder.batch(ids, version);
+                    long checkpointId = Long.parseLong(Objects.requireNonNull(page.items().get(page.items().size() - 1).id()));
+                    RebuildReport next = new RebuildReport(version, checkpointId,
                             report.counts().plus(counts), false, null);
                     checkpoint(next, lease);
                     report = next;
+                    if (page.nextCursor() == null) break;
                 }
                 report = new RebuildReport(version, report.cursor(), report.counts(), true, null);
                 checkpoint(report, lease);

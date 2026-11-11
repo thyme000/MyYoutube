@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
@@ -40,12 +41,21 @@ public class RecallSearchClient {
     }
 
     public RecallBatch page(SearchRequest search, int size) throws Exception {
-        JsonArray hits = hits(search);
+        List<JsonObject> fetched = new ArrayList<>();
+        for (JsonElement hit : hits(search)) {
+            fetched.add(hit.getAsJsonObject());
+        }
+
+        CursorPage<JsonObject, List<FieldValue>> page = CursorPage.slice(fetched, size,
+                hit -> sortValues(hit.getAsJsonArray("sort")));
         List<String> ids = new ArrayList<>();
-        for (int i = 0; i < Math.min(size, hits.size()); i++) ids.add(hits.get(i).getAsJsonObject().get("_id").getAsString());
-        if (hits.size() <= size) return RecallBatch.exhausted(ids);
-        JsonArray values = hits.get(size - 1).getAsJsonObject().getAsJsonArray("sort");
-        return new RecallBatch(ids, sortValues(values));
+        for (JsonObject hit : page.items()) {
+            ids.add(hit.get("_id").getAsString());
+        }
+        if (page.nextCursor() == null) {
+            return RecallBatch.exhausted(ids);
+        }
+        return new RecallBatch(ids, page.nextCursor());
     }
 
     public static List<FieldValue> sortValues(JsonArray values) {

@@ -283,13 +283,69 @@ class ContentVectorServiceTest {
         assertEquals(List.of("标题\n简介\n摘要"), input.getAllValues().get(1).getTexts());
         ArgumentCaptor<Function<SearchRequest.Builder,
         ObjectBuilder<SearchRequest>>> requests = ArgumentCaptor.forClass(Function.class);
-        verify(client, times(2)).search(requests.capture(), eq(Void.class));
-        BoolQuery query = requests.getAllValues().get(0).apply(new SearchRequest.Builder()).build().query().bool();
+        verify(client, times(1)).search(requests.capture(), eq(Void.class));
+        SearchRequest scanned = requests.getAllValues().get(0).apply(new SearchRequest.Builder()).build();
+        BoolQuery query = scanned.query().bool();
+        assertEquals(51, scanned.size());
         assertEquals(Map.of("status", "published", "visibility", "public"), query.filter().stream()
                 .collect(Collectors.toMap(term -> term.term().field(), term -> term.term().value().stringValue())));
         assertTrue(service.rebuildReport().scanCompleted());
         assertEquals(1, service.rebuildCursor());
         assertEquals(1, service.rebuildReport().counts().succeeded());
+    }
+
+    @Test
+    void fullRebuildBatchLeavesTheExtraHitForTheNextRound() throws Exception {
+        when(llm.embeddings(any(), any(feign.Request.Options.class))).thenAnswer(call -> {
+            LlmPort.EmbeddingsRequest request = call.getArgument(0);
+            return new LlmPort.EmbeddingsResponse(
+                    request.getTexts().stream().map(text -> List.of(1.0f)).toList(),
+                    1,
+                    "model:1");
+        });
+        when(client.search(any(Function.class), eq(Void.class))).thenReturn(rebuildHits(1, 51), rebuildHits(51, 1));
+        when(client.mget(any(Function.class), eq(Map.class))).thenAnswer(call -> {
+            @SuppressWarnings("unchecked")
+            Function<co.elastic.clients.elasticsearch.core.MgetRequest.Builder, ObjectBuilder<co.elastic.clients.elasticsearch.core.MgetRequest>> builder = call.getArgument(0);
+            co.elastic.clients.elasticsearch.core.MgetRequest request = builder.apply(
+                    new co.elastic.clients.elasticsearch.core.MgetRequest.Builder()).build();
+            return co.elastic.clients.elasticsearch.core.MgetResponse.of(response -> response.docs(request.ids().stream()
+                    .map(id -> co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem.of(item -> item.result(
+                            result -> result.index("content").id(id).found(true)
+                                    .source(Map.of("status", "published", "visibility", "public", "title", id))
+                                    .seqNo(0L).primaryTerm(1L))))
+                    .toList()));
+        });
+
+        assertTrue(service.startRebuild());
+        runQueuedTask();
+
+        ArgumentCaptor<Function<co.elastic.clients.elasticsearch.core.MgetRequest.Builder, ObjectBuilder<co.elastic.clients.elasticsearch.core.MgetRequest>>> reads = ArgumentCaptor.forClass(Function.class);
+        verify(client, times(2)).mget(reads.capture(), eq(Map.class));
+        assertEquals(50, reads.getAllValues().get(0).apply(new co.elastic.clients.elasticsearch.core.MgetRequest.Builder()).build().ids().size());
+        assertEquals(List.of("51"), reads.getAllValues().get(1).apply(new co.elastic.clients.elasticsearch.core.MgetRequest.Builder()).build().ids());
+
+        ArgumentCaptor<Function<SearchRequest.Builder, ObjectBuilder<SearchRequest>>> requests = ArgumentCaptor.forClass(Function.class);
+        verify(client, times(2)).search(requests.capture(), eq(Void.class));
+        SearchRequest first = requests.getAllValues().get(0).apply(new SearchRequest.Builder()).build();
+        SearchRequest second = requests.getAllValues().get(1).apply(new SearchRequest.Builder()).build();
+        assertEquals(51, first.size());
+        assertTrue(first.searchAfter().isEmpty());
+        assertEquals(50L, second.searchAfter().get(0).longValue());
+        assertTrue(service.rebuildReport().scanCompleted());
+        assertEquals(51, service.rebuildCursor());
+        assertEquals(51, service.rebuildReport().counts().succeeded());
+    }
+
+    private SearchResponse<Void> rebuildHits(int firstId, int count) {
+        List<co.elastic.clients.elasticsearch.core.search.Hit<Void>> hits = new java.util.ArrayList<>();
+        for (int id = firstId; id < firstId + count; id++) {
+            String value = Integer.toString(id);
+            hits.add(co.elastic.clients.elasticsearch.core.search.Hit.of(hit -> hit.index("content").id(value)));
+        }
+        return SearchResponse.of(response -> response.took(0).timedOut(false)
+                .shards(shards -> shards.total(1).successful(1).failed(0))
+                .hits(found -> found.hits(hits)));
     }
 
     private void runQueuedTask() {
