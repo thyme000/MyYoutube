@@ -9,6 +9,8 @@ import cn.diaojiahong.myyoutube.admin.controller.AdminMediaRetryController;
 import cn.diaojiahong.myyoutube.common.config.JacksonConfig;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort;
 import cn.diaojiahong.myyoutube.search.api.HotSearchHistoryPort;
@@ -79,15 +81,18 @@ class ExternalResponseContractTest {
     }
 
     @Test
-    void retryQueriesKeepEmptyPagesWithAContinuationAndNullCurrentBatch() throws Exception {
+    void retryTaskQueryKeepsItsCursorWhileBatchHistoryUsesPageTotals() throws Exception {
         when(retries.query(any())).thenReturn(new CursorPage<>(List.of(), id));
-        when(retries.history(id, 20)).thenReturn(new CursorPage<>(List.of(batch()), null));
+        when(retries.history(new PageQuery())).thenReturn(PageResult.of(1, 1, List.of(batch())));
         mvc.perform(get("/admin/media-tasks")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200)).andExpect(jsonPath("$.data.items").isEmpty())
                 .andExpect(jsonPath("$.data.nextCursor").value(Long.toString(id)));
-        mvc.perform(get("/admin/media-retry-batches").param("cursor", Long.toString(id)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.items[0].batchId").value(Long.toString(id)))
-                .andExpect(jsonPath("$.data.nextCursor").isEmpty());
+        mvc.perform(get("/admin/media-retry-batches"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.pages").value(1))
+                .andExpect(jsonPath("$.data.list[0].batchId").value(Long.toString(id)))
+                .andExpect(jsonPath("$.data.nextCursor").doesNotExist());
         mvc.perform(get("/admin/media-retry-batches/current")).andExpect(status().isOk())
                 .andExpect(content().json("{\"code\":200,\"message\":\"操作成功\",\"data\":null}"));
     }

@@ -2,6 +2,8 @@ package cn.diaojiahong.myyoutube.admin.controller;
 
 import cn.diaojiahong.myyoutube.admin.security.AdminAuthorization;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort;
@@ -35,11 +37,11 @@ public class AdminMediaRetryController {
     }
 
     @GetMapping("/media-retry-batches")
-    public Result<CursorPage<Batch, Long>> history(@RequestParam(required = false) Long cursor,
-                                                  @RequestParam(defaultValue = "20") Integer size) {
+    public Result<PageResult<Batch>> history(@ModelAttribute PageQuery query) {
         authorization.requireAdmin();
+        query.validate();
 
-        return Result.success(retries.history(cursor, size));
+        return Result.success(retries.history(query));
     }
 
     @GetMapping("/media-retry-batches/current")

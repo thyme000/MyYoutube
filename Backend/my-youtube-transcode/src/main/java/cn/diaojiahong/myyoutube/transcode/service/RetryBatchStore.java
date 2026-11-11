@@ -6,7 +6,8 @@ import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort;
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
-import cn.diaojiahong.myyoutube.common.page.CursorPage;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.pipeline.PipelineEventPort;
@@ -83,17 +84,30 @@ public class RetryBatchStore {
         return current == null ? null : current.batch();
     }
 
-    public CursorPage<Batch, Long> history(Long cursor, Integer size) {
-        int limit = size == null ? 20 : size;
-        if (limit < 1 || limit > 100 || cursor != null && cursor <= 0)
-            throw new BizException(ErrorCode.INVALID_ARGUMENT, "非法历史分页");
-        List<MediaRetryBatch> page = batches.selectList(new LambdaQueryWrapper<MediaRetryBatch>()
-                .lt(cursor != null, MediaRetryBatch::getId, cursor)
+    public PageResult<Batch> history(PageQuery query) {
+        query.validate();
+        int pageSize = query.getPageSize();
+
+        long total = batches.selectCount(new LambdaQueryWrapper<>());
+        long pages = total == 0 ? 0 : (total + pageSize - 1) / pageSize;
+        long offset = (long) (query.getPageNo() - 1) * pageSize;
+        List<MediaRetryBatch> rows = batches.selectList(new LambdaQueryWrapper<MediaRetryBatch>()
                 .orderByDesc(MediaRetryBatch::getId)
-                .last("LIMIT " + limit));
-        List<MediaRetryPort.Batch> views = page.stream().map(row -> row.getResultJson() == null ? batch(row.getId())
-                : JsonUtil.fromJson(row.getResultJson(), Snapshot.class).batch()).toList();
-        return new CursorPage<>(views, page.size() < limit ? null : page.get(page.size() - 1).getId());
+                .last("LIMIT " + pageSize + " OFFSET " + offset));
+
+        List<Batch> list = new ArrayList<>();
+        for (MediaRetryBatch row : rows) {
+            list.add(batchView(row));
+        }
+        return PageResult.of(total, pages, list);
+    }
+
+    /** 只补算本页里还没有结果的批次。 */
+    private Batch batchView(MediaRetryBatch row) {
+        if (row.getResultJson() == null) {
+            return batch(row.getId());
+        }
+        return JsonUtil.fromJson(row.getResultJson(), Snapshot.class).batch();
     }
 
     public Batch current() {

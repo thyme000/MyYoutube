@@ -4,9 +4,12 @@ import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.feign.PropagateBusinessErrors;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.cloud.openfeign.SpringQueryMap;
 import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -48,8 +51,7 @@ public interface MediaRetryPort {
     Admission create(@RequestBody Request request, @RequestParam("actorId") Long actorId);
 
     @GetMapping("/batches")
-    CursorPage<Batch, Long> history(@RequestParam(value="cursor", required=false) Long cursor,
-            @RequestParam(value="size", defaultValue="20") Integer size);
+    PageResult<Batch> history(@SpringQueryMap PageQuery query);
 
     @GetMapping("/batches/current")
     Batch current();

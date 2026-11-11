@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode;
 
-import cn.diaojiahong.myyoutube.common.page.CursorPage;
-import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryItemState;
 import cn.diaojiahong.myyoutube.transcode.api.enums.MediaRetryBatchStatus;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
@@ -80,20 +80,19 @@ class MediaRetryHistoryTest {
     }
 
     @Test
-    void historyUsesDescendingCursorAndDoesNotRereadFrozenTaskResults() {
-        for (long id : List.of(1L,2L,3L)) {
-            MediaRetryBatch row = row(id);
-            var view = new Batch(id,MediaRetryBatchStatus.COMPLETED,0,0,0,0,0,0,0,0,null,row.getCreatedAt(),null);
-            row.setResultJson(JsonUtil.toJson(new RetryBatchStore.Snapshot(view,List.of(),List.of())));
-            batches.insert(row);
+    void historyPagesByDescendingIdAndDoesNotRereadFrozenTaskResults() {
+        for (long id : List.of(1L, 2L, 3L)) {
+            insertFrozen(id);
         }
         MediaTaskIntegrationTest.SqlProbe.SQL.get().clear();
-        CursorPage<MediaRetryPort.Batch,Long> first = history.history(null,2);
-        assertEquals(List.of(3L,2L),first.items().stream().map(Batch::batchId).toList());
-        assertEquals(2L,first.nextCursor());
-        CursorPage<MediaRetryPort.Batch,Long> second = history.history(first.nextCursor(),2);
-        assertEquals(List.of(1L),second.items().stream().map(Batch::batchId).toList());
-        assertNull(second.nextCursor());
+
+        PageResult<Batch> first = history.history(page(1, 2));
+        PageResult<Batch> second = history.history(page(2, 2));
+
+        assertEquals(3L, first.getTotal());
+        assertEquals(2L, first.getPages());
+        assertEquals(List.of(3L, 2L), first.getList().stream().map(Batch::batchId).toList());
+        assertEquals(List.of(1L), second.getList().stream().map(Batch::batchId).toList());
         assertTrue(MediaTaskIntegrationTest.SqlProbe.SQL.get()
                 .stream()
                 .noneMatch(sql -> sql.contains("FROM media_task")));
@@ -107,22 +106,66 @@ class MediaRetryHistoryTest {
         tasks.insert(new MediaTask().setId(15L).setOwnerId(1L).setRetryBatchId(4L).setPhase("DRAFT")
                 .setTaskType("TRANSCODE").setStatus(MediaTaskStatus.SUCCESS).setAttempt(2).setRetryCount(0)
                 .setCompletionAck(false).setDependenciesJson("{}"));
-        assertEquals(MediaRetryBatchStatus.COMPLETED,history.history(null,20).items().get(0).status());
+        assertEquals(MediaRetryBatchStatus.COMPLETED, history.history(page(1, 20)).getList().get(0).status());
         assertNull(batches.selectById(4L).getActive());
         assertNotNull(batches.selectById(4L).getResultJson());
     }
 
     @Test
-    void emptyHistoryHasNoContinuation() {
-        CursorPage<MediaRetryPort.Batch,Long> page = history.history(null, 20);
-        assertTrue(page.items().isEmpty());
-        assertNull(page.nextCursor());
+    void fullPageReportsOnePage() {
+        insertFrozen(1L);
+        insertFrozen(2L);
+
+        PageResult<Batch> page = history.history(page(1, 2));
+
+        assertEquals(2L, page.getTotal());
+        assertEquals(1L, page.getPages());
+        assertEquals(List.of(2L, 1L), page.getList().stream().map(Batch::batchId).toList());
+    }
+
+    @Test
+    void rowsOutsideTheRequestedPageAreNotFrozen() {
+        MediaRetryBatch pending = row(1).setStatus(MediaRetryBatchStatus.RUNNING).setActive(1)
+                .setSelectionJson(JsonUtil.toJson(List.of(new Item(15L, MediaRetryItemState.PENDING, 1, null, null))));
+        batches.insert(pending);
+        tasks.insert(new MediaTask().setId(15L).setOwnerId(1L).setRetryBatchId(1L).setPhase("DRAFT")
+                .setTaskType("TRANSCODE").setStatus(MediaTaskStatus.SUCCESS).setAttempt(2).setRetryCount(0)
+                .setCompletionAck(false).setDependenciesJson("{}"));
+        insertFrozen(2L);
+        insertFrozen(3L);
+
+        PageResult<Batch> page = history.history(page(1, 2));
+
+        assertEquals(List.of(3L, 2L), page.getList().stream().map(Batch::batchId).toList());
+        assertNull(batches.selectById(1L).getResultJson());
+    }
+
+    private void insertFrozen(long id) {
+        MediaRetryBatch row = row(id);
+        Batch view = new Batch(id, MediaRetryBatchStatus.COMPLETED, 0, 0, 0, 0, 0, 0, 0, 0, null, row.getCreatedAt(), null);
+        row.setResultJson(JsonUtil.toJson(new RetryBatchStore.Snapshot(view, List.of(), List.of())));
+        batches.insert(row);
+    }
+
+    @Test
+    void emptyHistoryHasNoRows() {
+        PageResult<Batch> page = history.history(page(1, 20));
+        assertEquals(0L, page.getTotal());
+        assertEquals(0L, page.getPages());
+        assertTrue(page.getList().isEmpty());
     }
 
     @Test
     void invalidHistoryPagesAreRejected() {
-        assertThrows(BizException.class,() -> history.history(-1L,20));
-        assertThrows(BizException.class,() -> history.history(null,0));
-        assertThrows(BizException.class,() -> history.history(null,101));
+        assertThrows(BizException.class, () -> history.history(page(0, 20)));
+        assertThrows(BizException.class, () -> history.history(page(1, 0)));
+        assertThrows(BizException.class, () -> history.history(page(1, 101)));
+    }
+
+    private static PageQuery page(int pageNo, int pageSize) {
+        PageQuery query = new PageQuery();
+        query.setPageNo(pageNo);
+        query.setPageSize(pageSize);
+        return query;
     }
 }

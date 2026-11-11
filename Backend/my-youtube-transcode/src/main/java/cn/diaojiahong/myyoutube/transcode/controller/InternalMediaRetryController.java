@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.transcode.controller;
 
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.transcode.api.MediaRetryPort;
 import cn.diaojiahong.myyoutube.transcode.service.*;
 import lombok.RequiredArgsConstructor;
@@ -25,8 +27,8 @@ public class InternalMediaRetryController implements MediaRetryPort {
     }
 
     @Override
-    public CursorPage<Batch, Long> history(Long cursor, Integer size) {
-        return batches.history(cursor,size);
+    public PageResult<Batch> history(PageQuery query) {
+        return batches.history(query);
     }
 
     @Override
