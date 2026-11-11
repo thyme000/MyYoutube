@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.user.mapper.CounterDriftMapper">
+
+    <!-- 按父行主键续查。相关子查询只数当前这一行，LIMIT 凑满即停，避免每页重算整表聚合。 -->
+    <!-- is_deleted = 0 与 countFans / countAttention 的「关注中」同一口径 -->
+    <sql id="fanCount">
+        SELECT COUNT(*)
+        FROM user_follow
+        WHERE followee_id = u.id
+          AND is_deleted = 0
+    </sql>
+
+    <select id="fans" resultType="cn.diaojiahong.myyoutube.common.counter.CounterDrift">
+        SELECT id, stored, truth, stored - truth AS diff
+        FROM (
+            SELECT u.id AS id,
+                   u.fans AS stored,
+                   (<include refid="fanCount"/>) AS truth
+            FROM `user` u
+            WHERE u.id &gt; #{afterId}
+              AND u.fans &lt;&gt; (<include refid="fanCount"/>)
+            ORDER BY u.id
+            LIMIT #{limit}
+        ) page
+        ORDER BY id
+    </select>
+
+    <sql id="attentionCount">
+        SELECT COUNT(*)
+        FROM user_follow
+        WHERE follower_id = u.id
+          AND is_deleted = 0
+    </sql>
+
+    <select id="attentions" resultType="cn.diaojiahong.myyoutube.common.counter.CounterDrift">
+        SELECT id, stored, truth, stored - truth AS diff
+        FROM (
+            SELECT u.id AS id,
+                   u.attention_count AS stored,
+                   (<include refid="attentionCount"/>) AS truth
+            FROM `user` u
+            WHERE u.id &gt; #{afterId}
+              AND u.attention_count &lt;&gt; (<include refid="attentionCount"/>)
+            ORDER BY u.id
+            LIMIT #{limit}
+        ) page
+        ORDER BY id
+    </select>
+</mapper>

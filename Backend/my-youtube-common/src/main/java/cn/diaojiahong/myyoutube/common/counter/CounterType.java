@@ -1,5 +1,8 @@
 package cn.diaojiahong.myyoutube.common.counter;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+
 /**
  * 计数缓冲类型。code 参与 Redis key 拼装；落库目标由各模块注册的 {@link CounterTarget} 决定，
  * 同一个 type 的写侧与落库侧可以分处不同模块（共享 Redis 实例即可）。
@@ -31,5 +34,16 @@ public enum CounterType {
 
     public boolean reconcile() {
         return reconcile;
+    }
+
+    public static CounterType fromCode(String code) {
+        if (code != null) {
+            for (CounterType type : values()) {
+                if (type.code.equals(code)) {
+                    return type;
+                }
+            }
+        }
+        throw new BizException(ErrorCode.INVALID_ARGUMENT, "计数类型无效");
     }
 }
