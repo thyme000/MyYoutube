@@ -25,16 +25,16 @@ class ContentSearchCursorContractTest {
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new SearchController(service)).build();
 
         mvc.perform(get("/search/video").param("keyword", "camera").param("cursor", "previous")
-                        .param("pageSize", "20").param("sortByLatest", "true"))
+                        .param("sortByLatest", "true"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.items[0].id").value("9007199254740993"))
                 .andExpect(jsonPath("$.data.nextCursor").value("next"))
+                .andExpect(jsonPath("$.data.hasMore").value(true))
                 .andExpect(jsonPath("$.data.total").doesNotExist()).andExpect(jsonPath("$.data.pages").doesNotExist());
 
         ArgumentCaptor<ContentSearchCursorQuery> query = ArgumentCaptor.forClass(ContentSearchCursorQuery.class);
         verify(service).searchVideo(query.capture());
         assertEquals("previous", query.getValue().getCursor());
-        assertEquals(20, query.getValue().getPageSize());
         assertTrue(query.getValue().isSortByLatest());
     }
 }

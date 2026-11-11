@@ -34,18 +34,12 @@ class AuthorContentCursorTest {
     }
 
     @Test
-    void queryUsesCommonPageSizeValidationAndNormalizesMediaType() {
+    void queryNormalizesMediaType() {
         AuthorContentCursorQuery query = new AuthorContentCursorQuery();
-        assertEquals(10, query.getPageSize());
         query.setType("VIDEO");
         assertEquals(ContentTypeEnum.VIDEO, query.mediaType());
         assertEquals("video", query.getType());
         query.setType("invalid");
-        assertThrows(BizException.class, query::mediaType);
-        query.setType(null);
-        query.setPageSize(0);
-        assertThrows(BizException.class, query::mediaType);
-        query.setPageSize(101);
         assertThrows(BizException.class, query::mediaType);
     }
 }

@@ -176,12 +176,10 @@ class ContentSearchAccessTest {
             SearchContext context = call.getArgument(0);
             assertTrue(context.isTagSearch());
             assertEquals("previous", context.getQuery().getCursor());
-            assertEquals(20, context.getQuery().getPageSize());
             return new CursorPage<>(List.of(summary(12)), "next");
         });
         TagSearchCursorQuery query = new TagSearchCursorQuery();
         query.setCursor("previous");
-        query.setPageSize(20);
         CursorPage<?, String> result = search.searchByTag(query);
         assertEquals("next", result.nextCursor());
         assertEquals(1, result.items().size());

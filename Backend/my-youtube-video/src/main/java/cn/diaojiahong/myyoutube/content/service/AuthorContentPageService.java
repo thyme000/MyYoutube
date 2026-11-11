@@ -64,7 +64,7 @@ public class AuthorContentPageService {
         Content after = cursor == null ? null : new Content()
                 .setId(cursor.contentId())
                 .setCreateTime(cursor.createTime());
-        Slice slice = readPage(filter, after, query.getPageSize(), started);
+        Slice slice = readPage(filter, after, properties.getPageSize(), started);
 
         String next = slice.hasMore() ? new AuthorContentCursor(author, viewer, type,
                 slice.last().getCreateTime(), slice.last().getId()).encode() : null;
@@ -99,7 +99,7 @@ public class AuthorContentPageService {
         LambdaQueryWrapper<Content> scan = filter.clone();
         if (after != null) scan.and(w -> w.lt(Content::getCreateTime, after.getCreateTime())
                 .or(tie -> tie.eq(Content::getCreateTime, after.getCreateTime()).lt(Content::getId, after.getId())));
-        return contents.list(scan.orderByDesc(Content::getCreateTime, Content::getId).last("LIMIT " + (size + 1)));
+        return contents.list(scan.orderByDesc(Content::getCreateTime, Content::getId).last("LIMIT " + CursorPage.fetchSize(size)));
     }
 
     private boolean canScan(int checked, long started) {

@@ -272,7 +272,6 @@ class ContentStatisticsIntegrationTest {
     private void assertAuthorPage(Long viewer, long author, String type, long expected) {
         var query = new AuthorContentCursorQuery();
         query.setType(type);
-        query.setPageSize(100);
         AuthorContentPageService.AuthorContentCandidates result = authorPages.list(viewer, author, query);
         assertEquals(expected, result.displayCount());
         assertEquals(expected, result.page().items().size());
@@ -340,7 +339,6 @@ class ContentStatisticsIntegrationTest {
         pending(2, 7, "dynamic", "public", 20L);
         publish(1);
         var query = new AuthorContentCursorQuery();
-        query.setPageSize(100);
 
         // 计数完成后、列表开始前，让另一连接提交变更。
         doAnswer(call -> {

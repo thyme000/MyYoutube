@@ -35,7 +35,9 @@ import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.recommend.service.*;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.share.service.IContentShareService;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort.SummaryQuery;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.controller.InternalVideoController;
@@ -130,6 +132,7 @@ class ContentListsIntegrationTest {
     JdbcTemplate jdbc;
     ContentSummaryPortImpl summaries;
     ContentFeedServiceImpl feeds;
+    UserPort users;
 
     final AudioContentAccess audioAccess = mock(AudioContentAccess.class);
 
@@ -182,7 +185,8 @@ class ContentListsIntegrationTest {
             return strategy;
         }).toList());
         summaries = new ContentSummaryPortImpl(contents,registry,audioAccess);
-        feeds = new ContentFeedServiceImpl(contentService,likes,mock(FollowSnapshotCache.class),mock(UserPort.class),
+        users = mock(UserPort.class);
+        feeds = new ContentFeedServiceImpl(contentService,likes,mock(FollowSnapshotCache.class),users,
                 mock(S3StorageUtil.class),mock(RecommendPort.class),registry,audioAccess,reviewRecords,
                 new AuthorContentPageService(pageStore, audioAccess, statistics, pageProperties));
     }
@@ -190,6 +194,19 @@ class ContentListsIntegrationTest {
     @AfterEach
     void clear() {
         UserContext.removeUser();
+    }
+
+    @Test
+    void deletedAuthorPageIsClosed() {
+        UserSummary deleted = new UserSummary();
+        deleted.setId(7L);
+        deleted.setIsDelete(1);
+        when(users.getUser(7L)).thenReturn(deleted);
+
+        BizException error = assertThrows(BizException.class, () -> feeds.byAuthor(9L, 7L, authorQuery(10)));
+
+        assertEquals(ErrorCode.NOT_FOUND, error.getErrorCode());
+        assertEquals("用户不存在", error.getMessage());
     }
 
     @Test
@@ -289,9 +306,9 @@ class ContentListsIntegrationTest {
     }
 
     private AuthorContentCursorQuery authorQuery(String type, int size) {
+        pageProperties.setPageSize(size);
         AuthorContentCursorQuery query = new AuthorContentCursorQuery();
         query.setType(type);
-        query.setPageSize(size);
         return query;
     }
 
@@ -355,7 +372,8 @@ class ContentListsIntegrationTest {
                 mock(ContentSettingsService.class),
                 mock(ContentDownloadService.class), mock(ContentPlaybackService.class));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
-        String response = mvc.perform(get("/contents/author/42").param("pageSize", "2"))
+        pageProperties.setPageSize(2);
+        String response = mvc.perform(get("/contents/author/42"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").doesNotExist())
                 .andExpect(jsonPath("$.data.pages").doesNotExist())
@@ -365,7 +383,7 @@ class ContentListsIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         String next = JsonUtil.fromJson(response, JsonObject.class).getAsJsonObject("data")
                 .getAsJsonObject("page").get("nextCursor").getAsString();
-        mvc.perform(get("/contents/author/42").param("pageSize", "2").param("cursor", next))
+        mvc.perform(get("/contents/author/42").param("cursor", next))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.displayCount").value(6))
                 .andExpect(jsonPath("$.data.page.items[0].id").value("105"));

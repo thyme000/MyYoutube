@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.content.service.impl.ContentFeedServiceImpl;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.vo.ContentFeedVO;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
+import cn.diaojiahong.myyoutube.common.page.CursorPageQuery;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.video.domain.dto.AudioContentQuery;
 import cn.diaojiahong.myyoutube.video.domain.dto.AudioContentCursor;
@@ -24,15 +25,12 @@ public class AudioContentService {
         ContentSortEnum order = query.order();
         AudioContentCursor cursor = AudioContentCursor.decode(query.getCursor(), audioId, order);
         audios.getPublic(audioId);
-        List<Content> candidates = contents.publicAudioContents(audioId, order, cursor, query.getPageSize() + 1);
-        boolean hasMore = candidates.size() > query.getPageSize();
-        List<Content> rows = hasMore ? candidates.subList(0, query.getPageSize()) : candidates;
-        String nextCursor = null;
-        if (hasMore) {
-            Content last = rows.get(rows.size() - 1);
-            nextCursor = new AudioContentCursor(audioId, order, last.getLikeCount(), last.getCreateTime(), last.getId()).encode();
-        }
+        List<Content> candidates = contents.publicAudioContents(
+                audioId, order, cursor, CursorPage.fetchSize(CursorPageQuery.PAGE_SIZE));
+        CursorPage<Content, String> page = CursorPage.slice(candidates, CursorPageQuery.PAGE_SIZE, last ->
+                new AudioContentCursor(audioId, order, last.getLikeCount(), last.getCreateTime(), last.getId()).encode());
+
         // 查询已同时核验音频和内容的公开资格，复用卡片装配时无需重复查音频。
-        return new CursorPage<>(cards.assembleCards(viewer, rows, Set.of()), nextCursor);
+        return new CursorPage<>(cards.assembleCards(viewer, page.items(), Set.of()), page.nextCursor());
     }
 }

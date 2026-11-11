@@ -9,5 +9,4 @@ public class CommentListQuery {
     private String tab;
     /** 「排序值.评论id」, 首页不传 */
     private String cursor;
-    private Integer pageSize;
 }

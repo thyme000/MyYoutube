@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.video.domain.dto;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.video.domain.enums.ContentSortEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -14,14 +13,10 @@ public class AudioContentQuery {
     @Schema(description = "关联内容排序", allowableValues = {"latest", "mostLiked"}, defaultValue = "latest")
     private String sort;
 
-    @Schema(description = "上一页返回的 nextCursor，首次请求省略")
+    @Schema(description = "上一页返回的 nextCursor，首次请求省略。还有下一页时才有值，是否继续以响应里的 hasMore 为准")
     private String cursor;
 
-    @Schema(description = "每次加载条数", defaultValue = "10")
-    private int pageSize = 10;
-
     public ContentSortEnum order() {
-        PageQuery.validate(1, pageSize);
         if (sort == null || sort.isBlank()) return ContentSortEnum.LATEST;
         ContentSortEnum order = ContentSortEnum.fromField(sort);
         if (order != ContentSortEnum.LATEST && order != ContentSortEnum.MOST_LIKED)

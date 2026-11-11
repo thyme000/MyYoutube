@@ -15,7 +15,6 @@ public class AuthorContentCursorQuery extends CursorPageQuery {
     private String type;
 
     public ContentTypeEnum mediaType() {
-        validate();
         ContentTypeEnum result = type == null ? null : ContentTypeEnum.fromCode(type);
         if (type != null && result == null) throw new BizException(ErrorCode.INVALID_ARGUMENT, "内容类型无效");
         type = result == null ? null : result.getCode();

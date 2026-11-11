@@ -45,6 +45,7 @@ class ContentSearchPageTest {
     @BeforeEach
     void setup() throws Exception {
         properties.setFirstPageSize(2);
+        properties.setPageSize(2);
         when(keyword.shouldRun(any())).thenReturn(true);
         when(keyword.supportsPaging()).thenReturn(true);
         when(vector.shouldRun(any())).thenReturn(true);
@@ -81,12 +82,11 @@ class ContentSearchPageTest {
                 : List.of(FieldValue.of(1.5), FieldValue.of(100L), FieldValue.of(Long.parseLong(id)));
     }
 
-    SearchContext context(String cursor, boolean latest, int size) {
+    SearchContext context(String cursor, boolean latest) {
         ContentSearchCursorQuery query = new ContentSearchCursorQuery();
         query.setKeyword("camera");
         query.setCursor(cursor);
         query.setSortByLatest(latest);
-        query.setPageSize(size);
         return SearchContext.of(query, 7L, List.of());
     }
 
@@ -96,12 +96,12 @@ class ContentSearchPageTest {
 
     @Test
     void mixedFirstPageThenKeywordPagesDoNotSkipOrRepeatTheOriginalCandidates() {
-        CursorPage<ContentSummary, String> first = search.search(context(null, false, 2));
+        CursorPage<ContentSummary, String> first = search.search(context(null, false));
         assertEquals(List.of(4L, 1L), ids(first));
-        CursorPage<ContentSummary, String> second = search.search(context(first.nextCursor(), false, 2));
+        CursorPage<ContentSummary, String> second = search.search(context(first.nextCursor(), false));
         assertEquals(List.of(2L, 3L), ids(second));
-        assertEquals(ids(second), ids(search.search(context(first.nextCursor(), false, 2))));
-        CursorPage<ContentSummary, String> third = search.search(context(second.nextCursor(), false, 2));
+        assertEquals(ids(second), ids(search.search(context(first.nextCursor(), false))));
+        CursorPage<ContentSummary, String> third = search.search(context(second.nextCursor(), false));
         assertEquals(List.of(7L, 8L), ids(third));
         assertNull(third.nextCursor());
         verify(keyword, times(1)).firstBatch(any());
@@ -110,27 +110,27 @@ class ContentSearchPageTest {
 
     @Test
     void laterPagesRecheckVisibilityAndRefill() {
-        CursorPage<ContentSummary, String> first = search.search(context(null, false, 2));
+        CursorPage<ContentSummary, String> first = search.search(context(null, false));
         blocked.add("2");
-        CursorPage<ContentSummary, String> second = search.search(context(first.nextCursor(), false, 2));
+        CursorPage<ContentSummary, String> second = search.search(context(first.nextCursor(), false));
         assertEquals(List.of(3L, 7L), ids(second));
-        assertEquals(List.of(8L), ids(search.search(context(second.nextCursor(), false, 2))));
+        assertEquals(List.of(8L), ids(search.search(context(second.nextCursor(), false))));
     }
 
     @Test
     void doesNotRefillTheEntirePoolWhenEnoughVisibleItemsRemainForTheFirstPage() throws Exception {
         blocked.add("2");
         blocked.add("3");
-        CursorPage<ContentSummary, String> first = search.search(context(null, false, 2));
+        CursorPage<ContentSummary, String> first = search.search(context(null, false));
         assertEquals(2, first.items().size());
         verify(keyword, never()).nextBatch(any(), any(), anyInt());
     }
 
     @Test
     void latestUsesOnlyKeywordPaginationFromTheFirstRequest() {
-        CursorPage<ContentSummary, String> first = search.search(context(null, true, 2));
+        CursorPage<ContentSummary, String> first = search.search(context(null, true));
         assertEquals(List.of(1L, 2L), ids(first));
-        assertEquals(List.of(3L, 4L), ids(search.search(context(first.nextCursor(), true, 2))));
+        assertEquals(List.of(3L, 4L), ids(search.search(context(first.nextCursor(), true))));
         verifyNoInteractions(vector);
         verify(keyword, never()).firstBatch(any());
     }
@@ -141,7 +141,7 @@ class ContentSearchPageTest {
                 "1",
                 "2"))));
         when(vector.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(RecallBatch.exhausted(List.of())));
-        CursorPage<ContentSummary, String> page = search.search(context(null, false, 2));
+        CursorPage<ContentSummary, String> page = search.search(context(null, false));
         assertEquals(List.of(1L, 2L), ids(page));
         assertNull(page.nextCursor());
     }
@@ -149,23 +149,24 @@ class ContentSearchPageTest {
     @Test
     void failedInitialKeywordRouteCanBeRetriedOnTheNextRequest() {
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.failedFuture(new IOException("ES down")));
-        CursorPage<ContentSummary, String> first = search.search(context(null, false, 2));
+        CursorPage<ContentSummary, String> first = search.search(context(null, false));
         assertEquals(List.of(4L, 6L), ids(first));
-        assertEquals(List.of(1L, 2L), ids(search.search(context(first.nextCursor(), false, 2))));
+        assertEquals(List.of(1L, 2L), ids(search.search(context(first.nextCursor(), false))));
     }
 
     @Test
     void largeFirstBatchIsConfigurableAndDoesNotLimitFurtherKeywordPages() {
         properties.setFirstPageSize(30);
+        properties.setPageSize(10);
         keywordIds = LongStream.rangeClosed(1, 130).mapToObj(Long::toString).toList();
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(
                 new RecallBatch(keywordIds.subList(0, 40), position(false, "40"))));
         when(vector.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(RecallBatch.exhausted(List.of())));
-        CursorPage<ContentSummary, String> page = search.search(context(null, false, 10));
+        CursorPage<ContentSummary, String> page = search.search(context(null, false));
         assertEquals(30, page.items().size());
         List<Long> displayed = new ArrayList<>(ids(page));
         while (page.nextCursor() != null) {
-            page = search.search(context(page.nextCursor(), false, 10));
+            page = search.search(context(page.nextCursor(), false));
             displayed.addAll(ids(page));
         }
         assertEquals(LongStream.rangeClosed(1, 130).boxed().toList(), displayed);

@@ -28,7 +28,7 @@ class TagSearchFlowTest {
         TagSearchCursorQuery query = new TagSearchCursorQuery();
         query.setTagName(context.getKeyword());
         query.setCursor(cursor);
-        query.setPageSize(pageSize);
+        properties.setPageSize(pageSize);
         return search.search(SearchContext.forTag(query, context.getUserId(), context.getFollowIds()));
     }
 

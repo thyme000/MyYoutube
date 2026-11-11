@@ -7,5 +7,4 @@ public class CommentReplyQuery {
     /** 楼id, 即根评论id */
     private Long rootId;
     private String cursor;
-    private Integer pageSize;
 }

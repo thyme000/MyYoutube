@@ -32,7 +32,7 @@ public class ContentSearchPage {
         List<FieldValue> position = cursor == null ? List.of() : cursor.position();
         List<String> firstPageIds = cursor == null ? List.of() : cursor.firstPageIds();
         CursorPage<ContentSummary, List<FieldValue>> page = keywordPages.search(context, position,
-                Set.copyOf(firstPageIds), context.getQuery().getPageSize());
+                Set.copyOf(firstPageIds), properties.getPageSize());
         String next = page.nextCursor() == null ? null : ContentSearchCursor.encode(
                 context,
                 firstPageIds,
@@ -43,14 +43,14 @@ public class ContentSearchPage {
     private CursorPage<ContentSummary, String> tagPage(SearchContext context) {
         List<FieldValue> position = TagSearchCursor.decode(context.getQuery().getCursor(), context);
         CursorPage<ContentSummary, List<FieldValue>> page = keywordPages.search(context, position,
-                Set.of(), context.getQuery().getPageSize());
+                Set.of(), properties.getPageSize());
         String next = page.nextCursor() == null ? null : TagSearchCursor.encode(context, page.nextCursor());
         return new CursorPage<>(page.items(), next);
     }
 
     private CursorPage<ContentSummary, String> hybridFirstPage(SearchContext context) {
         Map<String, ContentSummary> hydrated = new HashMap<>();
-        int size = Math.max(properties.getFirstPageSize(), context.getQuery().getPageSize());
+        int size = properties.getFirstPageSize();
         HybridRecallService.FirstPage page = hybridRecall.recall(context, size, ids -> {
             List<ContentSummary> rows = summaries.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(ids, null));
             for (ContentSummary row : rows) hydrated.put(row.getId().toString(), row);

@@ -43,7 +43,7 @@ class AuthorContentPageServiceTest {
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), "author-page-test"),
                 Content.class);
-        query.setPageSize(2);
+        properties.setPageSize(2);
         when(statistics.displayCount(anyLong(), any(), any())).thenReturn(10L);
         when(audioAccess.blocked(anyList())).thenReturn(Set.of());
     }

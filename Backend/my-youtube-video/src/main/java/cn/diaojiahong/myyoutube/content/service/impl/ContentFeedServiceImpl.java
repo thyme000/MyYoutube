@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.content.service.impl;
 
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.*;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
 import cn.diaojiahong.myyoutube.content.domain.dto.AuthorContentCursorQuery;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
@@ -79,6 +81,11 @@ public class ContentFeedServiceImpl implements IContentFeedService {
 
     @Override
     public AuthorContentCursorVO byAuthor(Long viewer, Long author, AuthorContentCursorQuery query) {
+        UserSummary account = users.getUser(author);
+        if (account != null && account.deleted()) {
+            throw new BizException(ErrorCode.NOT_FOUND, "用户不存在");
+        }
+
         AuthorContentPageService.AuthorContentCandidates result = authorPages.list(viewer, author, query);
         CursorPage<Content, String> page = result.page();
         List<ContentFeedVO> cards = assembleCards(viewer, page.items(), Set.of());

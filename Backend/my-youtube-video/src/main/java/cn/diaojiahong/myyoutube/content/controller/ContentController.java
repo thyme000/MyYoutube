@@ -80,7 +80,11 @@ public class ContentController {
     @GetMapping("/author/{authorId}")
     @Operation(
             summary = "按游标查询作者作品",
-            description = "page 包含 items/nextCursor，不返回页码或总页数；每次请求的 displayCount 由本地作品基数减去受限音频引用数得到，覆盖整个查询范围且不受游标位置影响。数量、作品及音频过滤在同一只读事务快照中读取，不同请求可看到已提交的变更；是否继续加载以 nextCursor 为准，过滤或补取限制可导致短页或空页")
+            description = "每页条数由服务端配置决定。page 包含 items、nextCursor、hasMore，不返回页码或总页数；" +
+                "是否继续只看 hasMore，为真时带回 nextCursor。" +
+                "displayCount 由本地作品基数减去受限音频引用数得到，覆盖整个查询范围且不受游标位置影响。" +
+                "数量、作品及音频过滤在同一只读事务快照中读取；" +
+                "过滤或补取限制可导致短页或空页")
     public Result<AuthorContentCursorVO> byAuthor(
             @PathVariable Long authorId,
             @ModelAttribute AuthorContentCursorQuery query) {

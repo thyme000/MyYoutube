@@ -127,7 +127,7 @@ class ContentAccessIntegrationTest {
                 TransactionTemplate tx,
                 UserPort users) {
             StringRedisTemplate redis = mock(StringRedisTemplate.class);
-            when(redis.executePipelined(any(RedisCallback.class))).thenReturn(Collections.singletonList(null));
+            when(redis.executePipelined(any(RedisCallback.class))).thenReturn(Collections.nCopies(11, null));
             return new ContentCommentServiceImpl(users,mock(S3StorageUtil.class),contents,access,
                     redis,mock(org.apache.rocketmq.spring.core.RocketMQTemplate.class),tx,mock(CommentListCache.class));
         }
@@ -163,17 +163,18 @@ class ContentAccessIntegrationTest {
 
     @Test
     void latestCommentCursorHasExactEpochAndCanContinueAcrossPages() {
-        jdbc.update("INSERT INTO content_comment(id,content_id,user_id,path,level,content,status,create_time) VALUES(1,1,9,'1',1,'旧','visible',?)",
-                LocalDateTime.parse("2026-10-25T09:59:59"));
-        jdbc.update("INSERT INTO content_comment(id,content_id,user_id,path,level,content,status,create_time) VALUES(2,1,9,'2',1,'新','visible',?)",
-                LocalDateTime.parse("2026-10-25T10:00:00"));
+        for (int id = 1; id <= 11; id++) {
+            jdbc.update("INSERT INTO content_comment(id,content_id,user_id,path,level,content,status,create_time) VALUES(?,1,9,?,1,?, 'visible',?)",
+                    id, Integer.toString(id), id == 1 ? "旧" : "新" + id,
+                    LocalDateTime.parse("2026-10-25T10:00:00").plusSeconds(id));
+        }
         var query = new CommentListQuery();
         query.setContentId(1L);
         query.setTab("latest");
-        query.setPageSize(1);
         CommentPageVO first = comments.getRootComments(query);
+        assertTrue(first.isHasMore());
         CommentCursor cursor = CommentCursor.decode(first.getNextCursor());
-        assertEquals(Instant.parse("2026-10-25T02:00:00Z").getEpochSecond(), cursor.getScore());
+        assertEquals(Instant.parse("2026-10-25T02:00:02Z").getEpochSecond(), cursor.getScore());
         assertEquals(2L, cursor.getId());
         query.setCursor(first.getNextCursor());
         CommentPageVO second = comments.getRootComments(query);

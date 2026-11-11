@@ -49,7 +49,8 @@ class RecallRefillPropertiesTest {
                 p -> p.setRefillMaxCandidates(0), p -> p.setRefillMaxCandidates(1001),
                 p -> p.setRefillBatchSize(0), p -> p.setRefillBatchSize(501),
                 p -> p.setEsTimeoutMillis(0), p -> p.setEmbeddingTimeoutMillis(0),
-                p -> p.setFirstPageSize(0), p -> p.setFirstPageSize(101));
+                p -> p.setFirstPageSize(0), p -> p.setFirstPageSize(101),
+                p -> p.setPageSize(0), p -> p.setPageSize(101));
         for (Consumer<RecallProperties> change : invalid) {
             RecallProperties properties = new RecallProperties();
             change.accept(properties);

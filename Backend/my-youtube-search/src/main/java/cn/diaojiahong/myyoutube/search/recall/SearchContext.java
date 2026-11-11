@@ -30,7 +30,6 @@ public class SearchContext {
     public static SearchContext forTag(TagSearchCursorQuery source, Long userId, List<Long> followIds) {
         var query = new ContentSearchCursorQuery();
         query.setKeyword(source.getTagName());
-        query.setPageSize(source.getPageSize());
         query.setCursor(source.getCursor());
         String keyword = source.getTagName() == null ? "" : source.getTagName().trim();
         return new SearchContext(query, userId, keyword, List.copyOf(followIds), true);

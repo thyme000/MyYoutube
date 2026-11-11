@@ -3,6 +3,8 @@ package cn.diaojiahong.myyoutube.comment.service.impl;
 import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
+import cn.diaojiahong.myyoutube.common.page.CursorPageQuery;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.comment.cache.CommentListCache;
@@ -66,8 +68,6 @@ ContentComment> implements IContentCommentService {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int STORAGE_EXPIRE = 60 * 20;
-    private static final int DEFAULT_PAGE_SIZE = 10;
-    private static final int MAX_PAGE_SIZE = 50;
 
     /** 名单里的失效条目(取回时已被删/改状态)会让当页变短, 每次多取一点并循环补齐 */
     private static final int OVERFETCH = 10;
@@ -217,7 +217,7 @@ ContentComment> implements IContentCommentService {
 
         CommentTab tab = query.getTab() == null || query.getTab().isBlank()
                 ? CommentTab.HOT : CommentTab.of(query.getTab());
-        int limit = clampPageSize(query.getPageSize());
+        int limit = CursorPageQuery.PAGE_SIZE;
         CommentCursor cursor = CommentCursor.decode(query.getCursor());
 
         List<CommentCursor> list = commentListCache.get(contentId, tab);
@@ -228,17 +228,15 @@ ContentComment> implements IContentCommentService {
         // 名单的排序值是建榜时的快照, 必须拿它当游标; DB 路径的排序值取自当前行, 两界各自自洽
         Map<Long, CommentCursor> sourceCursors = new LinkedHashMap<>();
         List<ContentComment> rows = list != null
-                ? pageFromList(contentId, tab, list, cursor, limit + 1, sourceCursors)
-                : pageFromDb(contentId, tab, cursor, limit + 1, sourceCursors);
+                ? pageFromList(contentId, tab, list, cursor, CursorPage.fetchSize(limit), sourceCursors)
+                : pageFromDb(contentId, tab, cursor, CursorPage.fetchSize(limit), sourceCursors);
 
-        boolean hasMore = rows.size() > limit;
-        List<ContentComment> page = hasMore ? rows.subList(0, limit) : rows;
+        CursorPage<ContentComment, String> page = CursorPage.slice(rows, limit, row ->
+                sourceCursors.get(row.getId()).encode());
         CommentPageVO result = new CommentPageVO();
-        result.setList(assemble(page));
-        result.setHasMore(hasMore);
-        if (hasMore && !page.isEmpty()) {
-            result.setNextCursor(sourceCursors.get(page.get(page.size() - 1).getId()).encode());
-        }
+        result.setList(assemble(page.items()));
+        result.setHasMore(page.hasMore());
+        result.setNextCursor(page.nextCursor());
         return result;
     }
 
@@ -252,7 +250,7 @@ ContentComment> implements IContentCommentService {
         }
 
         access.readable(root.getContentId(), getUserId());
-        int limit = clampPageSize(query.getPageSize());
+        int limit = CursorPageQuery.PAGE_SIZE;
         CommentCursor cursor = CommentCursor.decode(query.getCursor());
         LambdaQueryWrapper<ContentComment> w = new LambdaQueryWrapper<ContentComment>()
                 .likeRight(ContentComment::getPath, rootId + ".")
@@ -267,18 +265,15 @@ ContentComment> implements IContentCommentService {
                             .gt(ContentComment::getId, cursor.getId())));
         }
         w.orderByAsc(ContentComment::getCreateTime).orderByAsc(ContentComment::getId)
-                .last("LIMIT " + (limit + 1));
+                .last("LIMIT " + CursorPage.fetchSize(limit));
         List<ContentComment> records = list(w);
+        CursorPage<ContentComment, String> page = CursorPage.slice(records, limit, last ->
+                CommentCursor.of(epochSecond(last.getCreateTime()), last.getId()).encode());
 
-        boolean hasMore = records.size() > limit;
-        List<ContentComment> page = hasMore ? records.subList(0, limit) : records;
         CommentPageVO result = new CommentPageVO();
-        result.setList(assemble(page));
-        result.setHasMore(hasMore);
-        if (hasMore && !page.isEmpty()) {
-            ContentComment last = page.get(page.size() - 1);
-            result.setNextCursor(CommentCursor.of(epochSecond(last.getCreateTime()), last.getId()).encode());
-        }
+        result.setList(assemble(page.items()));
+        result.setHasMore(page.hasMore());
+        result.setNextCursor(page.nextCursor());
         return result;
     }
 
@@ -470,14 +465,6 @@ ContentComment> implements IContentCommentService {
 
     private static LocalDateTime toLocalDateTime(long epochSecond) {
         return BusinessTime.fromInstant(java.time.Instant.ofEpochSecond(epochSecond));
-    }
-
-    private static int clampPageSize(Integer pageSize) {
-        if (pageSize == null || pageSize <= 0) {
-            return DEFAULT_PAGE_SIZE;
-        }
-
-        return Math.min(pageSize, MAX_PAGE_SIZE);
     }
 
     private Long getUserId() {

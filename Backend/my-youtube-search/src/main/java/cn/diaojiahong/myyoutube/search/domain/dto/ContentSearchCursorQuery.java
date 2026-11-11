@@ -7,7 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Schema(description = "内容搜索参数；综合首批取 max(pageSize, 配置首批数量)。默认配置下请求 10 条，首批最多返回 30 条，后续最多 10 条")
+@Schema(description = "内容搜索参数。综合首批条数和后续每页条数由服务端配置决定，调用方只回传游标")
 public class ContentSearchCursorQuery extends CursorPageQuery {
     @Schema(description = "搜索关键词", maxLength = SearchQueryValidation.MAX_KEYWORD_LENGTH)
     private String keyword;
@@ -18,9 +18,7 @@ public class ContentSearchCursorQuery extends CursorPageQuery {
     // 是否要按最新发布排序
     private boolean sortByLatest;
 
-    @Override
     public void validate() {
-        super.validate();
         SearchQueryValidation.validateKeyword(keyword);
     }
 }

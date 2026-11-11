@@ -32,7 +32,7 @@ public class SearchController {
      */
     @Operation(
             summary = "搜索内容",
-            description = "综合首批返回上限为 max(pageSize, 配置首批数量)，后续仅关键词。默认配置下 pageSize=10 时首批最多 30 条、后续最多 10 条；最新排序始终最多 pageSize 条。过滤或补取限制可导致短页，返回 items/nextCursor，不返回总数")
+            description = "条数由服务端决定：综合首批用配置的首批数量，最新排序和后续页用配置的每页条数。过滤或补取限制可导致短页。返回 items、nextCursor、hasMore，是否继续只看 hasMore；不返回总数")
     @GetMapping("/video")
     public Result<CursorPage<SearchVideoVO, String>> searchVideo(@ModelAttribute ContentSearchCursorQuery query) {
         return Result.success(searchService.searchVideo(query));

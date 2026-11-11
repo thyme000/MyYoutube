@@ -1,8 +1,6 @@
 package cn.diaojiahong.myyoutube.search;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.page.CursorPageQuery;
-import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.SearchQueryValidation;
 import cn.diaojiahong.myyoutube.search.domain.dto.TagSearchCursorQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.ContentSearchCursorQuery;
@@ -11,19 +9,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SearchQueryValidationTest {
     @Test
-    void bothSearchInputsRetainInheritedDefaultsAndPageSizeValidation() {
-        for (CursorPageQuery query : new CursorPageQuery[]{new ContentSearchCursorQuery(), new TagSearchCursorQuery()}) {
-            assertEquals(10, query.getPageSize());
-            assertNull(query.getCursor());
-            assertDoesNotThrow(query::validate);
-            query.setPageSize(PageQuery.MAX_PAGE_SIZE);
-            assertDoesNotThrow(query::validate);
-
-            for (int size : new int[]{0, -1, PageQuery.MAX_PAGE_SIZE + 1}) {
-                query.setPageSize(size);
-                assertThrows(BizException.class, query::validate);
-            }
-        }
+    void bothSearchInputsStartWithoutACursor() {
+        assertNull(new ContentSearchCursorQuery().getCursor());
+        assertNull(new TagSearchCursorQuery().getCursor());
+        assertDoesNotThrow(() -> new ContentSearchCursorQuery().validate());
+        assertDoesNotThrow(() -> new TagSearchCursorQuery().validate());
     }
 
     @Test
