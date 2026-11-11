@@ -50,9 +50,9 @@ public class ScheduleJob {
     private final AuthorLikeCountService authorLikeCounts;
 
     /**
-     * 每 30s 把点赞缓冲落库。
+     * 每 5s 把点赞、收藏、评论赞缓冲落库。上一轮结束后再等，避免慢轮次叠在一起。
      */
-    @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
+    @Scheduled(fixedDelay = 5_000, initialDelay = 5_000)
     public void flushContentCounters() {
         roundLock.run(VideoScheduleLocks.COUNTER_FLUSH, this::flushAndPushReceivedLikes);
     }
@@ -169,10 +169,10 @@ public class ScheduleJob {
     }
 
     /**
-     * 每 30 分钟把 MySQL content.play_count / like_count 同步到 ES(推荐打分用)。
+     * 每 10 分钟把 MySQL content.play_count / like_count 同步到 ES(推荐打分用)。
      * 以 MySQL 为准; Redis 记录上次扫到的最大 id, 游标滚动, 避免单次全表扫描。
      */
-    @Scheduled(cron = "0 */30 * * * *")
+    @Scheduled(cron = "0 */10 * * * *")
     public void flushLikeCountAndPlayCount4ES() {
         roundLock.run(VideoScheduleLocks.ES_COUNT_SYNC, this::syncCountsToEs);
     }

@@ -19,9 +19,9 @@ public class ScheduleJob {
     private final ScheduleRoundLock roundLock;
 
     /**
-     * 每 30s 把粉丝数、关注数的缓冲落库。
+     * 每 5s 把粉丝数、关注数的缓冲落库。上一轮结束后再等，避免慢轮次叠在一起。
      */
-    @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
+    @Scheduled(fixedDelay = 5_000, initialDelay = 5_000)
     public void flushUserCounters() {
         roundLock.run("schedule:lock:user:counter:flush", counterFlushService::flushRound);
     }

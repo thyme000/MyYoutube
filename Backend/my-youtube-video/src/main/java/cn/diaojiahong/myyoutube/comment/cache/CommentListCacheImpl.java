@@ -50,7 +50,7 @@ public class CommentListCacheImpl implements CommentListCache {
     @Value("${my-youtube.comment.latest-ttl-seconds:5}")
     private long latestTtlSeconds;
 
-    @Value("${my-youtube.comment.hot-ttl-seconds:30}")
+    @Value("${my-youtube.comment.hot-ttl-seconds:5}")
     private long hotTtlSeconds;
 
     @Override
