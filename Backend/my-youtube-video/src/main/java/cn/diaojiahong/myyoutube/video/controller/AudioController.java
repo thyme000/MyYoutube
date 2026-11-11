@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
@@ -73,10 +74,10 @@ public class AudioController {
     }
 
     @GetMapping("/library")
-    @Operation(summary = "公开音频库(可选关键词搜索)")
+    @Operation(summary = "公开音频库(可选关键词搜索)，按创建时间和 id 游标续查")
     public Result<AudioPage> library(@RequestParam(required = false) String keyword,
-                                     @ModelAttribute PageQuery pageQuery) {
-        return Result.success(audioService.library(keyword, pageQuery));
+                                     @ModelAttribute CursorPageQuery page) {
+        return Result.success(audioService.library(keyword, page));
     }
 
     @GetMapping("/{id}")
@@ -95,10 +96,10 @@ public class AudioController {
     }
 
     @GetMapping("/mine/search")
-    @Operation(summary = "按名称搜索本人的音频")
+    @Operation(summary = "按名称搜索本人的音频，按创建时间和 id 游标续查")
     public Result<AudioPage> searchMine(
             @RequestParam(required = false) String keyword,
-            @ModelAttribute PageQuery page) {
+            @ModelAttribute CursorPageQuery page) {
         return Result.success(audioService.searchMine(keyword, page));
     }
 

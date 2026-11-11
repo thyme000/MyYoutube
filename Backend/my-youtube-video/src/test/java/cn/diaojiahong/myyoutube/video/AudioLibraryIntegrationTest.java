@@ -27,6 +27,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.media.AudioPreparationContracts.*;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
+import cn.diaojiahong.myyoutube.common.page.CursorPageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.video.api.AudioAdminPort;
@@ -142,7 +143,7 @@ class AudioLibraryIntegrationTest {
         if (!Boolean.getBoolean("content.integration")) auditSql = auditSql.replace(" ENGINE=InnoDB", "");
         jdbc.execute(auditSql);
         reset(storage, users, tasks, search);
-        when(search.search(any())).thenReturn(new AudioDiscoveryContracts.Slice(List.of(), false));
+        when(search.search(any())).thenReturn(new AudioDiscoveryContracts.Slice(List.of(), null));
         UserContext.setUser("9");
         var user = new UserSummary();
         user.setId(9L);
@@ -585,20 +586,6 @@ class AudioLibraryIntegrationTest {
         assertEquals(1, waiting.get().get(5, TimeUnit.SECONDS));
     }
 
-    @ParameterizedTest @CsvSource({"0,10", "1,101", "100,100", "2147483647,100"})
-    void invalidSearchBoundsAreRejectedBeforeCallingTheSearchPort(int pageNo, int pageSize) {
-        var page = new PageQuery();
-        page.setPageNo(pageNo);
-        page.setPageSize(pageSize);
-        assertEquals(
-                ErrorCode.INVALID_ARGUMENT,
-                assertThrows(BizException.class, () -> service.library(null, page)).getErrorCode());
-        assertEquals(
-                ErrorCode.INVALID_ARGUMENT,
-                assertThrows(BizException.class, () -> service.searchMine(null, page)).getErrorCode());
-        verifyNoInteractions(search);
-    }
-
     @Test
     void indexTimestampUsesBusinessTimeWithoutChangingStoredCreateTime() {
         long id = publish();
@@ -728,7 +715,7 @@ class AudioLibraryIntegrationTest {
     void unfinishedAudioIsNotDiscoverableOrReferenceableAndNoSourcePreviewIsSigned() {
         long id = publish();
         assertThrows(BizException.class, () -> service.getReferenceable(id, 9L));
-        assertTrue(service.library(null, new PageQuery()).getList().isEmpty());
+        assertTrue(service.library(null, new CursorPageQuery()).getList().isEmpty());
         AudioVO view = service.getMine(id);
         assertNull(view.getPreviewUrl());
         assertEquals("signed/avatars/9.jpg", view.getCoverUrl());
@@ -744,7 +731,7 @@ class AudioLibraryIntegrationTest {
         service.setVisibility(id, "private");
         assertEquals(id, service.getReferenceable(id, 9L).getId());
         assertThrows(BizException.class, () -> service.getReferenceable(id, 7L));
-        assertTrue(service.library(null, new PageQuery()).getList().isEmpty());
+        assertTrue(service.library(null, new CursorPageQuery()).getList().isEmpty());
     }
 
     @Test
@@ -763,7 +750,7 @@ class AudioLibraryIntegrationTest {
         assertEquals(AudioAnalysisStatus.RECOGNIZING, row.getAnalysisStatus());
         assertEquals(prepared(id).objectKey(), row.getObjectKey());
         assertEquals(prepared(id).coverObjectKey(), row.getCoverObjectKey());
-        assertTrue(service.library(null, new PageQuery()).getList().isEmpty());
+        assertTrue(service.library(null, new CursorPageQuery()).getList().isEmpty());
     }
 
     @Test
@@ -1269,17 +1256,17 @@ class AudioLibraryIntegrationTest {
     void staleEsCandidatesAreFilteredBeforeSigningAndMineUsesOwnerScope() {
         long id = publish();
         approve(id);
-        when(search.search(any())).thenReturn(new AudioDiscoveryContracts.Slice(List.of(id, 123L), true));
-        assertEquals(1, service.library("雨", new PageQuery()).getList().size());
+        when(search.search(any())).thenReturn(new AudioDiscoveryContracts.Slice(List.of(id, 123L), "next"));
+        assertEquals(1, service.library("雨", new CursorPageQuery()).getList().size());
         service.setVisibility(id, "private");
         clearInvocations(storage);
-        assertTrue(service.library("雨", new PageQuery()).getList().isEmpty());
+        assertTrue(service.library("雨", new CursorPageQuery()).getList().isEmpty());
         verifyNoInteractions(storage);
-        assertEquals(1, service.searchMine("雨", new PageQuery()).getList().size());
+        assertEquals(1, service.searchMine("雨", new CursorPageQuery()).getList().size());
         verify(search).search(argThat(q -> Long.valueOf(9).equals(q.uploaderId())));
         UserContext.setUser("8");
         clearInvocations(storage);
-        assertTrue(service.searchMine("雨", new PageQuery()).getList().isEmpty());
+        assertTrue(service.searchMine("雨", new CursorPageQuery()).getList().isEmpty());
         verifyNoInteractions(storage);
     }
 
@@ -1485,7 +1472,7 @@ class AudioLibraryIntegrationTest {
         assertEquals("您的音频已通过审核。", service.getMine(id).getReviewReason());
         assertEquals("技术识别失败，人工完整试听及封面核验通过", rows.selectById(id).getReviewReason());
         jdbc.update("UPDATE audio SET historical_author_count=23 WHERE id=?", id);
-        when(search.search(any())).thenReturn(new AudioDiscoveryContracts.Slice(List.of(id), false));
+        when(search.search(any())).thenReturn(new AudioDiscoveryContracts.Slice(List.of(id), null));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new AudioController(
                 service,
                 uploads,

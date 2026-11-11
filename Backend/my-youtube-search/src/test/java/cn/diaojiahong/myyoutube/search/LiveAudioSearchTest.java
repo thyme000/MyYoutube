@@ -101,12 +101,12 @@ class LiveAudioSearchTest {
         rebuild(document(1, 2, "private", false, 1000));
         rebuild(old);
         assertEquals("private", client.get(r -> r.index("audio").id("1"), AudioDoc.class).source().getVisibility());
-        assertTrue(service.search(new AudioDiscoveryContracts.Query("雨声", null, 1, 10)).ids().isEmpty());
-        assertEquals(List.of(1L), service.search(new AudioDiscoveryContracts.Query("雨声", 9L, 1, 10)).ids());
+        assertTrue(service.search(new AudioDiscoveryContracts.Query("雨声", null, null, 10)).ids().isEmpty());
+        assertEquals(List.of(1L), service.search(new AudioDiscoveryContracts.Query("雨声", 9L, null, 10)).ids());
         rebuild(document(1, 3, "private", true, 1000));
         rebuild(old);
         assertTrue(client.get(r -> r.index("audio").id("1"), AudioDoc.class).source().isDeleted());
-        assertTrue(service.search(new AudioDiscoveryContracts.Query(null, 9L, 1, 10)).ids().isEmpty());
+        assertTrue(service.search(new AudioDiscoveryContracts.Query(null, 9L, null, 10)).ids().isEmpty());
     }
 
     @Test
@@ -115,12 +115,12 @@ class LiveAudioSearchTest {
         rebuild(document(2, 1, "public", false, 1000));
         rebuild(document(3, 1, "private", false, 2000));
         rebuild(document(4, 1, "public", true, 3000));
-        AudioDiscoveryContracts.Slice first = service.search(new AudioDiscoveryContracts.Query("雨声", null, 1, 1));
+        AudioDiscoveryContracts.Slice first = service.search(new AudioDiscoveryContracts.Query("雨声", null, null, 1));
         assertEquals(List.of(2L), first.ids());
-        assertTrue(first.hasMore());
-        AudioDiscoveryContracts.Slice second = service.search(new AudioDiscoveryContracts.Query("雨声", null, 2, 1));
+        assertNotNull(first.nextCursor());
+        AudioDiscoveryContracts.Slice second = service.search(new AudioDiscoveryContracts.Query("雨声", null, first.nextCursor(), 1));
         assertEquals(List.of(1L), second.ids());
-        assertFalse(second.hasMore());
-        assertEquals(List.of(3L, 2L, 1L), service.search(new AudioDiscoveryContracts.Query("雨声", 9L, 1, 10)).ids());
+        assertNull(second.nextCursor());
+        assertEquals(List.of(3L, 2L, 1L), service.search(new AudioDiscoveryContracts.Query("雨声", 9L, null, 10)).ids());
     }
 }

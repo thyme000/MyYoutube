@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.video.service;
 
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioPage;
 
+import cn.diaojiahong.myyoutube.common.page.CursorPageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.video.domain.dto.AudioUploadDTO;
@@ -18,9 +19,9 @@ public interface IAudioService {
 
     PageResult<AudioVO> myAudios(PageQuery pageQuery);
 
-    AudioPage library(String keyword, PageQuery pageQuery);
+    AudioPage library(String keyword, CursorPageQuery page);
 
-    AudioPage searchMine(String keyword, PageQuery pageQuery);
+    AudioPage searchMine(String keyword, CursorPageQuery page);
 
     AudioVO detail(Long id);
 

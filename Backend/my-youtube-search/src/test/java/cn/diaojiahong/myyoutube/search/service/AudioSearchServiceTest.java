@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.search.domain.doc.AudioDoc;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import co.elastic.clients.elasticsearch.*;
 import co.elastic.clients.elasticsearch.core.*;
+import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch._types.*;
 import co.elastic.clients.util.ObjectBuilder;
@@ -50,14 +51,14 @@ class AudioSearchServiceTest {
 
     @Test
     void publicAndOwnerQueriesUseDifferentScopesAndAlwaysExcludeTombstones() {
-        String publicQuery = AudioSearchService.query(new Query("名字", null, 1, 10)).toString();
+        String publicQuery = AudioSearchService.query(new Query("名字", null, null, 10)).toString();
         for (String expected : List.of("deleted", "visibility", "public", "processingStatus", "ready", "reviewStatus", "approved", "title", "名字"))
             assertTrue(publicQuery.contains(expected), publicQuery);
-        String mine = AudioSearchService.query(new Query("名字", 9L, 1, 10)).toString();
+        String mine = AudioSearchService.query(new Query("名字", 9L, null, 10)).toString();
         assertTrue(mine.contains("uploaderId"));
         assertTrue(mine.contains("deleted"));
         assertFalse(mine.contains("visibility"));
-        assertThrows(BizException.class, () -> new Query("x", null, 101, 100).validate());
+        assertThrows(BizException.class, () -> new Query("x", null, null, 101).validate());
     }
 
     @Test
@@ -131,10 +132,46 @@ class AudioSearchServiceTest {
                                 1,
                                 999))))))));
         when(es.search(any(Function.class), eq(AudioDoc.class))).thenReturn(response);
-        AudioDiscoveryContracts.Slice result = service.search(new Query(null, null, 1, 1));
+        AudioDiscoveryContracts.Slice result = service.search(new Query(null, null, null, 1));
         assertEquals(List.of(1L), result.ids());
-        assertTrue(result.hasMore());
+        assertNotNull(result.nextCursor());
         verify(es, times(1)).search(any(Function.class), eq(AudioDoc.class));
+    }
+
+    @Test
+    void exactHitPageHasNoContinuation() throws Exception {
+        SearchResponse<AudioDoc> response = SearchResponse.of(b -> b.took(1).timedOut(false).shards(s -> s.total(1).successful(1).failed(0))
+                .hits(h -> h.hits(List.of(Hit.of(v -> v.index("audio").id("1").source(AudioDoc.from(doc(1, false))))))));
+        when(es.search(any(Function.class), eq(AudioDoc.class))).thenReturn(response);
+
+        AudioDiscoveryContracts.Slice result = service.search(new Query(null, null, null, 1));
+
+        assertEquals(List.of(1L), result.ids());
+        assertNull(result.nextCursor());
+    }
+
+    @Test
+    void nextPageSearchesAfterTheLastCreatedAtAndId() throws Exception {
+        SearchResponse<AudioDoc> response = SearchResponse.of(b -> b.took(1).timedOut(false).shards(s -> s.total(1).successful(1).failed(0))
+                .hits(h -> h.hits(List.of(Hit.of(v -> v.index("audio").id("1").source(AudioDoc.from(doc(1, false)))),
+                        Hit.of(v -> v.index("audio").id("2").source(AudioDoc.from(new Document(
+                                2L, 9L, "x", "ready", "approved", "public", false, 1, 999))))))));
+        List<SearchRequest> requests = new ArrayList<>();
+        when(es.search(any(Function.class), eq(AudioDoc.class))).thenAnswer(invocation -> {
+            Function<SearchRequest.Builder, ObjectBuilder<SearchRequest>> build = invocation.getArgument(0);
+            requests.add(build.apply(new SearchRequest.Builder()).build());
+            return response;
+        });
+
+        Slice first = service.search(new Query("雨声", null, null, 1));
+        assertThrows(BizException.class, () -> service.search(new Query("别的", null, first.nextCursor(), 1)));
+        service.search(new Query("雨声", null, first.nextCursor(), 1));
+
+        assertTrue(requests.get(0).searchAfter() == null || requests.get(0).searchAfter().isEmpty());
+        assertNull(requests.get(0).from());
+        List<FieldValue> after = requests.get(1).searchAfter();
+        assertEquals(1000L, after.get(0).longValue());
+        assertEquals(1L, after.get(1).longValue());
     }
 
     @Test

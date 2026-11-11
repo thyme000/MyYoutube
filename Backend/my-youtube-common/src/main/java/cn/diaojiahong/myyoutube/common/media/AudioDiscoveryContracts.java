@@ -13,16 +13,15 @@ public final class AudioDiscoveryContracts {
                            String visibility, boolean deleted, long version, long createdAt) {
     }
 
-    public record Query(String keyword, Long uploaderId, int pageNo, int pageSize) {
+    public record Query(String keyword, Long uploaderId, String cursor, int pageSize) {
         public void validate() {
-            PageQuery.validate(pageNo, pageSize);
-            if ((long) pageNo * pageSize + 1 > 10000
-                    || keyword != null && keyword.length() > 100 || uploaderId != null && uploaderId <= 0)
+            PageQuery.validatePageSize(pageSize);
+            if (keyword != null && keyword.length() > 100 || uploaderId != null && uploaderId <= 0)
                 throw new BizException(ErrorCode.INVALID_ARGUMENT, "音频搜索参数超出范围");
         }
     }
 
-    public record Slice(List<Long> ids, boolean hasMore) {
+    public record Slice(List<Long> ids, String nextCursor) {
     }
 
     public record Sync(Long audioId) {

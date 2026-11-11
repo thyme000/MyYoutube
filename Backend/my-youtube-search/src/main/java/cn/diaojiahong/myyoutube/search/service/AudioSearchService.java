@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.search.service;
 
 import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts.*;
 import cn.diaojiahong.myyoutube.search.api.AudioSearchPort;
 import cn.diaojiahong.myyoutube.search.domain.doc.AudioDoc;
@@ -9,6 +10,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.*;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.Operator;
+import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import lombok.RequiredArgsConstructor;
@@ -52,23 +54,40 @@ public class AudioSearchService implements AudioSearchPort {
     @Override
     public Slice search(AudioDiscoveryContracts.Query request) {
         request.validate();
+        AudioSearchCursor.Position position = AudioSearchCursor.decode(request);
         try {
             ensureIndex();
-            SearchResponse<AudioDoc> response = es.search(s -> s.index(INDEX).from((request.pageNo() - 1) * request.pageSize()).size(request.pageSize() + 1)
-                    .query(query(request))
-                    .sort(sort -> sort.field(f -> f.field(AudioDoc.Fields.createdAt).order(SortOrder.Desc)))
-                    .sort(sort -> sort.field(f -> f.field(AudioDoc.Fields.id).order(SortOrder.Desc))), AudioDoc.class);
+            SearchResponse<AudioDoc> response = es.search(builder -> {
+                SearchRequest.Builder search = builder.index(INDEX)
+                        .size(CursorPage.fetchSize(request.pageSize()))
+                        .query(query(request))
+                        .sort(sort -> sort.field(f -> f.field(AudioDoc.Fields.createdAt).order(SortOrder.Desc)))
+                        .sort(sort -> sort.field(f -> f.field(AudioDoc.Fields.id).order(SortOrder.Desc)));
+                if (position != null) {
+                    search.searchAfter(List.of(FieldValue.of(position.createdAt()), FieldValue.of(position.id())));
+                }
+                return search;
+            }, AudioDoc.class);
+
             List<Hit<AudioDoc>> hits = response.hits().hits();
-            return new Slice(hits.stream()
-                    .limit(request.pageSize())
-                    .map(h -> Objects.requireNonNull(h.source()).getId())
-                    .toList(), hits.size() > request.pageSize());
+            CursorPage<Hit<AudioDoc>, String> page = CursorPage.slice(hits, request.pageSize(), hit -> cursor(request, hit));
+            List<Long> ids = new ArrayList<>();
+            for (Hit<AudioDoc> hit : page.items()) {
+                ids.add(Objects.requireNonNull(hit.source()).getId());
+            }
+            return new Slice(ids, page.nextCursor());
         } catch (IOException error) {
             throw new IllegalStateException("Audio search failed", error);
         }
     }
 
+    private static String cursor(AudioDiscoveryContracts.Query request, Hit<AudioDoc> hit) {
+        AudioDoc last = Objects.requireNonNull(hit.source());
+        return AudioSearchCursor.encode(request, last.getCreatedAt(), last.getId());
+    }
+
     static Query query(AudioDiscoveryContracts.Query request) {
+        String keyword = AudioSearchCursor.keywordOf(request.keyword());
         return Query.of(q -> q.bool(b -> {
             b.filter(f -> f.term(t -> t.field(AudioDoc.Fields.deleted).value(false)));
             if (request.uploaderId() != null) b.filter(f -> f.term(t -> t.field(AudioDoc.Fields.uploaderId).value(request.uploaderId())));
@@ -77,8 +96,8 @@ public class AudioSearchService implements AudioSearchPort {
                 b.filter(f -> f.term(t -> t.field(AudioDoc.Fields.processingStatus).value("ready")));
                 b.filter(f -> f.term(t -> t.field(AudioDoc.Fields.reviewStatus).value("approved")));
             }
-            if (request.keyword() != null && !request.keyword().isBlank())
-                b.must(f -> f.match(t -> t.field(AudioDoc.Fields.title).query(request.keyword().trim()).operator(Operator.And)));
+            if (keyword != null)
+                b.must(f -> f.match(t -> t.field(AudioDoc.Fields.title).query(keyword).operator(Operator.And)));
             return b;
         }));
     }

@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.search.api.AudioSearchPort;
 import cn.diaojiahong.myyoutube.video.domain.vo.AudioPage;
 import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.page.CursorPageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
@@ -148,32 +149,34 @@ public class AudioServiceImpl implements IAudioService {
     }
 
     @Override
-    public AudioPage library(String keyword, PageQuery pageQuery) {
-        return search(keyword, pageQuery, null);
+    public AudioPage library(String keyword, CursorPageQuery page) {
+        return search(keyword, page, null);
     }
 
     @Override
-    public AudioPage searchMine(String keyword, PageQuery pageQuery) {
-        return search(keyword, pageQuery, getUserId());
+    public AudioPage searchMine(String keyword, CursorPageQuery page) {
+        return search(keyword, page, getUserId());
     }
 
-    private AudioPage search(String keyword, PageQuery page, Long owner) {
-        var query = new AudioDiscoveryContracts.Query(keyword, owner, page.getPageNo(), page.getPageSize());
+    private AudioPage search(String keyword, CursorPageQuery page, Long owner) {
+        AudioDiscoveryContracts.Query query = new AudioDiscoveryContracts.Query(
+                keyword, owner, page.getCursor(), CursorPageQuery.PAGE_SIZE);
         query.validate();
         AudioDiscoveryContracts.Slice slice = search.search(query);
         if (slice == null || slice.ids() == null) throw new IllegalStateException("Missing audio search result");
-        Map<Long,
-        Audio> found = slice.ids().isEmpty() ? Map.<Long,
-        Audio>of() : audioMapper.selectBatchIds(slice.ids()).stream()
-                .collect(Collectors.toMap(Audio::getId, a -> a));
-        List<Audio> visible = slice.ids()
-                .stream()
+
+        Map<Long, Audio> found = slice.ids().isEmpty()
+                ? Map.of()
+                : audioMapper.selectBatchIds(slice.ids()).stream()
+                        .collect(Collectors.toMap(Audio::getId, audio -> audio));
+        List<Audio> visible = slice.ids().stream()
                 .distinct()
                 .map(found::get)
                 .filter(Objects::nonNull)
-                .filter(a -> a.getIsDelete() == 0)
-                .filter(a -> owner != null ? owner.equals(a.getUploaderId()) : publiclyVisible(a)).toList();
-        return new AudioPage(views(visible, owner != null), slice.hasMore());
+                .filter(audio -> audio.getIsDelete() == 0)
+                .filter(audio -> owner != null ? owner.equals(audio.getUploaderId()) : publiclyVisible(audio))
+                .toList();
+        return new AudioPage(views(visible, owner != null), slice.nextCursor(), slice.nextCursor() != null);
     }
 
     @Override

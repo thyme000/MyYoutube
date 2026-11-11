@@ -8,5 +8,7 @@ import lombok.Data;
 @AllArgsConstructor
 public class AudioPage {
     private List<AudioVO> list;
+    private String nextCursor;
+    /** 与 nextCursor 同时成立：为真时 nextCursor 有值。 */
     private boolean hasMore;
 }
