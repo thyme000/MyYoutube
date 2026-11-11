@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.common.observability;
 
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
-
 import cn.diaojiahong.myyoutube.common.monitoring.SampleHealth;
 import io.micrometer.core.instrument.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -93,7 +92,9 @@ public final class OutboxMetrics {
     }
 
     private long count(String status, String quarantine, int limit) {
+        // 多取一条，才能区分「刚好满 limit」和「后面还有」
+        int probeLimit = limit + 1;
         return Objects.requireNonNull(jdbc.queryForObject("SELECT COUNT(*) FROM (SELECT event_id FROM pipeline_event_outbox WHERE status=? AND quarantine_reason "
-                + quarantine + " LIMIT ?) bounded_rows", Long.class, status, limit + 1));
+                + quarantine + " LIMIT ?) bounded_rows", Long.class, status, probeLimit));
     }
 }
