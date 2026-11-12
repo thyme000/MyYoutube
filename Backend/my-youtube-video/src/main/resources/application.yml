@@ -10,7 +10,8 @@ spring:
     name: my-youtube-video-service
   datasource:
     hikari:
-      maximum-pool-size: 5
+      # 计数落库并行占用 4 条，其余留给请求
+      maximum-pool-size: 9
 
 rocketmq:
   producer:

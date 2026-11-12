@@ -5,6 +5,9 @@ spring:
       - optional:classpath:application-local.yml
   application:
     name: my-youtube-user-service
+  datasource:
+    hikari:
+      maximum-pool-size: 10
 
 rocketmq:
   producer:
