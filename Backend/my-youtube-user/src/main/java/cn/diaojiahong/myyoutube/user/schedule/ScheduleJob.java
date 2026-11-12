@@ -23,7 +23,7 @@ public class ScheduleJob {
      */
     @Scheduled(fixedDelay = 5_000, initialDelay = 5_000)
     public void flushUserCounters() {
-        roundLock.run("schedule:lock:user:counter:flush", counterFlushService::flushRound);
+        roundLock.run(UserScheduleLocks.COUNTER_FLUSH, counterFlushService::flushRound);
     }
 
     /**
@@ -31,6 +31,6 @@ public class ScheduleJob {
      */
     @Scheduled(cron = "0 40 * * * ?")
     public void reconcileUserCounters() {
-        roundLock.run("schedule:lock:user:counter:reconcile", counterFlushService::reconcileRound);
+        roundLock.run(UserScheduleLocks.COUNTER_RECONCILE, counterFlushService::reconcileRound);
     }
 }
