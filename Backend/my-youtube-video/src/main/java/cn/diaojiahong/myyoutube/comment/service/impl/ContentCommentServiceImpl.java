@@ -94,11 +94,9 @@ ContentComment> implements IContentCommentService {
         if (parentId != 0) {
             ContentComment p = getById(parentId);
             if (p == null || !CommentStatusEnum.VISIBLE.getCode().equals(p.getStatus())) {
-
                 throw new BizException(ErrorCode.NOT_FOUND, "父评论不存在或不可回复");
             }
             if (!Objects.equals(p.getContentId(), commentDTO.getContentId())) {
-
                 throw new BizException(ErrorCode.INVALID_ARGUMENT, "父评论不属于该内容");
             }
             parent = p;
@@ -137,7 +135,6 @@ ContentComment> implements IContentCommentService {
         if (parent == null) {
             // 接受方是内容作者, 自己评自己不通知
             if (!userId.equals(content.getAuthorId())) {
-
                 message = CommentMessage.builder()
                        .content(commentDTO.getContent()).contentId(content.getId())
                        .senderId(userId).receiverId(content.getAuthorId()).isContentComment(true)
@@ -145,7 +142,6 @@ ContentComment> implements IContentCommentService {
             }
         } else {
             if (!userId.equals(parent.getUserId())) {
-
                 message = CommentMessage.builder()
                         .content(commentDTO.getContent()).contentId(content.getId())
                         .senderId(userId).receiverId(parent.getUserId()).isContentComment(false)
@@ -153,7 +149,6 @@ ContentComment> implements IContentCommentService {
             }
         }
         if (message != null) {
-
             rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_PUBLISH, message);
         }
     }
@@ -163,38 +158,34 @@ ContentComment> implements IContentCommentService {
     public void deleteComment(Long commentId) {
         ContentComment comment = getById(commentId);
         if (comment == null) {
-
             throw new BizException(ErrorCode.NOT_FOUND, "评论不存在");
         }
 
         Long userId = getUserId();
         if (!comment.getUserId().equals(userId)) {
-
             throw new BizException(ErrorCode.FORBIDDEN, "用户没有权限删除评论");
         }
 
-        // 删楼时连回复一起摘, 先收齐受影响 id 供计数
-        List<Long> affectedIds = new ArrayList<>();
-        affectedIds.add(commentId);
         boolean isRoot = comment.getLevel() != null && comment.getLevel() == 1;
-        if (isRoot) {
-            lambdaQuery()
-                    .likeRight(ContentComment::getPath, commentId + ".")
-                    .ne(ContentComment::getStatus, CommentStatusEnum.DELETED.getCode())
-                    .select(ContentComment::getId)
-                    .list()
-                    .forEach(c -> affectedIds.add(c.getId()));
-        }
-        long removed = affectedIds.size();
+        String deletedStatus = CommentStatusEnum.DELETED.getCode();
         transactionTemplate.executeWithoutResult(tx -> {
-            comment.setStatus(CommentStatusEnum.DELETED.getCode());
-            updateById(comment);
+            // 和发评一致，先锁作品，再更新评论行。
+            access.locked(comment.getContentId());
+            long removed = baseMapper.update(null, new LambdaUpdateWrapper<ContentComment>()
+                    .eq(ContentComment::getId, commentId)
+                    .ne(ContentComment::getStatus, deletedStatus)
+                    .set(ContentComment::getStatus, deletedStatus));
             if (isRoot) {
-                baseMapper.update(null, new LambdaUpdateWrapper<ContentComment>()
+                removed += baseMapper.update(null, new LambdaUpdateWrapper<ContentComment>()
                         .likeRight(ContentComment::getPath, commentId + ".")
-                        .ne(ContentComment::getStatus, CommentStatusEnum.DELETED.getCode())
-                        .set(ContentComment::getStatus, CommentStatusEnum.DELETED.getCode()));
-            } else {
+                        .ne(ContentComment::getStatus, deletedStatus)
+                        .set(ContentComment::getStatus, deletedStatus));
+            }
+            if (removed == 0) {
+                return;
+            }
+
+            if (!isRoot) {
                 lambdaUpdate().eq(ContentComment::getId, rootIdOf(comment))
                         .gt(ContentComment::getReplyCount, 0)
                         .setIncrBy(ContentComment::getReplyCount, -1).update();
@@ -353,10 +344,7 @@ ContentComment> implements IContentCommentService {
         LambdaQueryWrapper<ContentComment> w = new LambdaQueryWrapper<ContentComment>()
                 .eq(ContentComment::getContentId, contentId)
                 .eq(ContentComment::getLevel, 1)
-                .in(
-                        ContentComment::getStatus,
-                        CommentStatusEnum.VISIBLE.getCode(),
-                        CommentStatusEnum.BLOCKED.getCode());
+                .in(ContentComment::getStatus, CommentStatusEnum.VISIBLE.getCode(), CommentStatusEnum.BLOCKED.getCode());
         if (cursor != null) {
             if (tab == CommentTab.LATEST) {
                 long ts = cursor.getScore();
@@ -439,7 +427,6 @@ ContentComment> implements IContentCommentService {
         byte[] rawKey = strSer.serialize(key);
         List<Object> scoreResults = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
             for (CommentVO v : voList) {
-
                 byte[] member = strSer.serialize(v.getId().toString());
                 connection.zScore(rawKey, member);
             }
@@ -468,13 +455,10 @@ ContentComment> implements IContentCommentService {
     }
 
     private Long getUserId() {
-
         String userId = UserContext.getUserId();
         if (userId == null || userId.isEmpty()) {
-
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
-
         return Long.valueOf(userId);
     }
 }

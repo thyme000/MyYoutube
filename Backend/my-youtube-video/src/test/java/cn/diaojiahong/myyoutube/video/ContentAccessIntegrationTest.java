@@ -237,6 +237,40 @@ class ContentAccessIntegrationTest {
     }
 
     @Test
+    void deletingSameReplyTwiceOnlyDecrementsCountsOnce() {
+        comments.publishComment(comment(null));
+        Long rootId = jdbc.queryForObject("SELECT id FROM content_comment", Long.class);
+        comments.publishComment(comment(rootId));
+        comments.publishComment(comment(rootId));
+        List<Long> replies = jdbc.queryForList("SELECT id FROM content_comment WHERE level=2 ORDER BY id", Long.class);
+        Long replyId = replies.get(0);
+
+        comments.deleteComment(replyId);
+        comments.deleteComment(replyId);
+
+        assertEquals("deleted", jdbc.queryForObject("SELECT status FROM content_comment WHERE id=?", String.class, replyId));
+        assertEquals(1, jdbc.queryForObject("SELECT reply_count FROM content_comment WHERE id=?", Integer.class, rootId));
+        assertEquals(2L, jdbc.queryForObject("SELECT comment_count FROM content WHERE id=1", Long.class));
+    }
+
+    @Test
+    void deletingSameThreadTwiceOnlyDecrementsNewlyDeletedComments() {
+        comments.publishComment(comment(null));
+        Long rootId = jdbc.queryForObject("SELECT id FROM content_comment", Long.class);
+        comments.publishComment(comment(rootId));
+        Long replyId = jdbc.queryForObject("SELECT id FROM content_comment WHERE level=2", Long.class);
+        comments.publishComment(comment(replyId));
+        comments.publishComment(comment(null));
+
+        comments.deleteComment(replyId);
+        comments.deleteComment(rootId);
+        comments.deleteComment(rootId);
+
+        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM content_comment WHERE status='deleted'", Integer.class));
+        assertEquals(1L, jdbc.queryForObject("SELECT comment_count FROM content WHERE id=1", Long.class));
+    }
+
+    @Test
     void commentThatPassedInitialCheckIsRejectedWhenClosureCommitsBeforeWrite() throws Exception {
         var beforeWrite=new CountDownLatch(1);
         var resume=new CountDownLatch(1);
