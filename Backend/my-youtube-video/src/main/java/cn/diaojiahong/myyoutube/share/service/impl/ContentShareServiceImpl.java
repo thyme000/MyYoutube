@@ -1,6 +1,7 @@
 package cn.diaojiahong.myyoutube.share.service.impl;
 
 import cn.diaojiahong.myyoutube.common.counter.AbstractCounterTarget;
+import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
@@ -28,7 +29,15 @@ public class ContentShareServiceImpl implements IContentShareService {
     @Transactional
     public void record(Long contentId, Long userId) {
         access.readable(contentId, userId);
-        shares.insert(new ContentShare().setUserId(userId).setContentId(contentId).setCreateTime(LocalDateTime.now()));
+        LocalDateTime occurredAt = BusinessTime.now();
+        int inserted = shares.insert(new ContentShare()
+                .setUserId(userId)
+                .setContentId(contentId)
+                .setCreateTime(occurredAt));
+        if (inserted != 1) {
+            throw new IllegalStateException("Content share was not recorded");
+        }
+
         AbstractCounterTarget.guardedDelta(contentService, Content::getId, contentId, Content::getShareCount, 1);
     }
 }
