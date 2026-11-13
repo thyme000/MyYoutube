@@ -9,12 +9,13 @@ import cn.diaojiahong.myyoutube.collect.mapper.ContentCollectMapper;
 import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
 import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
-import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
@@ -64,23 +65,29 @@ ContentCollect> implements IContentCollectService {
     public void collect(Long contentId) {
         Long userId = getUserId();
         Content content = access.readable(contentId, userId);
-        if (lambdaQuery().eq(ContentCollect::getUserId, userId).eq(ContentCollect::getContentId, contentId).exists()) {
-
+        if (lambdaQuery()
+                .eq(ContentCollect::getUserId, userId)
+                .eq(ContentCollect::getContentId, contentId)
+                .exists()) {
             return;
         }
 
-        save(new ContentCollect().setUserId(userId).setContentId(contentId).setCreateTime(LocalDateTime.now()));
+        boolean saved = save(new ContentCollect()
+                .setUserId(userId)
+                .setContentId(contentId)
+                .setCreateTime(BusinessTime.now()));
+        if (!saved) {
+            return;
+        }
+
         counterBuffer.add(CounterType.CONTENT_COLLECT, contentId, 1);
         notifyAuthor(userId, content);
-        return;
     }
 
     /** 收藏通知: 给作者落一条站内通知并发门铃信号, 自己收藏自己不发 */
     private void notifyAuthor(Long userId, Content content) {
-
         Long authorId = content.getAuthorId();
         if (authorId == null || authorId.equals(userId)) {
-
             return;
         }
 
@@ -104,10 +111,8 @@ ContentCollect> implements IContentCollectService {
                 .eq(ContentCollect::getContentId, contentId)
                 .remove();
         if (removed) {
-
             counterBuffer.add(CounterType.CONTENT_COLLECT, contentId, -1);
         }
-        return;
     }
 
     @Override
@@ -123,7 +128,6 @@ ContentCollect> implements IContentCollectService {
                 offset,
                 pageQuery.getPageSize());
         if (contentIds.isEmpty()) {
-
             return PageResult.of(total, totalPages, List.of());
         }
 
@@ -131,7 +135,6 @@ ContentCollect> implements IContentCollectService {
         List<ContentSummary> summaries = contentSummaryPort.listByIdsOrdered(
                 new ContentSummaryPort.SummaryQuery(contentIds.stream().map(String::valueOf).toList(), userId));
         if (summaries.isEmpty()) {
-
             return PageResult.of(total, totalPages, List.of());
         }
 
@@ -154,7 +157,6 @@ ContentCollect> implements IContentCollectService {
         Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(authors);
         List<Boolean> isFollows = followSnapshot.isFollowOnList(userId, authorIds);
         for (int i = 0; i < voList.size(); i++) {
-
             CollectVO vo = voList.get(i);
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
             vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), STORAGE_EXPIRE));
@@ -169,21 +171,17 @@ ContentCollect> implements IContentCollectService {
     @Override
     public Boolean status(Long contentId) {
         Long userId = getUserId();
-        boolean collected = lambdaQuery()
+        return lambdaQuery()
                 .eq(ContentCollect::getUserId, userId)
                 .eq(ContentCollect::getContentId, contentId)
                 .exists();
-        return collected;
     }
 
     private Long getUserId() {
-
         String userId = UserContext.getUserId();
         if (userId == null) {
-
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
-
         return Long.valueOf(userId);
     }
 }
