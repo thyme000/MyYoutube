@@ -42,7 +42,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -76,42 +75,43 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     @Transactional
     @ObservedBusiness(BusinessOperation.LIKE_CONTENT)
     public void likeContent(Long contentId) {
-        // 获取用户id
         Long userId = getUserId();
         access.readable(contentId, userId);
 
-        // 判断用户是否已经点过赞
         ContentLike like = lambdaQuery()
                 .eq(ContentLike::getUserId, userId)
                 .eq(ContentLike::getContentId, contentId).one();
         if (like != null && like.getIsLiked() == ContentLikeConstants.LIKE) {
-
-            // 已经点过赞了直接返回
             return;
         }
 
-        // 点赞数只累加到 Redis, 由落库任务合并成一次 UPDATE。作者获赞在那次落库里跟着作品赞一起改
-        counterBuffer.add(CounterType.CONTENT_LIKE, contentId, 1);
-
-        // 保存点赞记录
+        boolean changed;
         if (like != null) {
-            // 已有记录，更新
-            like.setIsLiked(ContentLikeConstants.LIKE);
-            updateById(like);
+            changed = lambdaUpdate()
+                    .eq(ContentLike::getId, like.getId())
+                    .eq(ContentLike::getIsLiked, ContentLikeConstants.CANCEL_LIKE)
+                    .set(ContentLike::getIsLiked, ContentLikeConstants.LIKE)
+                    .update();
         } else {
-            // 没有记录，新增
-            save(new ContentLike().setUserId(userId).setContentId(contentId).setIsLiked(ContentLikeConstants.LIKE));
+            changed = save(new ContentLike()
+                    .setUserId(userId)
+                    .setContentId(contentId)
+                    .setIsLiked(ContentLikeConstants.LIKE));
         }
+
+        if (!changed) {
+            return;
+        }
+
+        // 点赞数只累加到 Redis, 由落库任务合并成一次 UPDATE。
+        counterBuffer.add(CounterType.CONTENT_LIKE, contentId, 1);
     }
 
     private Long getUserId() {
-
         String userId = UserContext.getUserId();
         if (userId == null) {
-
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
-
         return Long.valueOf(userId);
     }
 
@@ -119,25 +119,26 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     @Transactional
     @ObservedBusiness(BusinessOperation.UNLIKE_CONTENT)
     public void cancelLikeContent(Long contentId) {
-        // 获取用户id
         Long userId = getUserId();
 
-        // 判断用户是否点过赞
         ContentLike like = lambdaQuery()
                 .eq(ContentLike::getUserId, userId)
                 .eq(ContentLike::getContentId, contentId)
                 .one();
         if (like == null || like.getIsLiked() == ContentLikeConstants.CANCEL_LIKE) {
+            return;
+        }
 
-            // 未点赞或已取消点赞直接返回
+        boolean changed = lambdaUpdate()
+                .eq(ContentLike::getId, like.getId())
+                .eq(ContentLike::getIsLiked, ContentLikeConstants.LIKE)
+                .set(ContentLike::getIsLiked, ContentLikeConstants.CANCEL_LIKE)
+                .update();
+        if (!changed) {
             return;
         }
 
         counterBuffer.add(CounterType.CONTENT_LIKE, contentId, -1);
-
-        // 修改点赞记录
-        like.setIsLiked(ContentLikeConstants.CANCEL_LIKE);
-        updateById(like);
     }
 
     @Override
@@ -166,8 +167,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
                 offset,
                 pageQuery.getPageSize());
         if (contentIds == null || contentIds.isEmpty()) {
-
-            // 没有点过赞的内容,直接返回空列表
             return PageResult.of(total, totalPages, List.of());
         }
 
@@ -199,7 +198,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         // 填充是否关注作者
         List<Boolean> isFollows = followSnapshot.isFollowOnList(viewerId, authorIds);
         for (int i = 0; i < voList.size(); i++) {
-
             voList.get(i).setIsFollow(isFollows.get(i));
         }
 
@@ -219,7 +217,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     @Override
     @ObservedBusiness(BusinessOperation.LIKE_COMMENT)
     public void likeComment(Long commentId) {
-        // 获取用户id
         Long userId = getUserId();
 
         ContentComment comment = contentCommentService.getById(commentId);
@@ -230,7 +227,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
                 .eq(ContentCommentLike::getUserId, userId)
                 .eq(ContentCommentLike::getCommentId, commentId));
         if (like != null && like.getIsLiked() == ContentLikeConstants.LIKE) {
-
             // 已经点过赞了直接返回; 顺手补一下 Redis 展示集合(ZSet 只有 10 天寿命, 过期后会误判成未点赞)
             markCommentLiked(userId, commentId);
             return;
@@ -239,7 +235,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         // 点赞数只累加到 Redis
         counterBuffer.add(CounterType.COMMENT_LIKE, commentId, 1);
         if (like != null) {
-
             like.setIsLiked(ContentLikeConstants.LIKE);
             contentCommentLikeMapper.updateById(like);
         } else {
@@ -259,15 +254,12 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     @Override
     @ObservedBusiness(BusinessOperation.UNLIKE_COMMENT)
     public void cancelLikeComment(Long commentId) {
-        // 获取用户id
         Long userId = getUserId();
 
         ContentCommentLike like = contentCommentLikeMapper.selectOne(new LambdaQueryWrapper<ContentCommentLike>()
                 .eq(ContentCommentLike::getUserId, userId)
                 .eq(ContentCommentLike::getCommentId, commentId));
         if (like == null || like.getIsLiked() == ContentLikeConstants.CANCEL_LIKE) {
-
-            // 未点赞或已取消, 直接返回
             return;
         }
 
@@ -281,7 +273,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
         // 发送取消点赞通知(MQ)
         if (comment != null && !Objects.equals(comment.getUserId(), userId)) {
-
             LikeCommentMessage lc = LikeCommentMessage.builder().senderId(userId).commentId(commentId).build();
             rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_UNLIKE, lc);
         }
@@ -291,7 +282,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
      * 展示用「我赞过的评论」集合。
      */
     private void markCommentLiked(Long userId, Long commentId) {
-
         String key = RedisConstants.USER_LIKE_COMMENT + userId;
         redisTemplate.opsForZSet().add(key, commentId.toString(), System.currentTimeMillis());
         redisTemplate.expire(key, RedisConstants.USER_LIKE_COMMENT_EXPIRE, TimeUnit.DAYS);
