@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.recommend.mapper;
 
 import cn.diaojiahong.myyoutube.recommend.domain.po.UserTagPreference;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Param;
 
 /**
  * <p>
@@ -13,4 +14,6 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
  */
 public interface UserTagPreferenceMapper extends BaseMapper<UserTagPreference> {
 
+    void addBehaviorScore(@Param("userId") Long userId, @Param("contentId") Long contentId,
+                          @Param("delta") int delta);
 }
