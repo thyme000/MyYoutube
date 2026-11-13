@@ -31,7 +31,7 @@ public class ContentPlaybackService {
     @Transactional
     @ObservedBusiness(BusinessOperation.SAVE_PLAYBACK)
     public void save(Long contentId, Long viewer, ContentPlaybackDTO state) {
-        Content content = access.requireReadable(access.locked(contentId), viewer);
+        Content content = access.readableForPlaybackWrite(contentId, viewer);
         long now = System.currentTimeMillis();
         if (state == null || state.sessionId() == null || !state.sessionId().matches("[a-zA-Z0-9-]{1,64}")
                 || state.sessionStartedAt() == null

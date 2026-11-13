@@ -54,8 +54,7 @@ class ContentPlaybackTest {
     void dynamic(boolean audio) {
         when(strategy.type()).thenReturn(ContentTypeEnum.DYNAMIC);
         Content content = new Content().setId(1L).setType(ContentTypeEnum.DYNAMIC);
-        when(access.locked(1L)).thenReturn(content);
-        when(access.requireReadable(content,9L)).thenReturn(content);
+        when(access.readableForPlaybackWrite(1L, 9L)).thenReturn(content);
         when(strategy.loadMedia(List.of(1L))).thenReturn(Map.of(1L,new ContentMedia("dynamic",null,
                 new DynamicMedia("vertical",1080,1920,"fade",800,List.of(new DynamicMedia.Image("a",0,3000,.5,.5),
                         new DynamicMedia.Image("b",2200,3000,.5,.5)),audio ? new DynamicMedia.Audio(2L,
@@ -120,8 +119,7 @@ class ContentPlaybackTest {
     void videoUsesOnlyVideoPosition() {
         when(strategy.type()).thenReturn(ContentTypeEnum.VIDEO);
         Content content=new Content().setId(1L).setType(ContentTypeEnum.VIDEO);
-        when(access.locked(1L)).thenReturn(content);
-        when(access.requireReadable(content,9L)).thenReturn(content);
+        when(access.readableForPlaybackWrite(1L, 9L)).thenReturn(content);
         when(strategy.loadMedia(List.of(1L))).thenReturn(Map.of(
                 1L,
                 new ContentMedia("video",new VideoMedia("v",10000),null)));
@@ -138,7 +136,7 @@ class ContentPlaybackTest {
     void currentPermissionCheckedBeforeReadingOrWritingResume() {
         when(access.readable(1L,9L)).thenThrow(new BizException(ErrorCode.FORBIDDEN, "不可访问"));
         assertThrows(BizException.class,()->service.get(1L,9L));
-        when(access.requireReadable(any(),eq(9L))).thenThrow(new BizException(ErrorCode.FORBIDDEN, "不可访问"));
+        when(access.readableForPlaybackWrite(1L, 9L)).thenThrow(new BizException(ErrorCode.FORBIDDEN, "不可访问"));
         assertThrows(BizException.class,()->service.save(1L,9L,state(1,0,0,0,0L)));
         verify(strategy,never()).loadMedia(any());
     }

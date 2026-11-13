@@ -32,6 +32,12 @@ public class ContentAccessService {
         return contents.selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, id).last("FOR UPDATE"));
     }
 
+    public Content readableForPlaybackWrite(Long id, Long viewer) {
+        // 续播只写用户自己的进度行。共享锁允许同一内容的观众并行保存，并与内容状态变更互斥。
+        Content content = contents.selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, id).last("FOR SHARE"));
+        return requireReadable(content, viewer);
+    }
+
     public Content requireReadable(Content content, Long viewer) {
         requireVisible(content, viewer);
         if (hasBannedAudio(content)) {
