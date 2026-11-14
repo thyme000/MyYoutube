@@ -1,8 +1,10 @@
 package cn.diaojiahong.myyoutube.video.controller;
 
+import cn.diaojiahong.myyoutube.common.schedule.ScheduleRoundLock;
 import cn.diaojiahong.myyoutube.recommend.cf.CfRecallService;
 import cn.diaojiahong.myyoutube.recommend.service.IItemSimilarityService;
 import cn.diaojiahong.myyoutube.video.api.CfRecommendPort;
+import cn.diaojiahong.myyoutube.video.schedule.VideoScheduleLocks;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,6 +21,7 @@ public class InternalCfController {
 
     private final CfRecallService cfRecallService;
     private final IItemSimilarityService itemSimilarityService;
+    private final ScheduleRoundLock roundLock;
 
     @PostMapping("/candidates")
     public CfRecommendPort.CfCandidates candidates(@RequestBody CfRecommendPort.CfCandidatesQuery query) {
@@ -28,6 +31,6 @@ public class InternalCfController {
     /** 手动触发全量重建(冒烟/运维用), 与定时任务共用整轮锁 */
     @PostMapping("/rebuild")
     public void rebuild() {
-        itemSimilarityService.rebuildAll();
+        roundLock.run(VideoScheduleLocks.CF_REBUILD, itemSimilarityService::rebuildAll);
     }
 }

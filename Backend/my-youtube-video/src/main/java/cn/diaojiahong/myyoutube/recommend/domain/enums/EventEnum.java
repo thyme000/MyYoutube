@@ -17,11 +17,6 @@ public enum EventEnum {
     FINISH("finish", 4, "用户完整观看视频"),
 
     /**
-     * 点赞 4分
-     */
-    LIKE("like", 4, "用户点赞视频"),
-
-    /**
      * 跳过 -2分
      */
     SKIP("skip", -2, "用户跳过视频"),

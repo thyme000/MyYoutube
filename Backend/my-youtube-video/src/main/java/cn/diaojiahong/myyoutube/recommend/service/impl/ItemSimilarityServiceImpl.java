@@ -3,6 +3,8 @@ package cn.diaojiahong.myyoutube.recommend.service.impl;
 import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
+import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.recommend.cf.SimilarityCalculator;
 import cn.diaojiahong.myyoutube.recommend.domain.enums.EventEnum;
 import cn.diaojiahong.myyoutube.recommend.domain.enums.SimAlgorithmEnum;
@@ -13,13 +15,16 @@ import cn.diaojiahong.myyoutube.recommend.service.IItemSimilarityService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserVideoBehaviorService;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -28,7 +33,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -37,7 +41,8 @@ import java.util.stream.Collectors;
 public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper, ItemSimilarity>
         implements IItemSimilarityService {
 
-    private static final List<EventEnum> POSITIVE_EVENTS = List.of(EventEnum.PLAY, EventEnum.FINISH, EventEnum.LIKE);
+    private static final List<EventEnum> POSITIVE_EVENTS = List.of(EventEnum.PLAY, EventEnum.FINISH);
+    private static final double LIKE_FEEDBACK_WEIGHT = 4.0;
 
     /** 每个物品保留的邻居数, 控表与控内存 */
     private static final int TOP_K = 100;
@@ -45,12 +50,12 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
     /** 批量写库分片大小 */
     private static final int BATCH_SIZE = 1000;
 
-    private static final String WATERMARK_KEY = RedisConstants.SCHEDULE_CF_WATERMARK;
-
     private final IUserVideoBehaviorService behaviorService;
+    private final ContentLikeMapper likes;
     private final IContentService contentService;
     private final List<SimilarityCalculator> calculators;
     private final StringRedisTemplate redisTemplate;
+    private final TransactionTemplate transactions;
 
     @Override
     public void rebuildAll() {
@@ -59,61 +64,29 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         long contentCount = matrix.values().stream().flatMap(m -> m.keySet().stream()).distinct().count();
         for (SimilarityCalculator calculator : calculators) {
             long start = System.nanoTime();
-            List<ItemSimilarity> rows = computePooledRows(calculator, matrix, typeMap, null);
+            List<ItemSimilarity> rows = computePooledRows(calculator, matrix, typeMap);
             long computeMs = (System.nanoTime() - start) / 1_000_000;
-            removeByAlgorithm(calculator.algorithm());
-            insertBatch(rows);
+            transactions.executeWithoutResult(status -> {
+                baseMapper.deleteByAlgorithm(calculator.algorithm());
+                insertBatch(rows);
+            });
+            evictAlgorithm(calculator.algorithm());
             refreshRedis(calculator.algorithm(), groupByItem(rows));
             log.info("CF 全量重建完成 algo={} 用户数={} 内容数={} 分池后相似度行数={} 计算耗时={}ms",
                     calculator.algorithm(), matrix.size(), contentCount, rows.size(), computeMs);
         }
-        saveWatermark(behaviorService.lambdaQuery()
-                .in(UserVideoBehavior::getEventType, POSITIVE_EVENTS)
-                .orderByDesc(UserVideoBehavior::getId)
-                .last("LIMIT 1")
-                .oneOpt().map(UserVideoBehavior::getId).orElse(0L));
-    }
-
-    @Override
-    public void refreshIncremental() {
-        long watermark = readWatermark();
-        List<UserVideoBehavior> fresh = behaviorService.lambdaQuery()
-                .gt(UserVideoBehavior::getId, watermark)
-                .in(UserVideoBehavior::getEventType, POSITIVE_EVENTS)
-                .list();
-        if (fresh.isEmpty()) {
-            return;
-        }
-
-        // 只重算新行为涉及的内容; 矩阵仍全量加载(练手规模秒级), 增量省的是重算与写库
-        Set<Long> affected = fresh.stream().map(UserVideoBehavior::getContentId).collect(Collectors.toSet());
-        Map<Long, Map<Long, Double>> matrix = loadPositiveMatrix();
-        Map<Long, ContentTypeEnum> typeMap = loadContentTypes();
-        for (SimilarityCalculator calculator : calculators) {
-            long start = System.nanoTime();
-            List<ItemSimilarity> rows = computePooledRows(calculator, matrix, typeMap, affected);
-            long computeMs = (System.nanoTime() - start) / 1_000_000;
-            upsertBatch(rows);
-            refreshRedis(calculator.algorithm(), groupByItem(rows));
-            log.info("CF 增量刷新完成 algo={} 涉及内容数={} 行数={} 计算耗时={}ms",
-                    calculator.algorithm(), affected.size(), rows.size(), computeMs);
-        }
-        saveWatermark(fresh.stream().mapToLong(UserVideoBehavior::getId).max().orElse(watermark));
     }
 
     /**
      * 计算并按内容类型分池: 丢弃跨类型对与类型未知(已删内容)的对, 再按物品截断 Top-K。
      * 分池后每个物品的邻居全部同类型, Top-K 名额不会被其他类型挤占。
-     * affected 非空时只保留涉及的内容(增量路径)。
      */
     private List<ItemSimilarity> computePooledRows(SimilarityCalculator calculator,
                                                    Map<Long, Map<Long, Double>> matrix,
-                                                   Map<Long, ContentTypeEnum> typeMap,
-                                                   Set<Long> affected) {
+                                                   Map<Long, ContentTypeEnum> typeMap) {
         return calculator.compute(matrix).stream()
                 .map(r -> attachType(r, typeMap))
                 .filter(Objects::nonNull)
-                .filter(r -> affected == null || affected.contains(r.getItemA()))
                 .collect(Collectors.collectingAndThen(Collectors.toList(), this::topKPerItem));
     }
 
@@ -148,7 +121,7 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
     }
 
     /**
-     * 正反馈矩阵: 用户 -> (内容 -> 该内容上的行为分合计), 只含 play/finish/like
+     * 正反馈矩阵：播放、完播及当前有效点赞。
      */
     private Map<Long, Map<Long, Double>> loadPositiveMatrix() {
         Map<Long, Map<Long, Double>> matrix = new HashMap<>();
@@ -157,6 +130,9 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
                 .list()
                 .forEach(b -> matrix.computeIfAbsent(b.getUserId(), k -> new HashMap<>())
                         .merge(b.getContentId(), (double) b.getEventType().getScore(), Double::sum));
+        likes.selectList(new LambdaQueryWrapper<ContentLike>().select(ContentLike::getUserId, ContentLike::getContentId))
+                .forEach(like -> matrix.computeIfAbsent(like.getUserId(), k -> new HashMap<>())
+                        .merge(like.getContentId(), LIKE_FEEDBACK_WEIGHT, Double::sum));
         return matrix;
     }
 
@@ -186,7 +162,7 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         redisTemplate.executePipelined(new SessionCallback<>() {
             @Override
             @SuppressWarnings("unchecked")
-            public Object execute(org.springframework.data.redis.core.RedisOperations operations) {
+            public Object execute(RedisOperations operations) {
                 byItem.forEach((contentId, neighbors) -> {
                     String key = RedisConstants.RECOMMEND_SIM + algorithm.getCode() + ":" + contentId;
                     operations.delete(key);
@@ -205,14 +181,7 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         }
     }
 
-    private void upsertBatch(List<ItemSimilarity> rows) {
-        for (int i = 0; i < rows.size(); i += BATCH_SIZE) {
-            baseMapper.batchUpsert(rows.subList(i, Math.min(i + BATCH_SIZE, rows.size())));
-        }
-    }
-
-    private void removeByAlgorithm(SimAlgorithmEnum algorithm) {
-        baseMapper.deleteByAlgorithm(algorithm);
+    private void evictAlgorithm(SimAlgorithmEnum algorithm) {
         ScanOptions options = ScanOptions.scanOptions()
                 .match(RedisConstants.RECOMMEND_SIM + algorithm.getCode() + ":*").build();
         List<String> staleKeys = new ArrayList<>();
@@ -222,22 +191,5 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         if (!staleKeys.isEmpty()) {
             redisTemplate.delete(staleKeys);
         }
-    }
-
-    private long readWatermark() {
-        String v = redisTemplate.opsForValue().get(WATERMARK_KEY);
-        if (v == null || v.isBlank()) {
-            return 0L;
-        }
-
-        try {
-            return Long.parseLong(v.trim());
-        } catch (NumberFormatException e) {
-            return 0L;
-        }
-    }
-
-    private void saveWatermark(long id) {
-        redisTemplate.opsForValue().set(WATERMARK_KEY, String.valueOf(id));
     }
 }

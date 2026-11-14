@@ -42,7 +42,7 @@ public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorM
         UserVideoBehavior userVideoBehavior = new UserVideoBehavior();
         userVideoBehavior.setUserId(userId);
         userVideoBehavior.setContentId(contentId);
-        userVideoBehavior.setCreatedAt(behaviorDTO.getWatchTime());
+        // created_at 留空, 走数据库 DEFAULT CURRENT_TIMESTAMP
         userVideoBehavior.setDurationMs(behaviorDTO.getWatchDuration());
         userVideoBehavior.setEventType(behaviorDTO.getEvent());
 
@@ -54,17 +54,14 @@ public class UserVideoBehaviorServiceImpl extends ServiceImpl<UserVideoBehaviorM
 
         // 更新用户看过的内容id
         if (behaviorDTO.getEvent() == EventEnum.DISLIKE) {
-
             redisTemplate.opsForSet().add(RedisConstants.USER_DISLIKE + userId, contentId.toString());
-        } else if (behaviorDTO.getEvent() == EventEnum.PLAY || behaviorDTO.getEvent() == EventEnum.LIKE) {
-
+        } else if (behaviorDTO.getEvent() == EventEnum.PLAY) {
             redisTemplate.opsForSet().add(RedisConstants.USER_VIEWED + userId, contentId.toString());
             redisTemplate.expire(RedisConstants.USER_VIEWED + userId, RedisConstants.USER_VIEWED_EXPIRE, TimeUnit.DAYS);
         }
 
         // 是否需要更新播放量
         if (behaviorDTO.getEvent() == EventEnum.PLAY) {
-
             // 增加播放量：写入分片 Hash，避免单 key 过大（field 为内容 id 字符串）
             redisTemplate.opsForHash().increment(redisHashKey(contentId), String.valueOf(contentId), 1);
         }

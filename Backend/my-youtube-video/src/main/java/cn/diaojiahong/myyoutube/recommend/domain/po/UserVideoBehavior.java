@@ -45,7 +45,7 @@ public class UserVideoBehavior implements Serializable {
     private Long contentId;
 
     /**
-     * 行为：play播放 finish完播 like点赞 skip跳过 dislike点踩
+     * 行为：play播放 finish完播 skip跳过 dislike点踩
      */
     private EventEnum eventType;
 
@@ -55,7 +55,7 @@ public class UserVideoBehavior implements Serializable {
     private Long durationMs;
 
     /**
-     * 行为发生时间
+     * 行为记录写入时间，由数据库生成
      */
     private LocalDateTime createdAt;
 

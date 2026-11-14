@@ -39,7 +39,7 @@ class BehaviorContractTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"EXPOSE", "expose", "UNKNOWN"})
+    @ValueSource(strings = {"EXPOSE", "expose", "UNKNOWN", "LIKE", "like"})
     void rejectsUnsupportedEventsBeforeCallingService(String event) throws Exception {
         mvc.perform(post("/behavior/content").contentType(MediaType.APPLICATION_JSON)
                         .content(payload(event)))
@@ -49,14 +49,13 @@ class BehaviorContractTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"PLAY", "FINISH", "LIKE", "SKIP", "DISLIKE"})
+    @ValueSource(strings = {"PLAY", "FINISH", "SKIP", "DISLIKE"})
     void acceptsSupportedEvents(String event) throws Exception {
         mvc.perform(post("/behavior/content").contentType(MediaType.APPLICATION_JSON)
                         .content(payload(event)))
                 .andExpect(status().isOk());
         verify(service).report(argThat(dto -> dto.getEvent() == EventEnum.valueOf(event)
-                && dto.getContentId() == 123L && dto.getWatchDuration() == 1000L
-                && dto.getWatchTime() != null));
+                && dto.getContentId() == 123L && dto.getWatchDuration() == 1000L));
     }
 
     @Test
@@ -70,7 +69,7 @@ class BehaviorContractTest {
 
     private String payload(String event) {
         return """
-                {"contentId":"123","event":"%s","watchTime":"2026-10-17 10:00:00","watchDuration":1000}
+                {"contentId":"123","event":"%s","watchDuration":1000}
                 """.formatted(event);
     }
 }

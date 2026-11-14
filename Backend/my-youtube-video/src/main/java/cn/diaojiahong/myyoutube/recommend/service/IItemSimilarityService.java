@@ -17,11 +17,6 @@ public interface IItemSimilarityService extends IService<ItemSimilarity> {
     void rebuildAll();
 
     /**
-     * 增量刷新: 只重算水位之后新行为涉及的内容, upsert 差异行并刷新对应 Redis key
-     */
-    void refreshIncremental();
-
-    /**
      * 兜底查邻居(Redis 未命中时走 MySQL)
      */
     List<ItemSimilarity> neighbors(SimAlgorithmEnum algorithm, Long contentId, int limit);

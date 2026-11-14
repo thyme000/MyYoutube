@@ -13,7 +13,5 @@ public interface ItemSimilarityMapper extends BaseMapper<ItemSimilarity> {
 
     void batchInsert(@Param("list") List<ItemSimilarity> list);
 
-    void batchUpsert(@Param("list") List<ItemSimilarity> list);
-
     void deleteByAlgorithm(@Param("algorithm") SimAlgorithmEnum algorithm);
 }

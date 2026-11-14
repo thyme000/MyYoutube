@@ -95,9 +95,6 @@ public class RedisConstants {
     /** 相似度缓存 TTL(天): 每日全量重算兜底, TTL 略大于重算周期 */
     public static final Long RECOMMEND_SIM_EXPIRE = 8L;
 
-    /** CF 增量任务行为流水水位(已处理到的最大行为 id) */
-    public static final String SCHEDULE_CF_WATERMARK = "schedule:cf:behavior:watermark";
-
     // ==================== 计数落库缓冲 ====================
     /** 累积增量 pending:{type}:{id}; 每轮落库后 DEL, 故不设 TTL —— 设了反而会在任务停摆时丢增量 */
     public static final String COUNTER_PENDING = "pending:";
