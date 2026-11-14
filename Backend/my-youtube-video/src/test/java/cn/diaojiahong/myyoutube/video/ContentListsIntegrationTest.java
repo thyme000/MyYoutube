@@ -154,7 +154,16 @@ class ContentListsIntegrationTest {
         jdbc.execute("CREATE TABLE audio_author_usage(audio_id BIGINT,author_id BIGINT,type VARCHAR(16),visibility VARCHAR(16),reference_count BIGINT,PRIMARY KEY(audio_id,author_id,type,visibility))");
         jdbc.execute("CREATE TABLE audio(id BIGINT PRIMARY KEY,review_status VARCHAR(16))");
         jdbc.execute("CREATE TABLE content_collect(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,create_time TIMESTAMP)");
-        jdbc.execute("CREATE TABLE content_like(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,is_liked INT,create_time TIMESTAMP,update_time TIMESTAMP)");
+        jdbc.execute("""
+                CREATE TABLE content_like(
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT,
+                    content_id BIGINT,
+                    credited_tag_ids JSON NOT NULL,
+                    credited_score INT NOT NULL,
+                    create_time TIMESTAMP
+                )
+                """);
         jdbc.execute("CREATE TABLE content_share(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,create_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE user_view_history(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,view_time TIMESTAMP)");
         jdbc.execute("CREATE TABLE user_notification(id BIGINT AUTO_INCREMENT PRIMARY KEY,receiver_id BIGINT,sender_id BIGINT,type VARCHAR(32),title VARCHAR(128),content VARCHAR(500),ref_type VARCHAR(16),ref_id BIGINT,extra_json TEXT,is_read INT,create_time TIMESTAMP)");
@@ -167,7 +176,8 @@ class ContentListsIntegrationTest {
                     "INSERT INTO content_collect(user_id,content_id,create_time) VALUES(7,?,CURRENT_TIMESTAMP)",
                     id);
             jdbc.update(
-                    "INSERT INTO content_like(user_id,content_id,is_liked,update_time) VALUES(7,?,1,CURRENT_TIMESTAMP)",
+                    "INSERT INTO content_like(user_id,content_id,credited_tag_ids,credited_score,create_time) "
+                            + "VALUES(7,?,'[]',4,CURRENT_TIMESTAMP)",
                     id);
             jdbc.update(
                     "INSERT INTO user_view_history(user_id,content_id,view_time) VALUES(7,?,CURRENT_TIMESTAMP)",

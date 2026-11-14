@@ -13,9 +13,8 @@
         FROM content_like cl
                  INNER JOIN content c ON cl.content_id = c.id
         WHERE cl.user_id = #{userId}
-          AND cl.is_liked = 1
         <include refid="readable"/>
-        ORDER BY cl.update_time DESC, cl.content_id DESC
+        ORDER BY cl.create_time DESC, cl.content_id DESC
             LIMIT #{offset}, #{size}
     </select>
 
@@ -24,7 +23,6 @@
         FROM content_like cl
                  INNER JOIN content c ON cl.content_id = c.id
         WHERE cl.user_id = #{userId}
-          AND cl.is_liked = 1
         <include refid="readable"/>
     </select>
 </mapper>

@@ -131,8 +131,7 @@ class VideoCounterAdminServiceTest {
                 CREATE TABLE content_like(
                     id BIGINT PRIMARY KEY,
                     user_id BIGINT,
-                    content_id BIGINT,
-                    is_liked INT
+                    content_id BIGINT
                 )
                 """);
         jdbc.execute("""
@@ -169,7 +168,7 @@ class VideoCounterAdminServiceTest {
                 )
                 """);
         jdbc.update("INSERT INTO content(id, author_id, like_count, collect_count, share_count) VALUES (10, 7, 1, 0, 0), (11, 7, 5, 2, 9), (12, 7, 0, 0, 0), (13, 8, 0, 0, 0)");
-        jdbc.update("INSERT INTO content_like(id, user_id, content_id, is_liked) VALUES (1, 1, 10, 1), (2, 2, 11, 1), (3, 3, 11, 0), (4, 4, 13, 1)");
+        jdbc.update("INSERT INTO content_like(id, user_id, content_id) VALUES (1, 1, 10), (2, 2, 11), (4, 4, 13)");
         jdbc.update("INSERT INTO content_comment(id, like_count) VALUES (1, 0), (2, 3)");
         jdbc.update("INSERT INTO content_comment_like(id, comment_id, is_liked) VALUES (1, 2, 1)");
         jdbc.update("INSERT INTO content_collect(id, content_id) VALUES (1, 11)");

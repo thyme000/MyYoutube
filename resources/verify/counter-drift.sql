@@ -4,7 +4,7 @@
 --
 -- 用法: docker exec -i myyoutube-mysql mysql -uroot -p*** < resources/verify/counter-drift.sql
 
--- content.like_count  vs  COUNT(content_like WHERE is_liked=1)
+-- content.like_count vs COUNT(content_like)
 SELECT 'content.like_count' AS counter,
        COUNT(*)                          AS rows_total,
        COALESCE(SUM(diff = 0), 0)        AS diff_zero,
@@ -16,7 +16,6 @@ FROM (SELECT c.id, c.like_count - COALESCE(l.cnt, 0) AS diff
       FROM video_db.content c
                LEFT JOIN (SELECT content_id, COUNT(*) AS cnt
                           FROM video_db.content_like
-                          WHERE is_liked = 1
                           GROUP BY content_id) l ON l.content_id = c.id) t
 
 UNION ALL
@@ -104,6 +103,6 @@ FROM (SELECT u.id, u.like_count - COALESCE(a.like_count, 0) AS diff
 -- SELECT * FROM (
 --     SELECT 'content.like_count' AS counter, c.id AS ref_id, c.like_count AS db_value, COALESCE(l.cnt, 0) AS truth
 --     FROM video_db.content c
---              LEFT JOIN (SELECT content_id, COUNT(*) cnt FROM video_db.content_like WHERE is_liked = 1 GROUP BY content_id) l
+--              LEFT JOIN (SELECT content_id, COUNT(*) cnt FROM video_db.content_like GROUP BY content_id) l
 --                        ON l.content_id = c.id
 -- ) t WHERE db_value <> truth;

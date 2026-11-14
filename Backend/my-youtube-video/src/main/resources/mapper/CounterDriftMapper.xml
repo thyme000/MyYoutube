@@ -3,12 +3,10 @@
 <mapper namespace="cn.diaojiahong.myyoutube.video.mapper.CounterDriftMapper">
 
     <!-- 按父行主键续查。相关子查询只数当前这一行，LIMIT 凑满即停，避免每页重算整表聚合。 -->
-    <!-- is_liked = 1 与 ContentLikeConstants.LIKE 同一口径 -->
     <sql id="contentLikeCount">
         SELECT COUNT(*)
         FROM content_like
         WHERE content_id = c.id
-          AND is_liked = 1
     </sql>
 
     <select id="contentLikes" resultType="cn.diaojiahong.myyoutube.common.counter.CounterDrift">

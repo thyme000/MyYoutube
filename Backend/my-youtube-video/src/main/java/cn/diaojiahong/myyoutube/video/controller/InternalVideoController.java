@@ -3,8 +3,10 @@ package cn.diaojiahong.myyoutube.video.controller;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
+import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
 import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
 import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
+import cn.diaojiahong.myyoutube.recommend.domain.po.UserTagPreference;
 import cn.diaojiahong.myyoutube.video.api.NotificationPort;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
@@ -13,6 +15,7 @@ import cn.diaojiahong.myyoutube.video.api.PreferencePort;
 import cn.diaojiahong.myyoutube.video.domain.po.ContentUnderstanding;
 import cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,6 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * video 服务内部接口: 供 chat 等服务经 Feign 调用, 不经网关暴露
@@ -80,28 +85,26 @@ public class InternalVideoController {
     }
 
     @PostMapping("/content/liked-map")
-    public Map<Long, Boolean> likedMap(@RequestParam Long userId, @RequestBody java.util.Set<Long> contentIds) {
+    public Map<Long, Boolean> likedMap(@RequestParam Long userId, @RequestBody Set<Long> contentIds) {
         if (contentIds.isEmpty()) return Map.of();
-        return likes.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<cn.diaojiahong.myyoutube.like.domain.po.ContentLike>()
-                .eq(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getUserId, userId)
-                .eq(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getIsLiked, 1)
-                .in(cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getContentId, contentIds)).stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        cn.diaojiahong.myyoutube.like.domain.po.ContentLike::getContentId,
-                        row -> true));
+        return likes.selectList(new LambdaQueryWrapper<ContentLike>()
+                .eq(ContentLike::getUserId, userId)
+                .in(ContentLike::getContentId, contentIds)).stream()
+                .collect(Collectors.toMap(ContentLike::getContentId, row -> true));
     }
 
     @GetMapping("/preference/top")
     public List<PreferencePort.TagPreferenceSummary> topPreferences(@RequestParam("userId") Long userId,
                                                                     @RequestParam(value = "limit", defaultValue = "20") int limit) {
         return userTagPreferenceService.lambdaQuery()
-                .eq(cn.diaojiahong.myyoutube.recommend.domain.po.UserTagPreference::getUserId, userId)
-                .orderByDesc(cn.diaojiahong.myyoutube.recommend.domain.po.UserTagPreference::getScore)
+                .eq(UserTagPreference::getUserId, userId)
+                .gt(UserTagPreference::getScore, 0)
+                .orderByDesc(UserTagPreference::getScore)
                 .last("LIMIT " + Math.max(1, Math.min(limit, 100)))
                 .list().stream()
                 .map(t -> new PreferencePort.TagPreferenceSummary(
                         t.getTagId(),
-                        t.getScore() != null ? t.getScore() : 0.0))
+                        t.getScore().doubleValue()))
                 .toList();
     }
 

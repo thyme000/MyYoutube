@@ -146,19 +146,18 @@ CREATE TABLE IF NOT EXISTS `video` (
     `playback_json` JSON NOT NULL COMMENT '源视频尺寸及 HLS 档位资源、编码、峰值/平均码率、帧率，无签名URL'
 ) ENGINE=InnoDB COMMENT='视频媒体';
 
--- 内容点赞表
+-- 内容点赞表，取消点赞即删除关系
 CREATE TABLE IF NOT EXISTS `content_like` (
     `id`         BIGINT   NOT NULL AUTO_INCREMENT,
     `user_id`    BIGINT   NOT NULL,
     `content_id` BIGINT   NOT NULL,
-    `is_liked`   TINYINT  NOT NULL DEFAULT 1 COMMENT '1已点赞 0已取消',
+    `credited_tag_ids` JSON NOT NULL COMMENT '本次点赞实际加分的标签 ID',
+    `credited_score` INT NOT NULL COMMENT '本次点赞给每个记录标签加的分值',
     `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_user_content` (`user_id`, `content_id`),
     KEY `idx_content_id` (`content_id`),
-    -- 对账 COUNT(*) 需覆盖 is_liked, 否则每行回表
-    KEY `idx_content_liked` (`content_id`, `is_liked`)
+    KEY `idx_user_create_time` (`user_id`, `create_time`)
 ) ENGINE=InnoDB COMMENT='内容点赞';
 
 -- 作者获赞冗余。权威仍是 content_like，经作品赞数的落库和对账把差额记到这一行

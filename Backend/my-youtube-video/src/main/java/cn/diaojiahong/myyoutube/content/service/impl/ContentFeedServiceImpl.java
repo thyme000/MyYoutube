@@ -186,7 +186,6 @@ public class ContentFeedServiceImpl implements IContentFeedService {
 
         Set<Long> liked = viewer == null ? Set.<Long>of() : likes.selectList(new LambdaQueryWrapper<ContentLike>()
                 .eq(ContentLike::getUserId, viewer)
-                .eq(ContentLike::getIsLiked, 1)
                 .in(ContentLike::getContentId, rows.stream().map(Content::getId).toList()))
                 .stream().map(ContentLike::getContentId).collect(Collectors.toSet());
 

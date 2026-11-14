@@ -4,14 +4,13 @@ import cn.diaojiahong.myyoutube.common.counter.AbstractCounterTarget;
 import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
-import cn.diaojiahong.myyoutube.like.domain.constants.ContentLikeConstants;
 import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Component;
 
 /**
- * content.like_count 的落库目标。权威值是 content_like 的状态机，不是计数器自己的值。
+ * content.like_count 的落库目标，权威值来自 content_like 的有效点赞关系。
  * 同一事务里把差额记入 author_like_count。
  */
 @Component
@@ -45,7 +44,6 @@ public class ContentLikeCounterTarget extends AbstractCounterTarget<Content> {
     @Override
     public Long authoritativeValue(long contentId) {
         return contentLikeMapper.selectCount(new LambdaQueryWrapper<ContentLike>()
-                .eq(ContentLike::getContentId, contentId)
-                .eq(ContentLike::getIsLiked, ContentLikeConstants.LIKE));
+                .eq(ContentLike::getContentId, contentId));
     }
 }

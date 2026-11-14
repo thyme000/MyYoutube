@@ -7,6 +7,8 @@ import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 /**
  * <p>
  * 用户标签偏好表（内容推荐用） 服务实现类
@@ -22,5 +24,12 @@ public class UserTagPreferenceServiceImpl extends ServiceImpl<UserTagPreferenceM
     @Override
     public void addBehaviorScore(Long userId, Long contentId, EventEnum event) {
         baseMapper.addBehaviorScore(userId, contentId, event.getScore());
+    }
+
+    @Override
+    public void addTagScore(Long userId, List<Long> tagIds, int delta) {
+        if (!tagIds.isEmpty()) {
+            baseMapper.addTagScore(userId, tagIds, delta);
+        }
     }
 }

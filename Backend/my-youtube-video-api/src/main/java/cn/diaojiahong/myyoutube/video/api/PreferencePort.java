@@ -16,7 +16,7 @@ import java.util.List;
         path = "/internal/preference", url = "${my-youtube.video-service.url:}")
 public interface PreferencePort {
 
-    /** 用户偏好标签, 按分数降序取 top N */
+    /** 用户正分偏好标签，按分数降序取 top N。 */
     @GetMapping("/top")
     List<TagPreferenceSummary> topPreferences(@RequestParam("userId") Long userId,
                                               @RequestParam(value = "limit", defaultValue = "20") int limit);

@@ -11,7 +11,9 @@ import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
 import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
+import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
@@ -25,6 +27,9 @@ import cn.diaojiahong.myyoutube.like.mapper.ContentCommentLikeMapper;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.like.service.IContentLikeService;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
+import cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag;
+import cn.diaojiahong.myyoutube.recommend.mapper.ContentTagMapper;
+import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
@@ -34,9 +39,12 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.Map;
@@ -56,7 +64,7 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, ContentLike> implements IContentLikeService {
 
-    private final cn.diaojiahong.myyoutube.content.service.ContentAccessService access;
+    private final ContentAccessService access;
     private final ContentSummaryPort contentSummaryPort;
     private final StringRedisTemplate redisTemplate;
     private final UserPort userPort;
@@ -67,9 +75,12 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     private final RocketMQTemplate rocketMQTemplate;
     private final FollowSnapshotCache followSnapshot;
     private final CounterBuffer counterBuffer;
+    private final ContentTagMapper contentTagMapper;
+    private final IUserTagPreferenceService tagPreferences;
 
     // 24小时后过期
     private static final int STORAGE_EXPIRE = 24 * 60 * 60;
+    private static final int TAG_PREFERENCE_SCORE = 4;
 
     @Override
     @Transactional
@@ -78,33 +89,24 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         Long userId = getUserId();
         access.readable(contentId, userId);
 
-        ContentLike like = lambdaQuery()
-                .eq(ContentLike::getUserId, userId)
-                .eq(ContentLike::getContentId, contentId).one();
-        if (like != null && like.getIsLiked() == ContentLikeConstants.LIKE) {
-            return;
-        }
-
-        boolean changed;
-        if (like != null) {
-            changed = lambdaUpdate()
-                    .eq(ContentLike::getId, like.getId())
-                    .eq(ContentLike::getIsLiked, ContentLikeConstants.CANCEL_LIKE)
-                    .set(ContentLike::getIsLiked, ContentLikeConstants.LIKE)
-                    .update();
-        } else {
-            changed = save(new ContentLike()
+        List<Long> tagIds = contentTagMapper.selectList(new LambdaQueryWrapper<ContentTag>()
+                        .select(ContentTag::getTagId)
+                        .eq(ContentTag::getContentId, contentId)
+                        .orderByAsc(ContentTag::getTagId))
+                        .stream().map(ContentTag::getTagId).toList();
+        try {
+            contentLikeMapper.insert(new ContentLike()
                     .setUserId(userId)
                     .setContentId(contentId)
-                    .setIsLiked(ContentLikeConstants.LIKE));
-        }
-
-        if (!changed) {
+                    .setCreditedTagIds(JsonUtil.toJson(tagIds))
+                    .setCreditedScore(TAG_PREFERENCE_SCORE));
+        } catch (DuplicateKeyException alreadyLiked) {
+            // 已点过赞, 直接返回; InnoDB 只回滚失败的这条 INSERT, 事务里其余写入不受影响
             return;
         }
 
-        // 点赞数只累加到 Redis, 由落库任务合并成一次 UPDATE。
-        counterBuffer.add(CounterType.CONTENT_LIKE, contentId, 1);
+        tagPreferences.addTagScore(userId, tagIds, TAG_PREFERENCE_SCORE);
+        bufferLikeCountAfterCommit(contentId, 1);
     }
 
     private Long getUserId() {
@@ -120,25 +122,40 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     @ObservedBusiness(BusinessOperation.UNLIKE_CONTENT)
     public void cancelLikeContent(Long contentId) {
         Long userId = getUserId();
+        // 与点赞同一条访问规则: 前端不为不可见作品提供撤赞入口, 后端两条路径统一把关
+        access.readable(contentId, userId);
 
         ContentLike like = lambdaQuery()
                 .eq(ContentLike::getUserId, userId)
                 .eq(ContentLike::getContentId, contentId)
+                .last("FOR UPDATE")
                 .one();
-        if (like == null || like.getIsLiked() == ContentLikeConstants.CANCEL_LIKE) {
+        if (like == null || contentLikeMapper.deleteById(like.getId()) == 0) {
             return;
         }
 
-        boolean changed = lambdaUpdate()
-                .eq(ContentLike::getId, like.getId())
-                .eq(ContentLike::getIsLiked, ContentLikeConstants.LIKE)
-                .set(ContentLike::getIsLiked, ContentLikeConstants.CANCEL_LIKE)
-                .update();
-        if (!changed) {
-            return;
+        Long[] storedTagIds = JsonUtil.fromJson(like.getCreditedTagIds(), Long[].class);
+        // JSON 字面量 null 视为空标签: 原标签不可知, 跳过标签扣分; 关系照常删除、计数照常扣减
+        List<Long> tagIds = storedTagIds == null ? List.of() : List.of(storedTagIds);
+        if (storedTagIds == null) {
+            log.warn("撤赞记录 credited_tag_ids 为 JSON null, 跳过标签扣分 userId={} contentId={}", userId, contentId);
+        } else {
+            tagPreferences.addTagScore(userId, tagIds, -like.getCreditedScore());
         }
+        bufferLikeCountAfterCommit(contentId, -1);
+    }
 
-        counterBuffer.add(CounterType.CONTENT_LIKE, contentId, -1);
+    private void bufferLikeCountAfterCommit(Long contentId, int delta) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    counterBuffer.add(CounterType.CONTENT_LIKE, contentId, delta);
+                } catch (RuntimeException failure) {
+                    log.warn("点赞计数增量写入失败 contentId={}, delta={}", contentId, delta, failure);
+                }
+            }
+        });
     }
 
     @Override
@@ -207,11 +224,10 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     @Override
     public Boolean getLikeStatus(Long contentId) {
         // 查询用户是否点过赞
-        ContentLike like = lambdaQuery()
+        return lambdaQuery()
                 .eq(ContentLike::getUserId, UserContext.getUserId())
                 .eq(ContentLike::getContentId, contentId)
-                .one();
-        return like != null && like.getIsLiked() == ContentLikeConstants.LIKE;
+                .exists();
     }
 
     @Override

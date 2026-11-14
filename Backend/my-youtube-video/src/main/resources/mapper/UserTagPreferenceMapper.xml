@@ -1,11 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.diaojiahong.myyoutube.recommend.mapper.UserTagPreferenceMapper">
+    <!--
+        同一用户的偏好行统一按 tag_id 升序加锁: 行为上报、点赞、取消点赞都会更新同一用户的标签偏好,
+        固定顺序才能避免并发事务以相反顺序锁住相同的行互相死锁。
+        addBehaviorScore 在 SQL 内 ORDER BY; addTagScore 的 tagIds 点赞时按 content_tag.tag_id 升序查出
+        并存入 content_like.credited_tag_ids, 取消点赞时原样回放。
+    -->
     <insert id="addBehaviorScore">
         INSERT INTO user_tag_preference (user_id, tag_id, score)
         SELECT #{userId}, tag_id, #{delta}
         FROM content_tag
         WHERE content_id = #{contentId}
+        ORDER BY tag_id
+        ON DUPLICATE KEY UPDATE score = user_tag_preference.score + #{delta}
+    </insert>
+
+    <insert id="addTagScore">
+        INSERT INTO user_tag_preference (user_id, tag_id, score) VALUES
+        <foreach collection="tagIds" item="tagId" separator=",">
+            (#{userId}, #{tagId}, #{delta})
+        </foreach>
         ON DUPLICATE KEY UPDATE score = user_tag_preference.score + #{delta}
     </insert>
 </mapper>

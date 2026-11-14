@@ -44,19 +44,19 @@ public class ContentLike implements Serializable {
     private Long contentId;
 
     /**
-     * 是否点赞: 1=已点赞, 0=已取消
+     * 本次点赞实际加分的标签 ID, 数组里的 Long 以字符串存储
+     * (JsonUtil 全局按字符串序列化 Long, 防 JS 精度丢损)
      */
-    private Integer isLiked;
+    private String creditedTagIds;
 
     /**
-     * 首次点赞时间
+     * 本次点赞给每个记录标签加的分值，用于取消时扣回。
+     */
+    private Integer creditedScore;
+
+    /**
+     * 点赞时间
      */
     private LocalDateTime createTime;
-
-    /**
-     * 最后更新时间
-     */
-    private LocalDateTime updateTime;
-
 
 }
