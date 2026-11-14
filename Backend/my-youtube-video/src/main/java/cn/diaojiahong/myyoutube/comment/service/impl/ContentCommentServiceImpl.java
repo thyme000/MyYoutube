@@ -202,7 +202,6 @@ ContentComment> implements IContentCommentService {
         Long contentId = query.getContentId();
         Content content = access.readable(contentId, getUserId());
         if (content == null) {
-
             throw new BizException(ErrorCode.NOT_FOUND, "内容不存在");
         }
 
@@ -236,7 +235,6 @@ ContentComment> implements IContentCommentService {
         Long rootId = query.getRootId();
         ContentComment root = getById(rootId);
         if (root == null) {
-
             throw new BizException(ErrorCode.NOT_FOUND, "评论不存在");
         }
 
