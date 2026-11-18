@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.recommend.service.impl;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
@@ -41,6 +40,7 @@ import java.util.stream.Collectors;
 public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper, ItemSimilarity>
         implements IItemSimilarityService {
 
+    public static final long SIMILARITY_EXPIRE_DAYS = 8L;
     private static final List<EventEnum> POSITIVE_EVENTS = List.of(EventEnum.PLAY, EventEnum.FINISH);
     private static final double LIKE_FEEDBACK_WEIGHT = 4.0;
 
@@ -154,6 +154,14 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
         return rows.stream().collect(Collectors.groupingBy(ItemSimilarity::getItemA));
     }
 
+    public static String similarityKey(String algorithmCode, Long contentId) {
+        return "recommend:sim:" + algorithmCode + ":" + contentId;
+    }
+
+    public static String similarityMatch(String algorithmCode) {
+        return "recommend:sim:" + algorithmCode + ":*";
+    }
+
     private void refreshRedis(SimAlgorithmEnum algorithm, Map<Long, List<ItemSimilarity>> byItem) {
         if (byItem.isEmpty()) {
             return;
@@ -164,11 +172,11 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
             @SuppressWarnings("unchecked")
             public Object execute(RedisOperations operations) {
                 byItem.forEach((contentId, neighbors) -> {
-                    String key = RedisConstants.RECOMMEND_SIM + algorithm.getCode() + ":" + contentId;
+                    String key = similarityKey(algorithm.getCode(), contentId);
                     operations.delete(key);
                     neighbors.forEach(n -> operations.opsForZSet()
                             .add(key, String.valueOf(n.getItemB()), n.getScore()));
-                    operations.expire(key, Duration.ofDays(RedisConstants.RECOMMEND_SIM_EXPIRE));
+                    operations.expire(key, Duration.ofDays(SIMILARITY_EXPIRE_DAYS));
                 });
                 return null;
             }
@@ -183,7 +191,7 @@ public class ItemSimilarityServiceImpl extends ServiceImpl<ItemSimilarityMapper,
 
     private void evictAlgorithm(SimAlgorithmEnum algorithm) {
         ScanOptions options = ScanOptions.scanOptions()
-                .match(RedisConstants.RECOMMEND_SIM + algorithm.getCode() + ":*").build();
+                .match(similarityMatch(algorithm.getCode())).build();
         List<String> staleKeys = new ArrayList<>();
         try (Cursor<String> cursor = redisTemplate.scan(options)) {
             cursor.forEachRemaining(staleKeys::add);

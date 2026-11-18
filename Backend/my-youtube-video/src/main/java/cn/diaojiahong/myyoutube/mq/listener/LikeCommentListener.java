@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
@@ -14,14 +13,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.stereotype.Component;
+import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_COMMENT_ACTION,
+        topic = CommentMessage.TOPIC,
         consumerGroup = "comment_like_group",
-        selectorExpression = MqConstants.TAG_LIKE,
+        selectorExpression = LikeCommentMessage.LIKE_TAG,
         maxReconsumeTimes = 3)
 public class LikeCommentListener implements RocketMQListener<LikeCommentMessage> {
 

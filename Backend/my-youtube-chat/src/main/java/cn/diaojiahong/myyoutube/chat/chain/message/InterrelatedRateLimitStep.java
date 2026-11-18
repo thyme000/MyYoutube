@@ -3,7 +3,7 @@ package cn.diaojiahong.myyoutube.chat.chain.message;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
+import cn.diaojiahong.myyoutube.chat.service.impl.ChatMessageService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -40,7 +40,7 @@ public class InterrelatedRateLimitStep extends MessageSendStep {
             ctx.setInterrelated(interrelated);
             if (!interrelated) {
                 Double times = redisTemplate.opsForZSet()
-                        .score(RedisConstants.USER_CONVERSATION + ctx.getUserId(), ctx.getConversationId());
+                        .score(ChatMessageService.nonMutualMessageKey(ctx.getUserId()), ctx.getConversationId());
                 if (times != null && times > 10) {
                     throw new BizException(ErrorCode.RATE_LIMITED, "你们暂时还不是互关关系哦,每天只能给对方发送10条消息");
                 }

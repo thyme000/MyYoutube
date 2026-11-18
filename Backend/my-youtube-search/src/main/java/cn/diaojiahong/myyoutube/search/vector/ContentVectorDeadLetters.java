@@ -3,7 +3,6 @@ package cn.diaojiahong.myyoutube.search.vector;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.CursorCodec;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.Reference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,7 +26,7 @@ import java.util.UUID;
 
 @Component
 public class ContentVectorDeadLetters {
-    private static final String TOPIC = "%DLQ%" + MqConstants.GROUP_CONTENT_VECTOR;
+    private static final String TOPIC = "%DLQ%" + ContentVectorMessage.GROUP;
 
     private static final CursorCodec<Reference> CURSOR = new CursorCodec<>(Reference.class, 2048, "无效游标");
     private final DefaultMQPullConsumer consumer;

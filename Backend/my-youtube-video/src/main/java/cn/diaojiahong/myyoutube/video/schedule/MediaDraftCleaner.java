@@ -4,7 +4,6 @@ import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaUploadEventMessage;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.video.api.enums.MediaDraftStatusEnum;
@@ -68,7 +67,7 @@ public class MediaDraftCleaner {
     private void repairUpload(MediaDraft draft) {
         if (storageUtil.objectExists(draft.getObjectKey())) {
             log.warn("上传事件缺失, 已补发上传事件 draftId={}", draft.getId());
-            rocketMQTemplate.syncSend(MqConstants.TOPIC_MEDIA_UPLOAD_EVENT, MediaUploadEventMessage.builder()
+            rocketMQTemplate.syncSend(MediaUploadEventMessage.TOPIC, MediaUploadEventMessage.builder()
                     .draftId(draft.getId()).userId(draft.getUserId()).objectKey(draft.getObjectKey()).build());
             metrics.counter(MetricNames.UPLOAD_EVENT_REPAIRS).increment();
         }

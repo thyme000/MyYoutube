@@ -15,12 +15,11 @@ import cn.diaojiahong.myyoutube.comment.domain.dto.CommentReplyQuery;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentTab;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
+import cn.diaojiahong.myyoutube.like.service.impl.ContentLikeServiceImpl;
 import cn.diaojiahong.myyoutube.comment.domain.vo.CommentPageVO;
 import cn.diaojiahong.myyoutube.comment.domain.vo.CommentVO;
 import cn.diaojiahong.myyoutube.comment.mapper.ContentCommentMapper;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
@@ -149,7 +148,7 @@ ContentComment> implements IContentCommentService {
             }
         }
         if (message != null) {
-            rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_PUBLISH, message);
+            rocketMQTemplate.syncSend(CommentMessage.TOPIC + ":" + CommentMessage.TAG, message);
         }
     }
 
@@ -420,7 +419,7 @@ ContentComment> implements IContentCommentService {
 
         // isLike 是用户维度数据, 不进缓存, 每请求实时补
         Long userId = getUserId();
-        String key = RedisConstants.USER_LIKE_COMMENT + userId;
+        String key = ContentLikeServiceImpl.likedCommentKey(userId);
         StringRedisSerializer strSer = new StringRedisSerializer();
         byte[] rawKey = strSer.serialize(key);
         List<Object> scoreResults = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {

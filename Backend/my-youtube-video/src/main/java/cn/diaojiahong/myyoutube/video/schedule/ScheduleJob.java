@@ -1,32 +1,23 @@
 package cn.diaojiahong.myyoutube.video.schedule;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.counter.CounterFlushService;
-import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 import cn.diaojiahong.myyoutube.common.schedule.ScheduleRoundLock;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.like.counter.AuthorLikeCountService;
 import cn.diaojiahong.myyoutube.search.api.ContentDocPort;
-import cn.diaojiahong.myyoutube.video.domain.po.Video;
-import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
- * video 域定时任务: 计数落库与对账 / 播放量落库 / 观看历史清理 / MySQL→ES 计数同步
+ * video 域定时任务: 计数落库与对账 / 观看历史清理 / MySQL→ES 计数同步
  */
 @Slf4j
 @Component
@@ -34,19 +25,16 @@ import java.util.stream.Collectors;
 public class ScheduleJob {
 
     private static final int ES_COUNT_SYNC_PAGE_SIZE = 500;
-
-    /**
-     * 播放量原子认领
-     */
-    private static final RedisScript<String> CLAIM_PLAY_COUNT_SCRIPT =
-            RedisScript.of(new ClassPathResource("lua/claim-play-count.lua"), String.class);
+    private static final long PLAYBACK_RESUME_EXPIRE_DAYS = 30L;
+    private static final String PLAYBACK_RESUME_TIMESTAMP_PREFIX = "user:playback:resume:timestamp:";
+    private static final String PLAYBACK_RESUME_PREFIX = "user:playback:resume:";
+    private static final String ES_COUNT_SYNC_CURSOR = "schedule:es:video:count:sync:cursor";
 
     private final StringRedisTemplate redisTemplate;
     private final IContentService contentService;
     private final ContentDocPort contentDocPort;
     private final CounterFlushService counterFlushService;
     private final ScheduleRoundLock roundLock;
-    private final MeterRegistry metrics;
     private final AuthorLikeCountService authorLikeCounts;
 
     /**
@@ -82,82 +70,19 @@ public class ScheduleJob {
     }
 
     /**
-     * 按配置间隔将分片播放增量落库，每轮完成后再等待，避免慢轮次连续追赶。
-     */
-    @Scheduled(fixedDelayString = "${my-youtube.play-count.flush-interval-ms:60000}",
-            initialDelayString = "${my-youtube.play-count.flush-interval-ms:60000}")
-    public void updateVideoPlayCount() {
-        roundLock.run(VideoScheduleLocks.PLAY_COUNT_FLUSH, this::flushPlayCounts);
-    }
-
-    private void flushPlayCounts() {
-        long started = System.nanoTime();
-        try {
-            for (int s = 0; s < RedisConstants.VIDEO_PLAY_COUNT_SHARD_COUNT; s++) {
-                flushPendingHash(RedisConstants.videoPlayCountShardKey(s));
-            }
-        } catch (RuntimeException failure) {
-            // 中断整轮的异常只计一次；单条 update 返回 false 的失败在条目处计数。
-            recordPlayCountMetric(MetricNames.CONTENT_PLAY_COUNT_FLUSH_FAILED);
-            throw failure;
-        } finally {
-            try {
-                metrics.timer(MetricNames.CONTENT_PLAY_COUNT_FLUSH_DURATION)
-                        .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
-            } catch (RuntimeException metricsUnavailable) {
-                /* 指标故障不能改变本轮结果。 */
-            }
-        }
-    }
-
-    private void flushPendingHash(String redisHashKey) {
-        Map<Object, Object> entries = redisTemplate.opsForHash().entries(redisHashKey);
-        if (entries.isEmpty()) {
-            return;
-        }
-
-        for (Object contentId : entries.keySet()) {
-            String claimed = redisTemplate.execute(CLAIM_PLAY_COUNT_SCRIPT,
-                    List.of(redisHashKey), contentId.toString());
-            if (claimed == null) {
-                continue;
-            }
-            // 已认领并开始处理的内容条数，包含后续写入失败；空增量不计数。
-            recordPlayCountMetric(MetricNames.CONTENT_PLAY_COUNT_FLUSH_PROCESSED);
-            long playCount = Long.parseLong(claimed);
-            boolean success = contentService.lambdaUpdate()
-                    .setIncrBy(Content::getPlayCount, playCount)
-                    .eq(Content::getId, Long.valueOf(contentId.toString()))
-                    .update();
-            if (!success) {
-                recordPlayCountMetric(MetricNames.CONTENT_PLAY_COUNT_FLUSH_FAILED);
-                log.warn("更新内容播放量失败, redisKey={}, 内容id:{}", redisHashKey, contentId);
-            }
-        }
-    }
-
-    private void recordPlayCountMetric(String name) {
-        try {
-            metrics.counter(name).increment();
-        } catch (RuntimeException metricsUnavailable) {
-            /* 指标故障不能影响认领和落库。 */
-        }
-    }
-
-    /**
      * 每周日执行一次, 清理用户已过期的长视频观看记录
      */
     @Scheduled(cron = "0 0 3 * * 0")
     public void cleanUserExpiredVideoRecord() {
-        long end = System.currentTimeMillis() - 30L * 24 * 3600 * 1000;
+        long end = System.currentTimeMillis() - PLAYBACK_RESUME_EXPIRE_DAYS * 24 * 3600 * 1000;
         ScanOptions options = ScanOptions.scanOptions()
-                .match(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP + "*")
+                .match(PLAYBACK_RESUME_TIMESTAMP_PREFIX + "*")
                 .build();
         try (Cursor<String> cursor = redisTemplate.scan(options)) {
             while (cursor.hasNext()) {
                 String zsetKey = cursor.next();
-                String userId = zsetKey.split(RedisConstants.USER_PLAYBACK_RESUME_TIMESTAMP)[1];
-                String hashKey = RedisConstants.USER_PLAYBACK_RESUME + userId;
+                String userId = zsetKey.split(PLAYBACK_RESUME_TIMESTAMP_PREFIX)[1];
+                String hashKey = PLAYBACK_RESUME_PREFIX + userId;
                 Set<String> videoIds = redisTemplate.opsForZSet().rangeByScore(zsetKey, 0, end);
                 redisTemplate.opsForZSet().removeRangeByScore(zsetKey, 0, end);
                 if (videoIds == null || videoIds.isEmpty()) {
@@ -187,7 +112,7 @@ public class ScheduleJob {
                 .limit(ES_COUNT_SYNC_PAGE_SIZE)
                 .toList();
         if (list.isEmpty()) {
-            redisTemplate.opsForValue().set(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR, "0");
+            redisTemplate.opsForValue().set(ES_COUNT_SYNC_CURSOR, "0");
             return;
         }
         // 整页一次批量请求, 不再逐条打 search 服务
@@ -203,14 +128,14 @@ public class ScheduleJob {
         }
         long maxId = list.get(list.size() - 1).getId();
         if (list.size() < ES_COUNT_SYNC_PAGE_SIZE) {
-            redisTemplate.opsForValue().set(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR, "0");
+            redisTemplate.opsForValue().set(ES_COUNT_SYNC_CURSOR, "0");
         } else {
-            redisTemplate.opsForValue().set(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR, String.valueOf(maxId));
+            redisTemplate.opsForValue().set(ES_COUNT_SYNC_CURSOR, String.valueOf(maxId));
         }
     }
 
     private long readEsSyncCursor() {
-        String v = redisTemplate.opsForValue().get(RedisConstants.SCHEDULE_ES_VIDEO_COUNT_SYNC_CURSOR);
+        String v = redisTemplate.opsForValue().get(ES_COUNT_SYNC_CURSOR);
         if (v == null || v.isBlank()) {
             return 0L;
         }

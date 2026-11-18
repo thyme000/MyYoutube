@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.video.service;
 
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationBranch;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
@@ -49,7 +48,7 @@ public class PublicationEffectsService {
             if (branch == PublicationBranch.AUDIO_COUNT && Boolean.TRUE.equals(event.getAudioCountDone())) continue;
             try {
                 mq.syncSend(
-                        MqConstants.TOPIC_PUBLICATION_EFFECT + ":" + branch,
+                        PublicationEffectMessage.TOPIC + ":" + branch,
                         new PublicationEffectMessage(eventId, branch));
             } catch (Exception e) {
                 log.error("Publication branch deferred eventId={} branch={}", eventId, branch, e);
@@ -80,7 +79,7 @@ public class PublicationEffectsService {
 
     private void send(Long id, PublicationBranch branch) {
         try {
-            mq.syncSend(MqConstants.TOPIC_PUBLICATION_EFFECT + ":" + branch, new PublicationEffectMessage(id, branch));
+            mq.syncSend(PublicationEffectMessage.TOPIC + ":" + branch, new PublicationEffectMessage(id, branch));
         } catch (Exception e) {
             log.error("Publication recovery send failed eventId={} branch={}", id, branch, e);
         }

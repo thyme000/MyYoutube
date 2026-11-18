@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.follow.cache;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,6 +12,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import cn.diaojiahong.myyoutube.user.api.FollowSnapshotKey;
 
 class FollowSnapshotCacheTest {
     private final FollowPort followPort = mock(FollowPort.class);
@@ -28,7 +28,7 @@ class FollowSnapshotCacheTest {
     }
 
     private String key(long userId) {
-        return RedisConstants.FOLLOW_SNAPSHOT + userId;
+        return FollowSnapshotKey.key(userId);
     }
 
     @Test

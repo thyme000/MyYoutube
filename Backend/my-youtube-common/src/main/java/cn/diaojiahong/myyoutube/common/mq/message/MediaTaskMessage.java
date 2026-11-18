@@ -12,6 +12,8 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MediaTaskMessage {
+    public static final String TOPIC = "media_task_topic";
+
     private Long retryBatchId;
     private Long taskId;
     private Long ownerId;

@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationBranch;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage;
 import cn.diaojiahong.myyoutube.video.service.PublicationEffectsService;
@@ -11,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
-@RocketMQMessageListener(topic = MqConstants.TOPIC_PUBLICATION_EFFECT, selectorExpression = "AUDIO_COUNT",
+@RocketMQMessageListener(topic = PublicationEffectMessage.TOPIC, selectorExpression = "AUDIO_COUNT",
         consumerGroup = "video_publication_audio_count", maxReconsumeTimes = 3)
 public class AudioCountPublicationListener implements RocketMQListener<PublicationEffectMessage> {
     private final PublicationEffectsService effects;

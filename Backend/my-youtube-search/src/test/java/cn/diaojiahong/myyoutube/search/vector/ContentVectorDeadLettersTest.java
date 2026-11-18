@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.page.CursorCodec;
 import cn.diaojiahong.myyoutube.search.api.ContentVectorDeadLetterPort.Reference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,6 +19,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
 
 class ContentVectorDeadLettersTest {
     private final DefaultMQPullConsumer consumer = mock(DefaultMQPullConsumer.class);
@@ -28,7 +28,7 @@ class ContentVectorDeadLettersTest {
 
     private final ContentVectorDeadLetters reader = new ContentVectorDeadLetters(consumer, mapper);
 
-    private final MessageQueue first = new MessageQueue("%DLQ%" + MqConstants.GROUP_CONTENT_VECTOR, "a", 0);
+    private final MessageQueue first = new MessageQueue("%DLQ%" + ContentVectorMessage.GROUP, "a", 0);
 
     private final MessageQueue second = new MessageQueue(first.getTopic(), "b", 0);
 

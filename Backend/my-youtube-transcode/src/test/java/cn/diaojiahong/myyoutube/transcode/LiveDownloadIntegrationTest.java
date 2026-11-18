@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode;
 
 import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.transcode.api.dto.*;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
 import cn.diaojiahong.myyoutube.transcode.mq.message.TranscodeTaskMessage;
@@ -40,7 +39,7 @@ class LiveDownloadIntegrationTest {
         mq.setProducer(producer);
         mq.setMessageConverter(new RocketMQMessageConverter().getMessageConverter());
         mq.afterPropertiesSet();
-        mq.syncSend(MqConstants.TOPIC_DYNAMIC_TRANSCODE,new TranscodeTaskMessage(null));
+        mq.syncSend(TranscodeTaskMessage.TOPIC,new TranscodeTaskMessage(null));
     }
 
     @AfterEach
@@ -160,7 +159,7 @@ class LiveDownloadIntegrationTest {
         }
         consumer("a");
         consumer("b");
-        for(int i=0;i<16;i++) mq.syncSend(MqConstants.TOPIC_DYNAMIC_TRANSCODE,new TranscodeTaskMessage(requests.get(i%8).getId()));
+        for(int i=0;i<16;i++) mq.syncSend(TranscodeTaskMessage.TOPIC,new TranscodeTaskMessage(requests.get(i%8).getId()));
         completed(requests.get(0));
         assertEquals(
                 8,
@@ -176,7 +175,7 @@ class LiveDownloadIntegrationTest {
         assertEquals(
                 9,
                 env.jdbc.queryForObject("SELECT COUNT(*) FROM transcode_task WHERE status='EXPIRED'",Integer.class));
-        mq.syncSend(MqConstants.TOPIC_DYNAMIC_TRANSCODE,new TranscodeTaskMessage(fresh.getId()));
+        mq.syncSend(TranscodeTaskMessage.TOPIC,new TranscodeTaskMessage(fresh.getId()));
         completed(fresh);
         assertEquals(2,executions());
     }

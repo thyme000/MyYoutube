@@ -10,6 +10,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ReadMessageMessage {
+    public static final String TOPIC = "chat_read_topic";
+
     // 会话id
     private String conversationId;
     // 接收方id

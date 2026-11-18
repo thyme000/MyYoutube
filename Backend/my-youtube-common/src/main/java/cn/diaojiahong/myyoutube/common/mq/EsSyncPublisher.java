@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.common.mq;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.common.mq.message.UserDocSyncMessage;
@@ -26,13 +25,13 @@ public class EsSyncPublisher {
     /** 用户文档同步: 消费端以 MySQL 为准重建 */
     public void syncUserDoc(long userId) {
         rocketMQTemplate.syncSendDelayTimeSeconds(
-                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_USER,
+                ContentDocMessage.TOPIC + ":" + UserDocSyncMessage.TAG,
                 new UserDocSyncMessage(userId), ES_SYNC_DELAY_SECONDS);
     }
 
     public void syncAudioDoc(long id) {
         SendResult result = rocketMQTemplate.syncSendDelayTimeSeconds(
-                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_AUDIO,
+                ContentDocMessage.TOPIC + ":" + AudioDiscoveryContracts.Sync.TAG,
                 new AudioDiscoveryContracts.Sync(id), ES_SYNC_DELAY_SECONDS);
         if (result == null || result.getSendStatus() != org.apache.rocketmq.client.producer.SendStatus.SEND_OK) {
             throw new MqSendUnconfirmedException(result == null ? null : result.getSendStatus());
@@ -42,7 +41,7 @@ public class EsSyncPublisher {
     /** 内容文档同步(视频/动态), 消息体经 ContentDocMessages 工厂组装 */
     public void syncContentDoc(ContentDocMessage message) {
         rocketMQTemplate.syncSendDelayTimeSeconds(
-                MqConstants.TOPIC_ES_DOCUMENT + ":" + MqConstants.TAG_ES_CONTENT,
+                ContentDocMessage.TOPIC + ":" + ContentDocMessage.TAG,
                 message, ES_SYNC_DELAY_SECONDS);
     }
 }

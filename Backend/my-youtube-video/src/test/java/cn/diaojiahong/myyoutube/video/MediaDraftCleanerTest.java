@@ -11,6 +11,7 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import java.time.LocalDateTime;
 import java.util.List;
 import static org.mockito.Mockito.*;
+import cn.diaojiahong.myyoutube.common.mq.message.MediaUploadEventMessage;
 
 class MediaDraftCleanerTest {
     final MediaDraftMapper rows = mock(MediaDraftMapper.class);
@@ -53,7 +54,7 @@ class MediaDraftCleanerTest {
         when(rows.selectList(any())).thenReturn(List.of(uploading()));
         when(storage.objectExists(anyString())).thenReturn(true);
         cleaner.clean();
-        verify(mq).syncSend(eq(cn.diaojiahong.myyoutube.common.constants.MqConstants.TOPIC_MEDIA_UPLOAD_EVENT),
+        verify(mq).syncSend(eq(MediaUploadEventMessage.TOPIC),
                 argThat((cn.diaojiahong.myyoutube.common.mq.message.MediaUploadEventMessage message) ->
                         message.getDraftId().equals(1L) && message.getUserId().equals(9L)));
         verify(storage, never()).deleteObjectQuietly(anyString());

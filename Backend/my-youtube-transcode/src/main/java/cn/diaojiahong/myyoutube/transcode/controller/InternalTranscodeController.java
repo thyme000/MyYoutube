@@ -1,11 +1,11 @@
 package cn.diaojiahong.myyoutube.transcode.controller;
 
 import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.transcode.api.dto.TranscodeSubmitDTO;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
 import cn.diaojiahong.myyoutube.transcode.schedule.DownloadTaskDispatcher;
+import cn.diaojiahong.myyoutube.transcode.schedule.TranscodeLruCleaner;
 import cn.diaojiahong.myyoutube.transcode.service.TranscodeTaskService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -78,7 +78,7 @@ public class InternalTranscodeController {
     private void touchLru(String taskKey) {
         if (StringUtils.hasText(taskKey)) {
             try {
-                redisTemplate.opsForZSet().add(RedisConstants.TRANSCODE_LRU, taskKey, System.currentTimeMillis());
+                redisTemplate.opsForZSet().add(TranscodeLruCleaner.KEY, taskKey, System.currentTimeMillis());
             } catch (Exception e) {
                 log.warn("更新下载缓存 LRU 失败 taskKey={}", taskKey, e);
             }

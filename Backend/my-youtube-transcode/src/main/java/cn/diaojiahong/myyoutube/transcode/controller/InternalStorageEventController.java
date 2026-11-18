@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.transcode.controller;
 
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaUploadEventMessage;
 import cn.diaojiahong.myyoutube.transcode.config.MediaProperties;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -68,7 +67,7 @@ public class InternalStorageEventController {
             long size = record.path("s3").path("object").path("size").asLong(0);
             // 归属在消费者侧反查草稿, 事件本身不可信
             rocketMQTemplate.syncSend(
-                    MqConstants.TOPIC_MEDIA_UPLOAD_EVENT,
+                    MediaUploadEventMessage.TOPIC,
                     MessageBuilder.withPayload(MediaUploadEventMessage.builder()
                             .objectKey(key)
                             .fileSize(size)

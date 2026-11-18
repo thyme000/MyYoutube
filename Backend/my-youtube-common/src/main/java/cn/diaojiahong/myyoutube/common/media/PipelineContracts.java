@@ -36,6 +36,7 @@ public final class PipelineContracts {
 
     public record ReviewResult(Long pipelineId, Long contentId, Long taskId, int attempt,
                                String verdictJson, String error, boolean exhausted) {
+        public static final String TOPIC = "review_result_topic";
     }
 
     public record TagRequest(String title, String description, String summary) {

@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.search;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
@@ -59,7 +58,7 @@ class LiveContentVectorMqTest {
     void brokerRetainsTasksRetriesFailuresAndPreservesDeadLettersAcrossConsumerRestarts() throws Exception {
         ElasticsearchClient client = ElasticsearchClients.createImperative(ClientConfiguration.builder().connectedTo(ES_ADDRESS).build());
         String suffix = UUID.randomUUID().toString().replace("-", "");
-        String group = MqConstants.GROUP_CONTENT_VECTOR;
+        String group = ContentVectorMessage.GROUP;
         long recoverableId = System.currentTimeMillis();
         long deadLetterId = recoverableId + 1, privateId = recoverableId + 2, restartId = recoverableId + 3;
         var template = new RocketMQTemplate();
@@ -90,7 +89,7 @@ class LiveContentVectorMqTest {
             template.setProducer(producer);
             template.setMessageConverter(new RocketMQMessageConverter().getMessageConverter());
             template.afterPropertiesSet();
-            producer.createTopic("TBW102", MqConstants.TOPIC_CONTENT_VECTOR, 1, Map.of());
+            producer.createTopic("TBW102", ContentVectorMessage.TOPIC, 1, Map.of());
             var properties = new VectorProperties();
             var publisher = new ContentVectorPublisher(template, properties);
             var writer = new ContentDocumentWriter(operations, mock(UserPort.class), publisher);
@@ -263,7 +262,7 @@ class LiveContentVectorMqTest {
         container.setRocketMQMessageListener(ContentVectorListener.class.getAnnotation(RocketMQMessageListener.class));
         container.setNameServer(NAMESERVER);
         container.setConsumerGroup(group);
-        container.setTopic(MqConstants.TOPIC_CONTENT_VECTOR);
+        container.setTopic(ContentVectorMessage.TOPIC);
         container.setMessageConverter(new RocketMQMessageConverter().getMessageConverter());
         container.setRocketMQListener(listener);
         container.setDelayLevelWhenNextConsume(1);

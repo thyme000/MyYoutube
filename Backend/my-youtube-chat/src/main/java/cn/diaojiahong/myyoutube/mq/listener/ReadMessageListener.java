@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForReadMessageVO;
@@ -15,7 +14,7 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_CHAT_READ,
+        topic = ReadMessageMessage.TOPIC,
         consumerGroup = "chat_read_group",
         maxReconsumeTimes = 3)
 public class ReadMessageListener implements RocketMQListener<ReadMessageMessage> {

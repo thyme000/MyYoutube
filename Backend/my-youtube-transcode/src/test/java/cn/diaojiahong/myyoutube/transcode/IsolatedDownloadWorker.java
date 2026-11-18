@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode;
 
 import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
 import cn.diaojiahong.myyoutube.transcode.mq.listener.TranscodeTaskListener;
 import org.apache.rocketmq.common.message.MessageExt;
@@ -33,7 +32,7 @@ public final class IsolatedDownloadWorker {
             consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
             consumer.setConsumeThreadMin(1);
             consumer.setConsumeThreadMax(1);
-            consumer.subscribe(MqConstants.TOPIC_DYNAMIC_TRANSCODE,"*");
+            consumer.subscribe(TranscodeTaskMessage.TOPIC,"*");
             consumer.registerMessageListener((MessageListenerConcurrently)(messages,context) -> {
                 try {
                     for(MessageExt message:messages) listener.onMessage(env.json.readValue(message.getBody(), TranscodeTaskMessage.class));

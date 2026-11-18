@@ -17,6 +17,9 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ContentDocMessage {
+    public static final String TOPIC = "es_document_topic";
+    public static final String TAG = "video";
+
     /** 与 ContentTypeEnum.code 一致: video/dynamic */
     private String type;
     private Long contentId;

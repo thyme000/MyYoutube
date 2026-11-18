@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.user.service.impl;
 
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -12,7 +11,6 @@ import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
 import cn.diaojiahong.myyoutube.user.cache.UserSummaryCache;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.user.domain.vo.CurrentUserVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;

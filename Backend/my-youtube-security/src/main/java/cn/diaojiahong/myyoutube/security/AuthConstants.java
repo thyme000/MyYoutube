@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.security;
 
 /**
- * 鉴权协议常量单点: 网关(GatewayAuthFilter)与各服务(UserIdHeaderFilter/RedisConstants)
+ * 鉴权协议常量单点: 网关(GatewayAuthFilter)与各服务(UserIdHeaderFilter)
  * 共用的头名与 Redis key 前缀。两边曾各写一份字面量, 改名会静默失联。
  */
 public final class AuthConstants {

@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.transcode.schedule;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
 import cn.diaojiahong.myyoutube.transcode.mapper.TranscodeTaskMapper;
 import cn.diaojiahong.myyoutube.transcode.mq.message.TranscodeTaskMessage;
@@ -30,7 +29,7 @@ public class DownloadTaskDispatcher {
 
     private void send(Long id) {
         try {
-            mq.syncSend(MqConstants.TOPIC_DYNAMIC_TRANSCODE, new TranscodeTaskMessage(id));
+            mq.syncSend(TranscodeTaskMessage.TOPIC, new TranscodeTaskMessage(id));
         } catch (Exception e) {
             log.warn("下载任务投递失败，等待补偿 taskId={}", id, e);
         }

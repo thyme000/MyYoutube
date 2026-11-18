@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
 import org.apache.rocketmq.client.producer.SendResult;
 import org.apache.rocketmq.client.producer.SendStatus;
@@ -27,12 +26,12 @@ class ContentVectorPublisherTest {
     void acceptsOnlySuccessfulBrokerAcknowledgement(SendStatus status) {
         var result = new SendResult();
         result.setSendStatus(status);
-        when(mq.syncSend(eq(MqConstants.TOPIC_CONTENT_VECTOR), any(Message.class))).thenReturn(result);
+        when(mq.syncSend(eq(ContentVectorMessage.TOPIC), any(Message.class))).thenReturn(result);
         if (status == SendStatus.SEND_OK) assertDoesNotThrow(() -> publisher.publish(1L));
         else assertThrows(IllegalStateException.class, () -> publisher.publish(1L));
 
         ArgumentCaptor<Message> message = ArgumentCaptor.forClass(Message.class);
-        verify(mq).syncSend(eq(MqConstants.TOPIC_CONTENT_VECTOR), message.capture());
+        verify(mq).syncSend(eq(ContentVectorMessage.TOPIC), message.capture());
         assertEquals(new ContentVectorMessage(1L), message.getValue().getPayload());
         assertEquals("1", message.getValue().getHeaders().get(RocketMQHeaders.KEYS));
     }
@@ -40,7 +39,7 @@ class ContentVectorPublisherTest {
     @Test
     void missingAcknowledgementAndSendExceptionRemainFailures() {
         assertThrows(IllegalStateException.class, () -> publisher.publish(1L));
-        when(mq.syncSend(eq(MqConstants.TOPIC_CONTENT_VECTOR), any(Message.class)))
+        when(mq.syncSend(eq(ContentVectorMessage.TOPIC), any(Message.class)))
                 .thenThrow(new IllegalStateException("Broker unavailable"));
         assertThrows(IllegalStateException.class, () -> publisher.publish(1L));
     }
@@ -56,10 +55,10 @@ class ContentVectorPublisherTest {
     void recoveryCarriesVersionAndFailureAndRequiresDeliveryConfirmation() {
         var result = new SendResult();
         result.setSendStatus(SendStatus.SEND_OK);
-        when(mq.syncSend(eq(MqConstants.TOPIC_CONTENT_VECTOR), any(Message.class))).thenReturn(result);
+        when(mq.syncSend(eq(ContentVectorMessage.TOPIC), any(Message.class))).thenReturn(result);
         publisher.publishRecovery(1L, "model:2", "write failed");
         ArgumentCaptor<Message> message = ArgumentCaptor.forClass(Message.class);
-        verify(mq).syncSend(eq(MqConstants.TOPIC_CONTENT_VECTOR), message.capture());
+        verify(mq).syncSend(eq(ContentVectorMessage.TOPIC), message.capture());
         assertEquals(new ContentVectorMessage(1L, "model:2", "write failed"), message.getValue().getPayload());
         properties.setEnabled(false);
         assertThrows(IllegalStateException.class, () -> publisher.publishRecovery(1L, "model:2", "write failed"));

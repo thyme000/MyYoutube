@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.transcode.mq.listener;
 
 import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.transcode.chain.dynamic.DynamicTranscodeChain;
 import cn.diaojiahong.myyoutube.transcode.chain.dynamic.TranscodeContext;
 import cn.diaojiahong.myyoutube.transcode.chain.dynamic.TranscodeNotifier;
@@ -27,7 +26,7 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_DYNAMIC_TRANSCODE,
+        topic = TranscodeTaskMessage.TOPIC,
         consumerGroup = "dynamic_transcode_group",
         consumeThreadNumber = 1,
         maxReconsumeTimes = 2)

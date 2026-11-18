@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.user;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.schedule.ScheduleRoundLock;
 import cn.diaojiahong.myyoutube.user.schedule.UserCheckInStatisticsJob;
 import cn.diaojiahong.myyoutube.user.service.UserCheckInStatisticsService;
@@ -24,14 +23,14 @@ class UserCheckInStatisticsJobTest {
     void skipsDatabaseWorkWhenAnotherInstanceHoldsTheLock() throws InterruptedException {
         RedissonClient client = mock(RedissonClient.class);
         RLock lock = mock(RLock.class);
-        when(client.getLock(RedisConstants.USER_CHECK_IN_STATISTICS_LOCK)).thenReturn(lock);
-        when(lock.tryLock(0, RedisConstants.SCHEDULE_LOCK_LEASE_SECONDS, TimeUnit.SECONDS)).thenReturn(false);
+        when(client.getLock(UserCheckInStatisticsJob.LOCK_NAME)).thenReturn(lock);
+        when(lock.tryLock(0, ScheduleRoundLock.LEASE_SECONDS, TimeUnit.SECONDS)).thenReturn(false);
         var beans = new StaticListableBeanFactory(Map.of("redissonClient", client));
         var roundLock = new ScheduleRoundLock(beans.getBeanProvider(RedissonClient.class));
 
         new UserCheckInStatisticsJob(roundLock, statistics).archivePreviousMonth();
 
-        verify(lock).tryLock(0, RedisConstants.SCHEDULE_LOCK_LEASE_SECONDS, TimeUnit.SECONDS);
+        verify(lock).tryLock(0, ScheduleRoundLock.LEASE_SECONDS, TimeUnit.SECONDS);
         verifyNoInteractions(statistics);
     }
 }

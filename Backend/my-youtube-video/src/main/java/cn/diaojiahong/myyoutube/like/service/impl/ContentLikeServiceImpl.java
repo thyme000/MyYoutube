@@ -5,8 +5,6 @@ import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
 import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -50,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 
 /**
  * <p>
@@ -63,6 +62,12 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @RequiredArgsConstructor
 public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, ContentLike> implements IContentLikeService {
+
+    public static final long LIKED_COMMENT_EXPIRE_DAYS = 10L;
+
+    public static String likedCommentKey(Long userId) {
+        return "user:like:comment:" + userId;
+    }
 
     private final ContentAccessService access;
     private final ContentSummaryPort contentSummaryPort;
@@ -252,7 +257,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
             // 发送点赞通知(MQ)
             LikeCommentMessage lc = LikeCommentMessage.builder().senderId(userId).commentId(commentId).build();
-            rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_LIKE, lc);
+            rocketMQTemplate.syncSend(CommentMessage.TOPIC + ":" + LikeCommentMessage.LIKE_TAG, lc);
         }
     }
 
@@ -274,12 +279,12 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         counterBuffer.add(CounterType.COMMENT_LIKE, commentId, -1);
         like.setIsLiked(ContentLikeConstants.CANCEL_LIKE);
         contentCommentLikeMapper.updateById(like);
-        redisTemplate.opsForZSet().remove(RedisConstants.USER_LIKE_COMMENT + userId, commentId.toString());
+        redisTemplate.opsForZSet().remove(likedCommentKey(userId), commentId.toString());
 
         // 发送取消点赞通知(MQ)
         if (comment != null && !Objects.equals(comment.getUserId(), userId)) {
             LikeCommentMessage lc = LikeCommentMessage.builder().senderId(userId).commentId(commentId).build();
-            rocketMQTemplate.syncSend(MqConstants.TOPIC_COMMENT_ACTION + ":" + MqConstants.TAG_UNLIKE, lc);
+            rocketMQTemplate.syncSend(CommentMessage.TOPIC + ":" + LikeCommentMessage.CANCEL_LIKE_TAG, lc);
         }
     }
 
@@ -287,9 +292,9 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
      * 展示用「我赞过的评论」集合。
      */
     private void markCommentLiked(Long userId, Long commentId) {
-        String key = RedisConstants.USER_LIKE_COMMENT + userId;
+        String key = likedCommentKey(userId);
         redisTemplate.opsForZSet().add(key, commentId.toString(), System.currentTimeMillis());
-        redisTemplate.expire(key, RedisConstants.USER_LIKE_COMMENT_EXPIRE, TimeUnit.DAYS);
+        redisTemplate.expire(key, LIKED_COMMENT_EXPIRE_DAYS, TimeUnit.DAYS);
         // 只留最近 100 条: 按 rank 淘汰
         redisTemplate.opsForZSet().removeRange(key, 0, -101);
     }

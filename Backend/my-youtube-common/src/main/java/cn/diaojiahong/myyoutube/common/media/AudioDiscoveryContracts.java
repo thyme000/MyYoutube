@@ -25,6 +25,7 @@ public final class AudioDiscoveryContracts {
     }
 
     public record Sync(Long audioId) {
+        public static final String TAG = "audio";
     }
 
     public record Ack(Long audioId, long version) {

@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.user.cache;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -108,6 +107,6 @@ public class UserCheckInBitmapCache {
     }
 
     private static String key(Long userId, int year) {
-        return RedisConstants.USER_CHECK_IN_BITMAP + userId + ":" + year;
+        return "user:check-in:bitmap:" + userId + ":" + year;
     }
 }

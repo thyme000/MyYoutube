@@ -4,7 +4,6 @@ import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.notify.ConversationNotifyRegistry;
 import cn.diaojiahong.myyoutube.chat.notify.ConversationNotifyStrategy;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
@@ -20,7 +19,7 @@ import java.util.Optional;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_CHAT_MESSAGE,
+        topic = ChatMessageMessage.TOPIC,
         consumerGroup = "chat_message_group",
         maxReconsumeTimes = 3)
 public class ChatMessageListener implements RocketMQListener<ChatMessageMessage> {

@@ -7,7 +7,6 @@ import cn.diaojiahong.myyoutube.auth.domain.dto.ForgetPasswordDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.LoginRequestDTO;
 import cn.diaojiahong.myyoutube.auth.service.impl.AuthServiceImpl;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.filter.UserIdHeaderFilter;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
@@ -318,8 +317,8 @@ class UserRoleIntegrationTest {
 
         assertEquals(UserRole.USER, roles.getRole(1L));
         assertTrue(PasswordEncoder.matches("Changed1234", mapper.selectById(1L).getPassword()));
-        verify(values).set(eq(RedisConstants.USER_TOKEN_VER + 1L), anyString(),
-                eq(RedisConstants.USER_REFRESH_TOKEN_EXPIRE), eq(TimeUnit.HOURS));
+        verify(values).set(eq(AuthConstants.TOKEN_VER_KEY_PREFIX + 1L), anyString(),
+                eq(AuthServiceImpl.REFRESH_TOKEN_EXPIRE_HOURS), eq(TimeUnit.HOURS));
     }
 
     private AuthServiceImpl auth() {

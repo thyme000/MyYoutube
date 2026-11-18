@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.common.counter;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -157,7 +156,7 @@ class CounterFlushServiceTest {
     @Test
     void oneRoundStopsAtTheKeyCap() {
         Set<Long> ids = new HashSet<>();
-        for (long id = 1; id <= RedisConstants.COUNTER_MAX_KEYS_PER_ROUND + 1; id++) {
+        for (long id = 1; id <= CounterFlushService.MAX_KEYS_PER_ROUND + 1; id++) {
             ids.add(id);
         }
         pending(ids);
@@ -165,7 +164,7 @@ class CounterFlushServiceTest {
 
         flush.flushRound();
 
-        verify(buffer, times(RedisConstants.COUNTER_MAX_KEYS_PER_ROUND))
+        verify(buffer, times(CounterFlushService.MAX_KEYS_PER_ROUND))
                 .ack(eq(CounterType.CONTENT_LIKE), anyLong());
     }
 

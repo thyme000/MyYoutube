@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.DraftPublicationMessage;
 import cn.diaojiahong.myyoutube.content.service.DraftPublicationService;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +10,7 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_DRAFT_PUBLICATION,
+        topic = DraftPublicationMessage.TOPIC,
         consumerGroup = "video_draft_publication",
         maxReconsumeTimes = 3)
 public class DraftPublicationListener implements RocketMQListener<DraftPublicationMessage> {

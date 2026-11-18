@@ -20,8 +20,6 @@ import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategy;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
@@ -60,6 +58,11 @@ import java.util.regex.Pattern;
 public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
 
     private static final Long STORAGE_EXPIRE = 3600L * 10;
+    public static final long NON_MUTUAL_MESSAGE_WINDOW_DAYS = 1L;
+
+    public static String nonMutualMessageKey(Object userId) {
+        return "user:conversation:" + userId;
+    }
 
     private final ChatConversationService chatConversationService;
     private final RocketMQTemplate rocketMQTemplate;
@@ -196,12 +199,12 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         if (chatConversationDoc.getType().equals(ConversationTypeEnum.SINGLE)) {
             // 私聊并且不是互关,增加消息次数; 提交后再计, 回滚的消息不计数
             if (!isInterrelated) {
-                redisTemplate.opsForZSet().incrementScore(RedisConstants.USER_CONVERSATION + userId, conversationId, 1);
-                redisTemplate.expire(RedisConstants.USER_CONVERSATION + userId,
-                        RedisConstants.USER_CONVERSATION_EXPIRE, TimeUnit.DAYS);
+                redisTemplate.opsForZSet().incrementScore(nonMutualMessageKey(userId), conversationId, 1);
+                redisTemplate.expire(nonMutualMessageKey(userId),
+                        NON_MUTUAL_MESSAGE_WINDOW_DAYS, TimeUnit.DAYS);
             }
         }
-        rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
+        rocketMQTemplate.syncSend(ChatMessageMessage.TOPIC, ch);
         log.debug("Chat message sent conversationId={} messageId={} seq={} senderId={} contentType={}",
                 conversationId,
                 chatMessageDoc.getId(),
@@ -303,7 +306,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                 .messageId(chatMessageDoc.getId()).contentType(chatMessageDoc.getContentType())
                 .recallType(recallTypeForMq)
                 .serviceTime(recallTime).event("withdraw").build();
-        rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_MESSAGE, ch);
+        rocketMQTemplate.syncSend(ChatMessageMessage.TOPIC, ch);
         log.debug("Chat message withdrawn conversationId={} messageId={} seq={} operatorId={} recallType={}",
                 chatMessageDoc.getConversationId(), chatMessageDoc.getId(), chatMessageDoc.getSeq(),
                 userId, recallTypeForMq);
@@ -460,7 +463,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         // 发送Mq消息
         ReadMessageMessage vo = ReadMessageMessage.builder()
                 .lastReadSeq(lastReadSeq).receiverId(receiverId.toString()).conversationId(conversationId).build();
-        rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_READ, vo);
+        rocketMQTemplate.syncSend(ReadMessageMessage.TOPIC, vo);
     }
 
     private ChatConversationDoc getChatConversationDoc(String conversationId) {

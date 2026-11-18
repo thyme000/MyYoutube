@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.video;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationBranch;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
@@ -148,7 +147,7 @@ class AudioHistoricalAuthorCountIntegrationTest {
         assertFalse(events.selectById(201L).getAudioCountDone());
         effects.recover();
         verify(mq).syncSend(
-                MqConstants.TOPIC_PUBLICATION_EFFECT + ":AUDIO_COUNT",
+                PublicationEffectMessage.TOPIC + ":AUDIO_COUNT",
                 new PublicationEffectMessage(201L, PublicationBranch.AUDIO_COUNT));
         effects.apply(new PublicationEffectMessage(201L, PublicationBranch.AUDIO_COUNT));
         assertEquals(201L, audios.selectById(20L).getHistoricalAuthorCount());
@@ -328,7 +327,7 @@ class AudioHistoricalAuthorCountIntegrationTest {
         reset(mq);
         effects.recover();
         verify(mq).syncSend(
-                MqConstants.TOPIC_PUBLICATION_EFFECT + ":AUDIO_COUNT",
+                PublicationEffectMessage.TOPIC + ":AUDIO_COUNT",
                 new PublicationEffectMessage(1L, PublicationBranch.AUDIO_COUNT));
         effects.apply(new PublicationEffectMessage(1L, PublicationBranch.AUDIO_COUNT));
         assertEquals(1L, audios.selectById(20L).getHistoricalAuthorCount());
@@ -348,7 +347,7 @@ class AudioHistoricalAuthorCountIntegrationTest {
         assertFalse(events.selectById(1L).getCompleted());
         effects.recover();
         verify(mq).syncSend(
-                MqConstants.TOPIC_PUBLICATION_EFFECT + ":SEARCH",
+                PublicationEffectMessage.TOPIC + ":SEARCH",
                 new PublicationEffectMessage(1L, PublicationBranch.SEARCH));
         verifyNoMoreInteractions(mq);
     }

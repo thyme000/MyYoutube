@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.user.cache;
 
 import cn.diaojiahong.myyoutube.common.utils.BusinessTime;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisCallback;
@@ -84,23 +83,27 @@ public class UserSummaryCache {
         return result;
     }
 
+    private static String key(Long userId) {
+        return "user:summary:" + userId;
+    }
+
     /** 昵称/头像等资料变更后调用, 下次读取回源 */
     public void evict(Long userId) {
         if (userId != null) {
-            redis.delete(RedisConstants.USER_SUMMARY + userId);
+            redis.delete(key(userId));
         }
     }
 
     /** 返回 null 表示 key 不存在(未缓存); 返回含负缓存标记的 map 表示查无此人 */
     private Map<String, String> read(Long id) {
-        Map<Object, Object> raw = redis.opsForHash().entries(RedisConstants.USER_SUMMARY + id);
+        Map<Object, Object> raw = redis.opsForHash().entries(key(id));
         return raw.isEmpty() ? null : toStringMap(raw);
     }
 
     private Map<Long, Map<String, String>> readAll(List<Long> ids) {
         List<Object> results = redis.executePipelined((RedisCallback<Object>) connection -> {
             for (Long id : ids) {
-                connection.hashCommands().hGetAll(ser().serialize(RedisConstants.USER_SUMMARY + id));
+                connection.hashCommands().hGetAll(ser().serialize(key(id)));
             }
             return null;
         });
@@ -120,7 +123,7 @@ public class UserSummaryCache {
         StringRedisSerializer ser = ser();
         redis.executePipelined((RedisCallback<Object>) connection -> {
             for (Long id : ids) {
-                byte[] key = ser.serialize(RedisConstants.USER_SUMMARY + id);
+                byte[] key = ser.serialize(key(id));
                 UserSummary summary = loaded.get(id);
                 Map<byte[], byte[]> fields = new LinkedHashMap<>();
                 if (summary == null) {

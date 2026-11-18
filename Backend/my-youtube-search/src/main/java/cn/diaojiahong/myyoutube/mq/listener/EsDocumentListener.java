@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.UserDocSyncMessage;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
@@ -21,14 +20,15 @@ import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
 import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 import org.springframework.data.elasticsearch.core.query.ScriptType;
+import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_ES_DOCUMENT,
+        topic = ContentDocMessage.TOPIC,
         consumerGroup = "es_document_user_group",
-        selectorExpression = MqConstants.TAG_ES_USER,
+        selectorExpression = UserDocSyncMessage.TAG,
         maxReconsumeTimes = 3)
 public class EsDocumentListener implements RocketMQListener<UserDocSyncMessage> {
 

@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.schedule;
 
 import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.transcode.domain.po.TranscodeTask;
 import cn.diaojiahong.myyoutube.transcode.mapper.TranscodeTaskMapper;
@@ -24,6 +23,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class TranscodeLruCleaner {
 
+    public static final String KEY = "transcode:lru";
+
     private static final long MAX_ENTRIES = 100;
 
     private final StringRedisTemplate redisTemplate;
@@ -34,12 +35,12 @@ public class TranscodeLruCleaner {
     @Scheduled(fixedDelay = 3600_000, initialDelay = 120_000)
     public void clean() {
         try {
-            Long size = redisTemplate.opsForZSet().zCard(RedisConstants.TRANSCODE_LRU);
+            Long size = redisTemplate.opsForZSet().zCard(KEY);
             if (size == null || size <= MAX_ENTRIES) {
                 return;
             }
             long evict = size - MAX_ENTRIES;
-            Set<String> oldest = redisTemplate.opsForZSet().range(RedisConstants.TRANSCODE_LRU, 0, evict - 1);
+            Set<String> oldest = redisTemplate.opsForZSet().range(KEY, 0, evict - 1);
             if (oldest == null || oldest.isEmpty()) {
                 return;
             }
@@ -47,7 +48,7 @@ public class TranscodeLruCleaner {
                 RLock lock = tasks.artifactLock(taskKey);
                 if (!lock.tryLock()) continue;
                 try {
-                    redisTemplate.opsForZSet().remove(RedisConstants.TRANSCODE_LRU, taskKey);
+                    redisTemplate.opsForZSet().remove(KEY, taskKey);
                     for (TranscodeTask task : taskMapper.selectList(new LambdaQueryWrapper<TranscodeTask>()
                             .eq(TranscodeTask::getTaskKey, taskKey)
                             .eq(TranscodeTask::getStatus, TranscodeTaskStatus.DONE))) {

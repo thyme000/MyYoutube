@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentAspect;
 import cn.diaojiahong.myyoutube.common.idempotent.IdempotentGuard;
@@ -372,7 +371,7 @@ class LiveContentVectorIdempotencyTest {
     }
 
     private String contentKey(long id) {
-        return RedisConstants.IDEMPOTENT + "{content-vector}:" + id;
+        return IdempotentGuard.KEY_PREFIX + "{content-vector}:" + id;
     }
 
     private SearchResponse<Void> batch() {

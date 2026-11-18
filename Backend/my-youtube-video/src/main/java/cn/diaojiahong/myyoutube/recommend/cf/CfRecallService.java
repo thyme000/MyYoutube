@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.recommend.cf;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.recommend.domain.enums.SimAlgorithmEnum;
@@ -8,6 +7,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.po.ItemSimilarity;
 import cn.diaojiahong.myyoutube.recommend.mapper.UserVideoBehaviorMapper;
 import cn.diaojiahong.myyoutube.recommend.mapper.UserVideoBehaviorMapper.Seed;
 import cn.diaojiahong.myyoutube.recommend.service.IItemSimilarityService;
+import cn.diaojiahong.myyoutube.recommend.service.impl.ItemSimilarityServiceImpl;
 import cn.diaojiahong.myyoutube.video.api.CfRecommendPort;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import lombok.RequiredArgsConstructor;
@@ -117,7 +117,7 @@ public class CfRecallService {
     }
 
     private List<ItemSimilarity> neighbors(SimAlgorithmEnum algorithm, Long contentId) {
-        String key = RedisConstants.RECOMMEND_SIM + algorithm.getCode() + ":" + contentId;
+        String key = ItemSimilarityServiceImpl.similarityKey(algorithm.getCode(), contentId);
         Set<ZSetOperations.TypedTuple<String>> tuples =
                 redisTemplate.opsForZSet().reverseRangeWithScores(key, 0, NEIGHBORS_PER_SEED - 1L);
         if (tuples != null && !tuples.isEmpty()) {

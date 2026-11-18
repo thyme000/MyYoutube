@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.content.service;
 
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
@@ -78,6 +77,6 @@ public class AudioContentAccess {
 
     private void notify(Long contentId, Audio audio) {
         var message = new AudioContentBanMessage(contentId, audio.getId(), audio.getIndexVersion());
-        notifications.send(MqConstants.TOPIC_AUDIO_CONTENT_BAN, message, MetricNames.AUDIO_CASCADE_NOTIFICATION_FAILED);
+        notifications.send(AudioContentBanMessage.TOPIC, message, MetricNames.AUDIO_CASCADE_NOTIFICATION_FAILED);
     }
 }

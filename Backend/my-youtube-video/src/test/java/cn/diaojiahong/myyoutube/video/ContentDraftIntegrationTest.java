@@ -13,7 +13,6 @@ import java.time.Instant;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskStatus;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.mq.message.DraftPublicationMessage;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import java.time.LocalDateTime;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import cn.diaojiahong.myyoutube.video.config.PublicationProperties;
@@ -1967,7 +1966,7 @@ class ContentDraftIntegrationTest {
             verifyNoInteractions(mq);
         });
         verify(mq).asyncSend(
-                eq(MqConstants.TOPIC_DRAFT_PUBLICATION),
+                eq(DraftPublicationMessage.TOPIC),
                 eq(new DraftPublicationMessage(draft.draftId(), 0)),
                 any(org.apache.rocketmq.client.producer.SendCallback.class));
         LocalDateTime deadline = rows.selectById(draft.draftId()).getSubmissionDeadline();
@@ -2157,7 +2156,7 @@ class ContentDraftIntegrationTest {
         assertNull(renewed.getSubmissionError());
         assertTrue(!renewed.getSubmissionAfter().isAfter(java.time.LocalDateTime.now()));
         assertTrue(renewed.getSubmissionDeadline().isAfter(java.time.LocalDateTime.now().plusMinutes(29)));
-        verify(mq).asyncSend(eq(MqConstants.TOPIC_DRAFT_PUBLICATION), eq(new DraftPublicationMessage(id, version)),
+        verify(mq).asyncSend(eq(DraftPublicationMessage.TOPIC), eq(new DraftPublicationMessage(id, version)),
                 any(org.apache.rocketmq.client.producer.SendCallback.class));
     }
 

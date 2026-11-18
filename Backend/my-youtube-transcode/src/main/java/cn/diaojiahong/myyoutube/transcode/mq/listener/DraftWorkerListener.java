@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.transcode.mq.listener;
 
 import cn.diaojiahong.myyoutube.transcode.domain.enums.MediaTaskPhase;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaTaskMessage;
 import cn.diaojiahong.myyoutube.transcode.service.MediaTaskWorker;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
-@RocketMQMessageListener(topic = MqConstants.TOPIC_MEDIA_TASK, consumerGroup = "transcode_draft_worker",
+@RocketMQMessageListener(topic = MediaTaskMessage.TOPIC, consumerGroup = "transcode_draft_worker",
         selectorExpression = "DRAFT", consumeThreadNumber = 2, consumeThreadMax = 2, maxReconsumeTimes = 3)
 public class DraftWorkerListener implements RocketMQListener<MediaTaskMessage>,
 org.apache.rocketmq.spring.core.RocketMQPushConsumerLifecycleListener {

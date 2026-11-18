@@ -23,9 +23,6 @@ server:
 # 全部服务已注册进 Nacos, 置空走负载均衡
 my-youtube:
   db-name: video_db
-  play-count:
-    # 启动后及每轮落库完成后等待的间隔；默认 1 分钟，单位毫秒。
-    flush-interval-ms: ${CONTENT_PLAY_COUNT_FLUSH_INTERVAL_MS:60000}
   content-resource-cache:
     # 普通读取达到累计播放量门槛使用常规产物 TTL，否则使用短 TTL；0 表示全部使用常规 TTL。
     # 大 V 发布预热不受播放量门槛限制，使用常规产物 TTL。

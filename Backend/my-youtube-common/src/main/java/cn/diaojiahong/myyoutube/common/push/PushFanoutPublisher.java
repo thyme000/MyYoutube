@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.common.push;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -15,6 +14,9 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class PushFanoutPublisher {
 
+    public static final String CHANNEL_WS = "push:channel:ws";
+    public static final String CHANNEL_SSE = "push:channel:sse";
+
     private final StringRedisTemplate redisTemplate;
 
     /** 聊天 WS 报文: 报文本体原样下发前端 */
@@ -22,7 +24,7 @@ public class PushFanoutPublisher {
         PushEnvelope envelope = new PushEnvelope();
         envelope.setUserId(userId);
         envelope.setPayload(payload);
-        redisTemplate.convertAndSend(RedisConstants.PUSH_CHANNEL_WS, JsonUtil.toJson(envelope));
+        redisTemplate.convertAndSend(CHANNEL_WS, JsonUtil.toJson(envelope));
     }
 
     /** SSE 门铃信号: 只发信号, 前端收到后拉取 */
@@ -36,6 +38,6 @@ public class PushFanoutPublisher {
         envelope.setUserId(userId);
         envelope.setSignal(signal);
         envelope.setPayload(payload);
-        redisTemplate.convertAndSend(RedisConstants.PUSH_CHANNEL_SSE, JsonUtil.toJson(envelope));
+        redisTemplate.convertAndSend(CHANNEL_SSE, JsonUtil.toJson(envelope));
     }
 }

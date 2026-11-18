@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.follow.cache;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
+import cn.diaojiahong.myyoutube.user.api.FollowSnapshotKey;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -54,7 +54,7 @@ public class FollowSnapshotCache {
     }
 
     private static String key(Long userId) {
-        return RedisConstants.FOLLOW_SNAPSHOT + userId;
+        return FollowSnapshotKey.key(userId);
     }
 
     private static String encode(List<Long> ids) {

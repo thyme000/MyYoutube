@@ -10,6 +10,8 @@ import java.time.*;
 import java.util.*;
 import java.util.concurrent.atomic.*;
 import static org.junit.jupiter.api.Assertions.*;
+import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
+import cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage;
 
 class MonitoringMetricsTest {
     @Test
@@ -24,11 +26,11 @@ class MonitoringMetricsTest {
             assertEquals(
                     1,
                     registry.get(MetricNames.MQ_CONSUMER_PENDING).tags("group", group, "kind", kind).gauge().value());
-        assertEquals(cn.diaojiahong.myyoutube.common.constants.MqConstants.TOPIC_PUBLICATION_EFFECT,
+        assertEquals(PublicationEffectMessage.TOPIC,
                 groups.get("video_publication_notice"));
-        assertEquals(cn.diaojiahong.myyoutube.common.constants.MqConstants.TOPIC_PUBLICATION_EFFECT,
+        assertEquals(PublicationEffectMessage.TOPIC,
                 groups.get("video_publication_audio_count"));
-        assertEquals(cn.diaojiahong.myyoutube.common.constants.MqConstants.TOPIC_AUDIO_CONTENT_BAN,
+        assertEquals(AudioContentBanMessage.TOPIC,
                 groups.get("video_audio_content_ban"));
     }
 

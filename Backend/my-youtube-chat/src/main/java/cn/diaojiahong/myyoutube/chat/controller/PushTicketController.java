@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.controller;
 
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -13,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
 import java.util.UUID;
+import cn.diaojiahong.myyoutube.security.AuthConstants;
 
 /**
  * 长连接(WS/SSE)连接票签发: 前端用 Bearer 换短时效一次性票, 再以 ?ticket=xxx 发起连接。
@@ -36,7 +36,7 @@ public class PushTicketController {
         }
 
         String ticket = UUID.randomUUID().toString();
-        redisTemplate.opsForValue().set(RedisConstants.PUSH_CONNECTION_TICKET + ticket,
+        redisTemplate.opsForValue().set(AuthConstants.PUSH_TICKET_KEY_PREFIX + ticket,
                 userId, Duration.ofSeconds(TICKET_TTL_SECONDS));
         return Result.success(ticket);
     }

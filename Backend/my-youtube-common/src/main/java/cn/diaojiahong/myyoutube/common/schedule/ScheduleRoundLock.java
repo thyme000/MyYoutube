@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.common.schedule;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -20,6 +19,9 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class ScheduleRoundLock {
 
+    /** 整轮锁租期(秒)。显式设租期，不依赖看门狗：长 STW 时看门狗线程同样会停。 */
+    public static final long LEASE_SECONDS = 300L;
+
     private final ObjectProvider<RedissonClient> redissonClientProvider;
 
     /**
@@ -35,7 +37,7 @@ public class ScheduleRoundLock {
         RLock lock = redissonClient.getLock(lockName);
         try {
             // waitTime=0 -> 拿不到立刻返回 false
-            if (!lock.tryLock(0, RedisConstants.SCHEDULE_LOCK_LEASE_SECONDS, TimeUnit.SECONDS)) {
+            if (!lock.tryLock(0, LEASE_SECONDS, TimeUnit.SECONDS)) {
                 log.info("本轮 {} 已由其他实例执行, 跳过", lockName);
                 return;
             }

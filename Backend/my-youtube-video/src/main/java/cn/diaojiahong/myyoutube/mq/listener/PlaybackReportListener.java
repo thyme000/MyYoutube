@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.content.report.PlaybackReportMessage;
 import cn.diaojiahong.myyoutube.content.report.PlaybackReportService;
 import lombok.RequiredArgsConstructor;
@@ -15,7 +14,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@RocketMQMessageListener(topic = MqConstants.TOPIC_PLAYBACK_REPORT,
+@RocketMQMessageListener(topic = PlaybackReportMessage.TOPIC,
         consumerGroup = "video_playback_report", maxReconsumeTimes = 3)
 public class PlaybackReportListener implements RocketMQListener<PlaybackReportMessage> {
 

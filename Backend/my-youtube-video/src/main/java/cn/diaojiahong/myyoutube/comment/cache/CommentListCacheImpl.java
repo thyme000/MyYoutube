@@ -6,7 +6,6 @@ import cn.diaojiahong.myyoutube.comment.domain.enums.CommentStatusEnum;
 import cn.diaojiahong.myyoutube.comment.domain.enums.CommentTab;
 import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.mapper.ContentCommentMapper;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -82,7 +81,7 @@ public class CommentListCacheImpl implements CommentListCache {
         }
 
         String key = key(contentId, tab);
-        String lockKey = RedisConstants.COMMENT_LIST_LOCK + tab.getCode() + ":" + contentId;
+        String lockKey = lockKey(contentId, tab);
         try {
             // 抢不到锁的这轮直接走 DB, 不等待
             if (!Boolean.TRUE.equals(redis.opsForValue()
@@ -145,7 +144,11 @@ public class CommentListCacheImpl implements CommentListCache {
     }
 
     private static String key(Long contentId, CommentTab tab) {
-        return RedisConstants.COMMENT_LIST + tab.getCode() + ":" + contentId;
+        return "comment:list:" + tab.getCode() + ":" + contentId;
+    }
+
+    private static String lockKey(Long contentId, CommentTab tab) {
+        return "comment:list:lock:" + tab.getCode() + ":" + contentId;
     }
 
     private static long epochSecond(LocalDateTime time) {

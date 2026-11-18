@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.follow.service.impl;
 
 import cn.diaojiahong.myyoutube.common.counter.AbstractCounterTarget;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
@@ -15,6 +14,7 @@ import cn.diaojiahong.myyoutube.follow.domain.vo.UserRelationshipVO;
 import cn.diaojiahong.myyoutube.follow.mapper.UserFollowMapper;
 import cn.diaojiahong.myyoutube.follow.service.IUserFollowService;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
+import cn.diaojiahong.myyoutube.user.api.FollowSnapshotKey;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.user.domain.po.User;
 import cn.diaojiahong.myyoutube.user.port.UserPortAdapter;
@@ -80,7 +80,7 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     /** 尽力而为失效读侧关注快照: 删除失败只记日志, 滞后由缓存 TTL 兜底 */
     private void evictFollowSnapshotQuietly(Long userId) {
         try {
-            redis.delete(RedisConstants.FOLLOW_SNAPSHOT + userId);
+            redis.delete(FollowSnapshotKey.key(userId));
         } catch (Exception e) {
             log.warn("关注快照缓存删除失败 userId={}", userId, e);
         }

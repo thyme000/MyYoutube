@@ -1,5 +1,4 @@
 package cn.diaojiahong.myyoutube.mq.listener;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationEffectMessage;
 import cn.diaojiahong.myyoutube.common.mq.message.PublicationBranch;
 import cn.diaojiahong.myyoutube.video.service.PublicationEffectsService;
@@ -11,7 +10,7 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_PUBLICATION_EFFECT,
+        topic = PublicationEffectMessage.TOPIC,
         selectorExpression = "SEARCH",
         consumerGroup = "video_publication_search",
         maxReconsumeTimes = 3)

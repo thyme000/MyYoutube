@@ -4,8 +4,6 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.auth.chain.register.RegisterChain;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.result.Result;
@@ -17,6 +15,7 @@ import cn.diaojiahong.myyoutube.auth.domain.dto.LoginRequestDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.LoginResponseDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.RefreshTokenDTO;
 import cn.diaojiahong.myyoutube.auth.domain.dto.RegisterRequestDTO;
+import cn.diaojiahong.myyoutube.security.AuthConstants;
 import cn.diaojiahong.myyoutube.security.JwtUtil;
 import cn.diaojiahong.myyoutube.auth.service.IAuthService;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
@@ -41,6 +40,13 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @RequiredArgsConstructor
 public class AuthServiceImpl implements IAuthService {
+
+    public static final long REFRESH_TOKEN_EXPIRE_HOURS = 7 * 24L;
+    private static final String REFRESH_TOKEN_PREFIX = "user:refresh:";
+
+    public static String refreshTokenKey(String refreshToken) {
+        return REFRESH_TOKEN_PREFIX + refreshToken;
+    }
 
     private final IUserService userService;
     private final StringRedisTemplate redisTemplate;
@@ -95,11 +101,11 @@ public class AuthServiceImpl implements IAuthService {
         String userId = redisTemplate.execute(
                 REFRESH_ROTATE_SCRIPT,
                 List.of(
-                        RedisConstants.USER_REFRESH_TOKEN + refreshToken,
-                        RedisConstants.USER_REFRESH_TOKEN + newRefreshToken),
-                RedisConstants.USER_TOKEN_VER,
+                        refreshTokenKey(refreshToken),
+                        refreshTokenKey(newRefreshToken)),
+                AuthConstants.TOKEN_VER_KEY_PREFIX,
                 String.valueOf(System.currentTimeMillis()),
-                String.valueOf(RedisConstants.USER_REFRESH_TOKEN_EXPIRE * 3600));
+                String.valueOf(REFRESH_TOKEN_EXPIRE_HOURS * 3600));
 
         // USED=已用过/不存在; REVOKED=被 token-ver 作废(改密码/封号)
         if (userId == null || userId.equals("USED") || userId.equals("REVOKED")) {
@@ -118,17 +124,17 @@ public class AuthServiceImpl implements IAuthService {
     public void logout(RefreshTokenDTO refreshTokenDTO) {
         String refreshToken = refreshTokenDTO == null ? null : refreshTokenDTO.getRefreshToken();
         if (refreshToken != null && !refreshToken.isBlank()) {
-            redisTemplate.delete(RedisConstants.USER_REFRESH_TOKEN + refreshToken);
+            redisTemplate.delete(refreshTokenKey(refreshToken));
             log.debug("登出已删除刷新凭证");
         }
         return;
     }
 
     private void saveRefreshToken(String refreshToken, Long userId) {
-        String key = RedisConstants.USER_REFRESH_TOKEN + refreshToken;
+        String key = refreshTokenKey(refreshToken);
         // set 带 TTL 一步到位, 先 set 后 expire 中间崩溃会留下永不过期的凭证
         redisTemplate.opsForValue().set(key, userId + ":" + System.currentTimeMillis(),
-                RedisConstants.USER_REFRESH_TOKEN_EXPIRE, TimeUnit.HOURS);
+                REFRESH_TOKEN_EXPIRE_HOURS, TimeUnit.HOURS);
     }
 
     @Override
@@ -188,9 +194,9 @@ public class AuthServiceImpl implements IAuthService {
         // 作废该用户改密码前签发的所有 access/refresh
         // TTL 取 refresh 的 7d: 改密前签发的 token 最长活 7d, 过后 token-ver 本身也没有存在意义
         redisTemplate.opsForValue().set(
-                RedisConstants.USER_TOKEN_VER + user.getId(),
+                AuthConstants.TOKEN_VER_KEY_PREFIX + user.getId(),
                 String.valueOf(System.currentTimeMillis()),
-                RedisConstants.USER_REFRESH_TOKEN_EXPIRE, TimeUnit.HOURS);
+                REFRESH_TOKEN_EXPIRE_HOURS, TimeUnit.HOURS);
 
         log.info("用户 [{}] 重置密码成功 userId={}, 已签发凭证全部作废", forgetPasswordDTO.getUsername(), user.getId());
         return;

@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.recommend.tag;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.recommend.domain.po.Tag;
 import cn.diaojiahong.myyoutube.recommend.service.ITagService;
 import cn.diaojiahong.myyoutube.video.api.enums.VideoCategoryEnum;
@@ -29,6 +28,9 @@ public class TagPoolHolder {
 
     private static final String COMMON = "common";
     private static final String META_SEP = "|";
+    private static final String REF_KEY = "content:tag:ref";
+    private static final String POOL_PREFIX = "content:tag:pool:";
+    private static final String META_KEY = "content:tag:pool:meta";
 
     private final ITagService tagService;
     private final StringRedisTemplate redisTemplate;
@@ -37,7 +39,7 @@ public class TagPoolHolder {
     @Scheduled(initialDelay = 10_000L, fixedDelay = 600_000L)
     public void sync() {
         List<Tag> active = tagService.lambdaQuery().eq(Tag::getStatus, 1).list();
-        Map<Object, Object> meta = redisTemplate.opsForHash().entries(RedisConstants.TAG_POOL_META);
+        Map<Object, Object> meta = redisTemplate.opsForHash().entries(META_KEY);
 
         Set<String> activeSlugs = new HashSet<>(active.size());
         int added = 0;
@@ -66,24 +68,24 @@ public class TagPoolHolder {
 
     /** 新词入池: 元数据必写(否则窗口期重复建词), 热度分由打标链路 ZINCRBY 继续抬 */
     public void register(Tag tag, double score) {
-        redisTemplate.opsForHash().put(RedisConstants.TAG_POOL_META, tag.getSlug(), metaValue(tag));
+        redisTemplate.opsForHash().put(META_KEY, tag.getSlug(), metaValue(tag));
         redisTemplate.opsForZSet().add(poolKey(tag.getCategoryCode()), tag.getSlug(), score);
     }
 
     public void removeFromPool(Tag tag) {
-        redisTemplate.opsForHash().delete(RedisConstants.TAG_POOL_META, tag.getSlug());
+        redisTemplate.opsForHash().delete(META_KEY, tag.getSlug());
         redisTemplate.opsForZSet().remove(poolKey(tag.getCategoryCode()), tag.getSlug());
     }
 
     /** 引用计数双写: 全局 ZSET(tagId 计数) + 类目池 ZSET(slug 热度) */
     public void incrRefCount(Tag tag, double delta) {
-        redisTemplate.opsForZSet().incrementScore(RedisConstants.CONTENT_TAG_REF, tag.getId().toString(), delta);
+        redisTemplate.opsForZSet().incrementScore(REF_KEY, tag.getId().toString(), delta);
         redisTemplate.opsForZSet().incrementScore(poolKey(tag.getCategoryCode()), tag.getSlug(), delta);
     }
 
     /** 类目/通用 → 词库, 热度降序; key 为空串表示通用池 */
     public Map<String, List<Tag>> grouped() {
-        Map<Object, Object> meta = redisTemplate.opsForHash().entries(RedisConstants.TAG_POOL_META);
+        Map<Object, Object> meta = redisTemplate.opsForHash().entries(META_KEY);
         Map<String, List<Tag>> result = new LinkedHashMap<>();
         for (VideoCategoryEnum c : VideoCategoryEnum.values()) {
             readPool(c.getCode(), meta, result);
@@ -93,13 +95,13 @@ public class TagPoolHolder {
     }
 
     public Tag findBySlug(String slug) {
-        Object value = redisTemplate.opsForHash().get(RedisConstants.TAG_POOL_META, slug);
+        Object value = redisTemplate.opsForHash().get(META_KEY, slug);
         return value == null ? null : fromMetaValue(slug, value.toString());
     }
 
     /** 回刷用全量重建: 以 DB 实况为准重写池与元数据, 顺带校正热度漂移 */
     public void rebuildAll(List<Tag> active, Map<Long, Long> refCounts) {
-        redisTemplate.delete(RedisConstants.TAG_POOL_META);
+        redisTemplate.delete(META_KEY);
         redisTemplate.delete(poolKey(COMMON));
         for (VideoCategoryEnum c : VideoCategoryEnum.values()) {
             redisTemplate.delete(poolKey(c.getCode()));
@@ -124,12 +126,12 @@ public class TagPoolHolder {
     }
 
     private double currentRefScore(Tag tag) {
-        Double score = redisTemplate.opsForZSet().score(RedisConstants.CONTENT_TAG_REF, tag.getId().toString());
+        Double score = redisTemplate.opsForZSet().score(REF_KEY, tag.getId().toString());
         return score == null ? 0 : score;
     }
 
     private String poolKey(String categoryCode) {
-        return RedisConstants.TAG_POOL + (categoryCode == null || categoryCode.isBlank() ? COMMON : categoryCode);
+        return POOL_PREFIX + (categoryCode == null || categoryCode.isBlank() ? COMMON : categoryCode);
     }
 
     private String metaValue(Tag tag) {

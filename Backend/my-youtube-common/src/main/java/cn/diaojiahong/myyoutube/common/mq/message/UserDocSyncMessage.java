@@ -14,5 +14,7 @@ import java.io.Serializable;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserDocSyncMessage implements Serializable {
+    public static final String TAG = "user";
+
     private Long userId;
 }

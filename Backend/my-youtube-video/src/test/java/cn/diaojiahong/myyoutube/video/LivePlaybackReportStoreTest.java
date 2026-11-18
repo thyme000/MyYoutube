@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.video;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.content.report.PlaybackReportStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,7 +26,7 @@ class LivePlaybackReportStoreTest {
 
     /** 每个用例使用隔离的测试账号，key 在 @AfterEach 清理。 */
     final long userId = ThreadLocalRandom.current().nextLong(987_000_000L, 988_000_000L);
-    final String sessionKey = RedisConstants.PLAYBACK_REPORT_SESSION + userId;
+    final String sessionKey = PlaybackReportStore.sessionKey(userId);
 
     LettuceConnectionFactory connection;
     StringRedisTemplate redis;

@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.user;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -29,6 +28,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import cn.diaojiahong.myyoutube.user.api.FollowSnapshotKey;
 
 class FollowSnapshotTest {
     JdbcTemplate jdbc;
@@ -98,7 +98,7 @@ class FollowSnapshotTest {
             assertEquals(1, jdbc.queryForObject(
                     "SELECT COUNT(*) FROM user_follow WHERE follower_id=7 AND followee_id=8", Integer.class));
 
-            verify(redis, atLeastOnce()).delete(RedisConstants.FOLLOW_SNAPSHOT + 7);
+            verify(redis, atLeastOnce()).delete(FollowSnapshotKey.key(7));
         } finally {
             UserContext.removeUser();
         }
@@ -138,7 +138,7 @@ class FollowSnapshotTest {
             follows.cancelFollow(8L);
             assertEquals(0L, fansOf(8L));
 
-            verify(redis, atLeastOnce()).delete(RedisConstants.FOLLOW_SNAPSHOT + 7);
+            verify(redis, atLeastOnce()).delete(FollowSnapshotKey.key(7));
         } finally {
             UserContext.removeUser();
         }
@@ -159,7 +159,7 @@ class FollowSnapshotTest {
             assertEquals(0L, attentionOf(8L));
 
             // 移除粉丝动的是粉丝自己的关注集合
-            verify(redis).delete(RedisConstants.FOLLOW_SNAPSHOT + 8);
+            verify(redis).delete(FollowSnapshotKey.key(8));
         } finally {
             UserContext.removeUser();
         }

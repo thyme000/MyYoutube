@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.search.vector;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
 import lombok.RequiredArgsConstructor;
 import org.apache.rocketmq.client.producer.SendResult;
@@ -31,7 +30,7 @@ public class ContentVectorPublisher {
     private void send(ContentVectorMessage payload) {
         Message<ContentVectorMessage> message = MessageBuilder.withPayload(payload)
                 .setHeader(RocketMQHeaders.KEYS, payload.contentId().toString()).build();
-        SendResult result = mq.syncSend(MqConstants.TOPIC_CONTENT_VECTOR, message);
+        SendResult result = mq.syncSend(ContentVectorMessage.TOPIC, message);
         if (result == null || result.getSendStatus() != SendStatus.SEND_OK) {
             throw new IllegalStateException("向量任务未获 Broker 成功确认, contentId=" + payload.contentId());
         }

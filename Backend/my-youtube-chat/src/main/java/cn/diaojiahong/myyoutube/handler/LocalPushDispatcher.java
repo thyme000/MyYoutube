@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.handler;
 
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.push.PushEnvelope;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -14,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 
 /**
  * 推送扇出订阅端: 收到广播后推给本实例上的连接。
@@ -37,14 +37,14 @@ public class LocalPushDispatcher implements MessageListener {
             if (envelope == null || envelope.getUserId() == null) {
                 return;
             }
-            if (RedisConstants.PUSH_CHANNEL_WS.equals(channel)) {
+            if (PushFanoutPublisher.CHANNEL_WS.equals(channel)) {
                 Object payload = envelope.getPayload();
                 if (payload != null) {
                     // payload 为 String 时是已序列化的报文本体, 直接下发避免双重 JSON 编码
                     String json = payload instanceof String s ? s : JsonUtil.toJson(payload);
                     chatWebSocketHandler.sendToUser(envelope.getUserId(), json);
                 }
-            } else if (RedisConstants.PUSH_CHANNEL_SSE.equals(channel)) {
+            } else if (PushFanoutPublisher.CHANNEL_SSE.equals(channel)) {
                 if (envelope.getSignal() != null) {
                     Map<String, Object> sseBody = new java.util.HashMap<>();
                     sseBody.put("type", envelope.getSignal());
@@ -56,8 +56,8 @@ public class LocalPushDispatcher implements MessageListener {
                 }
             }
         } catch (Exception e) {
-            String kind = RedisConstants.PUSH_CHANNEL_WS.equals(channel) ? "ws"
-                    : RedisConstants.PUSH_CHANNEL_SSE.equals(channel) ? "sse" : "other";
+            String kind = PushFanoutPublisher.CHANNEL_WS.equals(channel) ? "ws"
+                    : PushFanoutPublisher.CHANNEL_SSE.equals(channel) ? "sse" : "other";
             metrics.counter(MetricNames.PUSH_DELIVERY_FAILURES, "channel", kind).increment();
             log.warn("推送事件处理失败, channel={} errorType={}", kind, e.getClass().getSimpleName());
         }

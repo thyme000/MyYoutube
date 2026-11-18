@@ -14,6 +14,8 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ChatMessageMessage {
+    public static final String TOPIC = "chat_message_topic";
+
     // 会话id
     private String conversationId;
     // 消息id

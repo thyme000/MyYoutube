@@ -11,6 +11,8 @@ import java.io.Serializable;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TranscodeTaskMessage implements Serializable {
+    public static final String TOPIC = "dynamic_transcode_topic";
+
 
     @Serial
     private static final long serialVersionUID = 1L;

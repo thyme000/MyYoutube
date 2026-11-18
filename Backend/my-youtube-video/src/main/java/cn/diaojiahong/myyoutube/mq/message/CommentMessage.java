@@ -15,6 +15,9 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class CommentMessage {
+    public static final String TOPIC = "comment_action_topic";
+    public static final String TAG = "publish";
+
     // 评论ID
     private Long commentId;
     // 接收用户ID

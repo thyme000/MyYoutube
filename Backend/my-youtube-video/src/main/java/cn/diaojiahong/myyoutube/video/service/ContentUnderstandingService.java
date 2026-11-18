@@ -5,7 +5,6 @@ import cn.diaojiahong.myyoutube.common.pipeline.PipelineEventCode;
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.media.*;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.*;
 import cn.diaojiahong.myyoutube.common.mq.message.*;
@@ -74,7 +73,7 @@ public class ContentUnderstandingService {
     }
 
     private void submit(Input input) {
-        mq.syncSend(MqConstants.TOPIC_CONTENT_SUBMITTED, new ContentSubmittedMessage(input));
+        mq.syncSend(ContentSubmittedMessage.TOPIC, new ContentSubmittedMessage(input));
         var ack = new TransactionTemplate(transaction.getTransactionManager());
         ack.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         ack.executeWithoutResult(tx -> understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>().eq(
@@ -226,7 +225,7 @@ public class ContentUnderstandingService {
     }
 
     private void requestReview(Long pipelineId) {
-        mq.syncSend(MqConstants.TOPIC_REVIEW_REQUESTED, new ReviewRequestedMessage(pipelineId));
+        mq.syncSend(ReviewRequestedMessage.TOPIC, new ReviewRequestedMessage(pipelineId));
     }
 
     public boolean retry(Long videoId) {

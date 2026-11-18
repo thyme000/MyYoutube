@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.observability;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
 import java.util.Map;
@@ -11,6 +10,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
+import cn.diaojiahong.myyoutube.common.observability.RocketMqOutboxPublisher;
 
 @org.springframework.scheduling.annotation.EnableScheduling
 @SpringBootApplication
@@ -42,7 +42,7 @@ public class ObservationApplication {
         admin.setVipChannelEnabled(false);
         try {
             admin.start();
-            admin.createTopic("TBW102", MqConstants.TOPIC_PIPELINE_EVENTS, 4, Map.of());
+            admin.createTopic("TBW102", RocketMqOutboxPublisher.TOPIC, 4, Map.of());
         } finally {
             admin.shutdown();
         }
@@ -54,7 +54,7 @@ public class ObservationApplication {
         consumer.setConsumeThreadMax(2);
         consumer.setConsumeMessageBatchMaxSize(1);
         consumer.setMaxReconsumeTimes(properties.getMaxReconsumeTimes());
-        consumer.subscribe(MqConstants.TOPIC_PIPELINE_EVENTS, "*");
+        consumer.subscribe(RocketMqOutboxPublisher.TOPIC, "*");
         PendingDlq pending = new PendingDlq(properties.getMarkerDirectory(), properties.getGroup());
         consumer.registerMessageListener(new BatchConsumer(store::ingest, message -> {
             // 高层 sendMessageBack 在 RPC 失败时会静默退化为重试消息。

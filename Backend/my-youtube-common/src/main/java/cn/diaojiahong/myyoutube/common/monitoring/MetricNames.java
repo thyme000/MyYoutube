@@ -20,10 +20,6 @@ public final class MetricNames {
     public static final String CONTENT_CACHE_WARMUP_FAILED = "myyoutube.content.cache.warmup.failed";
     public static final String CONTENT_CACHE_WARMUP_SKIPPED = "myyoutube.content.cache.warmup.skipped";
 
-    public static final String CONTENT_PLAY_COUNT_FLUSH_DURATION = "myyoutube.content.play.count.flush.duration";
-    public static final String CONTENT_PLAY_COUNT_FLUSH_PROCESSED = "myyoutube.content.play.count.flush.processed";
-    public static final String CONTENT_PLAY_COUNT_FLUSH_FAILED = "myyoutube.content.play.count.flush.failed";
-
     public static final String AUDIO_CASCADE_NOTIFICATION_FAILED = "audio.cascade.notification.failed";
     public static final String AUDIO_CASCADE_RECOVERY_FAILED = "audio.cascade.recovery.failed";
     public static final String AUDIO_INDEX_DELIVERY_FAILURES = "myyoutube.audio.index.delivery.failures";

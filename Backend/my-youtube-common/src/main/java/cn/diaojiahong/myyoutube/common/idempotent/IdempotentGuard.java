@@ -1,7 +1,6 @@
 package cn.diaojiahong.myyoutube.common.idempotent;
 
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +22,12 @@ import java.util.concurrent.ScheduledFuture;
 public class IdempotentGuard implements AutoCloseable {
     public static final long DEFAULT_LEASE_SECONDS = 30;
     public static final String DONE = "DONE";
+    public static final String KEY_PREFIX = "idempotent:";
+
+    public static String redisKey(String businessKey) {
+        return KEY_PREFIX + businessKey;
+    }
+
     private static final String RUNNING = "RUNNING:";
 
     private static final RedisScript<List> ACQUIRE = RedisScript.of(
@@ -79,7 +84,7 @@ public class IdempotentGuard implements AutoCloseable {
             throw new IllegalArgumentException("幂等 key 不能为空，执行租期必须为正数");
         }
 
-        List<String> redisKeys = keys.stream().distinct().map(key -> RedisConstants.IDEMPOTENT + key).toList();
+        List<String> redisKeys = keys.stream().distinct().map(IdempotentGuard::redisKey).toList();
         String token = RUNNING + UUID.randomUUID();
         long millis = Math.multiplyExact(leaseSeconds, 1000);
         Lease lease = new Lease(redisKeys, token, null, millis);

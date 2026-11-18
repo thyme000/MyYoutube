@@ -12,6 +12,9 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class LikeCommentMessage {
+    public static final String LIKE_TAG = "like";
+    public static final String CANCEL_LIKE_TAG = "unlike";
+
     // 点赞评论ID
     private Long commentId;
     // 点赞的用户ID

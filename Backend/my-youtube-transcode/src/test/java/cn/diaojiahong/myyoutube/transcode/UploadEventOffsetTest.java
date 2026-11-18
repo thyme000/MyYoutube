@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.transcode;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.transcode.mq.listener.MediaUploadEventListener;
 import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
 import org.apache.rocketmq.client.consumer.store.OffsetStore;
@@ -15,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
+import cn.diaojiahong.myyoutube.common.mq.message.MediaUploadEventMessage;
 
 class UploadEventOffsetTest {
     @Test
@@ -31,7 +31,7 @@ class UploadEventOffsetTest {
         RocketMQMessageListener policy = MediaUploadEventListener.class.getAnnotation(RocketMQMessageListener.class);
         var consumer = new DefaultMQPushConsumer(policy.consumerGroup());
         consumer.setConsumeFromWhere(policy.consumeFromWhere());
-        var queue = new MessageQueue(MqConstants.TOPIC_MEDIA_UPLOAD_EVENT, "broker-a", 0);
+        var queue = new MessageQueue(MediaUploadEventMessage.TOPIC, "broker-a", 0);
         OffsetStore offsets = mock(OffsetStore.class);
         when(offsets.readOffset(queue, ReadOffsetType.READ_FROM_STORE)).thenReturn(stored);
         MQAdminImpl admin = mock(MQAdminImpl.class);

@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
 import cn.diaojiahong.myyoutube.video.api.NotificationPort;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
@@ -20,7 +19,7 @@ import java.util.Optional;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_CHAT_GROUP_DELETED,
+        topic = GroupDeletedMessage.TOPIC,
         consumerGroup = "chat_group_deleted_group",
         maxReconsumeTimes = 3)
 public class ChatConversationListener implements RocketMQListener<GroupDeletedMessage> {

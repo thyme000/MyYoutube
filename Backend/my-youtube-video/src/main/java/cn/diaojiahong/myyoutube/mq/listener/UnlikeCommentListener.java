@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
@@ -11,14 +10,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.stereotype.Component;
+import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_COMMENT_ACTION,
+        topic = CommentMessage.TOPIC,
         consumerGroup = "comment_unlike_group",
-        selectorExpression = MqConstants.TAG_UNLIKE,
+        selectorExpression = LikeCommentMessage.CANCEL_LIKE_TAG,
         maxReconsumeTimes = 3)
 public class UnlikeCommentListener implements RocketMQListener<LikeCommentMessage> {
 

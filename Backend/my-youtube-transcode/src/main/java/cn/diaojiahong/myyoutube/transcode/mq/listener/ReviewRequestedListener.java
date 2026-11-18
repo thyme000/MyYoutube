@@ -1,5 +1,4 @@
 package cn.diaojiahong.myyoutube.transcode.mq.listener;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ReviewRequestedMessage;
 import cn.diaojiahong.myyoutube.transcode.service.MediaTaskService;
 import lombok.RequiredArgsConstructor;
@@ -10,7 +9,7 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_REVIEW_REQUESTED,
+        topic = ReviewRequestedMessage.TOPIC,
         consumerGroup = "transcode_review_requested",
         maxReconsumeTimes = 3)
 public class ReviewRequestedListener implements RocketMQListener<ReviewRequestedMessage> {

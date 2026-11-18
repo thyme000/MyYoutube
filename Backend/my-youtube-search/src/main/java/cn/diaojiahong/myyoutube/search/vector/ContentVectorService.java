@@ -224,7 +224,7 @@ public class ContentVectorService {
     private void checkpoint(RebuildReport report, IdempotentGuard.Lease lease) {
         lease.checkActive();
         Long saved = redisTemplate.execute(SAVE_CHECKPOINT,
-                List.of(cn.diaojiahong.myyoutube.common.constants.RedisConstants.IDEMPOTENT + REBUILD_KEY, CHECKPOINT_KEY),
+                List.of(IdempotentGuard.KEY_PREFIX + REBUILD_KEY, CHECKPOINT_KEY),
                 lease.token(), JsonUtil.toJson(report));
         if (!Long.valueOf(1).equals(saved)) throw new IllegalStateException("向量重建检查点未获确认");
     }

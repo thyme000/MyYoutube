@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.common.counter;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
@@ -37,6 +36,9 @@ public class CounterFlushService {
      * 线程数要小于连接池大小，否则会阻塞连接池。
      */
     static final int FLUSH_THREADS = 4;
+
+    /** 单轮落库处理 id 数上限，给单轮耗时设上界，保证短于锁租期。 */
+    static final int MAX_KEYS_PER_ROUND = 1000;
 
     private final CounterBuffer counterBuffer;
     private final ObjectProvider<CounterTarget> targets;
@@ -93,8 +95,8 @@ public class CounterFlushService {
         ids.addAll(counterBuffer.scanIds(CounterKeys.pendingPrefix(type)));
         List<Long> batch = new ArrayList<>();
         for (Long id : ids) {
-            if (batch.size() >= RedisConstants.COUNTER_MAX_KEYS_PER_ROUND) {
-                log.warn("计数落库单轮达上限, 剩余 id 下轮处理, type={}, limit={}", type, RedisConstants.COUNTER_MAX_KEYS_PER_ROUND);
+            if (batch.size() >= MAX_KEYS_PER_ROUND) {
+                log.warn("计数落库单轮达上限, 剩余 id 下轮处理, type={}, limit={}", type, MAX_KEYS_PER_ROUND);
                 break;
             }
             batch.add(id);

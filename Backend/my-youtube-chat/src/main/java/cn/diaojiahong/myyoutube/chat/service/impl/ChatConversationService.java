@@ -11,7 +11,6 @@ import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationMembersVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationVO;
 import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
@@ -262,7 +261,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
                 // 通知群成员会话已删除
                 memberIds.remove(userId);
                 GroupDeletedMessage message = new GroupDeletedMessage(conversationId, memberIds);
-                rocketMQTemplate.syncSend(MqConstants.TOPIC_CHAT_GROUP_DELETED, message);
+                rocketMQTemplate.syncSend(GroupDeletedMessage.TOPIC, message);
             } else {
                 // 非创建人 -> 退出群
                 c.and("userId").is(userId);

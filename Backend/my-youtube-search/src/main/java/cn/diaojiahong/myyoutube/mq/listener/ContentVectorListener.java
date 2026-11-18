@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentVectorMessage;
 import cn.diaojiahong.myyoutube.search.vector.ContentVectorService;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +16,7 @@ import org.springframework.stereotype.Component;
         name = "enabled",
         havingValue = "true",
         matchIfMissing = true)
-@RocketMQMessageListener(topic = MqConstants.TOPIC_CONTENT_VECTOR, consumerGroup = MqConstants.GROUP_CONTENT_VECTOR,
+@RocketMQMessageListener(topic = ContentVectorMessage.TOPIC, consumerGroup = ContentVectorMessage.GROUP,
         consumeThreadNumber = 1, consumeThreadMax = 1, consumeTimeout = 5, maxReconsumeTimes = 3,
         consumeFromWhere = ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET)
 public class ContentVectorListener implements RocketMQListener<ContentVectorMessage> {

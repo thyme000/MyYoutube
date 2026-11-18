@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.RefTypeEnum;
@@ -17,9 +16,9 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_COMMENT_ACTION,
+        topic = CommentMessage.TOPIC,
         consumerGroup = "comment_publish_group",
-        selectorExpression = MqConstants.TAG_PUBLISH,
+        selectorExpression = CommentMessage.TAG,
         maxReconsumeTimes = 3)
 public class PublishCommentListener implements RocketMQListener<CommentMessage> {
 

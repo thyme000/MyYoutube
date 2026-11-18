@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.common.counter;
 
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import jakarta.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +34,12 @@ public class CounterBuffer {
 
     private static final int SCAN_COUNT = 500;
 
+    /** dirty 集合保留时长(秒)，取对账周期(1h)的 2 倍。 */
+    private static final long DIRTY_TTL_SECONDS = 7200L;
+
+    /** inflight 租期(秒)：落库任务停摆超过该时长即视为崩溃，下轮由认领脚本回补退回 pending。 */
+    private static final long INFLIGHT_TTL_SECONDS = 600L;
+
     private final StringRedisTemplate redisTemplate;
 
     /** 累加增量。不设 TTL：每轮都被认领并 DEL，不会堆积 */
@@ -50,14 +55,14 @@ public class CounterBuffer {
         redisTemplate.execute(ADD_SCRIPT,
                 List.of(CounterKeys.pending(type, id), CounterKeys.dirty(type)),
                 String.valueOf(delta), String.valueOf(id),
-                String.valueOf(RedisConstants.COUNTER_DIRTY_TTL_SECONDS));
+                String.valueOf(DIRTY_TTL_SECONDS));
     }
 
     /** 认领：返回增量，无增量返回 null */
     public Long claim(CounterType type, long id) {
         String claimed = redisTemplate.execute(CLAIM_SCRIPT,
                 List.of(CounterKeys.pending(type, id), CounterKeys.inflight(type, id)),
-                String.valueOf(RedisConstants.COUNTER_INFLIGHT_TTL_SECONDS));
+                String.valueOf(INFLIGHT_TTL_SECONDS));
         if (claimed == null) {
             return null;
         }

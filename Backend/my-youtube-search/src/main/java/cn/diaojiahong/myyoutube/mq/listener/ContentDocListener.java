@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentDocMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,9 +11,9 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_ES_DOCUMENT,
+        topic = ContentDocMessage.TOPIC,
         consumerGroup = "es_document_content_group",
-        selectorExpression = MqConstants.TAG_ES_CONTENT,
+        selectorExpression = ContentDocMessage.TAG,
         maxReconsumeTimes = 3)
 public class ContentDocListener implements RocketMQListener<ContentDocMessage> {
 

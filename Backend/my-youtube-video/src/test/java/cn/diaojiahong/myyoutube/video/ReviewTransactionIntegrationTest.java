@@ -20,7 +20,6 @@ import cn.diaojiahong.myyoutube.content.service.IContentService;
 import cn.diaojiahong.myyoutube.content.service.AudioContentAccess;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.content.service.ContentStatisticsService;
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.domain.enums.AudioReviewStatus;
@@ -382,7 +381,7 @@ class ReviewTransactionIntegrationTest {
         assertThrows(BizException.class, () -> access.readable(1L, 9L));
         assertEquals(ContentStatusEnum.PUBLISHED, contents.getById(1L).getStatus());
         ArgumentCaptor<AudioContentBanMessage> message = ArgumentCaptor.forClass(AudioContentBanMessage.class);
-        verify(mq).asyncSend(eq(MqConstants.TOPIC_AUDIO_CONTENT_BAN), message.capture(), any(SendCallback.class));
+        verify(mq).asyncSend(eq(AudioContentBanMessage.TOPIC), message.capture(), any(SendCallback.class));
         assertTrue(decisions.banByAudio(message.getValue()));
         assertFalse(decisions.banByAudio(message.getValue()));
         assertEquals(ContentStatusEnum.BANNED, contents.getById(1L).getStatus());
@@ -498,7 +497,7 @@ class ReviewTransactionIntegrationTest {
         assertEquals(ContentStatusEnum.REVIEW, contents.getById(1L).getStatus());
         assertEquals(0, count("content_publication_event"));
         verify(mq).asyncSend(
-                eq(MqConstants.TOPIC_AUDIO_CONTENT_BAN),
+                eq(AudioContentBanMessage.TOPIC),
                 any(AudioContentBanMessage.class),
                 any(SendCallback.class));
     }
@@ -511,7 +510,7 @@ class ReviewTransactionIntegrationTest {
         assertTrue(decisions.machine(1L, 1, verdict("PASS")));
         assertNotNull(new ContentAccessService(contentRows, audioAccess).readable(1L, 7L));
         verify(mq, never()).asyncSend(
-                eq(MqConstants.TOPIC_AUDIO_CONTENT_BAN),
+                eq(AudioContentBanMessage.TOPIC),
                 any(AudioContentBanMessage.class),
                 any(SendCallback.class));
     }
@@ -1104,7 +1103,7 @@ class ReviewTransactionIntegrationTest {
         assertTrue(events.selectById(eventId).getCompleted());
         if (obsolete == ObsoleteApproval.AUDIO_BANNED)
             verify(mq).asyncSend(
-                    eq(MqConstants.TOPIC_AUDIO_CONTENT_BAN),
+                    eq(AudioContentBanMessage.TOPIC),
                     any(AudioContentBanMessage.class),
                     any(SendCallback.class));
     }

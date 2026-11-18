@@ -13,6 +13,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MediaUploadEventMessage {
+    public static final String TOPIC = "media_upload_event_topic";
+
     private Long draftId;
     private Long userId;
     private String objectKey;

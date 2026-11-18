@@ -1,6 +1,5 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.common.constants.MqConstants;
 import cn.diaojiahong.myyoutube.common.mq.message.ContentUnderstoodMessage;
 import cn.diaojiahong.myyoutube.video.service.ContentUnderstandingService;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +10,7 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(
-        topic = MqConstants.TOPIC_CONTENT_UNDERSTOOD,
+        topic = ContentUnderstoodMessage.TOPIC,
         consumerGroup = "video_content_understood",
         maxReconsumeTimes = 3)
 public class ContentUnderstoodListener implements RocketMQListener<ContentUnderstoodMessage> {
