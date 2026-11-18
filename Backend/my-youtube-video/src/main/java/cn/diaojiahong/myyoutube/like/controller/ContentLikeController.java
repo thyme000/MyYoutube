@@ -52,18 +52,6 @@ public class ContentLikeController {
     }
 
     /**
-     * 用户不喜欢(踩过)这个内容
-     * @param contentId 内容id
-     * @return
-     */
-    @Operation(summary = "用户不喜欢(踩过)这个内容")
-    @PostMapping("/dislike/{contentId}")
-    public Result<Void> dislikeContent(@PathVariable Long contentId) {
-        contentLikeService.dislikeContent(contentId);
-        return Result.success();
-    }
-
-    /**
      * 获取用户喜欢列表
      * @param userId 用户id
      * @param pageQuery 分页查询参数

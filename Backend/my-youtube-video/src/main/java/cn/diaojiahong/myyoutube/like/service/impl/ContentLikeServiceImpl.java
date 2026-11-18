@@ -159,17 +159,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     }
 
     @Override
-    @ObservedBusiness(BusinessOperation.DISLIKE_CONTENT)
-    public void dislikeContent(Long contentId) {
-        Long userId = getUserId();
-        access.readable(contentId, userId);
-
-        // 用户不喜欢的内容默认存储在redis中
-        redisTemplate.opsForSet().add(RedisConstants.USER_DISLIKE + userId, contentId.toString());
-        redisTemplate.expire(RedisConstants.USER_DISLIKE + userId, RedisConstants.USER_DISLIKE_EXPIRE, TimeUnit.DAYS);
-    }
-
-    @Override
     public PageResult<LikedContentVO> getLikedContentList(Long userId, ContentPageQuery pageQuery) {
         Long viewerId = getUserId();
         pageQuery.mediaType();

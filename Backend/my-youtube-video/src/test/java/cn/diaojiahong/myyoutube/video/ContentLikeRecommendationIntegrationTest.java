@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
 import cn.diaojiahong.myyoutube.content.service.IContentService;
@@ -17,13 +18,13 @@ import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.like.service.IContentLikeService;
 import cn.diaojiahong.myyoutube.like.service.impl.ContentLikeServiceImpl;
 import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
-import cn.diaojiahong.myyoutube.recommend.domain.dto.BehaviorDTO;
-import cn.diaojiahong.myyoutube.recommend.domain.enums.EventEnum;
+import cn.diaojiahong.myyoutube.recommend.mapper.ContentDislikeMapper;
 import cn.diaojiahong.myyoutube.recommend.mapper.ContentTagMapper;
 import cn.diaojiahong.myyoutube.recommend.mapper.UserVideoBehaviorMapper;
 import cn.diaojiahong.myyoutube.recommend.cf.ItemCfCalculator;
 import cn.diaojiahong.myyoutube.recommend.cf.SimComputePool;
 import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
+import cn.diaojiahong.myyoutube.recommend.service.ContentDislikeService;
 import cn.diaojiahong.myyoutube.recommend.service.IItemSimilarityService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.recommend.service.IUserVideoBehaviorService;
@@ -42,6 +43,8 @@ import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -61,11 +64,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doReturn;
@@ -74,6 +84,7 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(ContentLikeRecommendationIntegrationTest.Config.class)
 class ContentLikeRecommendationIntegrationTest {
@@ -94,7 +105,7 @@ class ContentLikeRecommendationIntegrationTest {
             factory.setMapperLocations(new ClassPathResource("mapper/UserTagPreferenceMapper.xml"),
                     new ClassPathResource("mapper/UserVideoBehaviorMapper.xml"),
                     new ClassPathResource("mapper/ItemSimilarityMapper.xml"));
-            return factory.getObject();
+            return ContentTestDatabase.sharedReads(factory.getObject());
         }
 
         @Bean
@@ -118,10 +129,14 @@ class ContentLikeRecommendationIntegrationTest {
         }
 
         @Bean
-        UserVideoBehaviorServiceImpl behaviorService(IUserTagPreferenceService preferences,
-                                                    DataSourceTransactionManager manager) {
-            return new UserVideoBehaviorServiceImpl(preferences, mock(StringRedisTemplate.class),
-                    new TransactionTemplate(manager));
+        UserVideoBehaviorServiceImpl behaviorService() {
+            return new UserVideoBehaviorServiceImpl();
+        }
+
+        @Bean
+        ContentDislikeService dislikes(ContentAccessService access, ContentDislikeMapper dislikes,
+                                       UserVideoBehaviorMapper behaviors, IUserTagPreferenceService preferences) {
+            return new ContentDislikeService(access, dislikes, behaviors, preferences);
         }
 
         @Bean
@@ -153,7 +168,7 @@ class ContentLikeRecommendationIntegrationTest {
     @Autowired private DataSource source;
     @Autowired private IContentLikeService likes;
     @Autowired private IUserTagPreferenceService preferences;
-    @Autowired private IUserVideoBehaviorService behaviorService;
+    @Autowired private ContentDislikeService dislikes;
     @Autowired private UserVideoBehaviorMapper behaviors;
     @Autowired private IItemSimilarityService similarityService;
     @Autowired private CounterBuffer counterBuffer;
@@ -167,8 +182,9 @@ class ContentLikeRecommendationIntegrationTest {
         UserContext.setUser("9");
         reset(counterBuffer);
         reset(access);
+        when(access.readable(anyLong(), anyLong())).thenReturn(new Content().setAuthorId(8L));
         jdbc = new JdbcTemplate(source);
-        String[] tables = {"content_like", "content_tag", "user_tag_preference", "user_video_behavior",
+        String[] tables = {"content_like", "content_tag", "user_tag_preference", "user_video_behavior", "content_dislike",
                 "item_similarity"};
         ContentTestDatabase.drop(jdbc, tables);
         String schema = Files.readString(Path.of("../../resources/schema.sql"));
@@ -247,14 +263,22 @@ class ContentLikeRecommendationIntegrationTest {
     }
 
     @Test
-    void createdAtComesFromTheDatabaseWhenNoTimeIsReported() {
-        BehaviorDTO dto = new BehaviorDTO();
-        dto.setContentId(3L);
-        // FINISH 不触发 Redis 收尾分支, 只走落库路径
-        dto.setEvent(EventEnum.FINISH);
-        dto.setWatchDuration(5000L);
+    void authorCannotDislikeOwnContent() {
+        jdbc.update("INSERT INTO content_tag (content_id, tag_id) VALUES (3, 20)");
+        when(access.readable(3L, 9L)).thenReturn(new Content().setAuthorId(9L));
 
-        behaviorService.report(dto);
+        BizException error = assertThrows(BizException.class, () -> dislikes.mark(9L, 3L, 5_000L));
+
+        assertEquals(ErrorCode.INVALID_ARGUMENT, error.getErrorCode());
+        assertEquals("不能对自己的内容标记不感兴趣", error.getMessage());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM content_dislike", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_video_behavior", Integer.class));
+        assertTrue(scores().isEmpty());
+    }
+
+    @Test
+    void createdAtComesFromTheDatabaseWhenNoTimeIsReported() {
+        dislikes.mark(9L, 3L, 5_000L);
 
         LocalDateTime createdAt = jdbc.queryForObject(
                 "SELECT created_at FROM user_video_behavior WHERE user_id = 9 AND content_id = 3",
@@ -263,6 +287,55 @@ class ContentLikeRecommendationIntegrationTest {
         LocalDateTime now = LocalDateTime.now();
         assertTrue(createdAt.isAfter(now.minusMinutes(1)));
         assertTrue(createdAt.isBefore(now.plusMinutes(1)));
+    }
+
+    @Test
+    void dislikeDeductsOncePerCooldownAndExpiredRowsStopFiltering() {
+        jdbc.update("INSERT INTO content_tag (content_id, tag_id) VALUES (3, 20), (3, 30), (4, 40)");
+        long firstExpiry = dislikes.mark(9L, 3L, 5_000L);
+        assertEquals(firstExpiry, dislikes.mark(9L, 3L, 9_000L));
+        assertEquals(firstExpiry, dislikes.activeExpiry(9L, 3L));
+        assertEquals(List.of(-4, -4), scores());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM user_video_behavior", Integer.class));
+
+        jdbc.update("UPDATE content_dislike SET expires_at = 0 WHERE user_id = 9 AND content_id = 3");
+        dislikes.mark(9L, 4L, null);
+        assertEquals(List.of(4L), dislikes.activeContentIds(9L));
+        assertEquals(List.of(), dislikes.activeContentIds(10L));
+        assertNull(dislikes.activeExpiry(9L, 3L));
+
+        long renewedExpiry = dislikes.mark(9L, 3L, 6_000L);
+        assertEquals(renewedExpiry, dislikes.activeExpiry(9L, 3L));
+        assertEquals(List.of(-8, -8, -4), scores());
+        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM user_video_behavior", Integer.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void concurrentDislikesReuseOneCooldownAndDeductOnce(boolean expired) throws Exception {
+        jdbc.update("INSERT INTO content_tag (content_id, tag_id) VALUES (3, 20)");
+        if (expired) {
+            jdbc.update("INSERT INTO content_dislike (user_id, content_id, expires_at) VALUES (9, 3, 0)");
+        }
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Long> first = executor.submit(() -> {
+                start.await();
+                return dislikes.mark(9L, 3L, 5_000L);
+            });
+            Future<Long> second = executor.submit(() -> {
+                start.await();
+                return dislikes.mark(9L, 3L, 9_000L);
+            });
+            start.countDown();
+
+            assertEquals(first.get(5, TimeUnit.SECONDS), second.get(5, TimeUnit.SECONDS));
+            assertEquals(List.of(-4), scores());
+            assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM user_video_behavior", Integer.class));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

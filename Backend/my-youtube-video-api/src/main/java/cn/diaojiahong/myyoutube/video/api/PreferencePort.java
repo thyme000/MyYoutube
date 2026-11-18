@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import java.util.List;
 
 /**
- * video 服务对外契约: 用户标签偏好(推荐打分用)
+ * video 服务对外契约: 用户推荐偏好
  */
 @FeignClient(name = "my-youtube-video-service", contextId = "preferencePort",
         path = "/internal/preference", url = "${my-youtube.video-service.url:}")
@@ -20,6 +20,9 @@ public interface PreferencePort {
     @GetMapping("/top")
     List<TagPreferenceSummary> topPreferences(@RequestParam("userId") Long userId,
                                               @RequestParam(value = "limit", defaultValue = "20") int limit);
+
+    @GetMapping("/disliked-ids")
+    List<Long> activeDislikedIds(@RequestParam("userId") Long userId);
 
     @Data
     @NoArgsConstructor

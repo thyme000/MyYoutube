@@ -20,8 +20,6 @@ public interface IContentLikeService extends IService<ContentLike> {
 
     void cancelLikeContent(Long contentId);
 
-    void dislikeContent(Long contentId);
-
     PageResult<LikedContentVO> getLikedContentList(Long userId, ContentPageQuery pageQuery);
 
     Boolean getLikeStatus(Long contentId);
