@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class SkyWalkingTraceIdSourceTest {
     @Test
     void providerIsDiscoverable() {
-        List<Class<? extends TraceIdSource>> providers = ServiceLoader.load(TraceIdSource.class)
+        List<?> providers = ServiceLoader.load(TraceIdSource.class)
                 .stream()
                 .map(ServiceLoader.Provider::type)
                 .toList();
