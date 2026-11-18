@@ -43,13 +43,9 @@ public class PrivateConversationNotifyStrategy extends AbstractConversationNotif
             return;
         }
         Long receiverId = memberIds.get(0);
-        if (isMuted(conversation.getId(), receiverId)) {
-            // 开启免打扰 -> 不通知
-            return;
-        }
-
         boolean send = isSendEvent(message);
-        if (isKnownEvent(message)) {
+        // 免打扰只跳过推送。未读和最近同步时间仍要落下，与群聊一致。
+        if (isKnownEvent(message) && !isMuted(conversation.getId(), receiverId)) {
             String avatarUrl = storageUtil.signGetUrl(sender.getAvatarUrl(), AVATAR_EXPIRE_SECONDS);
             String json;
             if (send) {
