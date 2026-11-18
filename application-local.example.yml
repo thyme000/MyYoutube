@@ -39,10 +39,6 @@ spring:
       port: ${REDIS_PORT:6379}
       # Compose 中 Redis 密码固定为 123456；改密码需同步修改 Compose。
       password: ${REDIS_PASSWORD:123456}
-    mongodb:
-      # chat 使用；账号与 .env 中 MONGO_USERNAME/MONGO_PASSWORD 保持一致。
-      # 密码含 URI 保留字符时须 URL 编码；本机单节点副本集直连，认证库为 admin。
-      uri: ${MONGODB_URI:mongodb://root:mongo123456@localhost:27017/chat_db?authSource=admin&replicaSet=rs0&directConnection=true}
 
   elasticsearch:
     # search 使用；Compose 将容器 9200 映射到宿主机 9201。
