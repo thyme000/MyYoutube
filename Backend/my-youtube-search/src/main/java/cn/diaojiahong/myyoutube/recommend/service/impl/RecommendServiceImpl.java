@@ -5,27 +5,26 @@ import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
-import cn.diaojiahong.myyoutube.common.constants.RedisConstants;
 import cn.diaojiahong.myyoutube.video.api.CfRecommendPort;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
 import cn.diaojiahong.myyoutube.video.api.PreferencePort;
+import cn.diaojiahong.myyoutube.video.api.ViewHistoryPort;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.Time;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScore;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreMode;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.SearchHits;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -34,6 +33,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -44,8 +44,12 @@ public class RecommendServiceImpl implements IRecommendService {
     private static final String HOT_DECAY_SCALE = "7d";
     private static final String HOT_DECAY_OFFSET = "1d";
 
-    /** 推荐召回封顶: 深翻页时 from+size 不得越过 ES max_result_window(默认 10000) */
+    /** 每路参与融合的候选上限。 */
     private static final int RECALL_CAP = 1000;
+    private static final int RECALL_BATCH_SIZE = 500;
+    private static final int ES_RESULT_WINDOW = 10_000;
+    private static final Sort SCORE_ORDER = Sort.by(Sort.Order.desc("_score"), Sort.Order.desc("id"));
+    private static final Sort RECENT_ORDER = Sort.by(Sort.Order.desc("createTime"), Sort.Order.desc("id"));
 
     /** 融合来源位标记: 一个候选可同时被多路召回 */
     private static final int SOURCE_TAG = 1;
@@ -54,10 +58,10 @@ public class RecommendServiceImpl implements IRecommendService {
 
     private final PreferencePort preferencePort;
     private final ElasticsearchOperations elasticsearchOperations;
-    private final StringRedisTemplate redisTemplate;
     private final FollowPort followPort;
     private final CfRecommendPort cfRecommendPort;
-    private final io.micrometer.core.instrument.MeterRegistry metrics;
+    private final ViewHistoryPort viewHistoryPort;
+    private final MeterRegistry metrics;
 
     /** CF 路开关: 关闭后退回 tag+热度两路 */
     @Value("${my-youtube.recommend.cf.enabled:true}")
@@ -92,25 +96,19 @@ public class RecommendServiceImpl implements IRecommendService {
         // 客户端分页参数不可信: page<1 会让 PageRequest.of 抛参数异常
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, size);
-        Set<String> excludeIds = excludedContentIds(userId);
-        // 召回统一从第 0 页取前 min(需求量, 封顶) 条, 由切片负责分页, ES 窗口不随页码增长
-        int needed = Math.min(safePage * safeSize, RECALL_CAP);
+        Set<String> dislikedIds = dislikedContentIds(userId);
+        int needed = (int) Math.min((long) safePage * safeSize, RECALL_CAP);
 
         // tag 偏好路: 无偏好(新用户)时整路跳过, 由热度路兜底
         List<Long> tagRoute = List.of();
         List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
         if (!preferences.isEmpty()) {
-            tagRoute = searchIds(tagRouteQuery(
-                    userId,
-                    type,
-                    category,
-                    preferences,
-                    excludeIds,
-                    PageRequest.of(0, needed)));
+            NativeQuery query = tagRouteQuery(userId, type, category, preferences, dislikedIds);
+            tagRoute = recallUnviewed(query, userId, needed);
         }
 
         // 热度路: content 互动计数 + 时间衰减, 零标签的动态也天然进池
-        List<Long> hotRoute = searchIds(hotRouteQuery(userId, type, category, excludeIds, PageRequest.of(0, needed)));
+        List<Long> hotRoute = recallUnviewed(hotRouteQuery(userId, type, category, dislikedIds), userId, needed);
 
         // CF 路: 协同过滤扩散候选, 回 ES 过滤失效内容; 失败或无行为时退回两路
         List<Long> cfRoute = List.of();
@@ -118,9 +116,9 @@ public class RecommendServiceImpl implements IRecommendService {
         if (cfEnabled) {
             try {
                 CfRecommendPort.CfCandidates candidates = cfRecommendPort.candidates(
-                        new CfRecommendPort.CfCandidatesQuery(userId, type, needed));
+                        new CfRecommendPort.CfCandidatesQuery(userId, type, RECALL_CAP));
                 cfAlgorithm = candidates.getAlgorithm();
-                cfRoute = filterCfCandidates(candidates.getContentIds(), userId, type, category, excludeIds);
+                cfRoute = filterCfCandidates(candidates.getContentIds(), userId, type, category, dislikedIds, needed);
             } catch (Exception e) {
                 metrics.counter(MetricNames.RECOMMEND_FALLBACKS, "strategy", "cf").increment();
                 log.warn("CF 召回失败, 本轮退回 tag+热度两路 userId={}", userId, e);
@@ -140,19 +138,14 @@ public class RecommendServiceImpl implements IRecommendService {
                 .toList();
         logFusion(userId, type, safePage, tagRoute, hotRoute, cfRoute, cfAlgorithm, sources, ordered);
 
-        int from = (safePage - 1) * safeSize;
-        if (from >= ordered.size()) {
-            return List.of();
-        }
-
-        return ordered.subList(from, Math.min(from + safeSize, ordered.size()));
+        return page(ordered, safePage, safeSize);
     }
 
     /**
      * CF 候选回 ES 套用统一过滤(published/公开/类型/非已看已踩), 命中者按 CF 原排序保留
      */
     private List<Long> filterCfCandidates(List<Long> candidateIds, Long userId, String type, String category,
-                                          Set<String> excludeIds) {
+                                          Set<String> dislikedIds, int needed) {
         if (candidateIds == null || candidateIds.isEmpty()) {
             return List.of();
         }
@@ -160,14 +153,15 @@ public class RecommendServiceImpl implements IRecommendService {
         List<String> ids = candidateIds.stream().map(String::valueOf).toList();
         NativeQuery query = NativeQuery.builder()
                 .withQuery(q -> q.bool(b -> {
-                    applyCommonFilters(b, userId, type, category, excludeIds);
+                    applyCommonFilters(b, userId, type, category, dislikedIds);
                     b.must(m -> m.ids(i -> i.values(ids)));
                     return b;
                 }))
                 .withPageable(PageRequest.of(0, candidateIds.size()))
                 .build();
         Set<Long> alive = new HashSet<>(searchIds(query));
-        return candidateIds.stream().filter(alive::contains).toList();
+        List<Long> eligible = candidateIds.stream().filter(alive::contains).toList();
+        return unviewed(userId, eligible).stream().limit(needed).toList();
     }
 
     private void addRoute(Map<Long, Double> fused, Map<Long, Integer> sources,
@@ -204,7 +198,7 @@ public class RecommendServiceImpl implements IRecommendService {
      */
     private NativeQuery tagRouteQuery(Long userId, String type, String category,
                                       List<PreferencePort.TagPreferenceSummary> preferences,
-                                      Set<String> excludeIds, Pageable pageable) {
+                                      Set<String> dislikedIds) {
         List<FunctionScore> functions = new ArrayList<>();
         // 关注作者加权(个性化信号之一)
         for (Long fid : followPort.getFollowIds(userId)) {
@@ -222,25 +216,24 @@ public class RecommendServiceImpl implements IRecommendService {
 
         return NativeQuery.builder()
                 .withQuery(q -> q.functionScore(fs -> fs.query(inner -> inner.bool(b -> {
-                            applyCommonFilters(b, userId, type, category, excludeIds);
+                            applyCommonFilters(b, userId, type, category, dislikedIds);
                             return b;
                         }))
                         .functions(functions)
                         .scoreMode(FunctionScoreMode.Sum)
                         .boostMode(FunctionBoostMode.Replace)
                 ))
-                .withPageable(pageable)
+                .withSort(SCORE_ORDER)
                 .build();
     }
 
     /**
      * 热度路: likeCount/playCount 计分 + 发布时间高斯衰减
      */
-    private NativeQuery hotRouteQuery(Long userId, String type, String category,
-                                      Set<String> excludeIds, Pageable pageable) {
+    private NativeQuery hotRouteQuery(Long userId, String type, String category, Set<String> dislikedIds) {
         return NativeQuery.builder()
                 .withQuery(q -> q.functionScore(fs -> fs.query(inner -> inner.bool(b -> {
-                            applyCommonFilters(b, userId, type, category, excludeIds);
+                            applyCommonFilters(b, userId, type, category, dislikedIds);
                             return b;
                         }))
                         .functions(List.of(
@@ -263,12 +256,12 @@ public class RecommendServiceImpl implements IRecommendService {
                         .scoreMode(FunctionScoreMode.Sum)
                         .boostMode(FunctionBoostMode.Replace)
                 ))
-                .withPageable(pageable)
+                .withSort(SCORE_ORDER)
                 .build();
     }
 
     private void applyCommonFilters(co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery.Builder b,
-                                    Long userId, String type, String category, Set<String> excludeIds) {
+                                    Long userId, String type, String category, Set<String> dislikedIds) {
         b.must(m -> m.term(t -> t.field("status").value("published")));
         if (type != null && !type.isBlank()) {
             // 独立类型流: 三路召回统一限定类型
@@ -277,25 +270,51 @@ public class RecommendServiceImpl implements IRecommendService {
         if (category != null) {
             b.must(m -> m.term(t -> t.field("category").value(category)));
         }
-        if (!excludeIds.isEmpty()) {
-            b.mustNot(m -> m.ids(ids -> ids.values(excludeIds.stream().toList())));
+        if (!dislikedIds.isEmpty()) {
+            b.mustNot(m -> m.ids(ids -> ids.values(dislikedIds.stream().toList())));
         }
         b.mustNot(m -> m.term(t -> t.field("authorId").value(userId)));
         b.must(m -> m.term(t -> t.field("visibility").value("public")));
     }
 
-    private Set<String> excludedContentIds(Long userId) {
-        // 看过和踩过的内容不再推荐
-        Set<String> viewed = redisTemplate.opsForSet().members(RedisConstants.USER_VIEWED + userId);
-        Set<String> disliked = redisTemplate.opsForSet().members(RedisConstants.USER_DISLIKE + userId);
-        Set<String> excludeIds = new HashSet<>();
-        if (viewed != null) {
-            excludeIds.addAll(viewed);
+    private Set<String> dislikedContentIds(Long userId) {
+        if (userId == null) {
+            return Set.of();
         }
-        if (disliked != null) {
-            excludeIds.addAll(disliked);
+        return preferencePort.activeDislikedIds(userId).stream().map(String::valueOf).collect(Collectors.toSet());
+    }
+
+    private List<Long> recallUnviewed(NativeQuery query, Long userId, int needed) {
+        List<Long> result = new ArrayList<>();
+        // 从榜首累计未看候选，再按客户端页码切片，避免先分页导致后续候选无法补位。
+        for (int batch = 0; batch < ES_RESULT_WINDOW / RECALL_BATCH_SIZE && result.size() < needed; batch++) {
+            query.setPageable(PageRequest.of(batch, RECALL_BATCH_SIZE));
+            List<Long> candidates = searchIds(query);
+            List<Long> eligible = unviewed(userId, candidates);
+            int count = Math.min(needed - result.size(), eligible.size());
+            result.addAll(eligible.subList(0, count));
+            if (candidates.size() < RECALL_BATCH_SIZE) {
+                break;
+            }
         }
-        return excludeIds;
+        return result;
+    }
+
+    private List<Long> unviewed(Long userId, List<Long> candidates) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        List<Long> viewedIds = viewHistoryPort.viewedIds(new ViewHistoryPort.Candidates(userId, candidates));
+        Set<Long> viewed = new HashSet<>(viewedIds);
+        return candidates.stream().filter(id -> !viewed.contains(id)).toList();
+    }
+
+    private List<Long> page(List<Long> ids, int page, int size) {
+        long from = (long) (page - 1) * size;
+        if (from >= ids.size()) {
+            return List.of();
+        }
+        return ids.subList((int) from, (int) Math.min(from + size, ids.size()));
     }
 
     private List<Long> searchIds(NativeQuery query) {
@@ -316,11 +335,11 @@ public class RecommendServiceImpl implements IRecommendService {
             return List.of();
         }
 
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, size);
+        int needed = (int) Math.min((long) safePage * safeSize, ES_RESULT_WINDOW);
         List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
-
-        Pageable pageable = PageRequest.of(Math.max(1, page) - 1, Math.max(1, size));
-
-        Set<String> excludeIds = excludedContentIds(userId);
+        Set<String> dislikedIds = dislikedContentIds(userId);
 
         // 把 followIds 转为 ES terms 需要的 FieldValue 列表
         List<FieldValue> followFieldValues = followIds.stream()
@@ -338,14 +357,13 @@ public class RecommendServiceImpl implements IRecommendService {
                         b.must(m -> m.terms(t -> t.field("authorId")
                                 .terms(tv -> tv.value(followFieldValues))
                         ));
-                        if (!excludeIds.isEmpty()) {
-                            b.mustNot(m -> m.ids(ids -> ids.values(excludeIds.stream().toList())));
+                        if (!dislikedIds.isEmpty()) {
+                            b.mustNot(m -> m.ids(ids -> ids.values(dislikedIds.stream().toList())));
                         }
                         b.must(m -> m.term(t -> t.field("visibility").value("public")));
                         return b;
                     }))
-                    .withSort(Sort.by(Sort.Order.desc("createTime")))
-                    .withPageable(pageable)
+                    .withSort(RECENT_ORDER)
                     .build();
         } else {
             // 有偏好 → 限定关注作者 + 标签偏好打分
@@ -362,8 +380,8 @@ public class RecommendServiceImpl implements IRecommendService {
                                 b.must(m -> m.terms(t -> t.field("authorId")
                                         .terms(tv -> tv.value(followFieldValues))
                                 ));
-                                if (!excludeIds.isEmpty()) {
-                                    b.mustNot(m -> m.ids(ids -> ids.values(excludeIds.stream().toList())));
+                                if (!dislikedIds.isEmpty()) {
+                                    b.mustNot(m -> m.ids(ids -> ids.values(dislikedIds.stream().toList())));
                                 }
                                 b.must(m -> m.term(t -> t.field("visibility").value("public")));
                                 return b;
@@ -372,10 +390,10 @@ public class RecommendServiceImpl implements IRecommendService {
                             .scoreMode(FunctionScoreMode.Sum)
                             .boostMode(FunctionBoostMode.Replace)
                     ))
-                    .withPageable(pageable)
+                    .withSort(SCORE_ORDER)
                     .build();
         }
 
-        return searchIds(query);
+        return page(recallUnviewed(query, userId, needed), safePage, safeSize);
     }
 }

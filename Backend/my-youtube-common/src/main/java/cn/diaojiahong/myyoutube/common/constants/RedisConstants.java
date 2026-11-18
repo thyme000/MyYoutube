@@ -28,15 +28,6 @@ public class RedisConstants {
         return VIDEO_PLAY_COUNT + shard;
     }
 
-    // 用户看过的视频id
-    public static final String USER_VIEWED = "user:viewed:";
-    // 30天后过期
-    public static final Long USER_VIEWED_EXPIRE = 30L;
-    // 用户踩过的视频id
-    public static final String USER_DISLIKE = "user:dislike:";
-    // 60天后过期
-    public static final Long USER_DISLIKE_EXPIRE = 60L;
-
     // 标签被内容引用的次数 ZSET, member=tagId; 打标链路维护, 热门标签榜数据源
     public static final String CONTENT_TAG_REF = "content:tag:ref";
 
