@@ -9,7 +9,7 @@ import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import org.springframework.data.mongodb.core.MongoTemplate;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatUserConversationMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -24,8 +24,8 @@ public class GroupConversationNotifyStrategy extends AbstractConversationNotifyS
 
     protected GroupConversationNotifyStrategy(PushFanoutPublisher pushFanoutPublisher,
                                               S3StorageUtil storageUtil,
-                                              MongoTemplate mongoTemplate) {
-        super(pushFanoutPublisher, storageUtil, mongoTemplate);
+                                              ChatUserConversationMapper userConversationMapper) {
+        super(pushFanoutPublisher, storageUtil, userConversationMapper);
     }
 
     @Override

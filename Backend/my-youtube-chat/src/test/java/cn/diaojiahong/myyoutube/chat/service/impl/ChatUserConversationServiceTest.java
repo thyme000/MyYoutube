@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
+import cn.diaojiahong.myyoutube.chat.mapper.ChatConversationMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatUserConversationMapper;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ValidUserConversationVO;
@@ -7,24 +9,24 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.query.Query;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class ChatUserConversationServiceTest {
     @Test
     void excludesFilteredAndMissingConversationsWithoutDereferencingThem() {
-        MongoTemplate mongo = mock(MongoTemplate.class);
+        ChatUserConversationMapper memberships = mock(ChatUserConversationMapper.class);
+        ChatConversationMapper conversations = mock(ChatConversationMapper.class);
         S3StorageUtil storage = mock(S3StorageUtil.class);
-        ChatUserConversationService service = new ChatUserConversationService(mongo, storage, mock(UserPort.class));
+        ChatUserConversationService service = new ChatUserConversationService(
+                memberships, conversations, storage, mock(UserPort.class));
         ChatUserConversationDoc blocked = membership("blocked");
         ChatUserConversationDoc missing = membership("missing");
         ChatUserConversationDoc allowed = membership("allowed");
@@ -33,11 +35,13 @@ class ChatUserConversationServiceTest {
         ChatConversationDoc allowedGroup = new ChatConversationDoc();
         allowedGroup.setId("allowed");
         allowedGroup.setName("可发送群");
-        when(mongo.count(any(Query.class), eq(ChatUserConversationDoc.class))).thenReturn(3L);
-        when(mongo.find(any(Query.class), eq(ChatUserConversationDoc.class)))
-                .thenReturn(List.of(blocked, missing, allowed));
-        when(mongo.find(any(Query.class), eq(ChatConversationDoc.class)))
-                .thenReturn(List.of(blockedGroup), List.of(allowedGroup));
+        when(memberships.selectPage(any(), any())).thenAnswer(call -> {
+            Page<ChatUserConversationDoc> page = call.getArgument(0);
+            page.setRecords(List.of(blocked, missing, allowed));
+            page.setTotal(3);
+            return page;
+        });
+        when(conversations.selectList(any())).thenReturn(List.of(blockedGroup), List.of(allowedGroup));
         UserContext.setUser("9001");
         try {
             PageResult<ValidUserConversationVO> result = service.getValidConversations(1L, 3L);

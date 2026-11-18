@@ -1,13 +1,14 @@
 package cn.diaojiahong.myyoutube.chat.mongo.po;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.mapping.Document;
 
 @Data
-@Document("chat_conversation_seq")
+@TableName("chat_conversation_seq")
 public class ChatSeqDoc {
-    @Id
-    private String id;      // = conversationId
+    @TableId(value = "conversation_id", type = IdType.INPUT)
+    private String id;
     private Long seq;
 }

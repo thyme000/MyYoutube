@@ -1,5 +1,9 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
+import cn.diaojiahong.myyoutube.chat.mapper.ChatConversationMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatConversationSeqMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatMessageMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatUserConversationMapper;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ack.ChatMessageAckDTO;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.chat.chain.message.*;
@@ -16,8 +20,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.junit.jupiter.api.*;
-import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -34,7 +36,7 @@ class ForwardContentTest {
 
     final ForwardContentChatContentStrategy strategy = new ForwardContentChatContentStrategy(contents, storage);
 
-    final MongoTemplate mongo = mock(MongoTemplate.class);
+    final ChatMessageMapper messages = mock(ChatMessageMapper.class);
 
     final RocketMQTemplate mq = mock(RocketMQTemplate.class);
 
@@ -56,17 +58,19 @@ class ForwardContentTest {
             }
         };
         var guards = new SyncChainStepRegistry(List.of(new TypeValidateStep(registry), setupConversation,
-                new SenderIdentityStep(), new IdempotentStep(mongo)));
+                new SenderIdentityStep(), new IdempotentStep(messages)));
         TransactionTemplate tx = mock(TransactionTemplate.class);
         when(tx.execute(any()))
                 .thenAnswer(call -> call.<org.springframework.transaction.support.TransactionCallback<?>>getArgument(0).doInTransaction(null));
-        when(mongo.findById(anyString(), eq(ChatMessageDoc.class))).thenAnswer(call -> saved.get());
-        when(mongo.insert(any(ChatMessageDoc.class), eq("chat_messages"))).thenAnswer(call -> {
+        when(messages.selectById(anyString())).thenAnswer(call -> saved.get());
+        when(messages.insert(any(ChatMessageDoc.class))).thenAnswer(call -> {
             ChatMessageDoc doc = call.<ChatMessageDoc>getArgument(0);
             saved.set(doc);
-            return doc;
+            return 1;
         });
-        service = spy(new ChatMessageService(mongo, mock(ChatConversationService.class), mq,
+        service = spy(new ChatMessageService(messages, mock(ChatConversationMapper.class),
+                mock(ChatConversationSeqMapper.class), mock(ChatUserConversationMapper.class),
+                mock(ChatConversationService.class), mq,
                 mock(UserPort.class), storage, mock(StringRedisTemplate.class), contents, registry, guards, tx));
         doReturn(1L).when(service).nextSeq("conversation");
         when(contents.forwardInfo(99L, 7L)).thenReturn(new ContentInternalPort.ForwardInfo(
@@ -129,7 +133,7 @@ class ForwardContentTest {
         assertEquals(first.getMessageId(), second.getMessageId());
         assertEquals(first.getSeq(), second.getSeq());
         assertEquals("真实标题", saved.get().getContent().getTitle());
-        verify(mongo).insert(any(ChatMessageDoc.class), eq("chat_messages"));
+        verify(messages).insert(any(ChatMessageDoc.class));
         verify(contents).forwardInfo(99L, 7L);
         verify(contents).incrementShareCount(99L, 7L);
     }
@@ -147,7 +151,7 @@ class ForwardContentTest {
     void inaccessibleSourceStopsBeforeAnyMessageOrCounterWrite() {
         when(contents.forwardInfo(99L, 7L)).thenThrow(new BizException(ErrorCode.INVALID_ARGUMENT, "内容不可访问"));
         assertThrows(BizException.class, () -> service.send(request()));
-        verify(mongo, never()).insert(any(ChatMessageDoc.class), anyString());
+        verify(messages, never()).insert(any(ChatMessageDoc.class));
         verify(contents, never()).incrementShareCount(anyLong(), anyLong());
     }
 
@@ -157,7 +161,7 @@ class ForwardContentTest {
         assertThrows(IllegalStateException.class, () -> service.send(request()));
         assertEquals(MessageSendContext.messageId(7L,"client-message"), service.send(request()).getMessageId());
         verify(contents).incrementShareCount(99L, 7L);
-        verify(mongo).insert(any(ChatMessageDoc.class), eq("chat_messages"));
+        verify(messages).insert(any(ChatMessageDoc.class));
     }
 
     @Test

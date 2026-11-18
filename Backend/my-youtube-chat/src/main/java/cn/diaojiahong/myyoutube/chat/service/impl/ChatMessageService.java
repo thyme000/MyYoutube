@@ -5,6 +5,10 @@ import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.chat.chain.message.MessageSendChain;
 import cn.diaojiahong.myyoutube.chat.chain.message.MessageSendContext;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatConversationMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatConversationSeqMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatMessageMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatUserConversationMapper;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageWithdrawDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.MessageListPageQuery;
@@ -16,7 +20,6 @@ import cn.diaojiahong.myyoutube.chat.mongo.po.*;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.FindRecordVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePage;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePageVO;
-import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategy;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
@@ -31,31 +34,30 @@ import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
 import cn.hutool.core.bean.BeanUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.mongodb.core.FindAndModifyOptions;
-import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.stereotype.Service;
-import org.springframework.data.mongodb.core.query.Update;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 
 @Slf4j
 @Service
-public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
+@RequiredArgsConstructor
+public class ChatMessageService {
 
     private static final Long STORAGE_EXPIRE = 3600L * 10;
     public static final long NON_MUTUAL_MESSAGE_WINDOW_DAYS = 1L;
@@ -64,6 +66,10 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         return "user:conversation:" + userId;
     }
 
+    private final ChatMessageMapper messageMapper;
+    private final ChatConversationMapper conversationMapper;
+    private final ChatConversationSeqMapper seqMapper;
+    private final ChatUserConversationMapper userConversationMapper;
     private final ChatConversationService chatConversationService;
     private final RocketMQTemplate rocketMQTemplate;
     private final UserPort userPort;
@@ -72,58 +78,28 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     private final ContentInternalPort contentInternalPort;
     private final ChatContentTypeStrategyRegistry contentTypeStrategies;
     private final SyncChainStepRegistry chainRegistry;
-    private final TransactionTemplate mongoTransactionTemplate;
-
-    public ChatMessageService(MongoTemplate mongoTemplate,
-                              ChatConversationService chatConversationService,
-                              RocketMQTemplate rocketMQTemplate,
-                              UserPort userPort,
-                              S3StorageUtil storageUtil,
-                              StringRedisTemplate redisTemplate,
-                              ContentInternalPort contentInternalPort,
-                              ChatContentTypeStrategyRegistry contentTypeStrategies,
-                              SyncChainStepRegistry chainRegistry,
-                              TransactionTemplate mongoTransactionTemplate) {
-        super(mongoTemplate, ChatMessageDoc.class);
-        this.chatConversationService = chatConversationService;
-        this.rocketMQTemplate = rocketMQTemplate;
-        this.userPort = userPort;
-        this.storageUtil = storageUtil;
-        this.redisTemplate = redisTemplate;
-        this.contentInternalPort = contentInternalPort;
-        this.contentTypeStrategies = contentTypeStrategies;
-        this.chainRegistry = chainRegistry;
-        this.mongoTransactionTemplate = mongoTransactionTemplate;
-    }
+    private final TransactionTemplate transactionTemplate;
 
     public Optional<ChatMessageDoc> findByIdempotent(Long senderId, String clientMsgId) {
-        return Optional.ofNullable(mongoTemplate.findById(
-                MessageSendContext.messageId(senderId, clientMsgId),
-                ChatMessageDoc.class));
+        return Optional.ofNullable(messageMapper.selectById(MessageSendContext.messageId(senderId, clientMsgId)));
     }
 
     public Page<ChatMessageDoc> pageByConversation(String conversationId, Long beforeSeq, int size) {
-        size = size <= 0 ? 20 : size;
-        size = Math.min(size, 100);
-        Criteria c = Criteria.where("conversationId").is(conversationId);
-        if (beforeSeq != null) {
-            c = c.and("seq").lt(beforeSeq);
-        }
-        Query q = Query.query(c);
-        q.with(org.springframework.data.domain.Sort.by(Sort.Direction.DESC, "seq"));
-        return page(q, PageRequest.of(0, size));
+        int pageSize = normalizePageSize(size);
+        LambdaQueryWrapper<ChatMessageDoc> query = new LambdaQueryWrapper<ChatMessageDoc>()
+                .eq(ChatMessageDoc::getConversationId, conversationId)
+                .lt(beforeSeq != null, ChatMessageDoc::getSeq, beforeSeq)
+                .orderByDesc(ChatMessageDoc::getSeq);
+        return messageMapper.selectPage(new Page<>(1, pageSize), query);
     }
 
     public Page<ChatMessageDoc> syncPageByConversation(String conversationId, Long beforeSeq, int size) {
-        size = size <= 0 ? 20 : size;
-        size = Math.min(size, 100);
-        Criteria c = Criteria.where("conversationId").is(conversationId);
-        if (beforeSeq != null) {
-            c = c.and("seq").gt(beforeSeq);
-        }
-        Query q = Query.query(c);
-        q.with(org.springframework.data.domain.Sort.by(Sort.Direction.ASC, "seq"));
-        return page(q, PageRequest.of(0, size));
+        int pageSize = normalizePageSize(size);
+        LambdaQueryWrapper<ChatMessageDoc> query = new LambdaQueryWrapper<ChatMessageDoc>()
+                .eq(ChatMessageDoc::getConversationId, conversationId)
+                .gt(beforeSeq != null, ChatMessageDoc::getSeq, beforeSeq)
+                .orderByAsc(ChatMessageDoc::getSeq);
+        return messageMapper.selectPage(new Page<>(1, pageSize), query);
     }
 
     @ObservedBusiness(BusinessOperation.SEND_MESSAGE)
@@ -154,12 +130,14 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         String senderNickname = isGroup ? userPort.getUser(Long.valueOf(userId)).getNickname() : null;
         ChatMessageDoc existing;
         try {
-            existing = mongoTransactionTemplate.execute(tx -> {
+            existing = transactionTemplate.execute(tx -> {
                 ChatMessageDoc old = findByIdempotent(chatMessageDoc.getSenderId(), chatMessageDoc.getClientMsgId())
                         .orElse(null);
-                if (old != null) return old;
+                if (old != null) {
+                    return old;
+                }
                 chatMessageDoc.setSeq(nextSeq(conversationId));
-                mongoTemplate.insert(chatMessageDoc, "chat_messages");
+                messageMapper.insert(chatMessageDoc);
                 // 设置会话最后消息
                 chatConversationDoc.setLastMessageAt(chatMessageDoc.getCreatedAt());
                 chatConversationDoc.setLastMessageId(chatMessageDoc.getId());
@@ -173,20 +151,25 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                 if (isGroup) {
                     chatConversationDoc.setLastMessageSenderNickname(senderNickname);
                 }
-                mongoTemplate.save(chatConversationDoc, "chat_conversations");
+                chatConversationDoc.setUpdatedAt(LocalDateTime.now());
+                conversationMapper.updateById(chatConversationDoc);
                 return null;
             });
         } catch (DuplicateKeyException duplicate) {
             existing = findByIdempotent(chatMessageDoc.getSenderId(), chatMessageDoc.getClientMsgId()).orElse(null);
-            if (existing == null) throw duplicate;
+            if (existing == null) {
+                throw duplicate;
+            }
         }
         if (existing != null) {
-            if (!conversationId.equals(existing.getConversationId()))
+            if (!conversationId.equals(existing.getConversationId())) {
                 throw new BizException(ErrorCode.STATE_CONFLICT, "会话id不一致");
+            }
             return getAck(existing, existing.getStatus());
         }
-        if (chatMessageDoc.getContentType().isForward())
+        if (chatMessageDoc.getContentType().isForward()) {
             incrementShareCountQuietly(chatMessageDoc.getContent().getContentId(), Long.valueOf(userId));
+        }
         // ack 与推送报文依赖 save 后的 messageId/seq, 必须在提交后构建
         ChatMessageAckDTO chatMessageAckDTO = getAck(chatMessageDoc, MessageStatusEnum.SENT);
         ChatMessageMessage ch = ChatMessageMessage.builder().senderId(chatMessageDoc.getSenderId())
@@ -219,14 +202,8 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     }
 
     public long nextSeq(String conversationId) {
-        Query q = Query.query(Criteria.where("_id").is(conversationId));
-        Update up = new Update().inc("seq", 1);
-        FindAndModifyOptions opts = new FindAndModifyOptions()
-                .returnNew(true)
-                // 返回更新后的文档
-                .upsert(true);     // 没有则创建 _id，seq 从 0 变 1（首次 inc）
-        ChatSeqDoc doc = mongoTemplate.findAndModify(q, up, opts, ChatSeqDoc.class);
-        return doc.getSeq();
+        seqMapper.allocate(conversationId);
+        return seqMapper.lastAllocated();
     }
 
     private String getUserId() {
@@ -265,14 +242,6 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             return getAck(chatMessageDoc, chatMessageDoc.getStatus());
         }
 
-        Criteria c = Criteria.where("conversationId")
-                .is(chatMessageDoc.getConversationId())
-                .and("id")
-                .is(chatMessageDoc.getId());
-        Update up = new Update()
-                .set("recalled", true)
-                .set("recalledAt", recallTime)
-                .set("status", MessageStatusEnum.WITHDRAWN);
         Long operatorId = Long.valueOf(userId);
         // 必须先判断「本人撤自己」：群主也是 createdBy，否则会被误判为 ADMIN
         RecallTypeEnum recallTypeForMq;
@@ -285,20 +254,24 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             if (!groupOwnerRecallOwn && chatMessageDoc.getCreatedAt().isBefore(recallTime.minusMinutes(2))) {
                 throw new BizException(ErrorCode.STATE_CONFLICT, "消息已发送超过2分钟,不能撤回");
             }
-            up.set("recallType", RecallTypeEnum.SENDER);
             recallTypeForMq = RecallTypeEnum.SENDER;
         } else if (createdBy != null && createdBy.equals(operatorId)) {
             // 群主撤回他人消息
-            up.set("recallType", RecallTypeEnum.ADMIN);
             recallTypeForMq = RecallTypeEnum.ADMIN;
         } else {
             throw new BizException(ErrorCode.FORBIDDEN, "无法确定撤回类型");
         }
-        mongoTransactionTemplate.executeWithoutResult(tx -> {
-            mongoTemplate.updateFirst(Query.query(c), up, ChatMessageDoc.class);
+        chatMessageDoc.setRecalled(true);
+        chatMessageDoc.setRecalledAt(recallTime);
+        chatMessageDoc.setStatus(MessageStatusEnum.WITHDRAWN);
+        chatMessageDoc.setRecallType(recallTypeForMq);
+        chatMessageDoc.setUpdatedAt(recallTime);
+        transactionTemplate.executeWithoutResult(tx -> {
+            messageMapper.updateById(chatMessageDoc);
             // 设置会话最后消息撤回
             chatConversationDoc.setIsLastMessageRecall(true);
-            mongoTemplate.save(chatConversationDoc, "chat_conversations");
+            chatConversationDoc.setUpdatedAt(recallTime);
+            conversationMapper.updateById(chatConversationDoc);
         });
         // 推送消息到所有成员: 提交后发, MQ 失败不回滚撤回
         ChatMessageMessage ch = ChatMessageMessage.builder().senderId(chatMessageDoc.getSenderId())
@@ -330,22 +303,19 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                 conversationId,
                 messageListPageQuery.getSeq(),
                 messageListPageQuery.getSize());
-        List<MessagePage> result = getMessagePageVOS(page, authorNicknames, authorAvatarUrls);
+        List<MessagePage> result = getMessagePageVOS(page.getRecords(), authorNicknames, authorAvatarUrls);
         MessagePageVO vo = MessagePageVO.builder()
                 .messages(result)
-                .nextSeq(page.hasNext() ? page.getContent().get(0).getSeq() : null)
+                .nextSeq(page.hasNext() && !page.getRecords().isEmpty() ? page.getRecords().get(0).getSeq() : null)
                 .hasMore(page.hasNext())
                 .build();
         return vo;
     }
 
     private List<MessagePage> getMessagePageVOS(
-            Page<ChatMessageDoc> page,
-            Map<Long,
-            String> authorNicknames,
-            Map<Long,
-            String> authorAvatarUrls) {
-        List<ChatMessageDoc> docs = page.getContent();
+            List<ChatMessageDoc> docs,
+            Map<Long, String> authorNicknames,
+            Map<Long, String> authorAvatarUrls) {
         return docs.stream().map(doc -> {
             MessagePage vo = new MessagePage();
             vo.setSenderId(doc.getSenderId());
@@ -384,10 +354,10 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
                 conversationId,
                 messageListPageQuery.getSeq(),
                 messageListPageQuery.getSize());
-        List<MessagePage> result = getMessagePageVOS(page, authorNicknames, authorAvatarUrls);
+        List<MessagePage> result = getMessagePageVOS(page.getRecords(), authorNicknames, authorAvatarUrls);
         MessagePageVO vo = MessagePageVO.builder()
                 .messages(result)
-                .nextSeq(page.hasNext() ? page.getContent().get(0).getSeq() : null)
+                .nextSeq(page.hasNext() && !page.getRecords().isEmpty() ? page.getRecords().get(0).getSeq() : null)
                 .hasMore(page.hasNext())
                 .build();
         return vo;
@@ -402,13 +372,11 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
         }
 
-        Criteria criteria = Criteria.where("conversationId")
-                .is(conversationId)
-                .and("userId")
-                .is(Long.parseLong(getUserId()));
-        ChatUserConversationDoc chatUserConversationDoc = mongoTemplate.findOne(
-                Query.query(criteria),
-                ChatUserConversationDoc.class);
+        Long currentUserId = Long.parseLong(getUserId());
+        ChatUserConversationDoc chatUserConversationDoc = userConversationMapper.selectOne(
+                new LambdaQueryWrapper<ChatUserConversationDoc>()
+                        .eq(ChatUserConversationDoc::getConversationId, conversationId)
+                        .eq(ChatUserConversationDoc::getUserId, currentUserId));
         if (chatUserConversationDoc == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "用户会话状态不存在");
         }
@@ -418,13 +386,12 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             oldLastReadSeq = 0L;
         }
         // 取较大值，避免请求更小导致回退
-        lastReadSeq = Math.max(lastReadSeq,oldLastReadSeq);
+        lastReadSeq = Math.max(lastReadSeq, oldLastReadSeq);
         String lastMessageId = chatConversationDoc.getLastMessageId();
         if (StringUtils.isBlank(lastMessageId)) {
             lastReadSeq = Math.max(lastReadSeq, 0L);
         } else {
-            Optional<ChatMessageDoc> optional = getById(lastMessageId);
-            ChatMessageDoc lastMessageDoc = optional.orElse(null);
+            ChatMessageDoc lastMessageDoc = messageMapper.selectById(lastMessageId);
             if (lastMessageDoc == null) {
                 throw new BizException(ErrorCode.NOT_FOUND, "消息不存在");
             }
@@ -435,14 +402,14 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
             return;
         }
 
-        // 更新用户会话状态; 单文档 updateFirst 自带原子性, 不开事务
-        Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(Long.parseLong(getUserId()));
+        // 更新用户会话状态; 单行更新自带原子性, 不开事务
         int prevUnread = chatUserConversationDoc.getUnreadCount() != null ? chatUserConversationDoc.getUnreadCount() : 0;
         long seqDelta = lastReadSeq - oldLastReadSeq;
         int nextUnread = (int) Math.max(0L, (long) prevUnread - seqDelta);
-        Update up = new Update().set("lastReadSeq", lastReadSeq).set("updatedAt", LocalDateTime.now())
-                .set("unreadCount", nextUnread);
-        mongoTemplate.updateFirst(Query.query(c), up, ChatUserConversationDoc.class);
+        chatUserConversationDoc.setLastReadSeq(lastReadSeq);
+        chatUserConversationDoc.setUpdatedAt(LocalDateTime.now());
+        chatUserConversationDoc.setUnreadCount(nextUnread);
+        userConversationMapper.updateById(chatUserConversationDoc);
         // 判断是否是私聊,只有私聊才有是否已读状态,才需要推送消息
         if (!Objects.equals(chatConversationDoc.getType(), ConversationTypeEnum.SINGLE)) {
             return;
@@ -451,7 +418,7 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
         // 推送消息给对方
         Long receiverId = null;
         for (Long memberId : memberIds) {
-            if (!memberId.equals(Long.parseLong(getUserId()))) {
+            if (!memberId.equals(currentUserId)) {
                 receiverId = memberId;
                 break;
             }
@@ -493,24 +460,27 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
 
         int pn = pageNum == null || pageNum < 1 ? 1 : pageNum;
         int ps = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 50);
-        // 字面量匹配，避免 keyword 里的正则元字符出问题
-        Pattern p = Pattern.compile(Pattern.quote(kw), Pattern.CASE_INSENSITIVE);
-        Criteria c = Criteria.where("conversationId").is(conversationId)
-                .andOperator(new Criteria().orOperator(
-                        Criteria.where("content.text").regex(p),
-                        Criteria.where("content.systemText").regex(p),
-                        Criteria.where("content.fileName").regex(p)
-                )).and("recalled").ne(true);
-        Query countQ = Query.query(c);
-        long total = mongoTemplate.count(countQ, ChatMessageDoc.class);
+        String pattern = "%" + escapeLike(kw) + "%";
+        String fieldLike = "JSON_UNQUOTE(JSON_EXTRACT(content, '$.%s')) LIKE {0} ESCAPE '\\\\'";
+        LambdaQueryWrapper<ChatMessageDoc> query = new LambdaQueryWrapper<ChatMessageDoc>()
+                .eq(ChatMessageDoc::getConversationId, conversationId)
+                .and(recalled -> recalled.isNull(ChatMessageDoc::getRecalled)
+                        .or()
+                        .eq(ChatMessageDoc::getRecalled, false))
+                .and(text -> text.apply(fieldLike.formatted("text"), pattern)
+                        .or()
+                        .apply(fieldLike.formatted("systemText"), pattern)
+                        .or()
+                        .apply(fieldLike.formatted("fileName"), pattern))
+                .orderByDesc(ChatMessageDoc::getSeq);
+        Page<ChatMessageDoc> page = messageMapper.selectPage(new Page<>(pn, ps), query);
+        long total = page.getTotal();
         if (total == 0L) {
             return PageResult.of(0L, 0L, List.of());
         }
 
-        long pages = (total + ps - 1) / ps;
-        Query q = Query.query(c)
-                .with(PageRequest.of(pn - 1, ps, Sort.by(Sort.Direction.DESC, "seq")));
-        List<ChatMessageDoc> docs = mongoTemplate.find(q, ChatMessageDoc.class);
+        long pages = page.getPages();
+        List<ChatMessageDoc> docs = page.getRecords();
         List<UserSummary> members = userPort.listByIds(memberIds);
         Map<Long, String> nickMap = UserSummaries.toNicknameMap(members);
         Map<Long, String> avMap = UserSummaries.toAvatarMap(members);
@@ -536,10 +506,23 @@ public class ChatMessageService extends BaseMongoService<ChatMessageDoc> {
     // 消息已提交后计数；幂等命中在 send 入口返回，不重复执行此副作用。
     private void incrementShareCountQuietly(Long contentId, Long viewerId) {
         try {
-            if (!contentInternalPort.incrementShareCount(contentId, viewerId))
+            if (!contentInternalPort.incrementShareCount(contentId, viewerId)) {
                 log.warn("更新内容分享数失败, 计数已丢弃 contentId={}", contentId);
+            }
         } catch (Exception e) {
             log.warn("更新内容分享数异常, 计数已丢弃 contentId={}", contentId, e);
         }
+    }
+
+    private static int normalizePageSize(int size) {
+        if (size <= 0) {
+            return 20;
+        }
+        return Math.min(size, 100);
+    }
+
+    /** 会话内搜索按字面量匹配，转义 LIKE 通配符。 */
+    private static String escapeLike(String keyword) {
+        return keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

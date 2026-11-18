@@ -3,6 +3,8 @@ package cn.diaojiahong.myyoutube.chat.service.impl;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatConversationMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatUserConversationMapper;
 import cn.diaojiahong.myyoutube.chat.mongo.dto.CreateConversationDTO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.AnnouncementPublishVO;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
@@ -10,7 +12,6 @@ import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationMembersVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ConversationVO;
-import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
@@ -20,12 +21,11 @@ import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
-import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.query.Query;
-import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -33,37 +33,29 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-public class ChatConversationService extends BaseMongoService<ChatConversationDoc> {
+@RequiredArgsConstructor
+public class ChatConversationService {
 
     private static final String BIZ_PREFIX = "chat";
 
+    private final ChatConversationMapper conversationMapper;
+    private final ChatUserConversationMapper userConversationMapper;
     private final FollowPort followPort;
     private final UserPort userPort;
     private final S3StorageUtil storageUtil;
     private final RocketMQTemplate rocketMQTemplate;
     private final PushFanoutPublisher pushFanoutPublisher;
-    private final TransactionTemplate mongoTransactionTemplate;
-
-    public ChatConversationService(MongoTemplate mongoTemplate,
-                                   FollowPort followPort,
-                                   UserPort userPort,
-                                   S3StorageUtil storageUtil,
-                                   RocketMQTemplate rocketMQTemplate,
-                                   PushFanoutPublisher pushFanoutPublisher,
-                                   TransactionTemplate mongoTransactionTemplate) {
-        super(mongoTemplate, ChatConversationDoc.class);
-        this.followPort = followPort;
-        this.userPort = userPort;
-        this.storageUtil = storageUtil;
-        this.rocketMQTemplate = rocketMQTemplate;
-        this.pushFanoutPublisher = pushFanoutPublisher;
-        this.mongoTransactionTemplate = mongoTransactionTemplate;
-    }
+    private final TransactionTemplate transactionTemplate;
 
     @ObservedBusiness(BusinessOperation.CREATE_CONVERSATION)
     public ConversationVO createConversation(CreateConversationDTO createConversationDTO) {
@@ -86,20 +78,14 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             if (peerId == null || peerId.equals(userId)) {
                 throw new BizException(ErrorCode.INVALID_ARGUMENT, "不能与自己发起私聊");
             }
-            Query dup = new Query(
-                    Criteria.where("type").is(ConversationTypeEnum.SINGLE)
-                            .andOperator(
-                                    Criteria.where("memberIds").size(2),
-                                    Criteria.where("memberIds").all(userId, peerId)
-                            )
-            );
-            if (mongoTemplate.exists(dup, ChatConversationDoc.class)) {
+            if (conversationMapper.countSinglePair(userId, peerId) > 0) {
                 throw new BizException(ErrorCode.STATE_CONFLICT, "与该用户已有私聊会话");
             }
         }
         memberIds.add(userId);
         // 创建聊天会话表
         ChatConversationDoc chatConversationDoc = new ChatConversationDoc();
+        chatConversationDoc.setId(IdWorker.getIdStr());
         chatConversationDoc.setType(createConversationDTO.getType());
         chatConversationDoc.setMemberIds(memberIds);
         chatConversationDoc.setName(isSingle ? null : createConversationDTO.getName());
@@ -113,28 +99,21 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         chatConversationDoc.setLastMessagePreview(null);
         chatConversationDoc.setLastMessageSenderNickname(null);
         chatConversationDoc.setLastMessageAt(null);
-        // 创建用户会话状态表
         LocalDateTime now = LocalDateTime.now();
+        chatConversationDoc.setCreatedAt(now);
+        chatConversationDoc.setUpdatedAt(now);
+        // 创建用户会话状态表
         List<ChatUserConversationDoc> chatUserConversationDocs = new ArrayList<>();
         for (Long memberId : memberIds) {
-            ChatUserConversationDoc chatUserConversationDoc = new ChatUserConversationDoc();
-            chatUserConversationDoc.setUserId(memberId);
-            chatUserConversationDoc.setUnreadCount(0);
-            chatUserConversationDoc.setLastReadSeq(0L);
-            chatUserConversationDoc.setMute(false);
-            chatUserConversationDoc.setPin(false);
-            chatUserConversationDoc.setDeleted(false);
-            chatUserConversationDoc.setBanned(false);
-            chatUserConversationDoc.setLastPullAt(now);
-            chatUserConversationDoc.setCreatedAt(now);
-            chatUserConversationDoc.setUpdatedAt(now);
+            ChatUserConversationDoc chatUserConversationDoc = newMember(memberId, chatConversationDoc.getId(), now);
             chatUserConversationDocs.add(chatUserConversationDoc);
         }
         // 会话与成员会话状态要么都在要么都不在
-        mongoTransactionTemplate.executeWithoutResult(tx -> {
-            save(chatConversationDoc);
-            chatUserConversationDocs.forEach(member -> member.setConversationId(chatConversationDoc.getId()));
-            mongoTemplate.insert(chatUserConversationDocs, "chat_user_conversation");
+        transactionTemplate.executeWithoutResult(tx -> {
+            conversationMapper.insert(chatConversationDoc);
+            for (ChatUserConversationDoc member : chatUserConversationDocs) {
+                userConversationMapper.insert(member);
+            }
         });
         // 构建VO
         ConversationVO conversationVO = new ConversationVO();
@@ -145,6 +124,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         log.info("Conversation created conversationId={} type={} creatorId={} memberCount={}",
                 chatConversationDoc.getId(), createConversationDTO.getType(), userId, memberIds.size());
         return conversationVO;
+    }
+
+    public Optional<ChatConversationDoc> getById(String conversationId) {
+        return Optional.ofNullable(conversationMapper.selectById(conversationId));
     }
 
     private Long getUserId() {
@@ -177,7 +160,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         }
         // 更新会话头像url
         chatConversationDoc.setAvatar(avatarUrl);
-        save(chatConversationDoc);
+        updateConversation(chatConversationDoc);
         return avatarUrl;
     }
 
@@ -194,7 +177,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
 
         // 更新会话名称
         chatConversationDoc.setName(name);
-        save(chatConversationDoc);
+        updateConversation(chatConversationDoc);
         return name;
     }
 
@@ -219,11 +202,9 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
 
         int prev = doc.getAnnouncementVersion() == null ? 0 : doc.getAnnouncementVersion();
         int next = prev + 1;
-        LocalDateTime now = LocalDateTime.now();
         doc.setAnnouncement(t);
         doc.setAnnouncementVersion(next);
-        doc.setUpdatedAt(now);
-        save(doc);
+        updateConversation(doc);
 
         Map<String, Object> ws = new LinkedHashMap<>();
         ws.put("type", "ANNOUNCEMENT_UPDATED");
@@ -249,36 +230,30 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
             throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
         }
 
-        Criteria c = Criteria.where("conversationId").is(conversationId);
         boolean dissolved = false;
         if (chatConversationDoc.getType() == ConversationTypeEnum.GROUP) {
             // 判断是否是创建人 -> 解散群
             if (chatConversationDoc.getCreatedBy().equals(userId)) {
                 dissolved = true;
                 // 把群成员的会话状态设置为已删除
-                Update update = new Update().set("deleted", true);
-                mongoTemplate.updateMulti(new Query(c), update, ChatUserConversationDoc.class);
+                markDeleted(conversationId, null, null);
                 // 通知群成员会话已删除
                 memberIds.remove(userId);
                 GroupDeletedMessage message = new GroupDeletedMessage(conversationId, memberIds);
                 rocketMQTemplate.syncSend(GroupDeletedMessage.TOPIC, message);
             } else {
                 // 非创建人 -> 退出群
-                c.and("userId").is(userId);
-                Update update = new Update().set("deleted", true);
-                mongoTemplate.updateFirst(new Query(c), update, ChatUserConversationDoc.class);
+                markDeleted(conversationId, userId, null);
             }
         } else if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
-            c.and("userId").in(memberIds);
-            Update update = new Update().set("deleted", true);
-            mongoTemplate.updateMulti(new Query(c), update, ChatUserConversationDoc.class);
+            markDeleted(conversationId, null, memberIds);
         }
         log.info("Conversation deleted conversationId={} type={} operatorId={} dissolved={}",
                 conversationId, chatConversationDoc.getType(), userId, dissolved);
         return "删除成功";
     }
 
-    @Transactional(transactionManager = "mongoTransactionManager", rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public void removeConversationMember(String conversationId, List<Long> removeUserIds) {
         ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
         if (chatConversationDoc.getType() == ConversationTypeEnum.SINGLE) {
@@ -293,11 +268,9 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         List<Long> memberIds = chatConversationDoc.getMemberIds();
         memberIds.removeAll(removeUserIds);
         chatConversationDoc.setMemberIds(memberIds);
-        save(chatConversationDoc);
+        updateConversation(chatConversationDoc);
         // 修改用户会话状态为已删除
-        Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").in(removeUserIds);
-        Update update = new Update().set("deleted", true);
-        mongoTemplate.updateMulti(new Query(c), update, ChatUserConversationDoc.class);
+        markDeleted(conversationId, null, removeUserIds);
     }
 
     private ChatConversationDoc getChatConversationDoc(String conversationId) {
@@ -336,23 +309,12 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         memberIds.add(invitedUserId);
         chatConversationDoc.setMemberIds(memberIds);
         // 新增被邀请用户的会话状态信息
-        ChatUserConversationDoc userConversationDoc = new ChatUserConversationDoc();
-        userConversationDoc.setUserId(invitedUserId);
-        userConversationDoc.setConversationId(conversationId);
-        userConversationDoc.setUnreadCount(0);
-        userConversationDoc.setLastReadSeq(0L);
-        userConversationDoc.setMute(false);
-        userConversationDoc.setPin(false);
-        userConversationDoc.setDeleted(false);
-        userConversationDoc.setBanned(false);
         LocalDateTime now = LocalDateTime.now();
-        userConversationDoc.setLastPullAt(now);
-        userConversationDoc.setCreatedAt(now);
-        userConversationDoc.setUpdatedAt(now);
+        ChatUserConversationDoc userConversationDoc = newMember(invitedUserId, conversationId, now);
         // 成员表与会话状态要么都在要么都不在
-        mongoTransactionTemplate.executeWithoutResult(tx -> {
-            save(chatConversationDoc);
-            mongoTemplate.insert(userConversationDoc, "chat_user_conversation");
+        transactionTemplate.executeWithoutResult(tx -> {
+            updateConversation(chatConversationDoc);
+            userConversationMapper.insert(userConversationDoc);
         });
     }
 
@@ -392,7 +354,7 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
 
         // 开启或关闭全员禁言
         chatConversationDoc.setBanned(banned);
-        save(chatConversationDoc);
+        updateConversation(chatConversationDoc);
         // 发送通知给所有群成员
         List<Long> memberIds = chatConversationDoc.getMemberIds();
         memberIds.remove(getUserId());
@@ -440,9 +402,10 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         }
 
         // 禁言或取消禁言会话成员
-        Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(userId);
-        mongoTemplate.updateFirst(Query.query(c),
-                new Update().set("banned", banned), "chat_user_conversation");
+        userConversationMapper.update(null, new LambdaUpdateWrapper<ChatUserConversationDoc>()
+                .eq(ChatUserConversationDoc::getConversationId, conversationId)
+                .eq(ChatUserConversationDoc::getUserId, userId)
+                .set(ChatUserConversationDoc::getBanned, banned));
         // 发送通知给对方
         Map<String, Object> data = new HashMap<>(2);
         data.put("banned", banned);
@@ -450,5 +413,43 @@ public class ChatConversationService extends BaseMongoService<ChatConversationDo
         data.put("conversationId", conversationId);
         String json = JsonUtil.toJson(data);
         pushFanoutPublisher.pushWs(userId, json);
+    }
+
+    private void updateConversation(ChatConversationDoc doc) {
+        doc.setUpdatedAt(LocalDateTime.now());
+        conversationMapper.updateById(doc);
+    }
+
+    private void markDeleted(String conversationId, Long userId, List<Long> userIds) {
+        if (userIds != null && userIds.isEmpty()) {
+            return;
+        }
+        LambdaUpdateWrapper<ChatUserConversationDoc> update = new LambdaUpdateWrapper<ChatUserConversationDoc>()
+                .eq(ChatUserConversationDoc::getConversationId, conversationId)
+                .set(ChatUserConversationDoc::getDeleted, true);
+        if (userId != null) {
+            update.eq(ChatUserConversationDoc::getUserId, userId);
+        }
+        if (userIds != null) {
+            update.in(ChatUserConversationDoc::getUserId, userIds);
+        }
+        userConversationMapper.update(null, update);
+    }
+
+    private static ChatUserConversationDoc newMember(Long memberId, String conversationId, LocalDateTime now) {
+        ChatUserConversationDoc chatUserConversationDoc = new ChatUserConversationDoc();
+        chatUserConversationDoc.setId(IdWorker.getIdStr());
+        chatUserConversationDoc.setUserId(memberId);
+        chatUserConversationDoc.setConversationId(conversationId);
+        chatUserConversationDoc.setUnreadCount(0);
+        chatUserConversationDoc.setLastReadSeq(0L);
+        chatUserConversationDoc.setMute(false);
+        chatUserConversationDoc.setPin(false);
+        chatUserConversationDoc.setDeleted(false);
+        chatUserConversationDoc.setBanned(false);
+        chatUserConversationDoc.setLastPullAt(now);
+        chatUserConversationDoc.setCreatedAt(now);
+        chatUserConversationDoc.setUpdatedAt(now);
+        return chatUserConversationDoc;
     }
 }

@@ -5,14 +5,6 @@ spring:
       - optional:classpath:application-local.yml
   application:
     name: my-youtube-chat-service
-  # 聊天数据本体在 MongoDB, 无 MySQL 表; 排除 common 传递进来的 JDBC/MyBatis 自动配置
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
-      - com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration
-  data:
-    mongodb:
-      uri: ${MONGODB_URI:mongodb://root:mongo123456@localhost:27017/chat_db?authSource=admin}
 
 rocketmq:
   producer:
@@ -21,7 +13,14 @@ rocketmq:
 server:
   port: ${SERVER_PORT:8083}
 
+mybatis-plus:
+  global-config:
+    db-config:
+      # 会话整行回写, 允许把头像、公告等字段更新为空
+      update-strategy: always
+
 my-youtube:
+  db-name: chat_db
   user-service:
     url: ${USER_SERVICE_URL:}
   video-service:

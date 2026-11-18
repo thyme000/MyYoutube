@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.notify;
 
+import cn.diaojiahong.myyoutube.chat.mapper.ChatUserConversationMapper;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatEventType;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForSendMessageVO;
@@ -9,11 +10,8 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.query.Query;
-import org.springframework.data.mongodb.core.query.Update;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -30,7 +28,7 @@ public abstract class AbstractConversationNotifyStrategy implements Conversation
 
     protected final PushFanoutPublisher pushFanoutPublisher;
     protected final S3StorageUtil storageUtil;
-    protected final MongoTemplate mongoTemplate;
+    protected final ChatUserConversationMapper userConversationMapper;
 
     protected boolean isSendEvent(ChatMessageMessage message) {
         return ChatEventType.SEND.getCode().equals(message.getEvent());
@@ -47,17 +45,19 @@ public abstract class AbstractConversationNotifyStrategy implements Conversation
     }
 
     protected boolean isMuted(String conversationId, Long memberId) {
-        Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(memberId);
-        ChatUserConversationDoc doc = mongoTemplate.findOne(Query.query(c), ChatUserConversationDoc.class);
+        ChatUserConversationDoc doc = userConversationMapper.selectOne(
+                new LambdaQueryWrapper<ChatUserConversationDoc>()
+                        .eq(ChatUserConversationDoc::getConversationId, conversationId)
+                        .eq(ChatUserConversationDoc::getUserId, memberId));
         return doc != null && Boolean.TRUE.equals(doc.getMute());
     }
 
     /** 一次查出会话内所有开启免打扰的成员, 群聊推送用 */
     protected Set<Long> mutedMemberIds(String conversationId, Collection<Long> memberIds) {
-        Criteria c = Criteria.where("conversationId").is(conversationId)
-                .and("userId").in(memberIds)
-                .and("mute").is(true);
-        return mongoTemplate.find(Query.query(c), ChatUserConversationDoc.class).stream()
+        return userConversationMapper.selectList(new LambdaQueryWrapper<ChatUserConversationDoc>()
+                        .eq(ChatUserConversationDoc::getConversationId, conversationId)
+                        .in(ChatUserConversationDoc::getUserId, memberIds)
+                        .eq(ChatUserConversationDoc::getMute, true)).stream()
                 .map(ChatUserConversationDoc::getUserId)
                 .collect(Collectors.toSet());
     }
@@ -85,11 +85,9 @@ public abstract class AbstractConversationNotifyStrategy implements Conversation
 
     /** 批量落"最近同步时间", SEND 时顺带累加未读 */
     protected void touchMembers(String conversationId, Collection<Long> memberIds, boolean unread) {
-        Update up = new Update().set("lastPullAt", LocalDateTime.now());
-        if (unread) {
-            up.inc("unreadCount");
+        if (memberIds == null || memberIds.isEmpty()) {
+            return;
         }
-        mongoTemplate.updateMulti(Query.query(Criteria.where("conversationId").is(conversationId)
-                .and("userId").in(memberIds)), up, ChatUserConversationDoc.class);
+        userConversationMapper.touchMembers(conversationId, memberIds, LocalDateTime.now(), unread);
     }
 }

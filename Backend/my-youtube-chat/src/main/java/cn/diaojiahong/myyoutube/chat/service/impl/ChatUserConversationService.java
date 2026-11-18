@@ -1,32 +1,27 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatConversationMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ChatUserConversationMapper;
 import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.UserConversationVO;
 import cn.diaojiahong.myyoutube.chat.mongo.vo.ValidUserConversationVO;
-import cn.diaojiahong.myyoutube.chat.service.BaseMongoService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.bson.Document;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.aggregation.Aggregation;
-import org.springframework.data.mongodb.core.aggregation.AggregationResults;
-import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.query.Query;
-import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -34,19 +29,15 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-public class ChatUserConversationService extends BaseMongoService<ChatUserConversationDoc> {
+@RequiredArgsConstructor
+public class ChatUserConversationService {
 
     private static final Long STORAGE_EXPIRE_TIME = 3600 * 10L;
+
+    private final ChatUserConversationMapper userConversationMapper;
+    private final ChatConversationMapper conversationMapper;
     private final S3StorageUtil storageUtil;
     private final UserPort userPort;
-
-    public ChatUserConversationService(MongoTemplate mongoTemplate,
-                                       S3StorageUtil storageUtil,
-                                       UserPort userPort) {
-        super(mongoTemplate, ChatUserConversationDoc.class);
-        this.storageUtil = storageUtil;
-        this.userPort = userPort;
-    }
 
     private Long getUserId() {
         String userId = UserContext.getUserId();
@@ -58,37 +49,36 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
     }
 
     public void setMute(String conversationId, boolean mute) {
-        Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(getUserId());
-        Update u = new Update().set("mute", mute);
-        mongoTemplate.updateFirst(Query.query(c), u, ChatUserConversationDoc.class);
+        userConversationMapper.update(null, new LambdaUpdateWrapper<ChatUserConversationDoc>()
+                .eq(ChatUserConversationDoc::getConversationId, conversationId)
+                .eq(ChatUserConversationDoc::getUserId, getUserId())
+                .set(ChatUserConversationDoc::getMute, mute));
     }
 
     public void setPin(String conversationId, boolean pin) {
-        Criteria c = Criteria.where("conversationId").is(conversationId).and("userId").is(getUserId());
-        Update u = new Update().set("pin", pin);
-        mongoTemplate.updateFirst(Query.query(c), u, ChatUserConversationDoc.class);
+        userConversationMapper.update(null, new LambdaUpdateWrapper<ChatUserConversationDoc>()
+                .eq(ChatUserConversationDoc::getConversationId, conversationId)
+                .eq(ChatUserConversationDoc::getUserId, getUserId())
+                .set(ChatUserConversationDoc::getPin, pin));
     }
 
     public PageResult<UserConversationVO> getPageConversations(Long page, Long pageSize) {
         // 置顶优先,其次按最后活跃时间来排序
-        Query query = Query.query(
-                Criteria.where("userId").is(getUserId()).and("deleted").is(false));
-        query.with(Sort.by(
-                Sort.Order.desc("pin"),
-                Sort.Order.desc("lastPullAt")
-        ));
-        Pageable pageable = PageRequest.of(
-                page.intValue() - 1,
-                pageSize.intValue());
-        Page<ChatUserConversationDoc> p = this.page(query, pageable);
-        List<ChatUserConversationDoc> content = p.getContent();
+        Long userId = getUserId();
+        Page<ChatUserConversationDoc> p = userConversationMapper.selectPage(new Page<>(page, pageSize),
+                new LambdaQueryWrapper<ChatUserConversationDoc>()
+                        .eq(ChatUserConversationDoc::getUserId, userId)
+                        .eq(ChatUserConversationDoc::getDeleted, false)
+                        .orderByDesc(ChatUserConversationDoc::getPin)
+                        .orderByDesc(ChatUserConversationDoc::getLastPullAt));
+        List<ChatUserConversationDoc> content = p.getRecords();
         if (content.isEmpty()) {
             return PageResult.of(0, 0, List.of());
         }
 
         List<String> list = content.stream().map(ChatUserConversationDoc::getConversationId).toList();
-        Query q = Query.query(Criteria.where("id").in(list));
-        List<ChatConversationDoc> chatConversationDocList = mongoTemplate.find(q, ChatConversationDoc.class);
+        List<ChatConversationDoc> chatConversationDocList = conversationMapper.selectList(
+                new LambdaQueryWrapper<ChatConversationDoc>().in(ChatConversationDoc::getId, list));
         // 转map
         Map<String, ChatConversationDoc> collect = chatConversationDocList.stream()
                 .collect(Collectors.toMap(ChatConversationDoc::getId, Function.identity()));
@@ -101,7 +91,7 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                     vo.setConversationId(c.getConversationId());
                     if (isSingle) {
                         // 需要展示的是对方的头像和昵称
-                        conversationDoc.getMemberIds().remove(getUserId());
+                        conversationDoc.getMemberIds().remove(userId);
                         UserSummary user = userPort.getUser(conversationDoc.getMemberIds().get(0));
                         vo.setConversationAvatar(storageUtil.signGetUrl(user.getAvatarUrl(), STORAGE_EXPIRE_TIME));
                         vo.setConversationName(user.getNickname());
@@ -129,35 +119,16 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                     return vo;
                 })
                 .toList();
-        return PageResult.of(p.getTotalElements(), p.getTotalPages(), voList);
+        return PageResult.of(p.getTotal(), p.getPages(), voList);
     }
 
     public Long getUnreadMessages() {
-        Long userId = getUserId();
-        // 统计用户所有会话的未读消息数总和
-        Aggregation aggregation = Aggregation.newAggregation(
-                Aggregation.match(Criteria.where("userId").is(userId).and("deleted").is(false)),
-                Aggregation.group().sum("unreadCount").as("totalUnread")
-        );
-        // 使用 Document 接收聚合结果
-        AggregationResults<Document> results = mongoTemplate.aggregate(
-                aggregation, "chat_user_conversation", Document.class
-        );
-        // 获取统计结果（$sum 在 BSON 中常为 Long，不能用 getInteger 强转）
-        Document result = results.getUniqueMappedResult();
-        if (result == null) {
-            return 0L;
-        }
-
-        Object raw = result.get("totalUnread");
-        return raw instanceof Number ? ((Number) raw).longValue() : 0L;
+        return userConversationMapper.sumUnread(getUserId());
     }
 
     public void readAnnouncement(String conversationId) {
         Long userId = getUserId();
-        Criteria c = Criteria.where("id").is(conversationId);
-        Query query = Query.query(c);
-        ChatConversationDoc chatConversationDoc = mongoTemplate.findOne(query, ChatConversationDoc.class);
+        ChatConversationDoc chatConversationDoc = conversationMapper.selectById(conversationId);
         if (chatConversationDoc == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "会话不存在");
         }
@@ -171,42 +142,42 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
             throw new BizException(ErrorCode.FORBIDDEN, "用户不是群成员");
         }
 
-        c = Criteria.where("conversationId").is(conversationId).and("userId").is(userId);
-        Update update = new Update().set("lastSeenAnnouncementVersion", chatConversationDoc.getAnnouncementVersion());
-        mongoTemplate.updateFirst(Query.query(c), update, ChatUserConversationDoc.class);
+        userConversationMapper.update(null, new LambdaUpdateWrapper<ChatUserConversationDoc>()
+                .eq(ChatUserConversationDoc::getConversationId, conversationId)
+                .eq(ChatUserConversationDoc::getUserId, userId)
+                .set(ChatUserConversationDoc::getLastSeenAnnouncementVersion, chatConversationDoc.getAnnouncementVersion()));
     }
 
     public PageResult<ValidUserConversationVO> getValidConversations(Long page, Long pageSize) {
         // 置顶优先,其次按最后活跃时间来排序
         Long userId = getUserId();
-        Query query = Query.query(
-                Criteria.where("userId").is(userId)
-                        .and("deleted").is(false)
-                        .and("banned").is(false));
-        query.with(Sort.by(
-                Sort.Order.desc("pin"),
-                Sort.Order.desc("lastPullAt")
-        ));
-        Pageable pageable = PageRequest.of(
-                page.intValue() - 1,
-                pageSize.intValue());
-        Page<ChatUserConversationDoc> p = this.page(query, pageable);
-        List<ChatUserConversationDoc> content = p.getContent();
+        Page<ChatUserConversationDoc> p = userConversationMapper.selectPage(new Page<>(page, pageSize),
+                new LambdaQueryWrapper<ChatUserConversationDoc>()
+                        .eq(ChatUserConversationDoc::getUserId, userId)
+                        .eq(ChatUserConversationDoc::getDeleted, false)
+                        .eq(ChatUserConversationDoc::getBanned, false)
+                        .orderByDesc(ChatUserConversationDoc::getPin)
+                        .orderByDesc(ChatUserConversationDoc::getLastPullAt));
+        List<ChatUserConversationDoc> content = p.getRecords();
         if (content.isEmpty()) {
             return PageResult.of(0, 0, List.of());
         }
 
-        List<String> list = new java.util.ArrayList<>(content.stream()
+        List<String> list = new ArrayList<>(content.stream()
                 .map(ChatUserConversationDoc::getConversationId).toList());
         // 排除掉全员禁言的群聊,但群主不排除
-        Criteria c = Criteria.where("id").in(list).and("banned").is(true).and("createdBy").ne(userId);
-        Query qu = Query.query(c);
-        List<ChatConversationDoc> removeConversation = mongoTemplate.find(qu, ChatConversationDoc.class);
+        List<ChatConversationDoc> removeConversation = conversationMapper.selectList(
+                new LambdaQueryWrapper<ChatConversationDoc>()
+                        .in(ChatConversationDoc::getId, list)
+                        .eq(ChatConversationDoc::getBanned, true)
+                        .ne(ChatConversationDoc::getCreatedBy, userId));
         List<String> removeList = removeConversation.stream().map(ChatConversationDoc::getId).toList();
         list.removeAll(removeList);
         // 查询合法的会话文档
-        qu = Query.query(Criteria.where("id").in(list));
-        List<ChatConversationDoc> chatConversationDocList = mongoTemplate.find(qu, ChatConversationDoc.class);
+        List<ChatConversationDoc> chatConversationDocList = list.isEmpty()
+                ? List.of()
+                : conversationMapper.selectList(new LambdaQueryWrapper<ChatConversationDoc>()
+                        .in(ChatConversationDoc::getId, list));
         // 转map
         Map<String, ChatConversationDoc> collect = chatConversationDocList.stream()
                 .collect(Collectors.toMap(ChatConversationDoc::getId, Function.identity()));
@@ -224,6 +195,6 @@ public class ChatUserConversationService extends BaseMongoService<ChatUserConver
                     return vo;
                 })
                 .toList();
-        return PageResult.of(p.getTotalElements(), p.getTotalPages(), voList);
+        return PageResult.of(p.getTotal(), p.getPages(), voList);
     }
 }
