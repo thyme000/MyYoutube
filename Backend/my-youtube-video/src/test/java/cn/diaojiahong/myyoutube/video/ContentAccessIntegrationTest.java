@@ -7,34 +7,26 @@ import cn.diaojiahong.myyoutube.comment.cursor.CommentCursor;
 import cn.diaojiahong.myyoutube.comment.domain.dto.*;
 import cn.diaojiahong.myyoutube.comment.service.impl.ContentCommentServiceImpl;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.media.ContentMedia;
-import cn.diaojiahong.myyoutube.common.media.VideoMedia;
 import cn.diaojiahong.myyoutube.common.utils.*;
-import cn.diaojiahong.myyoutube.content.domain.dto.ContentPlaybackDTO;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
-import cn.diaojiahong.myyoutube.content.mapper.ContentPlaybackMapper;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
 import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.service.impl.ContentServiceImpl;
-import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategy;
 import cn.diaojiahong.myyoutube.content.strategy.ContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.transcode.api.TranscodePort;
 import cn.diaojiahong.myyoutube.transcode.api.vo.TranscodeTaskVO;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import cn.diaojiahong.myyoutube.video.api.enums.ContentTypeEnum;
 import cn.diaojiahong.myyoutube.video.mapper.*;
 import cn.diaojiahong.myyoutube.video.service.PublicationEffectsService;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.*;
-import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.*;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.*;
 import org.springframework.data.redis.core.RedisCallback;
@@ -65,7 +57,6 @@ class ContentAccessIntegrationTest {
         SqlSessionFactory sqlSessionFactory(DataSource ds) throws Exception {
             var bean=new MybatisSqlSessionFactoryBean();
             bean.setDataSource(ds);
-            bean.setMapperLocations(new ClassPathResource("mapper/ContentPlaybackMapper.xml"));
             return bean.getObject();
         }
 
@@ -144,7 +135,6 @@ class ContentAccessIntegrationTest {
 
     @Autowired DataSource ds;
     @Autowired ContentAccessService access;
-    @Autowired ContentPlaybackMapper playback;
     @Autowired ContentSettingsService settings;
     @Autowired cn.diaojiahong.myyoutube.comment.service.IContentCommentService comments;
     @Autowired ContentDownloadService downloads;
@@ -344,46 +334,6 @@ class ContentAccessIntegrationTest {
         jdbc.update("UPDATE content SET status='published'");
         settings.delete(1L,7L);
         assertThrows(BizException.class, () -> access.readable(1L,7L));
-    }
-
-    @Test
-    @EnabledIfSystemProperty(named = "content.integration", matches = "true")
-    void differentViewersCanSavePlaybackWhileFirstSaveHoldsItsTransactionOpen() throws Exception {
-        ContentTestDatabase.drop(jdbc, "content_playback");
-        jdbc.execute("""
-                CREATE TABLE content_playback (
-                    user_id BIGINT, content_id BIGINT, session_id VARCHAR(64), session_started_at BIGINT,
-                    sequence BIGINT, watched_ms BIGINT, video_position_ms BIGINT, image_index INT,
-                    image_elapsed_ms BIGINT, audio_position_ms BIGINT, PRIMARY KEY (user_id, content_id)
-                ) ENGINE=InnoDB
-                """);
-        jdbc.update("UPDATE content SET type='video' WHERE id=1");
-        ContentTypeStrategy strategy = mock(ContentTypeStrategy.class);
-        when(strategy.type()).thenReturn(ContentTypeEnum.VIDEO);
-        when(strategy.loadMedia(List.of(1L))).thenReturn(Map.of(1L,
-                new ContentMedia("video", new VideoMedia("video", 10_000), null)));
-        var service = new ContentPlaybackService(access, new ContentTypeStrategyRegistry(List.of(strategy)), playback);
-        var state = new ContentPlaybackDTO("session", System.currentTimeMillis() - 1000, 1L,
-                500L, 500L, null, null, null);
-
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            tx.executeWithoutResult(status -> {
-                service.save(1L, 9L, state);
-                Future<?> second = executor.submit(() -> tx.executeWithoutResult(other -> service.save(1L, 10L, state)));
-                try {
-                    second.get(3, TimeUnit.SECONDS);
-                } catch (InterruptedException failure) {
-                    Thread.currentThread().interrupt();
-                    throw new AssertionError(failure);
-                } catch (ExecutionException | TimeoutException failure) {
-                    throw new AssertionError("另一个观众应能在首个续播事务释放前保存进度", failure);
-                }
-            });
-        } finally {
-            executor.shutdownNow();
-        }
-        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM content_playback", Integer.class));
     }
 
     @Test

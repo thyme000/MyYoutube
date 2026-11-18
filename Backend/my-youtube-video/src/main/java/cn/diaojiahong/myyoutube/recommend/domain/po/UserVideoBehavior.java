@@ -45,6 +45,11 @@ public class UserVideoBehavior implements Serializable {
     private Long contentId;
 
     /**
+     * 播放行为按服务端会话去重，显式不感兴趣没有播放会话
+     */
+    private String sessionId;
+
+    /**
      * 行为：play播放 finish完播 skip跳过 dislike点踩
      */
     private EventEnum eventType;

@@ -9,22 +9,22 @@ public enum EventEnum {
     /**
      * 播放 2分
      */
-    PLAY("play", 2, "用户开始播放视频"),
+    PLAY("play", 2, "内容有效播放达标"),
 
     /**
      * 完播 4分
      */
-    FINISH("finish", 4, "用户完整观看视频"),
+    FINISH("finish", 4, "内容达到完播条件"),
 
     /**
      * 跳过 -2分
      */
-    SKIP("skip", -2, "用户跳过视频"),
+    SKIP("skip", -2, "用户跳过内容"),
 
     /**
      * 踩 -4分
      */
-    DISLIKE("dislike", -4, "用户不喜欢视频");
+    DISLIKE("dislike", -4, "用户不喜欢内容");
 
     /**
      * 行为代码

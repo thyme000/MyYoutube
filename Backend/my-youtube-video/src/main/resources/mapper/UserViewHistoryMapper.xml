@@ -2,11 +2,33 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.diaojiahong.myyoutube.history.mapper.UserViewHistoryMapper">
 
-    <insert id="upsert">
-        INSERT INTO user_view_history (user_id, content_id)
-        VALUES (#{userId}, #{contentId})
-        ON DUPLICATE KEY UPDATE view_time = NOW()
+    <insert id="upsertPlayback">
+        INSERT INTO user_view_history (user_id, content_id, view_time, position_ms, reported_at)
+        VALUES (#{userId}, #{contentId}, #{viewTime}, #{positionMs}, #{version})
+        ON DUPLICATE KEY UPDATE
+            view_time = GREATEST(view_time, #{viewTime}),
+            <!-- 先比较原续播版本并写入位置，再更新版本。 -->
+            position_ms = CASE WHEN reported_at IS NULL OR #{version} &gt; reported_at
+                THEN #{positionMs} ELSE position_ms END,
+            reported_at = GREATEST(COALESCE(reported_at, #{version}), #{version})
     </insert>
+
+    <select id="selectResumePosition" resultType="java.lang.Long">
+        SELECT COALESCE((
+            SELECT position_ms FROM user_view_history
+            WHERE user_id = #{userId} AND content_id = #{contentId}
+        ), 0)
+    </select>
+
+    <delete id="deleteOne">
+        DELETE FROM user_view_history
+        WHERE user_id = #{userId} AND content_id = #{contentId}
+    </delete>
+
+    <delete id="deleteAll">
+        DELETE FROM user_view_history
+        WHERE user_id = #{userId}
+    </delete>
 
     <sql id="readable">
         AND c.is_delete = 0 AND c.status = 'published'

@@ -36,4 +36,13 @@ public class UserViewHistory implements Serializable {
 
     /** 最近观看时间 */
     private LocalDateTime viewTime;
+
+    /** 首次观看时间, 行首次插入时由数据库生成, upsert 不改写 */
+    private LocalDateTime createdAt;
+
+    /** 内容的续播位置（毫秒） */
+    private Long positionMs;
+
+    /** 续播版本: 最近一次接受的快照接收时间(毫秒), NULL=无续播 */
+    private Long reportedAt;
 }

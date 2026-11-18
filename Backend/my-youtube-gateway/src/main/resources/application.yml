@@ -43,7 +43,7 @@ spring:
               order: 10
             - id: video-service
               uri: lb://my-youtube-video-service
-              predicates: [ "Path=/contents/**,/audios/**,/like/**,/comment/**,/notification/**,/behavior/**,/history/**,/collect/**,/tag/**,/video-tag/**,/user-tag-preference/**" ]
+              predicates: [ "Path=/contents/**,/audios/**,/like/**,/comment/**,/notification/**,/history/**,/collect/**,/tag/**,/video-tag/**,/user-tag-preference/**" ]
               order: 20
             - id: chat-service
               uri: lb://my-youtube-chat-service

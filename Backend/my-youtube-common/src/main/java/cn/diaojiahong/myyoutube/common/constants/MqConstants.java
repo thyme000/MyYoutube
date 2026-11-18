@@ -33,6 +33,8 @@ public class MqConstants {
     public static final String TOPIC_MEDIA_UPLOAD_EVENT = "media_upload_event_topic";
     // 媒体处理任务分发, 编排器 -> worker
     public static final String TOPIC_MEDIA_TASK = "media_task_topic";
+    // 统一播放上报: 消息体是已盖章的快照，消费侧直接落库
+    public static final String TOPIC_PLAYBACK_REPORT = "playback_report_topic";
 
     public static final String TAG_LIKE = "like";
     public static final String TAG_UNLIKE = "unlike";

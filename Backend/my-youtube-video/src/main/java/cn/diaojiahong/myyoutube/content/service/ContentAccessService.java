@@ -9,7 +9,11 @@ import cn.diaojiahong.myyoutube.video.api.enums.ContentVisibilityEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -19,6 +23,16 @@ public class ContentAccessService {
 
     public Content readable(Long id, Long viewer) {
         return requireReadable(contents.selectById(id), viewer);
+    }
+
+    public Set<Long> readableIds(Collection<Long> ids, Long viewer) {
+        List<Content> visible = contents.selectBatchIds(ids).stream()
+                .filter(content -> isVisible(content, viewer))
+                .toList();
+        Set<Long> blocked = audioAccess.blocked(visible);
+        return visible.stream().map(Content::getId)
+                .filter(id -> !blocked.contains(id))
+                .collect(Collectors.toSet());
     }
 
     public Content forReview(Long id) {
@@ -32,12 +46,6 @@ public class ContentAccessService {
         return contents.selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, id).last("FOR UPDATE"));
     }
 
-    public Content readableForPlaybackWrite(Long id, Long viewer) {
-        // 续播只写用户自己的进度行。共享锁允许同一内容的观众并行保存，并与内容状态变更互斥。
-        Content content = contents.selectOne(new LambdaQueryWrapper<Content>().eq(Content::getId, id).last("FOR SHARE"));
-        return requireReadable(content, viewer);
-    }
-
     public Content requireReadable(Content content, Long viewer) {
         requireVisible(content, viewer);
         if (hasBannedAudio(content)) {
@@ -47,14 +55,18 @@ public class ContentAccessService {
     }
 
     Content requireVisible(Content content, Long viewer) {
-        if (content == null || !Integer.valueOf(0).equals(content.getIsDelete())
-                || content.getStatus() != ContentStatusEnum.PUBLISHED
-                || !(ContentVisibilityEnum.PUBLIC.getCode().equals(content.getVisibility())
-                || Objects.equals(content.getAuthorId(), viewer))) {
+        if (!isVisible(content, viewer)) {
             throw notReadable();
         }
 
         return content;
+    }
+
+    private boolean isVisible(Content content, Long viewer) {
+        return content != null && Integer.valueOf(0).equals(content.getIsDelete())
+                && content.getStatus() == ContentStatusEnum.PUBLISHED
+                && (ContentVisibilityEnum.PUBLIC.getCode().equals(content.getVisibility())
+                || Objects.equals(content.getAuthorId(), viewer));
     }
 
     static BizException notReadable() {
@@ -62,7 +74,7 @@ public class ContentAccessService {
     }
 
     public boolean hasBannedAudio(Content content) {
-        return audioAccess.blocked(java.util.List.of(content)).contains(content.getId());
+        return audioAccess.blocked(List.of(content)).contains(content.getId());
     }
 
     public Content requireOwner(Content content, Long viewer) {

@@ -1,9 +1,8 @@
-package cn.diaojiahong.myyoutube.history.service;
+package cn.diaojiahong.myyoutube.history.service.impl;
 
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.dto.ContentPageQuery;
-import cn.diaojiahong.myyoutube.content.service.ContentAccessService;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -11,6 +10,7 @@ import cn.diaojiahong.myyoutube.follow.cache.FollowSnapshotCache;
 import cn.diaojiahong.myyoutube.history.domain.po.UserViewHistory;
 import cn.diaojiahong.myyoutube.history.domain.vo.HistoryVO;
 import cn.diaojiahong.myyoutube.history.mapper.UserViewHistoryMapper;
+import cn.diaojiahong.myyoutube.history.service.IHistoryService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
@@ -42,18 +42,9 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
 
     private final UserViewHistoryMapper historyMapper;
     private final ContentSummaryPort contentSummaryPort;
-    private final ContentAccessService access;
     private final UserPort userPort;
     private final FollowSnapshotCache followSnapshot;
     private final S3StorageUtil storageUtil;
-
-    @Override
-    public void record(Long contentId) {
-        Long userId = getUserId();
-        access.readable(contentId, userId);
-        historyMapper.upsert(userId, contentId);
-        return;
-    }
 
     @Override
     public PageResult<HistoryVO> page(ContentPageQuery pageQuery) {
@@ -115,18 +106,14 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
     @Override
     public void removeOne(Long contentId) {
         Long userId = getUserId();
-        lambdaUpdate()
-                .eq(UserViewHistory::getUserId, userId)
-                .eq(UserViewHistory::getContentId, contentId)
-                .remove();
-        return;
+        // 物理删除: 历史与续播进度同行同生命周期
+        historyMapper.deleteOne(userId, contentId);
     }
 
     @Override
     public void clear() {
         Long userId = getUserId();
-        lambdaUpdate().eq(UserViewHistory::getUserId, userId).remove();
-        return;
+        historyMapper.deleteAll(userId);
     }
 
     private Long getUserId() {

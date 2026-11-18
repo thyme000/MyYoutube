@@ -18,6 +18,8 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 public class VideoContentStrategy implements ContentTypeStrategy {
+    private static final double FINISH_RATIO = 0.95;
+
     private final VideoMapper videos;
 
     @Override
@@ -41,6 +43,19 @@ public class VideoContentStrategy implements ContentTypeStrategy {
     public Map<Long, ContentMedia> loadMedia(Collection<Long> ids) {
         if (ids.isEmpty()) return Map.of();
         return videos.selectBatchIds(ids).stream().collect(Collectors.toMap(Video::getId, this::media));
+    }
+
+    @Override
+    public Long maxResumePositionMs(ContentMedia media) {
+        long durationMs = media.video().durationMs();
+        return durationMs > 0 ? durationMs : null;
+    }
+
+    @Override
+    public boolean isFinished(ContentMedia media, long effectiveMs, long positionMs) {
+        long durationMs = media.video().durationMs();
+        double finishThresholdMs = durationMs * FINISH_RATIO;
+        return durationMs > 0 && effectiveMs >= finishThresholdMs && positionMs >= finishThresholdMs;
     }
 
     @Override

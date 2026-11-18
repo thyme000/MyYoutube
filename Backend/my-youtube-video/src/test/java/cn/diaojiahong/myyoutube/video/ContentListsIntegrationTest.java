@@ -25,7 +25,9 @@ import cn.diaojiahong.myyoutube.content.service.*;
 import cn.diaojiahong.myyoutube.content.service.impl.*;
 import cn.diaojiahong.myyoutube.content.strategy.*;
 import cn.diaojiahong.myyoutube.follow.cache.FollowSnapshotCache;
+import cn.diaojiahong.myyoutube.history.controller.InternalViewHistoryController;
 import cn.diaojiahong.myyoutube.history.mapper.UserViewHistoryMapper;
+import cn.diaojiahong.myyoutube.video.api.ViewHistoryPort.Candidates;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.notification.service.NotificationPublisher;
 import cn.diaojiahong.myyoutube.notification.service.impl.UserNotificationServiceImpl;
@@ -165,7 +167,7 @@ class ContentListsIntegrationTest {
                 )
                 """);
         jdbc.execute("CREATE TABLE content_share(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,create_time TIMESTAMP)");
-        jdbc.execute("CREATE TABLE user_view_history(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,view_time TIMESTAMP)");
+        jdbc.execute("CREATE TABLE user_view_history(id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,content_id BIGINT,view_time TIMESTAMP,deleted_at TIMESTAMP DEFAULT NULL)");
         jdbc.execute("CREATE TABLE user_notification(id BIGINT AUTO_INCREMENT PRIMARY KEY,receiver_id BIGINT,sender_id BIGINT,type VARCHAR(32),title VARCHAR(128),content VARCHAR(500),ref_type VARCHAR(16),ref_id BIGINT,extra_json TEXT,is_read INT,create_time TIMESTAMP)");
         for (int id = 1; id <= 8; id++) {
             jdbc.update("INSERT INTO content(id,type,author_id,title,description,cover_object_key,allow_comment,status,visibility,is_delete,create_time) VALUES(?,?,?,?,?,?,0,?,?,?,CURRENT_TIMESTAMP)",
@@ -272,6 +274,19 @@ class ContentListsIntegrationTest {
         assertEquals("简介2",card.getDescription());
         assertEquals(0,card.getAllowComment());
         assertEquals("cover2",card.getCoverUrl());
+    }
+
+    @Test
+    void viewedCandidatesUseOnlyTheRequestedUsersHistory() {
+        jdbc.update("INSERT INTO user_view_history(user_id,content_id,view_time) VALUES(9,20,CURRENT_TIMESTAMP)");
+        InternalViewHistoryController controller = new InternalViewHistoryController(history);
+        List<Long> candidates = List.of(1L, 8L, 20L);
+
+        assertEquals(Set.of(1L, 8L), Set.copyOf(controller.viewedIds(new Candidates(7L, candidates))));
+        assertEquals(List.of(20L), controller.viewedIds(new Candidates(9L, candidates)));
+
+        history.deleteOne(7L, 8L);
+        assertEquals(List.of(1L), controller.viewedIds(new Candidates(7L, candidates)));
     }
 
     @Test
@@ -542,7 +557,7 @@ class ContentListsIntegrationTest {
     }
 
     @Test
-    void inaccessibleContentCannotCreateCollectionOrHistoryRecords() {
+    void inaccessibleContentCannotCreateCollectionsOrAcceptPlaybackReports() {
         var access = new ContentAccessService(contents,mock(AudioContentAccess.class));
         CounterBuffer counter = mock(CounterBuffer.class);
         var collections = new cn.diaojiahong.myyoutube.collect.service.ContentCollectServiceImpl(
@@ -554,12 +569,10 @@ class ContentListsIntegrationTest {
                 mock(S3StorageUtil.class),
                 counter,
                 mock(NotificationPublisher.class));
-        var histories = new cn.diaojiahong.myyoutube.history.service.HistoryServiceImpl(history,summaries,access,
-                mock(UserPort.class),mock(FollowSnapshotCache.class),mock(S3StorageUtil.class));
         for (long id : List.of(4L,5L,6L,7L)) {
             assertThrows(BizException.class, () -> collections.collect(id));
-            assertThrows(BizException.class, () -> histories.record(id));
         }
+        assertTrue(access.readableIds(List.of(4L, 5L, 6L, 7L), 7L).isEmpty());
         verifyNoInteractions(counter);
         assertEquals(8,jdbc.queryForObject("SELECT COUNT(*) FROM content_collect",Integer.class));
         assertEquals(8,jdbc.queryForObject("SELECT COUNT(*) FROM user_view_history",Integer.class));

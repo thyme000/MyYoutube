@@ -35,14 +35,6 @@ public class ContentController {
         return Result.success(playback.get(contentId, userId()));
     }
 
-    @PutMapping("/{contentId}/playback")
-    public Result<Void> playback(
-            @PathVariable Long contentId,
-            @RequestBody cn.diaojiahong.myyoutube.content.domain.dto.ContentPlaybackDTO body) {
-        playback.save(contentId, userId(), body);
-        return Result.success();
-    }
-
     @GetMapping("/{contentId}")
     public ResponseEntity<Result<ContentDetailVO>> detail(@PathVariable Long contentId, HttpServletResponse response) {
         response.setHeader(HttpHeaders.CACHE_CONTROL, CacheControl.noStore().getHeaderValue());

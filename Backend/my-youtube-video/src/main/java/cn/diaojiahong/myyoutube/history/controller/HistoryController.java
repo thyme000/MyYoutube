@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -31,13 +30,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class HistoryController {
 
     private final IHistoryService historyService;
-
-    @Operation(summary = "记录观看历史(重复观看自动置顶)")
-    @PutMapping("/{contentId}")
-    public Result<Void> record(@PathVariable Long contentId) {
-        historyService.record(contentId);
-        return Result.success();
-    }
 
     @Operation(summary = "我的浏览历史分页")
     @GetMapping("/page")

@@ -95,6 +95,12 @@ public class RedisConstants {
     /** 相似度缓存 TTL(天): 每日全量重算兜底, TTL 略大于重算周期 */
     public static final Long RECOMMEND_SIM_EXPIRE = 8L;
 
+    // ==================== 统一播放上报 ====================
+    /** 播放会话: playback:report:session:{userId} -> 会话ID, 固定 TTL 不续期; 行为流水/播放量按会话分组, 会话期即播放量窗口 */
+    public static final String PLAYBACK_REPORT_SESSION = "playback:report:session:";
+    /** 会话 TTL(秒): 覆盖一次典型连续观看, 过期后下一次上报生成新会话 */
+    public static final long PLAYBACK_REPORT_SESSION_TTL_SECONDS = 3600L;
+
     // ==================== 计数落库缓冲 ====================
     /** 累积增量 pending:{type}:{id}; 每轮落库后 DEL, 故不设 TTL —— 设了反而会在任务停摆时丢增量 */
     public static final String COUNTER_PENDING = "pending:";

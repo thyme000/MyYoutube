@@ -9,8 +9,6 @@ import cn.diaojiahong.myyoutube.common.page.PageResult;
  */
 public interface IHistoryService {
 
-    /** 记录一次观看, 同内容 upsert 置顶 */
-    void record(Long contentId);
     /** 我的浏览历史, 按观看时间倒序 */
     PageResult<HistoryVO> page(ContentPageQuery pageQuery);
     /** 删除单条历史 */

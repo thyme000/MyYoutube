@@ -53,6 +53,13 @@ public class DynamicContentStrategy implements ContentTypeStrategy {
     }
 
     @Override
+    public Long maxResumePositionMs(ContentMedia media) {
+        // 续播沿用图片轮播时间轴，不含成片的交叠转场；循环末尾之后回到首张。
+        long timelineDurationMs = media.dynamic().items().stream().mapToLong(DynamicMedia.Image::durationMs).sum();
+        return timelineDurationMs > 0 ? timelineDurationMs - 1 : null;
+    }
+
+    @Override
     public ContentMediaResource loadResource(Long id) {
         ContentMedia media = loadMedia(List.of(id)).get(id);
         return media == null ? null : new ContentMediaResource(media, null, null);
