@@ -3,11 +3,8 @@ package cn.diaojiahong.myyoutube.user.controller;
 import cn.diaojiahong.myyoutube.block.UserBlockService;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 
-import cn.diaojiahong.myyoutube.common.page.PageQuery;
-import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.user.domain.dto.UserDTO;
-import cn.diaojiahong.myyoutube.user.domain.dto.UserHistoryPageQuery;
 import cn.diaojiahong.myyoutube.user.domain.vo.CurrentUserVO;
 import cn.diaojiahong.myyoutube.user.domain.vo.UserVO;
 import cn.diaojiahong.myyoutube.user.service.IUserService;
@@ -19,7 +16,6 @@ import org.springframework.web.bind.annotation.*;
 
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
 
 @RestController
 @Slf4j

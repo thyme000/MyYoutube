@@ -2,8 +2,8 @@ package cn.diaojiahong.myyoutube.user;
 
 import cn.diaojiahong.myyoutube.block.InternalUserBlockController;
 import cn.diaojiahong.myyoutube.block.UserBlockController;
-import cn.diaojiahong.myyoutube.block.UserBlockMapper;
 import cn.diaojiahong.myyoutube.block.UserBlockService;
+import cn.diaojiahong.myyoutube.user.mapper.UserBlockMapper;
 import cn.diaojiahong.myyoutube.common.filter.UserIdHeaderFilter;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
