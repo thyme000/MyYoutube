@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.media.FrameProcessingSettings;
 import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
 import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.domain.ContentAccessSnapshot;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
@@ -165,6 +166,11 @@ class ContentStatisticsIntegrationTest {
         @Bean
         AudioContentAccess audioAccess(AudioMapper audios) {
             return new AudioContentAccess(audios, mock(AfterCommitNotifications.class));
+        }
+
+        @Bean
+        UserBlockPort blocks() {
+            return mock(UserBlockPort.class);
         }
     }
 
