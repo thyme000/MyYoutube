@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
-import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
+import cn.diaojiahong.myyoutube.chat.domain.po.Conversation;
+import cn.diaojiahong.myyoutube.chat.service.impl.ConversationService;
 import cn.diaojiahong.myyoutube.mq.message.GroupDeletedMessage;
 import cn.diaojiahong.myyoutube.video.api.NotificationPort;
 import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
@@ -24,7 +24,7 @@ import java.util.Optional;
         maxReconsumeTimes = 3)
 public class ChatConversationListener implements RocketMQListener<GroupDeletedMessage> {
 
-    private final ChatConversationService chatConversationService;
+    private final ConversationService chatConversationService;
     private final NotificationPort notificationPort;
 
     @Override
@@ -35,12 +35,12 @@ public class ChatConversationListener implements RocketMQListener<GroupDeletedMe
             log.debug("群解散通知跳过: 会话或成员为空 conversationId={}", conversationId);
             return;
         }
-        Optional<ChatConversationDoc> opt = chatConversationService.getById(conversationId);
+        Optional<Conversation> opt = chatConversationService.getById(conversationId);
         if (opt.isEmpty()) {
             log.warn("群聊不存在, 解散通知已丢弃 conversationId={} memberCount={}", conversationId, memberIds.size());
             return;
         }
-        ChatConversationDoc conversation = opt.get();
+        Conversation conversation = opt.get();
         for (Long memberId : memberIds) {
             notificationPort.createNotification(new NotificationPort.NotificationCreate(
                     memberId, null, NotificationTypeEnum.CHAT_NOTICE.getCode(),

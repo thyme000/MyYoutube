@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.notify;
 
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.enums.ConversationTypeEnum;
 import org.springframework.stereotype.Component;
 
 import java.util.EnumMap;

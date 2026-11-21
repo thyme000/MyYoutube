@@ -1,17 +1,17 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
-import cn.diaojiahong.myyoutube.chat.mapper.ChatMessageMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.MessageMapper;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.chat.mongo.po.ChatMessageDoc;
+import cn.diaojiahong.myyoutube.chat.domain.po.Message;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.springframework.stereotype.Component;
 
 @Component
 public class IdempotentStep extends MessageSendStep {
 
-    private final ChatMessageMapper messageMapper;
+    private final MessageMapper messageMapper;
 
-    public IdempotentStep(ChatMessageMapper messageMapper) {
+    public IdempotentStep(MessageMapper messageMapper) {
         super(50);
         this.messageMapper = messageMapper;
     }
@@ -22,7 +22,7 @@ public class IdempotentStep extends MessageSendStep {
      */
     @Override
     public void apply(MessageSendContext ctx) {
-        ChatMessageDoc old = messageMapper.selectById(
+        Message old = messageMapper.selectById(
                 MessageSendContext.messageId(Long.valueOf(ctx.getUserId()), ctx.getDto().getClientMsgId()));
         if (old == null) {
             return;

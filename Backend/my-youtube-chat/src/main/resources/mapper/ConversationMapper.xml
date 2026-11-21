@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.chat.mapper.ConversationMapper">
+
+    <select id="findPrivateChat" resultType="cn.diaojiahong.myyoutube.chat.domain.po.Conversation">
+        SELECT c.*
+        FROM conversation c
+        WHERE c.user_a = #{userA}
+          AND c.user_b = #{userB}
+        LIMIT 1
+    </select>
+
+    <update id="advanceOnMessage">
+        UPDATE conversation
+        SET last_seq = last_seq + 1,
+            updated_at = #{messageAt}
+        WHERE id = #{conversationId}
+          AND status IN ('ACTIVE', 'WAITING_REPLY')
+    </update>
+
+    <select id="lockById" resultType="cn.diaojiahong.myyoutube.chat.domain.po.Conversation">
+        SELECT id, type, status, created_by, user_a, user_b, last_seq
+        FROM conversation
+        WHERE id = #{conversationId}
+        FOR UPDATE
+    </select>
+
+    <update id="activatePrivateChat">
+        UPDATE conversation
+        SET status = 'ACTIVE'
+        WHERE id = #{conversationId}
+          AND status = 'WAITING_REPLY'
+    </update>
+
+    <update id="startPrivateChat">
+        UPDATE conversation
+        SET created_by = #{senderId},
+            status = #{status}
+        WHERE id = #{conversationId}
+          AND last_seq = 0
+    </update>
+
+    <select id="selectLastSeq" resultType="long">
+        SELECT last_seq
+        FROM conversation
+        WHERE id = #{conversationId}
+    </select>
+
+    <update id="publishAnnouncement">
+        UPDATE conversation
+        SET announcement = #{announcement},
+            announcement_version = IFNULL(announcement_version, 0) + 1,
+            updated_at = #{publishedAt}
+        WHERE id = #{conversationId}
+    </update>
+</mapper>

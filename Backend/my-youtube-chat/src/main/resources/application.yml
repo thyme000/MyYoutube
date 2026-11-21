@@ -13,12 +13,6 @@ rocketmq:
 server:
   port: ${SERVER_PORT:8083}
 
-mybatis-plus:
-  global-config:
-    db-config:
-      # 会话整行回写, 允许把头像、公告等字段更新为空
-      update-strategy: always
-
 my-youtube:
   db-name: chat_db
   user-service:

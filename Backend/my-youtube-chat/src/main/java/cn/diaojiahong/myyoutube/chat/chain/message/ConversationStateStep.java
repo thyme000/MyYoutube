@@ -1,8 +1,8 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
-import cn.diaojiahong.myyoutube.chat.mapper.ChatUserConversationMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
+import cn.diaojiahong.myyoutube.chat.domain.po.ConversationMember;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Component;
@@ -10,23 +10,23 @@ import org.springframework.stereotype.Component;
 @Component
 public class ConversationStateStep extends MessageSendStep {
 
-    private final ChatUserConversationMapper userConversationMapper;
+    private final ConversationMemberMapper conversationMemberMapper;
 
-    public ConversationStateStep(ChatUserConversationMapper userConversationMapper) {
+    public ConversationStateStep(ConversationMemberMapper conversationMemberMapper) {
         super(20);
-        this.userConversationMapper = userConversationMapper;
+        this.conversationMemberMapper = conversationMemberMapper;
     }
 
     @Override
     public void apply(MessageSendContext ctx) {
-        ChatUserConversationDoc userConversationDoc = userConversationMapper.selectOne(
-                new LambdaQueryWrapper<ChatUserConversationDoc>()
-                        .eq(ChatUserConversationDoc::getConversationId, ctx.getConversationId())
-                        .eq(ChatUserConversationDoc::getUserId, Long.valueOf(ctx.getUserId())));
-        if (userConversationDoc == null || Boolean.TRUE.equals(userConversationDoc.getDeleted())) {
+        ConversationMember member = conversationMemberMapper.selectOne(
+                new LambdaQueryWrapper<ConversationMember>()
+                        .eq(ConversationMember::getConversationId, ctx.getConversationId())
+                        .eq(ConversationMember::getUserId, Long.valueOf(ctx.getUserId())));
+        if (member == null || Boolean.TRUE.equals(member.getDeleted())) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "不合法的会话状态");
         }
 
-        ctx.setUserConversationDoc(userConversationDoc);
+        ctx.setMember(member);
     }
 }

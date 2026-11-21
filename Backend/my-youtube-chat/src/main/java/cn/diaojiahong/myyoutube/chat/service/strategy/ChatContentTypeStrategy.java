@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.chat.service.strategy;
 
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
-import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
+import cn.diaojiahong.myyoutube.chat.domain.enums.ChatContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.po.ChatContent;
 
 import java.util.Set;
 

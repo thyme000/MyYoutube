@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.mq.listener;
 
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
-import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForReadMessageVO;
+import cn.diaojiahong.myyoutube.chat.domain.vo.NotificationForReadMessageVO;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

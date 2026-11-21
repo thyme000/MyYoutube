@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.chat.notify;
 
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
-import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
+import cn.diaojiahong.myyoutube.chat.domain.enums.ConversationTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.po.Conversation;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 
@@ -13,5 +13,5 @@ public interface ConversationNotifyStrategy {
 
     ConversationTypeEnum type();
 
-    void notify(ChatConversationDoc conversation, ChatMessageMessage message, UserSummary sender);
+    void notify(Conversation conversation, ChatMessageMessage message, UserSummary sender);
 }

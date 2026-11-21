@@ -1,52 +1,49 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
-import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
-import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
-import cn.diaojiahong.myyoutube.chat.service.impl.ChatMessageService;
+import cn.diaojiahong.myyoutube.chat.domain.enums.ConversationTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.po.Conversation;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 @Component
 public class InterrelatedRateLimitStep extends MessageSendStep {
 
     private final FollowPort followPort;
-    private final StringRedisTemplate redisTemplate;
+    private final UserBlockPort blocks;
 
-    public InterrelatedRateLimitStep(FollowPort followPort, StringRedisTemplate redisTemplate) {
+    public InterrelatedRateLimitStep(FollowPort followPort, UserBlockPort blocks) {
         super(100);
         this.followPort = followPort;
-        this.redisTemplate = redisTemplate;
+        this.blocks = blocks;
     }
 
-    /**
-     * 私聊专属: 互关不限量, 非互关每日 10 条。判定"对方"时先把发送人从
-     * 成员里摘掉、查完原样加回 —— 会话文档在写入阶段还要复用, 不能留下变更。
-     */
+    /** 检查私聊拉黑关系，并在空会话首发或等待回复的发起人发送时查询互关。 */
     @Override
     public void apply(MessageSendContext ctx) {
-        ChatConversationDoc conversation = ctx.getConversationDoc();
-        if (!conversation.getType().equals(ConversationTypeEnum.SINGLE)) {
+        Conversation conversation = ctx.getConversation();
+        if (conversation.getType() != ConversationTypeEnum.SINGLE) {
             return;
         }
-
         Long senderId = Long.valueOf(ctx.getUserId());
-        conversation.getMemberIds().remove(senderId);
-        try {
-            boolean interrelated = followPort.interrelated(
-                    new FollowPort.InterrelatedQuery(senderId, conversation.getMemberIds()));
-            ctx.setInterrelated(interrelated);
-            if (!interrelated) {
-                Double times = redisTemplate.opsForZSet()
-                        .score(ChatMessageService.nonMutualMessageKey(ctx.getUserId()), ctx.getConversationId());
-                if (times != null && times > 10) {
-                    throw new BizException(ErrorCode.RATE_LIMITED, "你们暂时还不是互关关系哦,每天只能给对方发送10条消息");
-                }
-            }
-        } finally {
-            conversation.getMemberIds().add(senderId);
+        // 对端按 user_a/user_b 反推, 不依赖成员表里有对方的行
+        Long peerId = conversation.peerOf(senderId);
+        if (peerId == null) {
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "不合法的会话状态");
         }
+        if (blocks.blocksPrivateChat(senderId, peerId)) {
+            throw new BizException(ErrorCode.FORBIDDEN, Conversation.PRIVATE_MESSAGE_UNAVAILABLE);
+        }
+        Long initiatorId = conversation.getCreatedBy();
+        if (!conversation.requiresPrivateAdmission() || (initiatorId != null && !initiatorId.equals(senderId))) {
+            return;
+        }
+        boolean interrelated = followPort.interrelated(
+                new FollowPort.InterrelatedQuery(senderId, List.of(peerId)));
+        ctx.setInterrelated(interrelated);
     }
 }

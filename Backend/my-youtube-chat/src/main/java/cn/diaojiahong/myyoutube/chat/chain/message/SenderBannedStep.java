@@ -13,7 +13,7 @@ public class SenderBannedStep extends MessageSendStep {
 
     @Override
     public void apply(MessageSendContext ctx) {
-        if (Boolean.TRUE.equals(ctx.getUserConversationDoc().getBanned())) {
+        if (Boolean.TRUE.equals(ctx.getMember().getBanned())) {
             throw new BizException(ErrorCode.FORBIDDEN, "您已被禁言");
         }
     }

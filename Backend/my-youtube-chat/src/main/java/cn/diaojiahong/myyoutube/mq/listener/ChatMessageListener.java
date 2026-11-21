@@ -1,9 +1,9 @@
 package cn.diaojiahong.myyoutube.mq.listener;
 
-import cn.diaojiahong.myyoutube.chat.mongo.po.ChatConversationDoc;
+import cn.diaojiahong.myyoutube.chat.domain.po.Conversation;
 import cn.diaojiahong.myyoutube.chat.notify.ConversationNotifyRegistry;
 import cn.diaojiahong.myyoutube.chat.notify.ConversationNotifyStrategy;
-import cn.diaojiahong.myyoutube.chat.service.impl.ChatConversationService;
+import cn.diaojiahong.myyoutube.chat.service.impl.ConversationService;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
@@ -25,7 +25,7 @@ import java.util.Optional;
 public class ChatMessageListener implements RocketMQListener<ChatMessageMessage> {
 
     private final UserPort userPort;
-    private final ChatConversationService chatConversationService;
+    private final ConversationService chatConversationService;
     private final ConversationNotifyRegistry notifyRegistry;
 
     @Override
@@ -35,15 +35,23 @@ public class ChatMessageListener implements RocketMQListener<ChatMessageMessage>
                 chatMessageMessage.getConversationId(), chatMessageMessage.getMessageId(),
                 chatMessageMessage.getSenderId(), chatMessageMessage.getContentType(),
                 chatMessageMessage.getEvent());
-        Optional<ChatConversationDoc> opt =
+        Optional<Conversation> opt =
                 chatConversationService.getById(chatMessageMessage.getConversationId());
         if (opt.isEmpty()) {
             log.warn("会话不存在, 通知已丢弃 conversationId={} messageId={}",
                     chatMessageMessage.getConversationId(), chatMessageMessage.getMessageId());
             return;
         }
-        ChatConversationDoc conversation = opt.get();
+        Conversation conversation = opt.get();
         UserSummary user = userPort.getUser(chatMessageMessage.getSenderId());
+        if (user == null) {
+            // 发送人已注销: 通知报文拼不出昵称, 丢弃即可, 抛异常只会白白触发重试
+            log.warn("发送人不存在, 通知已丢弃 conversationId={} senderId={} messageId={}",
+                    chatMessageMessage.getConversationId(),
+                    chatMessageMessage.getSenderId(),
+                    chatMessageMessage.getMessageId());
+            return;
+        }
         ConversationNotifyStrategy strategy = notifyRegistry.get(conversation.getType());
         if (strategy == null) {
             log.warn("会话通知类型未注册, 通知已丢弃 conversationId={} type={} messageId={}",

@@ -5,158 +5,185 @@ import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.chat.chain.message.MessageSendChain;
 import cn.diaojiahong.myyoutube.chat.chain.message.MessageSendContext;
-import cn.diaojiahong.myyoutube.chat.mapper.ChatConversationMapper;
-import cn.diaojiahong.myyoutube.chat.mapper.ChatConversationSeqMapper;
-import cn.diaojiahong.myyoutube.chat.mapper.ChatMessageMapper;
-import cn.diaojiahong.myyoutube.chat.mapper.ChatUserConversationMapper;
-import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageDTO;
-import cn.diaojiahong.myyoutube.chat.mongo.dto.ChatMessageWithdrawDTO;
-import cn.diaojiahong.myyoutube.chat.mongo.dto.MessageListPageQuery;
-import cn.diaojiahong.myyoutube.chat.mongo.dto.ack.ChatMessageAckDTO;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ConversationTypeEnum;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.MessageStatusEnum;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
-import cn.diaojiahong.myyoutube.chat.mongo.po.*;
-import cn.diaojiahong.myyoutube.chat.mongo.vo.FindRecordVO;
-import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePage;
-import cn.diaojiahong.myyoutube.chat.mongo.vo.MessagePageVO;
+import cn.diaojiahong.myyoutube.chat.mapper.ConversationMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.MessageMapper;
+import cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper;
+import cn.diaojiahong.myyoutube.chat.domain.MessagePreview;
+import cn.diaojiahong.myyoutube.chat.domain.dto.ChatMessageDTO;
+import cn.diaojiahong.myyoutube.chat.domain.dto.ChatMessageWithdrawDTO;
+import cn.diaojiahong.myyoutube.chat.domain.dto.ack.ChatMessageAckDTO;
+import cn.diaojiahong.myyoutube.chat.domain.enums.ConversationStatus;
+import cn.diaojiahong.myyoutube.chat.domain.enums.ConversationTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.enums.MessageStatusEnum;
+import cn.diaojiahong.myyoutube.chat.domain.enums.RecallTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.po.*;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategy;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
-import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
+import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
-import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
-import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.toolkit.StringUtils;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import jakarta.validation.Valid;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ChatMessageService {
 
-    private static final Long STORAGE_EXPIRE = 3600L * 10;
-    public static final long NON_MUTUAL_MESSAGE_WINDOW_DAYS = 1L;
-
-    public static String nonMutualMessageKey(Object userId) {
-        return "user:conversation:" + userId;
-    }
-
-    private final ChatMessageMapper messageMapper;
-    private final ChatConversationMapper conversationMapper;
-    private final ChatConversationSeqMapper seqMapper;
-    private final ChatUserConversationMapper userConversationMapper;
-    private final ChatConversationService chatConversationService;
+    private final MessageMapper messageMapper;
+    private final ConversationMapper conversationMapper;
+    private final ConversationMemberMapper conversationMemberMapper;
+    private final ConversationService chatConversationService;
+    private final PrivateConversationService privateConversationService;
     private final RocketMQTemplate rocketMQTemplate;
     private final UserPort userPort;
-    private final S3StorageUtil storageUtil;
-    private final StringRedisTemplate redisTemplate;
     private final ContentInternalPort contentInternalPort;
     private final ChatContentTypeStrategyRegistry contentTypeStrategies;
     private final SyncChainStepRegistry chainRegistry;
     private final TransactionTemplate transactionTemplate;
+    private final UserBlockPort blocks;
+    private final FollowPort followPort;
 
-    public Optional<ChatMessageDoc> findByIdempotent(Long senderId, String clientMsgId) {
+    public Optional<Message> findByIdempotent(Long senderId, String clientMsgId) {
         return Optional.ofNullable(messageMapper.selectById(MessageSendContext.messageId(senderId, clientMsgId)));
     }
 
-    public Page<ChatMessageDoc> pageByConversation(String conversationId, Long beforeSeq, int size) {
-        int pageSize = normalizePageSize(size);
-        LambdaQueryWrapper<ChatMessageDoc> query = new LambdaQueryWrapper<ChatMessageDoc>()
-                .eq(ChatMessageDoc::getConversationId, conversationId)
-                .lt(beforeSeq != null, ChatMessageDoc::getSeq, beforeSeq)
-                .orderByDesc(ChatMessageDoc::getSeq);
-        return messageMapper.selectPage(new Page<>(1, pageSize), query);
-    }
-
-    public Page<ChatMessageDoc> syncPageByConversation(String conversationId, Long beforeSeq, int size) {
-        int pageSize = normalizePageSize(size);
-        LambdaQueryWrapper<ChatMessageDoc> query = new LambdaQueryWrapper<ChatMessageDoc>()
-                .eq(ChatMessageDoc::getConversationId, conversationId)
-                .gt(beforeSeq != null, ChatMessageDoc::getSeq, beforeSeq)
-                .orderByAsc(ChatMessageDoc::getSeq);
-        return messageMapper.selectPage(new Page<>(1, pageSize), query);
-    }
-
     @ObservedBusiness(BusinessOperation.SEND_MESSAGE)
-    public ChatMessageAckDTO send(ChatMessageDTO chatMessageDTO) {
+    public ChatMessageAckDTO send(ChatMessageDTO dto) {
+        String userId = getUserId();
+        String conversationId = dto.getConversationId();
+        Long peerId = dto.getPeerUserId();
+        boolean hasConversation = conversationId != null && !conversationId.isBlank();
+        boolean hasPeer = peerId != null;
+        if (hasConversation == hasPeer) {
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "会话 ID 与对方用户 ID 必须二选一");
+        }
+        if (hasConversation) {
+            return sendToConversation(dto, userId, conversationId);
+        }
+        requirePrivatePeer(Long.valueOf(userId), peerId);
+        return sendToPeer(dto, userId, peerId);
+    }
+
+    private void requirePrivatePeer(Long userId, Long peerId) {
+        if (peerId <= 0) {
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "对方用户 ID 无效");
+        }
+        if (peerId.equals(userId)) {
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "不能与自己发起私聊");
+        }
+    }
+
+    private ChatMessageAckDTO sendToPeer(ChatMessageDTO dto, String userId, Long peerId) {
+        Long senderId = Long.valueOf(userId);
+        ChatContentTypeStrategy strategy = contentTypeStrategies.require(dto.getContentType());
+        strategy.validate(dto.getContent());
+
+        Conversation existing = privateConversationService.findPrivateChat(senderId, peerId);
+        if (existing != null) {
+            // A 已打开、发送人还没打开过(如 B 直接发首条): 补发送人成员行(不可见档)后走常规发送,
+            // 发送失败时残留的行不进列表, 发送成功后 applyTail 把它点亮
+            privateConversationService.ensurePrivateMember(existing.getId(), senderId, false, LocalDateTime.now());
+            return sendToConversation(dto, userId, existing.getId());
+        }
+
+        requirePrivateChatAllowed(senderId, peerId);
+        privateConversationService.validatePrivatePeer(peerId);
+        boolean mutual = followPort.interrelated(new FollowPort.InterrelatedQuery(senderId, List.of(peerId)));
+        ConversationStatus status = ConversationStatus.afterFirstPrivateMessage(mutual);
+        Message message = prepareMessage(dto, senderId, strategy);
+        String preview = MessagePreview.clip(strategy.previewLabel(message.getContent()));
+
+        try {
+            transactionTemplate.executeWithoutResult(tx -> {
+                Conversation created = privateConversationService.insertPrivateConversation(
+                        senderId, peerId, status, message.getCreatedAt());
+                message.setConversationId(created.getId());
+                persistMessage(message, preview, null);
+            });
+        } catch (DuplicateKeyException duplicate) {
+            return recoverDuplicateOnFirstSend(dto, userId, senderId, peerId, duplicate);
+        }
+        return notifySent(message);
+    }
+
+    /**
+     * 首发撞唯一键的两种来源要分开处理:
+     * ① uk_private_pair: 对方(或自己的另一请求)并发首发建了会话。MySQL 唯一索引的插入
+     *    冲突要等对方事务终局才返回, 所以此时回查必能看到那个会话, 直接走常规发送校验。
+     * ② message 主键: 同一 clientMsgId 已用在别的会话, 属于消息幂等冲突。
+     */
+    private ChatMessageAckDTO recoverDuplicateOnFirstSend(
+            ChatMessageDTO dto, String userId, Long senderId, Long peerId, DuplicateKeyException duplicate) {
+        Conversation found = privateConversationService.findPrivateChat(senderId, peerId);
+        if (found != null) {
+            privateConversationService.ensurePrivateMember(found.getId(), senderId, false, LocalDateTime.now());
+            return sendToConversation(dto, userId, found.getId());
+        }
+        if (findByIdempotent(senderId, dto.getClientMsgId()).isPresent()) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "会话id不一致");
+        }
+        throw duplicate;
+    }
+
+    private void requirePrivateChatAllowed(Long userId, Long peerId) {
+        if (blocks.blocksPrivateChat(userId, peerId)) {
+            throw new BizException(ErrorCode.FORBIDDEN, Conversation.PRIVATE_MESSAGE_UNAVAILABLE);
+        }
+    }
+
+    private ChatMessageAckDTO sendToConversation(ChatMessageDTO dto, String userId, String conversationId) {
         // 类型校验/会话与成员守卫/禁言/幂等/互关频控全部在链上, 步骤见 chat.chain.message
-        MessageSendContext ctx = MessageSendContext.of(chatMessageDTO, getUserId());
+        MessageSendContext ctx = MessageSendContext.of(dto, userId, conversationId);
         chainRegistry.execute(MessageSendChain.GROUP, ctx, MessageSendContext::hasAck);
         if (ctx.hasAck()) {
-            // 该消息此前已发送过, 幂等命中直接返回旧 ack, 不再写入
             return ctx.getAck();
         }
 
-        String userId = ctx.getUserId();
-        String conversationId = ctx.getConversationId();
-        ChatConversationDoc chatConversationDoc = ctx.getConversationDoc();
-        boolean isInterrelated = ctx.isInterrelated();
-        ChatMessageDoc chatMessageDoc = BeanUtil.toBean(chatMessageDTO, ChatMessageDoc.class);
-        chatMessageDoc.setId(MessageSendContext.messageId(
-                chatMessageDTO.getSenderId(),
-                chatMessageDTO.getClientMsgId()));
-        chatMessageDoc.setCreatedAt(LocalDateTime.now());
-        chatMessageDoc.setStatus(MessageStatusEnum.SENT);
-        // 转发类由策略查远端固化快照, 其余类型原样透传; 远程调用在事务外完成
-        chatMessageDoc.setContent(contentTypeStrategies.get(chatMessageDoc.getContentType())
-                .snapshot(chatMessageDTO.getContent()));
-        // 群聊最后一条消息发送人昵称: Feign 提前到事务外查好, 事务里只做纯写
-        boolean isGroup = chatConversationDoc.getType().equals(ConversationTypeEnum.GROUP);
-        String senderNickname = isGroup ? userPort.getUser(Long.valueOf(userId)).getNickname() : null;
-        ChatMessageDoc existing;
+        Conversation conversation = ctx.getConversation();
+        Long senderId = Long.valueOf(userId);
+        boolean admissionRequired = conversation.requiresPrivateAdmission();
+        ChatContentTypeStrategy strategy = contentTypeStrategies.require(dto.getContentType());
+        Message message = prepareMessage(dto, senderId, strategy);
+        message.setConversationId(conversationId);
+        String preview = MessagePreview.clip(strategy.previewLabel(message.getContent()));
+        String senderNickname = groupSenderNickname(conversation.getType() == ConversationTypeEnum.GROUP, senderId);
+
+        Message existing;
         try {
             existing = transactionTemplate.execute(tx -> {
-                ChatMessageDoc old = findByIdempotent(chatMessageDoc.getSenderId(), chatMessageDoc.getClientMsgId())
-                        .orElse(null);
+                // 先锁住待发首条或等待回复的私聊，再读幂等记录，避免并发重试被误判为第二条问候。
+                Conversation locked = admissionRequired ? lockActiveConversation(conversationId) : null;
+                Message old = findByIdempotent(senderId, dto.getClientMsgId()).orElse(null);
                 if (old != null) {
                     return old;
                 }
-                chatMessageDoc.setSeq(nextSeq(conversationId));
-                messageMapper.insert(chatMessageDoc);
-                // 设置会话最后消息
-                chatConversationDoc.setLastMessageAt(chatMessageDoc.getCreatedAt());
-                chatConversationDoc.setLastMessageId(chatMessageDoc.getId());
-                chatConversationDoc.setIsLastMessageRecall(false);
-                // 系统消息等无预览类型不动 lastMessagePreview, 保留上一条媒体消息的预览
-                String preview = contentTypeStrategies.get(chatMessageDoc.getContentType())
-                        .previewLabel(chatMessageDoc.getContent());
-                if (preview != null) {
-                    chatConversationDoc.setLastMessagePreview(preview);
+                if (locked != null) {
+                    privateConversationService.admitPrivateConversation(locked, senderId, ctx.isInterrelated());
                 }
-                if (isGroup) {
-                    chatConversationDoc.setLastMessageSenderNickname(senderNickname);
-                }
-                chatConversationDoc.setUpdatedAt(LocalDateTime.now());
-                conversationMapper.updateById(chatConversationDoc);
+                persistMessage(message, preview, senderNickname);
                 return null;
             });
         } catch (DuplicateKeyException duplicate) {
-            existing = findByIdempotent(chatMessageDoc.getSenderId(), chatMessageDoc.getClientMsgId()).orElse(null);
+            existing = findByIdempotent(senderId, dto.getClientMsgId()).orElse(null);
             if (existing == null) {
                 throw duplicate;
             }
@@ -167,49 +194,82 @@ public class ChatMessageService {
             }
             return getAck(existing, existing.getStatus());
         }
-        if (chatMessageDoc.getContentType().isForward()) {
-            incrementShareCountQuietly(chatMessageDoc.getContent().getContentId(), Long.valueOf(userId));
+        return notifySent(message);
+    }
+
+    private Message prepareMessage(ChatMessageDTO dto, Long senderId, ChatContentTypeStrategy strategy) {
+        Message message = new Message();
+        message.setSenderId(senderId);
+        message.setId(MessageSendContext.messageId(senderId, dto.getClientMsgId()));
+        message.setClientMsgId(dto.getClientMsgId());
+        message.setContentType(dto.getContentType());
+        message.setCreatedAt(LocalDateTime.now());
+        message.setStatus(MessageStatusEnum.SENT);
+        // 转发快照可能需要远程调用，在事务外完成。
+        message.setContent(strategy.snapshot(dto.getContent()));
+        return message;
+    }
+
+    private void persistMessage(Message message, String preview, String senderNickname) {
+        String conversationId = message.getConversationId();
+        LocalDateTime now = message.getCreatedAt();
+        int updated = conversationMapper.advanceOnMessage(conversationId, now);
+        if (updated != 1) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "会话不存在或已解散");
         }
-        // ack 与推送报文依赖 save 后的 messageId/seq, 必须在提交后构建
-        ChatMessageAckDTO chatMessageAckDTO = getAck(chatMessageDoc, MessageStatusEnum.SENT);
-        ChatMessageMessage ch = ChatMessageMessage.builder().senderId(chatMessageDoc.getSenderId())
-                .seq(chatMessageDoc.getSeq()).conversationId(conversationId)
-                .messageId(chatMessageDoc.getId()).contentType(chatMessageDTO.getContentType())
-                .serviceTime(chatMessageDoc.getCreatedAt()).event("send").build();
-        if (chatMessageDTO.getContentType().isText()) {
-            ch.setContent(chatMessageDTO.getContent().getText());
+        // UPDATE 拿到的行锁串行化了并发递增，本事务内回读看到的就是自己刚加的值
+        long seq = conversationMapper.selectLastSeq(conversationId);
+        message.setSeq(seq);
+        messageMapper.insert(message);
+        conversationMemberMapper.applyTail(conversationId, message.getId(), now, preview, senderNickname);
+        // 自己发出的消息算已读，已读水位推进到本条。
+        conversationMemberMapper.advanceReadSeq(conversationId, message.getSenderId(), seq, now);
+    }
+
+    private ChatMessageAckDTO notifySent(Message message) {
+        if (message.getContentType().isForward()) {
+            incrementShareCountQuietly(message.getContent().getContentId(), message.getSenderId());
         }
-        if (chatConversationDoc.getType().equals(ConversationTypeEnum.SINGLE)) {
-            // 私聊并且不是互关,增加消息次数; 提交后再计, 回滚的消息不计数
-            if (!isInterrelated) {
-                redisTemplate.opsForZSet().incrementScore(nonMutualMessageKey(userId), conversationId, 1);
-                redisTemplate.expire(nonMutualMessageKey(userId),
-                        NON_MUTUAL_MESSAGE_WINDOW_DAYS, TimeUnit.DAYS);
-            }
+        ChatMessageMessage notification = ChatMessageMessage.builder()
+                .senderId(message.getSenderId())
+                .seq(message.getSeq())
+                .conversationId(message.getConversationId())
+                .messageId(message.getId())
+                .contentType(message.getContentType())
+                .serviceTime(message.getCreatedAt())
+                .event("send")
+                .build();
+        if (message.getContentType().isText()) {
+            notification.setContent(message.getContent().getText());
         }
-        rocketMQTemplate.syncSend(ChatMessageMessage.TOPIC, ch);
+        try {
+            rocketMQTemplate.syncSend(ChatMessageMessage.TOPIC, notification);
+        } catch (RuntimeException ex) {
+            log.warn("消息推送失败，接收方靠同步补齐 conversationId={} messageId={}",
+                    message.getConversationId(), message.getId(), ex);
+        }
         log.debug("Chat message sent conversationId={} messageId={} seq={} senderId={} contentType={}",
-                conversationId,
-                chatMessageDoc.getId(),
-                chatMessageDoc.getSeq(),
-                userId,
-                chatMessageDoc.getContentType());
-        return chatMessageAckDTO;
+                message.getConversationId(), message.getId(), message.getSeq(),
+                message.getSenderId(), message.getContentType());
+        return getAck(message, MessageStatusEnum.SENT);
     }
 
-    private ChatMessageAckDTO getAck(ChatMessageDoc chatMessageDoc, MessageStatusEnum status) {
+    private Conversation lockActiveConversation(String conversationId) {
+        Conversation locked = conversationMapper.lockById(conversationId);
+        if (locked == null || locked.getStatus() == ConversationStatus.CLOSED) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "会话不存在或已解散");
+        }
+        return locked;
+    }
+
+    private ChatMessageAckDTO getAck(Message chatMessageDoc, MessageStatusEnum status) {
         return MessageSendContext.ackOf(chatMessageDoc, status);
-    }
-
-    public long nextSeq(String conversationId) {
-        seqMapper.allocate(conversationId);
-        return seqMapper.lastAllocated();
     }
 
     private String getUserId() {
         String userId = UserContext.getUserId();
         if (userId == null || userId.isEmpty()) {
-            throw new BizException(ErrorCode.NOT_FOUND, "用户id不存在");
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
 
         return userId;
@@ -218,22 +278,22 @@ public class ChatMessageService {
     @ObservedBusiness(BusinessOperation.WITHDRAW_MESSAGE)
     public ChatMessageAckDTO withdraw(ChatMessageWithdrawDTO chatMessageWithdrawDTO) {
         String userId = getUserId();
-        if (chatMessageWithdrawDTO.getClientMsgId() == null) {
-            throw new BizException(ErrorCode.INVALID_ARGUMENT, "客户端幂等id不能为空");
-        }
-
-        Optional<ChatMessageDoc> existed =
-                findByIdempotent(chatMessageWithdrawDTO.getSenderId(), chatMessageWithdrawDTO.getClientMsgId());
-        if (existed.isEmpty()) {
+        // 按主键定位消息; 发送人取消息行自身, 不再用客户端自报的 senderId 拼幂等 key
+        Message chatMessageDoc = messageMapper.selectById(chatMessageWithdrawDTO.getMessageId());
+        if (chatMessageDoc == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "消息不存在");
         }
 
-        ChatMessageDoc chatMessageDoc = existed.get();
-        ChatConversationDoc chatConversationDoc = getChatConversationDoc(chatMessageDoc.getConversationId());
-        // 判断是否是发送人撤回或群主撤回
-        Long createdBy = chatConversationDoc.getCreatedBy();
-        if (!chatMessageDoc.getSenderId().toString().equals(userId)
-                && (createdBy == null || !createdBy.toString().equals(userId))) {
+        Conversation conversation = getConversation(chatMessageDoc.getConversationId());
+        // 退群/解散后不再持有撤回权: 群主靠 removeConversationMember 的守卫保证留在群里
+        activeMemberIds(chatMessageDoc.getConversationId());
+        Long operatorId = Long.valueOf(userId);
+        Long createdBy = conversation.getCreatedBy();
+        boolean senderRecall = chatMessageDoc.getSenderId() != null && chatMessageDoc.getSenderId().equals(operatorId);
+        boolean groupOwner = ConversationTypeEnum.GROUP.equals(conversation.getType())
+                && createdBy != null
+                && createdBy.equals(operatorId);
+        if (!senderRecall && !groupOwner) {
             throw new BizException(ErrorCode.FORBIDDEN, "不是发送人或群主");
         }
         LocalDateTime recallTime = LocalDateTime.now();
@@ -242,199 +302,143 @@ public class ChatMessageService {
             return getAck(chatMessageDoc, chatMessageDoc.getStatus());
         }
 
-        Long operatorId = Long.valueOf(userId);
-        // 必须先判断「本人撤自己」：群主也是 createdBy，否则会被误判为 ADMIN
+        // 必须先判断「本人撤自己」：群主也是 createdBy，否则会被误判为 ADMIN。私聊没有群主撤回。
         RecallTypeEnum recallTypeForMq;
-        if (chatMessageDoc.getSenderId() != null && chatMessageDoc.getSenderId().equals(operatorId)) {
-            // 本人撤回自己发送的消息；群聊群主撤回自己的消息不受 2 分钟限制
-            boolean groupOwnerRecallOwn =
-                    ConversationTypeEnum.GROUP.equals(chatConversationDoc.getType())
-                            && createdBy != null
-                            && createdBy.equals(operatorId);
-            if (!groupOwnerRecallOwn && chatMessageDoc.getCreatedAt().isBefore(recallTime.minusMinutes(2))) {
-                throw new BizException(ErrorCode.STATE_CONFLICT, "消息已发送超过2分钟,不能撤回");
+        if (senderRecall) {
+            if (!groupOwner) {
+                LocalDateTime createdAt = chatMessageDoc.getCreatedAt();
+                // 没有发送时间就无法判定时限, 按不能撤回处理
+                if (createdAt == null) {
+                    throw new BizException(ErrorCode.STATE_CONFLICT, "消息缺少发送时间，无法撤回");
+                }
+                if (createdAt.isBefore(recallTime.minusMinutes(2))) {
+                    throw new BizException(ErrorCode.STATE_CONFLICT, "消息已发送超过2分钟,不能撤回");
+                }
             }
             recallTypeForMq = RecallTypeEnum.SENDER;
-        } else if (createdBy != null && createdBy.equals(operatorId)) {
-            // 群主撤回他人消息
-            recallTypeForMq = RecallTypeEnum.ADMIN;
         } else {
-            throw new BizException(ErrorCode.FORBIDDEN, "无法确定撤回类型");
+            recallTypeForMq = RecallTypeEnum.ADMIN;
         }
         chatMessageDoc.setRecalled(true);
         chatMessageDoc.setRecalledAt(recallTime);
         chatMessageDoc.setStatus(MessageStatusEnum.WITHDRAWN);
         chatMessageDoc.setRecallType(recallTypeForMq);
         chatMessageDoc.setUpdatedAt(recallTime);
-        transactionTemplate.executeWithoutResult(tx -> {
-            messageMapper.updateById(chatMessageDoc);
-            // 设置会话最后消息撤回
-            chatConversationDoc.setIsLastMessageRecall(true);
-            chatConversationDoc.setUpdatedAt(recallTime);
-            conversationMapper.updateById(chatConversationDoc);
+        Boolean applied = transactionTemplate.execute(tx -> {
+            int updated = messageMapper.update(null, new LambdaUpdateWrapper<Message>()
+                    .eq(Message::getId, chatMessageDoc.getId())
+                    .and(notRecalled -> notRecalled.isNull(Message::getRecalled)
+                            .or()
+                            .eq(Message::getRecalled, false))
+                    .set(Message::getRecalled, true)
+                    .set(Message::getRecalledAt, recallTime)
+                    .set(Message::getStatus, MessageStatusEnum.WITHDRAWN)
+                    .set(Message::getRecallType, recallTypeForMq)
+                    .set(Message::getUpdatedAt, recallTime));
+            if (updated != 1) {
+                return false;
+            }
+            conversationMemberMapper.markTailRecalled(
+                    chatMessageDoc.getConversationId(), chatMessageDoc.getId(), recallTime);
+            return true;
         });
+        if (!Boolean.TRUE.equals(applied)) {
+            Message current = messageMapper.selectById(chatMessageDoc.getId());
+            if (current == null) {
+                throw new BizException(ErrorCode.NOT_FOUND, "消息不存在");
+            }
+            return getAck(current, current.getStatus());
+        }
         // 推送消息到所有成员: 提交后发, MQ 失败不回滚撤回
         ChatMessageMessage ch = ChatMessageMessage.builder().senderId(chatMessageDoc.getSenderId())
                 .seq(chatMessageDoc.getSeq()).conversationId(chatMessageDoc.getConversationId())
                 .messageId(chatMessageDoc.getId()).contentType(chatMessageDoc.getContentType())
                 .recallType(recallTypeForMq)
                 .serviceTime(recallTime).event("withdraw").build();
-        rocketMQTemplate.syncSend(ChatMessageMessage.TOPIC, ch);
+        try {
+            rocketMQTemplate.syncSend(ChatMessageMessage.TOPIC, ch);
+        } catch (RuntimeException ex) {
+            log.warn("撤回推送失败，接收方靠同步补齐 conversationId={} messageId={}",
+                    chatMessageDoc.getConversationId(), chatMessageDoc.getId(), ex);
+        }
         log.debug("Chat message withdrawn conversationId={} messageId={} seq={} operatorId={} recallType={}",
                 chatMessageDoc.getConversationId(), chatMessageDoc.getId(), chatMessageDoc.getSeq(),
                 userId, recallTypeForMq);
         return getAck(chatMessageDoc, MessageStatusEnum.WITHDRAWN);
     }
 
-    public MessagePageVO getMessageList(String conversationId, MessageListPageQuery messageListPageQuery) {
-        ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
-        List<Long> memberIds = chatConversationDoc.getMemberIds();
-        // 判断是否是会话成员
-        if (!memberIds.contains(Long.valueOf(getUserId()))) {
-            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
-        }
-
-        // 用户信息
-        List<UserSummary> members = userPort.listByIds(memberIds);
-        Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(members);
-        Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(members);
-        // 分页查询
-        Page<ChatMessageDoc> page = pageByConversation(
-                conversationId,
-                messageListPageQuery.getSeq(),
-                messageListPageQuery.getSize());
-        List<MessagePage> result = getMessagePageVOS(page.getRecords(), authorNicknames, authorAvatarUrls);
-        MessagePageVO vo = MessagePageVO.builder()
-                .messages(result)
-                .nextSeq(page.hasNext() && !page.getRecords().isEmpty() ? page.getRecords().get(0).getSeq() : null)
-                .hasMore(page.hasNext())
-                .build();
-        return vo;
-    }
-
-    private List<MessagePage> getMessagePageVOS(
-            List<ChatMessageDoc> docs,
-            Map<Long, String> authorNicknames,
-            Map<Long, String> authorAvatarUrls) {
-        return docs.stream().map(doc -> {
-            MessagePage vo = new MessagePage();
-            vo.setSenderId(doc.getSenderId());
-            vo.setSenderNickName(authorNicknames.get(doc.getSenderId()));
-            vo.setSenderAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(doc.getSenderId()), STORAGE_EXPIRE));
-            vo.setContentType(doc.getContentType());
-            ChatContentTypeStrategy contentTypeStrategy = contentTypeStrategies.get(doc.getContentType());
-            if (contentTypeStrategy != null) {
-                contentTypeStrategy.signUrls(doc.getContent(), STORAGE_EXPIRE);
-            }
-            vo.setContent(doc.getContent());
-            vo.setMessageId(doc.getId());
-            vo.setClientMsgId(doc.getClientMsgId());
-            vo.setSeq(doc.getSeq());
-            vo.setStatus(doc.getStatus());
-            vo.setCreatedAt(doc.getCreatedAt());
-            vo.setRecallType(doc.getRecallType());
-            return vo;
-        }).toList();
-    }
-
-    public MessagePageVO syncMessageList(String conversationId, @Valid MessageListPageQuery messageListPageQuery) {
-        ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
-        List<Long> memberIds = chatConversationDoc.getMemberIds();
-        // 判断是否是会话成员
-        if (!memberIds.contains(Long.valueOf(getUserId()))) {
-            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
-        }
-
-        // 用户信息
-        List<UserSummary> members = userPort.listByIds(memberIds);
-        Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(members);
-        Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(members);
-        // 分页查询
-        Page<ChatMessageDoc> page = syncPageByConversation(
-                conversationId,
-                messageListPageQuery.getSeq(),
-                messageListPageQuery.getSize());
-        List<MessagePage> result = getMessagePageVOS(page.getRecords(), authorNicknames, authorAvatarUrls);
-        MessagePageVO vo = MessagePageVO.builder()
-                .messages(result)
-                .nextSeq(page.hasNext() && !page.getRecords().isEmpty() ? page.getRecords().get(0).getSeq() : null)
-                .hasMore(page.hasNext())
-                .build();
-        return vo;
+    public void clearHistory(String conversationId) {
+        requireActiveMember(conversationId);
+        Long userId = Long.valueOf(getUserId());
+        transactionTemplate.executeWithoutResult(tx -> {
+            Conversation conversation = lockActiveConversation(conversationId);
+            conversationMemberMapper.clearHistory(conversationId, userId,
+                    conversation.getLastSeq(), LocalDateTime.now());
+        });
     }
 
     @ObservedBusiness(BusinessOperation.READ_MESSAGE)
     public void read(String conversationId, Long lastReadSeq) {
-        ChatConversationDoc chatConversationDoc = getChatConversationDoc(conversationId);
-        // 判断是否是会话成员
-        List<Long> memberIds = chatConversationDoc.getMemberIds();
-        if (!memberIds.contains(Long.valueOf(getUserId()))) {
-            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
-        }
+        Conversation conversation = getConversation(conversationId);
+        activeMemberIds(conversationId);
 
         Long currentUserId = Long.parseLong(getUserId());
-        ChatUserConversationDoc chatUserConversationDoc = userConversationMapper.selectOne(
-                new LambdaQueryWrapper<ChatUserConversationDoc>()
-                        .eq(ChatUserConversationDoc::getConversationId, conversationId)
-                        .eq(ChatUserConversationDoc::getUserId, currentUserId));
-        if (chatUserConversationDoc == null) {
-            throw new BizException(ErrorCode.NOT_FOUND, "用户会话状态不存在");
-        }
-
-        Long oldLastReadSeq = chatUserConversationDoc.getLastReadSeq();
-        if (oldLastReadSeq == null) {
-            oldLastReadSeq = 0L;
-        }
-        // 取较大值，避免请求更小导致回退
-        lastReadSeq = Math.max(lastReadSeq, oldLastReadSeq);
-        String lastMessageId = chatConversationDoc.getLastMessageId();
-        if (StringUtils.isBlank(lastMessageId)) {
-            lastReadSeq = Math.max(lastReadSeq, 0L);
-        } else {
-            ChatMessageDoc lastMessageDoc = messageMapper.selectById(lastMessageId);
-            if (lastMessageDoc == null) {
-                throw new BizException(ErrorCode.NOT_FOUND, "消息不存在");
-            }
-            lastReadSeq = lastMessageDoc.getSeq() < lastReadSeq ? lastMessageDoc.getSeq() : lastReadSeq;
-        }
-        if (oldLastReadSeq.equals(lastReadSeq)) {
-            // 已读状态不用改变
+        long maxSeq = conversation.getLastSeq() == null ? 0L : conversation.getLastSeq();
+        int advanced = conversationMemberMapper.markRead(
+                conversationId, currentUserId, lastReadSeq, maxSeq, LocalDateTime.now());
+        if (advanced == 0) {
             return;
         }
-
-        // 更新用户会话状态; 单行更新自带原子性, 不开事务
-        int prevUnread = chatUserConversationDoc.getUnreadCount() != null ? chatUserConversationDoc.getUnreadCount() : 0;
-        long seqDelta = lastReadSeq - oldLastReadSeq;
-        int nextUnread = (int) Math.max(0L, (long) prevUnread - seqDelta);
-        chatUserConversationDoc.setLastReadSeq(lastReadSeq);
-        chatUserConversationDoc.setUpdatedAt(LocalDateTime.now());
-        chatUserConversationDoc.setUnreadCount(nextUnread);
-        userConversationMapper.updateById(chatUserConversationDoc);
         // 判断是否是私聊,只有私聊才有是否已读状态,才需要推送消息
-        if (!Objects.equals(chatConversationDoc.getType(), ConversationTypeEnum.SINGLE)) {
+        if (!Objects.equals(conversation.getType(), ConversationTypeEnum.SINGLE)) {
             return;
         }
 
-        // 推送消息给对方
-        Long receiverId = null;
-        for (Long memberId : memberIds) {
-            if (!memberId.equals(currentUserId)) {
-                receiverId = memberId;
-                break;
-            }
+        ConversationMember member = conversationMemberMapper.selectOne(
+                new LambdaQueryWrapper<ConversationMember>()
+                        .eq(ConversationMember::getConversationId, conversationId)
+                        .eq(ConversationMember::getUserId, currentUserId));
+        // 对端按 user_a/user_b 反推, 不依赖成员表里有对方的行
+        Long receiverId = conversation.peerOf(currentUserId);
+        if (member == null || member.getLastReadSeq() == null || receiverId == null) {
+            // 已读水位已更新成功, 这里只影响给对端的已读推送; 缺接收方记日志跳过, 不该把调用方 500
+            log.warn("私聊缺少接收方, 已读推送已跳过 conversationId={} userId={}", conversationId, currentUserId);
+            return;
         }
-        if (receiverId == null) {
-            throw new IllegalStateException("私聊消息缺少接收方");
-        }
+        lastReadSeq = member.getLastReadSeq();
 
         // 发送Mq消息
         ReadMessageMessage vo = ReadMessageMessage.builder()
                 .lastReadSeq(lastReadSeq).receiverId(receiverId.toString()).conversationId(conversationId).build();
-        rocketMQTemplate.syncSend(ReadMessageMessage.TOPIC, vo);
+        try {
+            rocketMQTemplate.syncSend(ReadMessageMessage.TOPIC, vo);
+        } catch (RuntimeException ex) {
+            log.warn("已读推送失败 conversationId={} lastReadSeq={}", conversationId, lastReadSeq, ex);
+        }
     }
 
-    private ChatConversationDoc getChatConversationDoc(String conversationId) {
-        Optional<ChatConversationDoc> opt = chatConversationService.getById(conversationId);
+    ConversationMember requireActiveMember(String conversationId) {
+        ConversationMember member = conversationMemberMapper.selectOne(
+                new LambdaQueryWrapper<ConversationMember>()
+                        .eq(ConversationMember::getConversationId, conversationId)
+                        .eq(ConversationMember::getUserId, Long.valueOf(getUserId()))
+                        .eq(ConversationMember::getDeleted, false));
+        if (member == null) {
+            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
+        }
+        return member;
+    }
+
+    private List<Long> activeMemberIds(String conversationId) {
+        List<Long> memberIds = conversationMemberMapper.selectActiveUserIds(conversationId);
+        if (!memberIds.contains(Long.valueOf(getUserId()))) {
+            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
+        }
+        return memberIds;
+    }
+
+    Conversation getConversation(String conversationId) {
+        Optional<Conversation> opt = chatConversationService.getById(conversationId);
         if (opt.isEmpty()) {
             throw new BizException(ErrorCode.NOT_FOUND, "会话不存在");
         }
@@ -442,65 +446,15 @@ public class ChatMessageService {
         return opt.get();
     }
 
-    public PageResult<FindRecordVO> findRecord(
-            String conversationId,
-            String keyword,
-            Integer pageNum,
-            Integer pageSize) {
-        ChatConversationDoc conv = getChatConversationDoc(conversationId);
-        List<Long> memberIds = conv.getMemberIds();
-        if (!memberIds.contains(Long.valueOf(getUserId()))) {
-            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
+    private String groupSenderNickname(boolean group, Long senderId) {
+        if (!group) {
+            return null;
         }
-
-        String kw = keyword == null ? "" : keyword.trim();
-        if (kw.isEmpty()) {
-            return PageResult.of(0L, 0L, List.of());
+        UserSummary sender = userPort.getUser(senderId);
+        if (sender == null) {
+            return null;
         }
-
-        int pn = pageNum == null || pageNum < 1 ? 1 : pageNum;
-        int ps = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 50);
-        String pattern = "%" + escapeLike(kw) + "%";
-        String fieldLike = "JSON_UNQUOTE(JSON_EXTRACT(content, '$.%s')) LIKE {0} ESCAPE '\\\\'";
-        LambdaQueryWrapper<ChatMessageDoc> query = new LambdaQueryWrapper<ChatMessageDoc>()
-                .eq(ChatMessageDoc::getConversationId, conversationId)
-                .and(recalled -> recalled.isNull(ChatMessageDoc::getRecalled)
-                        .or()
-                        .eq(ChatMessageDoc::getRecalled, false))
-                .and(text -> text.apply(fieldLike.formatted("text"), pattern)
-                        .or()
-                        .apply(fieldLike.formatted("systemText"), pattern)
-                        .or()
-                        .apply(fieldLike.formatted("fileName"), pattern))
-                .orderByDesc(ChatMessageDoc::getSeq);
-        Page<ChatMessageDoc> page = messageMapper.selectPage(new Page<>(pn, ps), query);
-        long total = page.getTotal();
-        if (total == 0L) {
-            return PageResult.of(0L, 0L, List.of());
-        }
-
-        long pages = page.getPages();
-        List<ChatMessageDoc> docs = page.getRecords();
-        List<UserSummary> members = userPort.listByIds(memberIds);
-        Map<Long, String> nickMap = UserSummaries.toNicknameMap(members);
-        Map<Long, String> avMap = UserSummaries.toAvatarMap(members);
-        List<FindRecordVO> list = new ArrayList<>(docs.size());
-        for (ChatMessageDoc doc : docs) {
-            FindRecordVO vo = new FindRecordVO();
-            vo.setSeq(doc.getSeq());
-            vo.setContentType(doc.getContentType());
-            vo.setCreatedAt(doc.getCreatedAt());
-            vo.setSenderNickname(nickMap.get(doc.getSenderId()));
-            vo.setSenderAvatarUrl(storageUtil.signGetUrl(avMap.get(doc.getSenderId()), STORAGE_EXPIRE));
-            ChatContent content = doc.getContent();
-            ChatContentTypeStrategy contentTypeStrategy = contentTypeStrategies.get(doc.getContentType());
-            if (content != null && contentTypeStrategy != null) {
-                contentTypeStrategy.signUrls(content, STORAGE_EXPIRE);
-            }
-            vo.setContent(content);
-            list.add(vo);
-        }
-        return PageResult.of(total, pages, list);
+        return sender.getNickname();
     }
 
     // 消息已提交后计数；幂等命中在 send 入口返回，不重复执行此副作用。
@@ -512,17 +466,5 @@ public class ChatMessageService {
         } catch (Exception e) {
             log.warn("更新内容分享数异常, 计数已丢弃 contentId={}", contentId, e);
         }
-    }
-
-    private static int normalizePageSize(int size) {
-        if (size <= 0) {
-            return 20;
-        }
-        return Math.min(size, 100);
-    }
-
-    /** 会话内搜索按字面量匹配，转义 LIKE 通配符。 */
-    private static String escapeLike(String keyword) {
-        return keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

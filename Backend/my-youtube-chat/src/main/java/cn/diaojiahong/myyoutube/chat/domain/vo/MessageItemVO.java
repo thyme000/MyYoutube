@@ -1,0 +1,35 @@
+package cn.diaojiahong.myyoutube.chat.domain.vo;
+
+import cn.diaojiahong.myyoutube.chat.domain.enums.ChatContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.enums.MessageStatusEnum;
+import cn.diaojiahong.myyoutube.chat.domain.enums.RecallTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.po.ChatContent;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+@Data
+public class MessageItemVO {
+    // 发送人id
+    private Long senderId;
+    // 发送人昵称
+    private String senderNickName;
+    // 发送人头像url
+    private String senderAvatarUrl;
+    // 消息类型
+    private ChatContentTypeEnum contentType;
+    // 消息内容
+    private ChatContent content;
+    // 消息id
+    private String messageId;
+    // 幂等id
+    private String clientMsgId;
+    // 序列号
+    private Long seq;
+    // 消息状态
+    private MessageStatusEnum status;
+    // 消息创建时间
+    private LocalDateTime createdAt;
+    // 撤回类型
+    private RecallTypeEnum recallType;
+}

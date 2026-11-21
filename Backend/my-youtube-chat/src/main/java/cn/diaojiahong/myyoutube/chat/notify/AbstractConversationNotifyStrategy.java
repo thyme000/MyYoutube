@@ -1,11 +1,10 @@
 package cn.diaojiahong.myyoutube.chat.notify;
 
-import cn.diaojiahong.myyoutube.chat.mapper.ChatUserConversationMapper;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatEventType;
-import cn.diaojiahong.myyoutube.chat.mongo.po.ChatUserConversationDoc;
-import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForSendMessageVO;
-import cn.diaojiahong.myyoutube.chat.mongo.vo.NotificationForWithdrawMessageVO;
-import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper;
+import cn.diaojiahong.myyoutube.chat.domain.enums.ChatEventType;
+import cn.diaojiahong.myyoutube.chat.domain.po.ConversationMember;
+import cn.diaojiahong.myyoutube.chat.domain.vo.NotificationForSendMessageVO;
+import cn.diaojiahong.myyoutube.chat.domain.vo.NotificationForWithdrawMessageVO;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
@@ -13,22 +12,25 @@ import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 
-import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 通知策略共享语义: 报文构建/免打扰查询/成员推送/会话状态落库
+ * 通知策略共享语义: 报文构建、免打扰查询、成员推送。未读在发消息事务里已经写完。
  */
 @RequiredArgsConstructor
 public abstract class AbstractConversationNotifyStrategy implements ConversationNotifyStrategy {
 
-    protected static final long AVATAR_EXPIRE_SECONDS = 300;
+    protected static final long AVATAR_EXPIRE_SECONDS = 5 * 60;
+
+    /** SSE 门铃信号: 提醒不在聊天页的用户刷新会话红点 */
+    public static final String CHAT_DIRTY_SIGNAL = "CHAT_DIRTY";
 
     protected final PushFanoutPublisher pushFanoutPublisher;
     protected final S3StorageUtil storageUtil;
-    protected final ChatUserConversationMapper userConversationMapper;
+    protected final ConversationMemberMapper conversationMemberMapper;
 
     protected boolean isSendEvent(ChatMessageMessage message) {
         return ChatEventType.SEND.getCode().equals(message.getEvent());
@@ -41,24 +43,28 @@ public abstract class AbstractConversationNotifyStrategy implements Conversation
     /** 单个成员推送: WS 报文 + SSE 门铃(未在聊天页的用户靠门铃刷新红点) */
     protected void pushMember(Long memberId, String json) {
         pushFanoutPublisher.pushWs(memberId, json);
-        pushFanoutPublisher.pushSseSignal(memberId, "CHAT_DIRTY");
+        pushFanoutPublisher.pushSseSignal(memberId, CHAT_DIRTY_SIGNAL);
+    }
+
+    protected List<Long> activeMemberIds(String conversationId) {
+        return conversationMemberMapper.selectActiveUserIds(conversationId);
     }
 
     protected boolean isMuted(String conversationId, Long memberId) {
-        ChatUserConversationDoc doc = userConversationMapper.selectOne(
-                new LambdaQueryWrapper<ChatUserConversationDoc>()
-                        .eq(ChatUserConversationDoc::getConversationId, conversationId)
-                        .eq(ChatUserConversationDoc::getUserId, memberId));
+        ConversationMember doc = conversationMemberMapper.selectOne(
+                new LambdaQueryWrapper<ConversationMember>()
+                        .eq(ConversationMember::getConversationId, conversationId)
+                        .eq(ConversationMember::getUserId, memberId));
         return doc != null && Boolean.TRUE.equals(doc.getMute());
     }
 
     /** 一次查出会话内所有开启免打扰的成员, 群聊推送用 */
     protected Set<Long> mutedMemberIds(String conversationId, Collection<Long> memberIds) {
-        return userConversationMapper.selectList(new LambdaQueryWrapper<ChatUserConversationDoc>()
-                        .eq(ChatUserConversationDoc::getConversationId, conversationId)
-                        .in(ChatUserConversationDoc::getUserId, memberIds)
-                        .eq(ChatUserConversationDoc::getMute, true)).stream()
-                .map(ChatUserConversationDoc::getUserId)
+        return conversationMemberMapper.selectList(new LambdaQueryWrapper<ConversationMember>()
+                        .eq(ConversationMember::getConversationId, conversationId)
+                        .in(ConversationMember::getUserId, memberIds)
+                        .eq(ConversationMember::getMute, true)).stream()
+                .map(ConversationMember::getUserId)
                 .collect(Collectors.toSet());
     }
 
@@ -81,13 +87,5 @@ public abstract class AbstractConversationNotifyStrategy implements Conversation
         vo.setSenderNickname(sender.getNickname());
         vo.setRecallType(message.getRecallType());
         return vo;
-    }
-
-    /** 批量落"最近同步时间", SEND 时顺带累加未读 */
-    protected void touchMembers(String conversationId, Collection<Long> memberIds, boolean unread) {
-        if (memberIds == null || memberIds.isEmpty()) {
-            return;
-        }
-        userConversationMapper.touchMembers(conversationId, memberIds, LocalDateTime.now(), unread);
     }
 }

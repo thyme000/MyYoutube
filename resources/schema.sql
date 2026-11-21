@@ -687,33 +687,68 @@ CREATE TABLE IF NOT EXISTS media_retry_batch (
 CREATE DATABASE IF NOT EXISTS chat_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE chat_db;
 
-CREATE TABLE IF NOT EXISTS `chat_conversations` (
+CREATE TABLE IF NOT EXISTS `conversation` (
     `id` VARCHAR(32) NOT NULL COMMENT '雪花ID字符串',
     `type` VARCHAR(16) NOT NULL COMMENT 'SINGLE/GROUP',
-    `member_ids` JSON NOT NULL COMMENT '成员用户ID列表',
-    `name` VARCHAR(128) DEFAULT NULL COMMENT '群名称, 私聊为空',
+    `status` VARCHAR(16) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/WAITING_REPLY/CLOSED，只有私聊会等待回复',
+    `name` VARCHAR(32) DEFAULT NULL COMMENT '群名称, 长度与 Conversation.NAME_MAX_LENGTH 相同, 私聊为空',
     `avatar` VARCHAR(512) DEFAULT NULL COMMENT '群头像对象键, 私聊为空',
-    `last_message_id` VARCHAR(64) DEFAULT NULL COMMENT '最后一条消息ID',
-    `last_message_preview` VARCHAR(512) DEFAULT NULL COMMENT '最后一条消息摘要',
-    `last_message_sender_nickname` VARCHAR(64) DEFAULT NULL COMMENT '最后一条消息发送人昵称',
-    `last_message_at` DATETIME DEFAULT NULL COMMENT '最后一条消息时间',
-    `is_last_message_recall` TINYINT DEFAULT NULL COMMENT '1最后一条已撤回',
-    `created_by` BIGINT DEFAULT NULL COMMENT '创建人',
+    `last_seq` BIGINT NOT NULL DEFAULT 0 COMMENT '已分配的最大消息序号',
+    `created_by` BIGINT DEFAULT NULL COMMENT '私聊是第一条消息的发送人，无消息时为空；群聊是群主',
+    `user_a` BIGINT DEFAULT NULL COMMENT '私聊双方较小的用户ID, 群聊为空',
+    `user_b` BIGINT DEFAULT NULL COMMENT '私聊双方较大的用户ID, 群聊为空',
     `banned` TINYINT DEFAULT NULL COMMENT '1全员禁言',
     `announcement` VARCHAR(2000) DEFAULT NULL COMMENT '群公告',
     `announcement_version` INT DEFAULT NULL COMMENT '群公告版本',
     `created_at` DATETIME DEFAULT NULL COMMENT '创建时间',
     `updated_at` DATETIME DEFAULT NULL COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    KEY `idx_conversation_type` (`type`)
+    UNIQUE KEY `uk_private_pair` (`user_a`, `user_b`)
 ) ENGINE=InnoDB COMMENT='聊天会话';
 
-CREATE TABLE IF NOT EXISTS `chat_messages` (
+CREATE TABLE IF NOT EXISTS `conversation_member` (
+    `id` VARCHAR(32) NOT NULL COMMENT '雪花ID字符串',
+    `conversation_id` VARCHAR(32) NOT NULL COMMENT '会话ID',
+    `user_id` BIGINT NOT NULL COMMENT '用户ID',
+    `last_read_seq` BIGINT NOT NULL DEFAULT 0 COMMENT '已读序号, 未读等于会话 last_seq 减去本值',
+    `visible_after_seq` BIGINT NOT NULL DEFAULT 0 COMMENT '只显示序号大于本值的消息',
+    `last_message_id` VARCHAR(64) DEFAULT NULL COMMENT '这个人列表上的最后一条消息',
+    `last_message_preview` VARCHAR(64) DEFAULT NULL COMMENT '列表摘要, 最多 40 个字',
+    `last_message_sender_nickname` VARCHAR(64) DEFAULT NULL COMMENT '最后一条发送人昵称, 私聊为空',
+    `last_message_at` DATETIME DEFAULT NULL COMMENT '这个人列表上的最后一条时间',
+    `is_last_message_recall` TINYINT DEFAULT NULL COMMENT '1这个人的最后一条已撤回',
+    `mute` TINYINT DEFAULT NULL COMMENT '1免打扰',
+    `pin` TINYINT DEFAULT NULL COMMENT '1置顶',
+    `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '1已退出或群已解散',
+    `inbox_visible` TINYINT NOT NULL DEFAULT 1 COMMENT '1显示在自己的会话列表',
+    `banned` TINYINT DEFAULT NULL COMMENT '1成员被禁言',
+    `last_seen_announcement_version` INT DEFAULT NULL COMMENT '已查看的公告版本',
+    `created_at` DATETIME DEFAULT NULL COMMENT '创建时间',
+    `updated_at` DATETIME DEFAULT NULL COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_conversation_member` (`conversation_id`, `user_id`),
+    KEY `idx_member_list` (`user_id`, `deleted`, `pin`)
+) ENGINE=InnoDB COMMENT='会话成员';
+
+CREATE TABLE IF NOT EXISTS `conversation_invite` (
+    `id` VARCHAR(32) NOT NULL COMMENT '雪花ID字符串',
+    `conversation_id` VARCHAR(32) NOT NULL COMMENT '会话ID',
+    `inviter_id` BIGINT NOT NULL COMMENT '邀请人',
+    `invitee_id` BIGINT NOT NULL COMMENT '被邀请人',
+    `status` VARCHAR(16) NOT NULL COMMENT 'PENDING/ACCEPTED/REJECTED',
+    `created_at` DATETIME DEFAULT NULL COMMENT '邀请时间',
+    `updated_at` DATETIME DEFAULT NULL COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_conversation_invite` (`conversation_id`, `invitee_id`),
+    KEY `idx_invitee_status` (`invitee_id`, `status`)
+) ENGINE=InnoDB COMMENT='群邀请';
+
+CREATE TABLE IF NOT EXISTS `message` (
     `id` VARCHAR(64) NOT NULL COMMENT '发送人与客户端幂等ID的摘要',
     `conversation_id` VARCHAR(32) NOT NULL COMMENT '会话ID',
     `sender_id` BIGINT NOT NULL COMMENT '发送人',
-    `content_type` VARCHAR(32) NOT NULL COMMENT 'TEXT/IMAGE/FILE/SYSTEM/FORWARD_CONTENT',
-    `content` JSON DEFAULT NULL COMMENT '消息正文',
+    `content_type` VARCHAR(32) NOT NULL COMMENT 'TEXT/IMAGE/FILE/FORWARD_CONTENT',
+    `content` JSON DEFAULT NULL COMMENT '消息正文, 形状随类型变化',
     `client_msg_id` VARCHAR(128) DEFAULT NULL COMMENT '客户端幂等ID',
     `seq` BIGINT NOT NULL COMMENT '会话内序号',
     `status` VARCHAR(32) DEFAULT NULL COMMENT 'SENT/DELIVERED/READ/WITHDRAWN',
@@ -723,33 +758,8 @@ CREATE TABLE IF NOT EXISTS `chat_messages` (
     `created_at` DATETIME DEFAULT NULL COMMENT '发送时间',
     `updated_at` DATETIME DEFAULT NULL COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    KEY `idx_message_conversation_seq` (`conversation_id`, `seq`)
+    UNIQUE KEY `uk_message_conversation_seq` (`conversation_id`, `seq`)
 ) ENGINE=InnoDB COMMENT='聊天消息';
-
-CREATE TABLE IF NOT EXISTS `chat_user_conversation` (
-    `id` VARCHAR(32) NOT NULL COMMENT '雪花ID字符串',
-    `user_id` BIGINT NOT NULL COMMENT '用户ID',
-    `conversation_id` VARCHAR(32) NOT NULL COMMENT '会话ID',
-    `unread_count` INT DEFAULT NULL COMMENT '未读数',
-    `last_read_seq` BIGINT DEFAULT NULL COMMENT '已读序号',
-    `mute` TINYINT DEFAULT NULL COMMENT '1免打扰',
-    `pin` TINYINT DEFAULT NULL COMMENT '1置顶',
-    `deleted` TINYINT DEFAULT NULL COMMENT '1从列表删除',
-    `last_pull_at` DATETIME DEFAULT NULL COMMENT '最近同步时间',
-    `banned` TINYINT DEFAULT NULL COMMENT '1成员被禁言',
-    `last_seen_announcement_version` INT DEFAULT NULL COMMENT '已查看的公告版本',
-    `created_at` DATETIME DEFAULT NULL COMMENT '创建时间',
-    `updated_at` DATETIME DEFAULT NULL COMMENT '更新时间',
-    PRIMARY KEY (`id`),
-    KEY `idx_user_conversation_list` (`user_id`, `deleted`, `pin`, `last_pull_at`),
-    KEY `idx_user_conversation_pair` (`conversation_id`, `user_id`)
-) ENGINE=InnoDB COMMENT='用户会话状态';
-
-CREATE TABLE IF NOT EXISTS `chat_conversation_seq` (
-    `conversation_id` VARCHAR(32) NOT NULL COMMENT '会话ID',
-    `seq` BIGINT NOT NULL COMMENT '已分配的最大序号',
-    PRIMARY KEY (`conversation_id`)
-) ENGINE=InnoDB COMMENT='会话消息序号';
 
 -- ==================== search_db: 热搜历史 ====================
 CREATE DATABASE IF NOT EXISTS search_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin;

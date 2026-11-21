@@ -1,8 +1,8 @@
 package cn.diaojiahong.myyoutube.chat.service.strategy;
 
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
-import cn.diaojiahong.myyoutube.chat.mongo.po.ChatContent;
+import cn.diaojiahong.myyoutube.chat.domain.enums.ChatContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.po.ChatContent;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import org.springframework.stereotype.Component;

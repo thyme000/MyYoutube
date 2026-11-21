@@ -1,9 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.chain.message;
 
-import cn.diaojiahong.myyoutube.common.result.ErrorCode;
-import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategy;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategyRegistry;
-import cn.diaojiahong.myyoutube.common.exception.BizException;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -18,11 +15,6 @@ public class TypeValidateStep extends MessageSendStep {
 
     @Override
     public void apply(MessageSendContext ctx) {
-        ChatContentTypeStrategy strategy = contentTypeStrategies.get(ctx.getDto().getContentType());
-        if (strategy == null) {
-            throw new BizException(ErrorCode.INVALID_ARGUMENT, "消息类型错误");
-        }
-
-        strategy.validate(ctx.getDto().getContent());
+        contentTypeStrategies.require(ctx.getDto().getContentType()).validate(ctx.getDto().getContent());
     }
 }

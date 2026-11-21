@@ -1,6 +1,8 @@
 package cn.diaojiahong.myyoutube.chat.service.strategy;
 
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.enums.ChatContentTypeEnum;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import org.springframework.stereotype.Component;
 
 import java.util.EnumMap;
@@ -24,5 +26,13 @@ public class ChatContentTypeStrategyRegistry {
     /** 类型未注册时返回 null, 调用方自行兜底 */
     public ChatContentTypeStrategy get(ChatContentTypeEnum type) {
         return type == null ? null : strategies.get(type);
+    }
+
+    public ChatContentTypeStrategy require(ChatContentTypeEnum type) {
+        ChatContentTypeStrategy strategy = get(type);
+        if (strategy == null) {
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "消息类型错误");
+        }
+        return strategy;
     }
 }

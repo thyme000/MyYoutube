@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper">
+
+    <update id="advanceReadSeq">
+        UPDATE conversation_member
+        SET last_read_seq = #{seq},
+            updated_at = #{now}
+        WHERE conversation_id = #{conversationId}
+          AND user_id = #{userId}
+          AND deleted = 0
+          AND last_read_seq &lt; #{seq}
+    </update>
+
+    <update id="markRead">
+        UPDATE conversation_member
+        SET last_read_seq = LEAST(GREATEST(#{requestedSeq}, last_read_seq), #{maxSeq}),
+            updated_at = #{now}
+        WHERE conversation_id = #{conversationId}
+          AND user_id = #{userId}
+          AND deleted = 0
+          AND last_read_seq &lt; LEAST(GREATEST(#{requestedSeq}, last_read_seq), #{maxSeq})
+    </update>
+
+    <update id="clearHistory">
+        UPDATE conversation_member
+        SET visible_after_seq = #{seq},
+            last_read_seq = GREATEST(last_read_seq, #{seq}),
+            last_message_id = NULL,
+            last_message_preview = NULL,
+            last_message_sender_nickname = NULL,
+            last_message_at = NULL,
+            is_last_message_recall = 0,
+            updated_at = #{now}
+        WHERE conversation_id = #{conversationId}
+          AND user_id = #{userId}
+          AND deleted = 0
+    </update>
+
+    <select id="sumUnread" resultType="long">
+        SELECT COALESCE(SUM(GREATEST(c.last_seq - m.last_read_seq, 0)), 0)
+        FROM conversation_member m
+        JOIN conversation c ON c.id = m.conversation_id
+        WHERE m.user_id = #{userId}
+          AND m.deleted = 0
+          AND m.inbox_visible = 1
+    </select>
+
+    <select id="selectActiveUserIds" resultType="long">
+        SELECT user_id
+        FROM conversation_member
+        WHERE conversation_id = #{conversationId}
+          AND deleted = 0
+        ORDER BY id
+    </select>
+
+    <select id="listByActivity" resultType="cn.diaojiahong.myyoutube.chat.domain.po.ConversationMember">
+        SELECT m.id,
+               m.conversation_id,
+               m.user_id,
+               m.last_read_seq,
+               m.visible_after_seq,
+               m.last_message_id,
+               m.last_message_preview,
+               m.last_message_sender_nickname,
+               m.last_message_at,
+               m.is_last_message_recall,
+               m.mute,
+               m.pin,
+               m.deleted,
+               m.banned,
+               m.last_seen_announcement_version,
+               m.created_at,
+               m.updated_at,
+               COALESCE(m.last_message_at, m.created_at) AS activity_at
+        FROM conversation_member m
+        JOIN conversation c ON c.id = m.conversation_id
+        WHERE m.user_id = #{userId}
+          AND m.deleted = 0
+          AND m.inbox_visible = 1
+        <if test="sendableOnly">
+          AND m.banned = 0
+          AND (c.banned IS NULL OR c.banned = 0 OR c.created_by = #{userId})
+        </if>
+        <if test="cursor != null">
+          AND (IFNULL(m.pin, 0), COALESCE(m.last_message_at, m.created_at), m.id)
+              &lt; (#{cursor.pin}, #{cursor.activityAt}, #{cursor.rowId})
+        </if>
+        ORDER BY IFNULL(m.pin, 0) DESC, COALESCE(m.last_message_at, m.created_at) DESC, m.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="applyTail">
+        UPDATE conversation_member
+        SET last_message_id = #{messageId},
+            inbox_visible = 1,
+            last_message_preview = #{preview},
+            last_message_sender_nickname = #{senderNickname},
+            last_message_at = #{messageAt},
+            is_last_message_recall = 0,
+            updated_at = #{messageAt}
+        WHERE conversation_id = #{conversationId}
+          AND deleted = 0
+    </update>
+
+    <update id="markTailRecalled">
+        UPDATE conversation_member
+        SET is_last_message_recall = 1,
+            updated_at = #{recalledAt}
+        WHERE conversation_id = #{conversationId}
+          AND last_message_id = #{messageId}
+          AND deleted = 0
+    </update>
+
+</mapper>

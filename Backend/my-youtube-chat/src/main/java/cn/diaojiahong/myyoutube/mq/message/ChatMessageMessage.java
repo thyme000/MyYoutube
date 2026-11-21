@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.mq.message;
 
-import cn.diaojiahong.myyoutube.chat.mongo.enums.ChatContentTypeEnum;
-import cn.diaojiahong.myyoutube.chat.mongo.enums.RecallTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.enums.ChatContentTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.enums.RecallTypeEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

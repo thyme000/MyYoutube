@@ -1,9 +1,10 @@
 package cn.diaojiahong.myyoutube.chat.controller;
 
-import cn.diaojiahong.myyoutube.chat.mongo.vo.UserConversationVO;
-import cn.diaojiahong.myyoutube.chat.mongo.vo.ValidUserConversationVO;
-import cn.diaojiahong.myyoutube.chat.service.impl.ChatUserConversationService;
-import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.chat.domain.vo.UserConversationVO;
+import cn.diaojiahong.myyoutube.chat.domain.vo.ValidUserConversationVO;
+import cn.diaojiahong.myyoutube.chat.service.impl.ConversationMemberService;
+import cn.diaojiahong.myyoutube.common.page.CursorPage;
+import cn.diaojiahong.myyoutube.common.page.CursorPageQuery;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -16,7 +17,7 @@ import org.springframework.web.bind.annotation.*;
 @Tag(name = "聊天模块")
 public class ChatUserConversationController {
 
-    private final ChatUserConversationService chatUserConversationService;
+    private final ConversationMemberService chatUserConversationService;
 
     /**
      * 开启或关闭免打扰
@@ -43,15 +44,27 @@ public class ChatUserConversationController {
     }
 
     /**
-     * 获取用户的所有聊天会话
-     * @return
+     * 获取用户的聊天会话。每页条数由服务端决定，续查只回传 cursor。
      */
-    @Operation(summary = "获取用户所有聊天会话")
+    @Operation(summary = "获取用户聊天会话",
+            description = "返回 items、nextCursor、hasMore。hasMore 为真时带回 nextCursor。")
     @GetMapping("/list")
-    public Result<PageResult<UserConversationVO>> getPageConversations(
-            @RequestParam Long page,
-            @RequestParam Long pageSize) {
-        return Result.success(chatUserConversationService.getPageConversations(page, pageSize));
+    public Result<CursorPage<UserConversationVO, String>> list(@ModelAttribute CursorPageQuery query) {
+        return Result.success(chatUserConversationService.listInbox(query.getCursor()));
+    }
+
+    @Operation(summary = "查询与指定用户的私聊",
+            description = "自己没有成员行的空私聊(还没打开过)返回空, 不创建会话。")
+    @GetMapping("/private/{peerUserId}")
+    public Result<UserConversationVO> findPrivate(@PathVariable Long peerUserId) {
+        return Result.success(chatUserConversationService.findPrivateInbox(peerUserId));
+    }
+
+    @Operation(summary = "打开或复用私聊",
+            description = "按排序后的双方ID查找或创建唯一私聊; 已有会话就恢复自己的成员行返回会话, 空会话对方不可见。")
+    @PutMapping("/private/{peerUserId}")
+    public Result<UserConversationVO> openPrivate(@PathVariable Long peerUserId) {
+        return Result.success(chatUserConversationService.openPrivate(peerUserId));
     }
 
     /**
@@ -77,16 +90,12 @@ public class ChatUserConversationController {
     }
 
     /**
-     * 获取用户合法的聊天会话列表
-     * @param page
-     * @param pageSize
-     * @return
+     * 获取还能发消息的会话。全员禁言且自己不是群主的群，以及自己被禁言的会话，不出现在结果里。
      */
-    @Operation(summary = "获取用户合法的聊天会话列表")
+    @Operation(summary = "获取用户可发送的聊天会话",
+            description = "返回 items、nextCursor、hasMore。hasMore 为真时带回 nextCursor。")
     @GetMapping("/valid")
-    public Result<PageResult<ValidUserConversationVO>> getValidConversations(
-            @RequestParam Long page,
-            @RequestParam Long pageSize) {
-        return Result.success(chatUserConversationService.getValidConversations(page, pageSize));
+    public Result<CursorPage<ValidUserConversationVO, String>> listSendable(@ModelAttribute CursorPageQuery query) {
+        return Result.success(chatUserConversationService.listSendable(query.getCursor()));
     }
 }
