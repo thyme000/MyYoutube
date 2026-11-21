@@ -28,20 +28,11 @@ public class ContentTag implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 主键
-     */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
-    /**
-     * 视频 ID，关联 video.id
-     */
     private Long contentId;
 
-    /**
-     * 标签 ID，关联 tag.id
-     */
     private Long tagId;
 
     /**
@@ -49,10 +40,6 @@ public class ContentTag implements Serializable {
      */
     private BigDecimal weight;
 
-    /**
-     * 绑定时间
-     */
     private LocalDateTime createdAt;
-
 
 }

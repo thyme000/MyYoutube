@@ -102,7 +102,6 @@ public class ConversationService {
             throw new BizException(ErrorCode.FORBIDDEN, "不是互关用户");
         }
         memberIds.add(userId);
-        // 创建聊天会话表
         Conversation conversation = new Conversation();
         conversation.setId(IdWorker.getIdStr());
         conversation.setType(createConversationDTO.getType());
@@ -127,7 +126,6 @@ public class ConversationService {
                 conversationMemberMapper.insert(member);
             }
         });
-        // 构建VO
         ConversationVO conversationVO = new ConversationVO();
         conversationVO.setId(conversation.getId());
         conversationVO.setType(createConversationDTO.getType());
@@ -439,7 +437,6 @@ public class ConversationService {
         if (updated != 1) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "用户不在群中");
         }
-        // 发送通知给对方
         Map<String, Object> data = new HashMap<>(2);
         data.put("banned", banned);
         data.put("type", "member");

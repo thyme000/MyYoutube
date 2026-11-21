@@ -28,20 +28,11 @@ public class UserTagPreference implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 主键
-     */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
-    /**
-     * 用户 ID
-     */
     private Long userId;
 
-    /**
-     * 标签 ID
-     */
     private Long tagId;
 
     /**
@@ -54,10 +45,6 @@ public class UserTagPreference implements Serializable {
      */
     private String source;
 
-    /**
-     * 最后更新时间
-     */
     private LocalDateTime updatedAt;
-
 
 }

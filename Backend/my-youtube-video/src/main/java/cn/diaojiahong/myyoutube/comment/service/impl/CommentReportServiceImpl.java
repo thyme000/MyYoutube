@@ -37,7 +37,6 @@ CommentReport> implements ICommentReportService {
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
 
-        // 判断这个评论是否已经处理过了
         List<CommentReport> list = lambdaQuery()
                 .eq(CommentReport::getCommentId, commentReportDTO.getCommentId())
                 .eq(CommentReport::getStatus, CommentReportStatusEnum.PROCESSED)
@@ -47,19 +46,16 @@ CommentReport> implements ICommentReportService {
             return;
         }
 
-        // 判断用户是否已经举报过了
         CommentReport one = lambdaQuery().eq(CommentReport::getReporterUserId, Long.parseLong(userId))
                 .eq(CommentReport::getCommentId, commentReportDTO.getCommentId()).one();
         if (one != null) {
 
-            // 只需要更新举报描述和举报原因
             one.setRemark(commentReportDTO.getRemark());
             one.setReasonCode(commentReportDTO.getReportType());
             one.setCreatedAt(LocalDateTime.now());
             updateById(one);
             return;
         } else {
-            // 新增举报记录
             CommentReport commentReport = new CommentReport();
             commentReport.setReporterUserId(Long.parseLong(userId));
             commentReport.setCommentId(commentReportDTO.getCommentId());

@@ -21,14 +21,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
-/**
- * <p>
- * 用户核心表（视频发布者/网站登录用户） 前端控制器
- * </p>
- *
- * @author thyme
- * @since 2026-03-18
- */
 @RestController
 @Slf4j
 @RequestMapping("/user")
@@ -63,8 +55,6 @@ public class UserController {
     public Result<CurrentUserVO> getCurrentUserInfo() {
         return Result.success(userService.getCurrentUserInfo());
     }
-
-
 
     /**
      * 更新用户头像

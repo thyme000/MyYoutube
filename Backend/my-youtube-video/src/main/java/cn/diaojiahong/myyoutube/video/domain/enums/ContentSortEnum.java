@@ -19,10 +19,8 @@ public enum ContentSortEnum {
     /** 推荐 */
     RECOMMENDED("recommended", "推荐");
 
-    /** 排序字段名 */
     private final String field;
 
-    /** 排序名称 */
     private final String name;
 
     ContentSortEnum(String field, String name) {
@@ -30,9 +28,6 @@ public enum ContentSortEnum {
         this.name = name;
     }
 
-    /**
-     * 根据字段名获取枚举
-     */
     public static ContentSortEnum fromField(String field) {
         if (field == null || field.isBlank()) {
             return null;
@@ -46,9 +41,6 @@ public enum ContentSortEnum {
         return null;
     }
 
-    /**
-     * 根据名称获取枚举
-     */
     public static ContentSortEnum fromName(String name) {
         if (name == null || name.isBlank()) {
             return null;

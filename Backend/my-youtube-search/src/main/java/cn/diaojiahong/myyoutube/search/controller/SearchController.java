@@ -25,57 +25,32 @@ public class SearchController {
 
     private final ISearchService searchService;
 
-    /**
-     * 用户搜索视频内容(可以搜索视频标题、描述、标签、用户昵称等)
-     * @param query
-     * @return
-     */
     @Operation(
             summary = "搜索内容",
-            description = "条数由服务端决定：综合首批用配置的首批数量，最新排序和后续页用配置的每页条数。过滤或补取限制可导致短页。返回 items、nextCursor、hasMore，是否继续只看 hasMore；不返回总数")
+            description = "可搜索标题、描述、标签、用户昵称等。条数由服务端决定：综合首批用配置的首批数量，最新排序和后续页用配置的每页条数。过滤或补取限制可导致短页。返回 items、nextCursor、hasMore，是否继续只看 hasMore；不返回总数")
     @GetMapping("/video")
     public Result<CursorPage<SearchVideoVO, String>> searchVideo(@ModelAttribute ContentSearchCursorQuery query) {
         return Result.success(searchService.searchVideo(query));
     }
 
-    /**
-     * 用户搜索用户(可以搜索用户昵称、用户简介等)
-     * @param pageQuery
-     * @return
-     */
-    @Operation(summary = "用户搜索用户")
+    @Operation(summary = "用户搜索用户", description = "可搜索用户昵称、用户简介等")
     @GetMapping("/user")
     public Result<PageResult<SearchUserVO>> searchUser(@ModelAttribute SearchUserPageQuery pageQuery) {
         return Result.success(searchService.searchUser(pageQuery));
     }
 
-    /**
-     * 根据用户输入进行联想提示搜索
-     * @param keyword
-     * @return
-     */
     @Operation(summary = "根据用户输入提示搜索")
     @GetMapping("/prompt")
     public Result<List<String>> prompt(@RequestParam String keyword) {
         return Result.success(searchService.prompt(keyword));
     }
 
-
-    /**
-     * 用户点击标签,根据标签进行视频搜索
-     * @param pageQuery
-     * @return
-     */
     @Operation(summary = "根据标签搜索内容", description = "游标分页，过滤不可见内容，预算用尽时可能返回短页")
     @GetMapping("/tag")
     public Result<CursorPage<SearchVideoVO, String>> searchByTag(@ModelAttribute TagSearchCursorQuery pageQuery) {
         return Result.success(searchService.searchByTag(pageQuery));
     }
 
-    /**
-     * 热搜榜
-     * @return
-     */
     @Operation(summary = "热搜榜")
     @GetMapping("/hot")
     public Result<List<String>> hot() {

@@ -13,14 +13,6 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
-/**
- * <p>
- * 内容-标签关联表 服务实现类
- * </p>
- *
- * @author thyme
- * @since 2026-03-25
- */
 @Service
 @lombok.RequiredArgsConstructor
 @lombok.extern.slf4j.Slf4j

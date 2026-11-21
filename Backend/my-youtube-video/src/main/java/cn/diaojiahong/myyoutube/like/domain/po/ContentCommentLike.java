@@ -28,20 +28,11 @@ public class ContentCommentLike implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 主键ID
-     */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
-    /**
-     * 用户ID
-     */
     private Long userId;
 
-    /**
-     * 评论ID
-     */
     private Long commentId;
 
     /**
@@ -49,13 +40,7 @@ public class ContentCommentLike implements Serializable {
      */
     private Integer isLiked;
 
-    /**
-     * 首次点赞时间
-     */
     private LocalDateTime createTime;
 
-    /**
-     * 最后更新时间
-     */
     private LocalDateTime updateTime;
 }

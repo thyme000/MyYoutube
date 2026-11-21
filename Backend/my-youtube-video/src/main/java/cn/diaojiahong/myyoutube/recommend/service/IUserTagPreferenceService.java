@@ -6,14 +6,6 @@ import com.baomidou.mybatisplus.extension.service.IService;
 
 import java.util.List;
 
-/**
- * <p>
- * 用户标签偏好表（内容推荐用） 服务类
- * </p>
- *
- * @author thyme
- * @since 2026-03-25
- */
 public interface IUserTagPreferenceService extends IService<UserTagPreference> {
 
     void addBehaviorScore(Long userId, Long contentId, EventEnum event);

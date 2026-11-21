@@ -278,7 +278,7 @@ public class ChatMessageService {
     @ObservedBusiness(BusinessOperation.WITHDRAW_MESSAGE)
     public ChatMessageAckDTO withdraw(ChatMessageWithdrawDTO chatMessageWithdrawDTO) {
         String userId = getUserId();
-        // 按主键定位消息; 发送人取消息行自身, 不再用客户端自报的 senderId 拼幂等 key
+        // 发送人取消息行自身, 不采信客户端自报的 senderId
         Message chatMessageDoc = messageMapper.selectById(chatMessageWithdrawDTO.getMessageId());
         if (chatMessageDoc == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "消息不存在");
@@ -407,7 +407,6 @@ public class ChatMessageService {
         }
         lastReadSeq = member.getLastReadSeq();
 
-        // 发送Mq消息
         ReadMessageMessage vo = ReadMessageMessage.builder()
                 .lastReadSeq(lastReadSeq).receiverId(receiverId.toString()).conversationId(conversationId).build();
         try {

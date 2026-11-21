@@ -28,20 +28,11 @@ public class UserVideoBehavior implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 主键
-     */
     @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
 
-    /**
-     * 用户 ID
-     */
     private Long userId;
 
-    /**
-     * 视频 ID
-     */
     private Long contentId;
 
     /**
@@ -63,6 +54,5 @@ public class UserVideoBehavior implements Serializable {
      * 行为记录写入时间，由数据库生成
      */
     private LocalDateTime createdAt;
-
 
 }

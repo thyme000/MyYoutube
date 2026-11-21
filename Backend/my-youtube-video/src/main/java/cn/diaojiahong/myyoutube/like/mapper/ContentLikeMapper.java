@@ -6,14 +6,6 @@ import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
-/**
- * <p>
- * 内容点赞表 Mapper 接口
- * </p>
- *
- * @author thyme
- * @since 2026-04-01
- */
 public interface ContentLikeMapper extends BaseMapper<ContentLike> {
 
     List<Long> selectListByUserId(

@@ -12,7 +12,7 @@ import java.util.stream.Collectors;
 /**
  * 责任链注册表: 借助 Spring 收集所有 {@link ChainStep} Bean, 按分组标识聚合成 Map,
  * 同组内按 order 升序。执行时逐组取步骤短路遍历 —— 加一种业务链 = 步骤类换个 group,
- * 加一个步骤 = 新增实现类, 执行骨架不再复制。
+ * 加一个步骤 = 新增实现类。
  * 经 ChainAutoConfiguration 装配, 步骤 Bean 由各使用方所在包提供。
  */
 public class ChainStepRegistry {

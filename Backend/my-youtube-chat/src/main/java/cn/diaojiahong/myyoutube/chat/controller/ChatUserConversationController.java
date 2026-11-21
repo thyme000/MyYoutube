@@ -19,11 +19,6 @@ public class ChatUserConversationController {
 
     private final ConversationMemberService chatUserConversationService;
 
-    /**
-     * 开启或关闭免打扰
-     * @param conversationId 聊天会话ID
-     * @param mute 是否开启免打扰模式
-     */
     @Operation(summary = "开启或关闭免打扰")
     @PutMapping("/{conversationId}/mute")
     public Result<Void> setMute(@PathVariable String conversationId, @RequestParam boolean mute) {
@@ -31,11 +26,6 @@ public class ChatUserConversationController {
         return Result.success();
     }
 
-    /**
-     * 对某会话置顶或取消置顶
-     * @param conversationId 聊天会话ID
-     * @param pin 是否置顶
-     */
     @Operation(summary = "对某会话置顶或取消置顶")
     @PutMapping("/{conversationId}/pin")
     public Result<Void> setPin(@PathVariable String conversationId, @RequestParam boolean pin) {
@@ -67,21 +57,12 @@ public class ChatUserConversationController {
         return Result.success(chatUserConversationService.openPrivate(peerUserId));
     }
 
-    /**
-     * 查询用户所有未读的消息
-     * @return
-     */
     @Operation(summary = "查询用户所有未读的消息")
     @GetMapping("/unread")
     public Result<Long> getUnreadMessages() {
         return Result.success(chatUserConversationService.getUnreadMessages());
     }
 
-    /**
-     * 读取群公告
-     * @param conversationId
-     * @return
-     */
     @Operation(summary = "读取群公告")
     @PutMapping("/{conversationId}/read/announcement")
     public Result<Void> readAnnouncement(@PathVariable String conversationId) {

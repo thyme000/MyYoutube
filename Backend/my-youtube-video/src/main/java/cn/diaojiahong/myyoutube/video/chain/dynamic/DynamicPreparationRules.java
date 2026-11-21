@@ -1,8 +1,7 @@
 package cn.diaojiahong.myyoutube.video.chain.dynamic;
 
 /**
- * 动态发布链的发布规则: 常量与纯函数从 DynamicServiceImpl 随链迁出,
- * 服务侧的时间轴计算与各步骤共用同一份口径。
+ * 动态发布链的发布规则: 服务侧的时间轴计算与各步骤共用同一份口径。
  */
 public final class DynamicPreparationRules {
 

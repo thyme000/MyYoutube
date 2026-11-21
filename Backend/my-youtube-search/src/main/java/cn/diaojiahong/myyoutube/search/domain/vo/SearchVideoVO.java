@@ -9,8 +9,6 @@ import lombok.EqualsAndHashCode;
 public class SearchVideoVO extends ContentCardVO {
     /** 内容类型: video/dynamic */
     private String type;
-    // 是否点赞了该视频
     private Boolean isLike;
-    // 是否关注了该作者
     private Boolean isFollow;
 }

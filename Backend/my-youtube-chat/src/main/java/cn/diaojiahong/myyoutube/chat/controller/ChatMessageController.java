@@ -23,22 +23,12 @@ public class ChatMessageController {
     private final ChatMessageService chatMessageService;
     private final ChatMessageQueryService chatMessageQueryService;
 
-    /**
-     * 发送消息
-     * @param chatMessageDTO
-     * @return
-     */
     @Operation(summary = "发送消息", description = "conversationId 与 peerUserId 二选一。按用户发送时复用已有私聊，首次发送成功后返回新会话 ID。")
     @PostMapping("/send")
     public Result<ChatMessageAckDTO> send(@Valid @RequestBody ChatMessageDTO chatMessageDTO) {
         return Result.success(chatMessageService.send(chatMessageDTO));
     }
 
-    /**
-     * 撤回消息
-     * @param chatMessageWithdrawDTO
-     * @return
-     */
     @Operation(summary = "撤回消息")
     @PostMapping("/withdraw")
     public Result<ChatMessageAckDTO> withdraw(@Valid @RequestBody ChatMessageWithdrawDTO chatMessageWithdrawDTO) {
@@ -82,11 +72,6 @@ public class ChatMessageController {
         return Result.success();
     }
 
-    /**
-     * 会话消息已读
-     * @param conversationId
-     * @return
-     */
     @Operation(summary = "会话消息已读")
     @PostMapping("/read/{conversationId}")
     public Result<Void> read(@PathVariable String conversationId, @RequestParam Long lastReadSeq) {

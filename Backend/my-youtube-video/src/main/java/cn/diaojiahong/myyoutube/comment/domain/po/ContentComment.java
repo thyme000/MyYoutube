@@ -27,20 +27,11 @@ public class ContentComment implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 主键，自增
-     */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
-    /**
-     * 内容ID，关联视频
-     */
     private Long contentId;
 
-    /**
-     * 发表评论的用户ID
-     */
     private Long userId;
 
     /**
@@ -53,24 +44,12 @@ public class ContentComment implements Serializable {
      */
     private Integer level;
 
-    /**
-     * 回复用户的Id
-     */
     private Long replyUserId;
 
-    /**
-     * 评论正文
-     */
     private String content;
 
-    /**
-     * 点赞数
-     */
     private Integer likeCount;
 
-    /**
-     * 回复数
-     */
     private Integer replyCount;
 
     /**
@@ -78,13 +57,7 @@ public class ContentComment implements Serializable {
      */
     private String status;
 
-    /**
-     * 创建时间
-     */
     private LocalDateTime createTime;
 
-    /**
-     * 最后更新时间
-     */
     private LocalDateTime updateTime;
 }

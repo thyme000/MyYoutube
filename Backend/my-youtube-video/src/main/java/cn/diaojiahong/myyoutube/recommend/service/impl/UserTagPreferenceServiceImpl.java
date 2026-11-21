@@ -9,14 +9,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-/**
- * <p>
- * 用户标签偏好表（内容推荐用） 服务实现类
- * </p>
- *
- * @author thyme
- * @since 2026-03-25
- */
 @Service
 public class UserTagPreferenceServiceImpl extends ServiceImpl<UserTagPreferenceMapper, UserTagPreference>
         implements IUserTagPreferenceService {

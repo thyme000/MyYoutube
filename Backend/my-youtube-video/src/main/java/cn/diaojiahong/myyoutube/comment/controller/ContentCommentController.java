@@ -28,11 +28,6 @@ public class ContentCommentController {
 
     private final IContentCommentService videoCommentService;
 
-    /**
-     * 用户发布评论
-     * @param commentDTO
-     * @return
-     */
     @Operation(summary = "发布评论")
     @PostMapping("/publish")
     public Result<Void> publishComment(@RequestBody CommentDTO commentDTO) {
@@ -40,11 +35,6 @@ public class ContentCommentController {
         return Result.success();
     }
 
-    /**
-     * 用户删除评论
-     * @param commentId 评论id
-     * @return
-     */
     @Operation(summary = "用户删除评论")
     @PostMapping("/delete")
     public Result<Void> deleteComment(@RequestParam Long commentId) {

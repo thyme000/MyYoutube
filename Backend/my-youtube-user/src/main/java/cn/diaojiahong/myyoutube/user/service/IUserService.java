@@ -14,14 +14,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 import java.util.Map;
 
-/**
- * <p>
- * 用户核心表（视频发布者/网站登录用户） 服务类
- * </p>
- *
- * @author thyme
- * @since 2026-03-18
- */
 public interface IUserService extends IService<User> {
 
     UserVO getUserInfo(Long userId);
@@ -35,7 +27,6 @@ public interface IUserService extends IService<User> {
     Map<Long, String> getAuthorNicknames(List<Long> ids);
 
     Map<Long, String> getAuthorAvatarUrls(List<Long> authorIds);
-
 
     CurrentUserVO getCurrentUserInfo();
 

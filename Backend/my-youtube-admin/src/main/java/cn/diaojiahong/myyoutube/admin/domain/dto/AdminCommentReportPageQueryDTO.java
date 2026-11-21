@@ -6,8 +6,6 @@ import lombok.Data;
 
 @Data
 public class AdminCommentReportPageQueryDTO extends PageQuery {
-    // 举报类型
     private CommentReportReasonEnum reasonCode;
-    // 举报人id
     private Long reporterId;
 }

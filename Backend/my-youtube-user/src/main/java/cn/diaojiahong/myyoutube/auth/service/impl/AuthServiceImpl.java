@@ -64,7 +64,6 @@ public class AuthServiceImpl implements IAuthService {
         String username = loginRequestDTO.getUsername();
         String rawPassword = loginRequestDTO.getPassword();
 
-        // 查询用户
         User user = userService.lambdaQuery()
                 .eq(User::getUsername, username)
                 .one();
@@ -143,7 +142,6 @@ public class AuthServiceImpl implements IAuthService {
         // 格式/规范化/唯一性校验全部在链上, 步骤见 auth.chain.register
         chainRegistry.execute(RegisterChain.GROUP, registerRequestDTO);
 
-        // 构建用户对象并加密密码
         User user = BeanUtil.toBean(registerRequestDTO, User.class);
         user.setRole(UserRole.USER);
         user.setPassword(PasswordEncoder.encode(registerRequestDTO.getPassword()));
@@ -169,13 +167,11 @@ public class AuthServiceImpl implements IAuthService {
     @Override
     @ObservedBusiness(BusinessOperation.RESET_PASSWORD)
     public void forgetPassword(ForgetPasswordDTO forgetPasswordDTO) {
-        // 校验字段
         String newPassword = forgetPasswordDTO.getNewPassword();
         if (RegexUtils.isPasswordInvalid(newPassword)) {
             throw new BizException(ErrorCode.INVALID_ARGUMENT, "密码格式错误，需10~32位字母/数字/下划线!");
         }
 
-        // 校验字段是否有效
         User user = userService.lambdaQuery()
                 .eq(User::getUsername, forgetPasswordDTO.getUsername())
                 .eq(User::getPhone, forgetPasswordDTO.getPhone())
@@ -184,8 +180,6 @@ public class AuthServiceImpl implements IAuthService {
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户不存在!");
         }
 
-
-        //校验通过,把新密码加密后更新数据库
         User changes = new User().setId(user.getId()).setPassword(PasswordEncoder.encode(newPassword));
         if (!userService.updateById(changes)) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "用户状态已变化，请重试");

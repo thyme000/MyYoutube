@@ -16,9 +16,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 管理端计数漂移清单和覆盖。按计数类型转到持有关系表的服务，覆盖仍走原来的 overwrite。
- */
 @RestController
 @RequestMapping("/admin/counter-drifts")
 @RequiredArgsConstructor

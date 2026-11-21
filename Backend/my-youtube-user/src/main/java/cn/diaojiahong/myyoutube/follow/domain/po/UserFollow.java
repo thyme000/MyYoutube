@@ -27,20 +27,11 @@ public class UserFollow implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 主键（雪花ID）
-     */
     @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
 
-    /**
-     * 关注者用户ID
-     */
     private Long followerId;
 
-    /**
-     * 被关注者用户ID
-     */
     private Long followeeId;
 
     /**
@@ -53,15 +44,8 @@ public class UserFollow implements Serializable {
      */
     private Boolean isDeleted;
 
-    /**
-     * 首次关注时间
-     */
     private LocalDateTime createTime;
 
-    /**
-     * 最后更新时间
-     */
     private LocalDateTime updateTime;
-
 
 }

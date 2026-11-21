@@ -254,14 +254,12 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
 
     private List<UserRelationshipVO> getUserRelationshipVOS(List<Long> records) {
         List<UserSummary> users = userPortAdapter.listByIds(records);
-        // 转换为 Map
         Map<Long, UserSummary> userMap = users.stream()
                 .collect(Collectors.toMap(UserSummary::getId, u -> u));
         // 按原始顺序重组列表
         List<UserSummary> orderedList = records.stream().map(userMap::get)
                 .filter(Objects::nonNull)
                 .toList();
-        // 转vo
         return orderedList.stream().map(u -> {
             UserRelationshipVO vo = new UserRelationshipVO();
             vo.setNickname(u.getNickname());

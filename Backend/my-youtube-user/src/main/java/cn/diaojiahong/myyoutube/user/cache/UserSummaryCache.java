@@ -20,7 +20,6 @@ import java.util.stream.Collectors;
 
 /**
  * 内部契约(UserPort)里的用户摘要缓存: 跨服务读同一批人时削掉重复的库查询。
- * 放 provider 侧, 调用方(13 处)无需改动; 资料变更由本服务写入点精准失效。
  * 用 Hash 逐字段存而非 JSON: 契约 DTO 带 LocalDateTime, Gson 无对应适配器。
  */
 @Service

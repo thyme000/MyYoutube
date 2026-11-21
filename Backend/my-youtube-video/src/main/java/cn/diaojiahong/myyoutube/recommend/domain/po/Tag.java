@@ -27,9 +27,6 @@ public class Tag implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 主键
-     */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
@@ -58,15 +55,8 @@ public class Tag implements Serializable {
      */
     private Integer sortOrder;
 
-    /**
-     * 创建时间
-     */
     private LocalDateTime createdAt;
 
-    /**
-     * 更新时间
-     */
     private LocalDateTime updatedAt;
-
 
 }

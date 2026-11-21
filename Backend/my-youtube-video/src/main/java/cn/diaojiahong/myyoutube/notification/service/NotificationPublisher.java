@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class NotificationPublisher {
 
-    /** 门铃信号: 前端收到后拉取通知中心 */
+    /** 门铃信号 */
     public static final String NOTIFY_DIRTY_SIGNAL = "NOTIFY_DIRTY";
 
     private final IUserNotificationService userNotificationService;

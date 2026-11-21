@@ -3,9 +3,6 @@ package cn.diaojiahong.myyoutube.common.exception;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import lombok.Getter;
 
-/**
- * 业务异常
- */
 @Getter
 public class BizException extends RuntimeException {
 

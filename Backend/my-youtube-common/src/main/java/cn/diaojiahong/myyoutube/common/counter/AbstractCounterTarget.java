@@ -33,7 +33,6 @@ public abstract class AbstractCounterTarget<T> implements CounterTarget {
 
     /**
      * 守护式增量: 负增量时加"当前值够减"护底, 计数不许为负。
-     * 正确性规则只写这一份, 计数落库目标与低频直落路径共用。
      *
      * @return 是否更新到行。负增量被护底拦住时返回 false，调用方不得再记派生计数
      */

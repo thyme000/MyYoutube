@@ -14,7 +14,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
-/** 只维护作品自身的发布贡献；音频封禁的展示扣减由读取侧完成。 */
 @Service
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)

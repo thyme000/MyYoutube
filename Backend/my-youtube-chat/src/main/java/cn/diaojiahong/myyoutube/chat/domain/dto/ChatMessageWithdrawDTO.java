@@ -5,7 +5,6 @@ import lombok.Data;
 
 @Data
 public class ChatMessageWithdrawDTO {
-    // 要撤回的消息主键
     @NotBlank(message = "messageId不能为空")
     private String messageId;
 }

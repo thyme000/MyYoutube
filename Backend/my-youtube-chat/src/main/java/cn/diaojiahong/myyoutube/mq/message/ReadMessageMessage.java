@@ -12,10 +12,7 @@ import lombok.NoArgsConstructor;
 public class ReadMessageMessage {
     public static final String TOPIC = "chat_read_topic";
 
-    // 会话id
     private String conversationId;
-    // 接收方id
     private String receiverId;
-    // 最后已读序列
     private Long lastReadSeq;
 }

@@ -21,7 +21,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 补发已完成直传但丢失的上传事件。过期及产物回收由准备生命周期负责。
+ * 补发已完成直传但丢失的上传事件。
  */
 @Slf4j
 @Component

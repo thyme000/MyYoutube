@@ -13,7 +13,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 聊天专用 WS 通道(纯下行, 未来承载"正在输入"等上行状态流)。
- * 连接生命周期由前端挂 in 聊天页: 进页连、离开断。
  * 报文经 Redis 扇出由 LocalPushDispatcher 推给本实例连接。
  * 鉴权经网关完成, userId 由 UserHandshakeInterceptor 在握手期写入 attributes。
  */

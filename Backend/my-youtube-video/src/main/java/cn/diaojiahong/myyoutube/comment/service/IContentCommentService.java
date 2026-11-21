@@ -7,14 +7,6 @@ import cn.diaojiahong.myyoutube.comment.domain.po.ContentComment;
 import cn.diaojiahong.myyoutube.comment.domain.vo.CommentPageVO;
 import com.baomidou.mybatisplus.extension.service.IService;
 
-/**
- * <p>
- * 视频评论表 服务类
- * </p>
- *
- * @author thyme
- * @since 2026-03-22
- */
 public interface IContentCommentService extends IService<ContentComment> {
 
     void publishComment(CommentDTO commentDTO);

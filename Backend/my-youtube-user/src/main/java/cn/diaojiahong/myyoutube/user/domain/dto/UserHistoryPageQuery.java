@@ -5,6 +5,5 @@ import lombok.Data;
 
 @Data
 public class UserHistoryPageQuery extends PageQuery {
-    // 用户id
     private Long userId;
 }

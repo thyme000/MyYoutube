@@ -13,9 +13,6 @@ import java.util.List;
 
 /**
  * user 服务对外契约: 用户信息查询。
- * 拆部署前由 user 模块的 UserPortAdapter 提供本地实现;
- * 拆部署后走 Feign, 过渡期用 my-youtube.user-service.url 指向旧单体。
- * 昵称/头像等单列值从 listByIds 的 UserSummary 里本地投影, 不再单设端点。
  */
 @FeignClient(name = "my-youtube-user-service", contextId = "userPort", path = "/internal/user",
         url = "${my-youtube.user-service.url:}")

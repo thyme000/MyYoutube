@@ -10,14 +10,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * <p>
- * 用户关注关系表 前端控制器
- * </p>
- *
- * @author thyme
- * @since 2026-04-01
- */
 @RestController
 @RequestMapping("/follow")
 @Tag(name = "关注模块")

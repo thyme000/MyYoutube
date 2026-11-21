@@ -85,7 +85,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     private final IUserTagPreferenceService tagPreferences;
     private final UserBlockPort blocks;
 
-    // 24小时后过期
     private static final int STORAGE_EXPIRE = 24 * 60 * 60;
     private static final int TAG_PREFERENCE_SCORE = 4;
 
@@ -172,7 +171,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         List<Long> blockedAuthors = blocks.blockedAuthors(viewerId);
         int total = contentLikeMapper.selectUserLikedCount(userId, viewerId, pageQuery.getType(), blockedAuthors);
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
-        // 查询用户点过赞的内容id
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
         List<Long> contentIds = contentLikeMapper.selectListByUserId(
                 userId,
@@ -196,7 +194,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
                     vo.setId(String.valueOf(s.getId()));
                     return vo;
                 }).toList();
-        // 填充作者昵称和头像url
         List<Long> authorIds = voList.stream().map(LikedContentVO::getAuthorId).toList();
         List<UserSummary> authors = userPort.listByIds(authorIds);
         Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(authors);
@@ -205,12 +202,10 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
             vo.setAuthorNickname(authorNicknames.get(vo.getAuthorId()));
             vo.setAuthorAvatarUrl(storageUtil.signGetUrl(authorAvatarUrls.get(vo.getAuthorId()), STORAGE_EXPIRE));
         });
-        // 填充内容封面url和内容url
         voList.forEach(vo -> {
             vo.setCoverUrl(storageUtil.signGetUrl(vo.getCoverUrl(), STORAGE_EXPIRE));
             vo.setVideoUrl(storageUtil.signGetUrl(vo.getVideoUrl(), STORAGE_EXPIRE));
         });
-        // 填充是否关注作者
         List<Boolean> isFollows = followSnapshot.isFollowOnList(viewerId, authorIds);
         for (int i = 0; i < voList.size(); i++) {
             voList.get(i).setIsFollow(isFollows.get(i));
@@ -221,7 +216,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
     @Override
     public Boolean getLikeStatus(Long contentId) {
-        // 查询用户是否点过赞
         return lambdaQuery()
                 .eq(ContentLike::getUserId, UserContext.getUserId())
                 .eq(ContentLike::getContentId, contentId)
@@ -259,7 +253,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
 
         if (!Objects.equals(comment.getUserId(), userId)) {
 
-            // 发送点赞通知(MQ)
             LikeCommentMessage lc = LikeCommentMessage.builder().senderId(userId).commentId(commentId).build();
             rocketMQTemplate.syncSend(CommentMessage.TOPIC + ":" + LikeCommentMessage.LIKE_TAG, lc);
         }
@@ -285,7 +278,6 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
         contentCommentLikeMapper.updateById(like);
         redisTemplate.opsForZSet().remove(likedCommentKey(userId), commentId.toString());
 
-        // 发送取消点赞通知(MQ)
         if (comment != null && !Objects.equals(comment.getUserId(), userId)) {
             LikeCommentMessage lc = LikeCommentMessage.builder().senderId(userId).commentId(commentId).build();
             rocketMQTemplate.syncSend(CommentMessage.TOPIC + ":" + LikeCommentMessage.CANCEL_LIKE_TAG, lc);

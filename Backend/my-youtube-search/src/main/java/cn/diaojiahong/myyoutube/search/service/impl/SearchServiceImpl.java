@@ -87,10 +87,8 @@ public class SearchServiceImpl implements ISearchService {
     @ObservedBusiness(BusinessOperation.SEARCH_USER)
     public PageResult<SearchUserVO> searchUser(SearchUserPageQuery pageQuery) {
         Long userId = getUserId();
-        // 获取关键字
         String keyword = pageQuery.getKeyword() == null ? "" : pageQuery.getKeyword().trim();
 
-        // 查询用户的关注列表
         List<Long> followIds = followPort.getFollowIds(userId);
         List<FunctionScore> followFunctions = followIds.stream()
                 .map(fid -> FunctionScore.of(f -> f.filter(fq -> fq.term(t -> t.field("id").value(fid)))
@@ -112,7 +110,6 @@ public class SearchServiceImpl implements ISearchService {
                 )
         ));
 
-        // 构造ES查询
         NativeQuery query;
         Pageable pageable = PageRequest.of(pageQuery.getPageNo() - 1, pageQuery.getPageSize());
         // 检查关键字是否为数字
@@ -142,16 +139,13 @@ public class SearchServiceImpl implements ISearchService {
                 .withSort(Sort.by(Sort.Order.desc("_score"), Sort.Order.desc("createTime")))
                 .withPageable(pageable)
                 .build();
-        // 查询
         SearchHits<UserDoc> hits = elasticsearchOperations.search(query, UserDoc.class);
         List<UserDoc> list = hits.getSearchHits().stream().map(SearchHit::getContent).toList();
         if (list.isEmpty()) {
             return PageResult.of(0, 0, Collections.emptyList());
         }
 
-        // 转换为VO
         List<SearchUserVO> result = BeanUtil.copyToList(list, SearchUserVO.class);
-        // 填充头像url
         Map<Long, String> avatarUrls = UserSummaries.toAvatarMap(
                 userPort.listByIds(result.stream().map(SearchUserVO::getId).collect(Collectors.toList())));
         if (avatarUrls == null || avatarUrls.isEmpty()) {
@@ -162,7 +156,6 @@ public class SearchServiceImpl implements ISearchService {
             vo.setAvatarUrl(storageUtil.signGetUrl(avatarUrls.get(vo.getId()), STORAGE_EXPIRE_SECONDS));
         });
 
-        // 判断是否关注过
         Map<Long, Boolean> isFollows = followIds.stream().collect(Collectors.toMap(id -> id, id -> true));
         result.forEach(vo -> {
             vo.setIsFollow(isFollows.getOrDefault(vo.getId(), false));
@@ -269,12 +262,10 @@ public class SearchServiceImpl implements ISearchService {
                     authorAvatarUrls.get(vo.getAuthorId()),
                     STORAGE_EXPIRE_SECONDS));
         });
-        // 视频url,封面url
         result.forEach(re -> {
             re.setVideoUrl(storageUtil.signGetUrl(re.getVideoUrl(), STORAGE_EXPIRE_SECONDS));
             re.setCoverUrl(storageUtil.signGetUrl(re.getCoverUrl(), STORAGE_EXPIRE_SECONDS));
         });
-        // 判断是否点过赞
         List<Long> likedIds = isLike(
                 getUserId(),
                 videos.stream().map(ContentSummary::getId).collect(Collectors.toList()));

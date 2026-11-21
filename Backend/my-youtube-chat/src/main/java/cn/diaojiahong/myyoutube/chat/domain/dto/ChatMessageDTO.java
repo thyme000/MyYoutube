@@ -13,10 +13,8 @@ public class ChatMessageDTO {
     private String conversationId;
     // 按用户发送私聊。已有私聊则复用，首次发送成功时才创建。
     private Long peerUserId;
-    // 消息类型
     @NotNull(message = "contentType不能为空")
     private ChatContentTypeEnum contentType;
-    // 消息体
     @NotNull(message = "content不能为空")
     private ChatContent content;
 

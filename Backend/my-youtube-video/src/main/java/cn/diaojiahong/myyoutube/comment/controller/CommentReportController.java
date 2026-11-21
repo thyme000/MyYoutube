@@ -30,11 +30,6 @@ public class CommentReportController {
 
     private final ICommentReportService commentReportService;
 
-    /**
-     * 用户举报评论
-     * @param commentReportDTO
-     * @return
-     */
     @Operation(summary = "用户举报评论")
     @PutMapping()
     public Result<Void> reportComment(@Valid @RequestBody CommentReportDTO commentReportDTO) {

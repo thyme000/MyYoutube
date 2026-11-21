@@ -46,7 +46,7 @@ public class ChatConversationListener implements RocketMQListener<GroupDeletedMe
                     memberId, null, NotificationTypeEnum.CHAT_NOTICE.getCode(),
                     "群:" + conversation.getName() + "已解散",
                     RefTypeEnum.CHAT.getCode(), null, conversationId));
-            // 门铃由 video 端 NotificationPublisher 统一发, 这里不再自补
+            // 门铃由 video 端 NotificationPublisher 统一发
         }
         log.info("群解散通知已发放 conversationId={} notified={}", conversationId, memberIds.size());
     }

@@ -3,10 +3,6 @@ package cn.diaojiahong.myyoutube.common.utils;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 
-/**
- *  工具类
- *  在threadLocal中保存用户信息
- */
 public class UserContext {
 
     private static final ThreadLocal<String> TL = new ThreadLocal<>();

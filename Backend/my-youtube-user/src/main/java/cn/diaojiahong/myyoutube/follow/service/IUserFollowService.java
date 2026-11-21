@@ -8,14 +8,6 @@ import com.baomidou.mybatisplus.extension.service.IService;
 
 import java.util.List;
 
-/**
- * <p>
- * 用户关注关系表 服务类
- * </p>
- *
- * @author thyme
- * @since 2026-04-01
- */
 public interface IUserFollowService extends IService<UserFollow> {
 
     void follow(Long authorId);

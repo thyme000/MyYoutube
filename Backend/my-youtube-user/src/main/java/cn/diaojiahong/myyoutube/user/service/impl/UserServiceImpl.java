@@ -69,7 +69,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             throw new IllegalStateException("上传头像未返回对象键");
         }
 
-        // 更新用户头像url
         lambdaUpdate()
                 .set(User::getAvatarUrl, upload)
                 .eq(User::getId, UserContext.getUserId())
@@ -96,7 +95,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             throw new IllegalStateException("上传背景图片未返回对象键");
         }
 
-        // 更新用户头像url
         lambdaUpdate()
                 .set(User::getBgImage, upload)
                 .eq(User::getId, UserContext.getUserId())

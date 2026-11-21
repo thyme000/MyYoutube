@@ -27,9 +27,6 @@ public class UserNotification implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 主键
-     */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
@@ -78,10 +75,6 @@ public class UserNotification implements Serializable {
      */
     private Integer isRead;
 
-    /**
-     * 创建时间
-     */
     private LocalDateTime createTime;
-
 
 }

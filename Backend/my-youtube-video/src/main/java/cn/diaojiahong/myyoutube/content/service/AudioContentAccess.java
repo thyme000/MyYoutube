@@ -14,7 +14,6 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/** 读取时立即拦截；MQ 负责异步封禁落库和通知，失败由低频补扫恢复。 */
 @Service
 @RequiredArgsConstructor
 public class AudioContentAccess {

@@ -10,14 +10,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * <p>
- * 用户站内通知（含评论赞、回复等） 前端控制器
- * </p>
- *
- * @author thyme
- * @since 2026-04-04
- */
 @RestController
 @RequestMapping("/notification")
 @RequiredArgsConstructor

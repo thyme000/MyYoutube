@@ -7,14 +7,6 @@ import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
-/**
- * <p>
- * 用户关注关系表 Mapper 接口
- * </p>
- *
- * @author thyme
- * @since 2026-04-01
- */
 public interface UserFollowMapper extends BaseMapper<UserFollow> {
 
     int followOrRestore(

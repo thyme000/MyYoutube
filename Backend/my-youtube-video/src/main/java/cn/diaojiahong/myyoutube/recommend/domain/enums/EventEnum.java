@@ -26,20 +26,11 @@ public enum EventEnum {
      */
     DISLIKE("dislike", -4, "用户不喜欢内容");
 
-    /**
-     * 行为代码
-     */
     @EnumValue
     private final String code;
 
-    /**
-     * 行为分数
-     */
     private final int score;
 
-    /**
-     * 行为描述
-     */
     private final String description;
 
     EventEnum(String code, int score, String description) {
@@ -48,9 +39,6 @@ public enum EventEnum {
         this.description = description;
     }
 
-    /**
-     * 根据代码获取枚举
-     */
     public static EventEnum fromCode(String code) {
         if (code == null || code.isBlank()) {
             return null;

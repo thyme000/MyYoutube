@@ -18,9 +18,6 @@ public class PageQuery {
     @Schema(description = "每页条数", defaultValue = "10", example = "10")
     private int pageSize = 10;
 
-    /**
-     * 转换为 MyBatis Plus 的 Page 对象
-     */
     public <T> Page<T> toPage() {
         validate();
         return new Page<>(pageNo, pageSize);

@@ -2,7 +2,6 @@ package cn.diaojiahong.myyoutube.recommend.service.impl;
 
 import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 
-
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.video.api.CfRecommendPort;
@@ -85,12 +84,7 @@ public class RecommendServiceImpl implements IRecommendService {
 
     /**
      * 推荐内容: tag 偏好路 + 热度路 + CF 协同过滤路, RRF 排名融合。
-     * @param userId 用户ID
      * @param type 内容类型: null/空=混合流, 非空=独立类型流(三路召回均限定该类型)
-     * @param category 分类
-     * @param page 页码
-     * @param size 每页数量
-     * @return 推荐内容ID列表
      */
     @Override
     @ObservedBusiness(BusinessOperation.RECOMMEND)

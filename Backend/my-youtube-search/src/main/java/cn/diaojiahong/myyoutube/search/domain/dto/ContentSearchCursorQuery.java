@@ -13,9 +13,7 @@ public class ContentSearchCursorQuery extends CursorPageQuery {
     private String keyword;
 
     // 搜索类型(长视频/短视频)
-    // 视频种类
     private String category;
-    // 是否要按最新发布排序
     private boolean sortByLatest;
 
     public void validate() {

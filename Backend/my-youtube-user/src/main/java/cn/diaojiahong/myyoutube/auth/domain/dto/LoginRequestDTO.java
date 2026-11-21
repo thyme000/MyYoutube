@@ -8,10 +8,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class LoginRequestDTO {
-    // 用户名称
     private String username;
 
-    // 用户密码
     private String password;
 
 }

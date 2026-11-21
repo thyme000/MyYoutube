@@ -29,20 +29,11 @@ public class CommentReport implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 主键ID，自增
-     */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
-    /**
-     * 被举报的评论ID
-     */
     private Long commentId;
 
-    /**
-     * 举报人的用户ID
-     */
     private Long reporterUserId;
 
     /**
@@ -60,10 +51,6 @@ public class CommentReport implements Serializable {
      */
     private CommentReportStatusEnum status;
 
-    /**
-     * 创建时间，默认当前时间
-     */
     private LocalDateTime createdAt;
-
 
 }

@@ -28,9 +28,6 @@ public class PageResult<T> {
         this.list = list;
     }
 
-    /**
-     * 从 MyBatis Plus 的 Page 对象直接构建
-     */
     public static <T> PageResult<T> of(Page<T> page) {
         return new PageResult<>(page.getTotal(), page.getPages(), page.getRecords());
     }

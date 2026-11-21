@@ -9,8 +9,7 @@ import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * ES 文档同步的 MQ 生产门面: TOPIC+TAG 拼接、延迟合并秒数全项目只此一处,
- * 新增生产方不再各自拼字符串与硬编码延迟。
+ * ES 文档同步的 MQ 生产门面: TOPIC+TAG 拼接与延迟合并秒数统一在此。
  * 内容文档的消息体组装(video/dynamic 领域对象 → ContentDocMessage)在 video 模块的 ContentDocMessages。
  */
 @Component

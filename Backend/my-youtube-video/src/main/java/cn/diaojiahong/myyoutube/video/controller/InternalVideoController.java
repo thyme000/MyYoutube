@@ -40,7 +40,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class InternalVideoController {
 
-
     private final cn.diaojiahong.myyoutube.recommend.service.IContentTagService contentTags;
 
     private final IContentService contentService;
@@ -118,7 +117,7 @@ public class InternalVideoController {
         n.setRefType(create.getRefType());
         n.setRefId(create.getRefId());
         n.setExtraJson(create.getExtraJson());
-        // chat 经 Feign 进来的通知同样补门铃(原先只落库, chat 侧自行补发, 现统一收口)
+        // chat 经 Feign 进来的通知同样补门铃
         notificationPublisher.publish(n);
     }
 }

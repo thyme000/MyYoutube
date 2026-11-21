@@ -6,14 +6,6 @@ import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
-/**
- * <p>
- * 内容收藏 Mapper
- * </p>
- *
- * @author thyme
- * @since 2026-10-03
- */
 public interface ContentCollectMapper extends BaseMapper<ContentCollect> {
 
     /** 按收藏时间倒序分页取 content_id, join content 保证内容仍存在 */

@@ -20,15 +20,9 @@ public enum CommentStatusEnum {
      */
     BLOCKED("blocked", "违规");
 
-    /**
-     * 状态值
-     */
     @EnumValue
     private final String code;
 
-    /**
-     * 状态描述
-     */
     private final String description;
 
     CommentStatusEnum(String code, String description) {

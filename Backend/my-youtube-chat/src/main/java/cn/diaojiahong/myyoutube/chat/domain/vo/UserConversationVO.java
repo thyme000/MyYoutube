@@ -8,41 +8,24 @@ import java.time.LocalDateTime;
 
 @Data
 public class UserConversationVO {
-    // 会话id
     private String conversationId;
-    // 会话名称
     private String conversationName;
-    // 会话类型
     private ConversationTypeEnum conversationType;
     private ConversationStatus status;
     // 当前用户是否拉黑了私聊对方。
     private Boolean blockedByMe;
-    // 会话头像
     private String conversationAvatar;
-    // 会话的最后消息是否撤回
     private Boolean isLastMessageRecall;
-    // 会话最后消息时间
     private LocalDateTime lastMessageTime;
-    // 会话最后消息内容
     private String lastMessageContent;
-    // 会话最后消息发送人昵称
     private String lastMessageSenderNickname;
-    // 是否置顶
     private Boolean pin;
-    // 是否免打扰
     private Boolean mute;
-    // 最后已读序列
     private Long lastReadSeq;
-    // 未读数
     private Integer unreadCount;
-    // 是否被禁言
     private Boolean banned;
-    // 群是否开启全员禁言
     private Boolean conversationBanned;
-    // 私聊首条消息发送人或群主
     private Long createdBy;
-    // 最新的群公告版本
     private Integer lastAnnouncementVersion;
-    // 最后读取群公告版本
     private Integer lastSeenAnnouncementVersion;
 }

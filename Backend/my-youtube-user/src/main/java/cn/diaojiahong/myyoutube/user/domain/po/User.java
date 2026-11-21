@@ -11,14 +11,6 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
-/**
- * <p>
- * 用户核心表（视频发布者/网站登录用户）
- * </p>
- *
- * @author thyme
- * @since 2026-03-18
- */
 @Data
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)

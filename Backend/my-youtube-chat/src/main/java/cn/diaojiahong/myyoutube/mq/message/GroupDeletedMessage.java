@@ -12,8 +12,6 @@ import java.util.List;
 public class GroupDeletedMessage {
     public static final String TOPIC = "chat_group_deleted_topic";
 
-    // 会话id
     private String conversationId;
-    // 要通知的用户id列表
     private List<Long> userIds;
 }

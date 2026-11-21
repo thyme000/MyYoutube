@@ -511,7 +511,7 @@ class PlaybackReportServiceTest {
 
     @Test
     void legacyWriterRowsWithoutSessionIdStillCoexist() {
-        // 旧接口写入不带会话标识: NULL 不参与唯一键, 与统一链路共存到旧接口退役
+        // 旧接口写入不带会话标识: NULL 不参与唯一键
         jdbc.update("INSERT INTO user_video_behavior (id, user_id, content_id, event_type) VALUES (1, 9, 1, 'play'), (2, 9, 1, 'play')");
         assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM user_video_behavior", Integer.class));
     }

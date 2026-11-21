@@ -18,17 +18,11 @@ public class CommentMessage {
     public static final String TOPIC = "comment_action_topic";
     public static final String TAG = "publish";
 
-    // 评论ID
     private Long commentId;
-    // 接收用户ID
     private Long receiverId;
-    // 发送者id
     private Long senderId;
-    // 视频ID
     private Long contentId;
-    // 评论正文
     private String content;
 
-    // 评论类型 (视频评论/评论回复)
     private Boolean isContentComment;
 }

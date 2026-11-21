@@ -10,7 +10,6 @@ import java.util.function.Consumer;
 
 /**
  * 属主条件更新模板: id + 属主双条件 UPDATE, 影响行数为 0 即抛业务异常。
- * 状态机类操作(删除/私密/公开/评论开关)统一走这里, 属主条件与失败判定只写这一份。
  */
 public final class OwnershipUpdate {
 

@@ -44,10 +44,8 @@ public class LikeCommentListener implements RocketMQListener<LikeCommentMessage>
             log.debug("Comment like notification dropped: comment not visible commentId={}", lc.getCommentId());
             return;
         }
-        // 获取发布被赞评论的用户id
         Long likedUserId = one.getUserId();
 
-        // 落库 + 门铃由门面收口
         UserNotification userNotification = new UserNotification();
         userNotification.setSenderId(lc.getSenderId());
         userNotification.setType(NotificationTypeEnum.COMMENT_LIKE.getCode());

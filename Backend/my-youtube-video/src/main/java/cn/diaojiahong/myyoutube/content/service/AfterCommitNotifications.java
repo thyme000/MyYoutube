@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-/** 提交后尽力通知；可靠恢复由各业务的数据库补扫负责。 */
+/** 提交后尽力通知。 */
 @Component
 @RequiredArgsConstructor
 public class AfterCommitNotifications {

@@ -52,14 +52,6 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/**
- * <p>
- * 视频评论表 服务实现类
- * </p>
- *
- * @author thyme
- * @since 2026-03-22
- */
 @Service
 @RequiredArgsConstructor
 public class ContentCommentServiceImpl extends ServiceImpl<ContentCommentMapper,

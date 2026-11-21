@@ -26,9 +26,6 @@ public class ContentShare implements Serializable {
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
-    /**
-     * 分享人
-     */
     private Long userId;
 
     private Long contentId;

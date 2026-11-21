@@ -61,7 +61,6 @@ UserNotification> implements IUserNotificationService {
         }
 
         List<NotificationVO> result = new ArrayList<>(records.size());
-        // 转vo
         records.forEach(r -> {
             NotificationVO vo = new NotificationVO();
             vo.setId(r.getId());
@@ -91,7 +90,6 @@ UserNotification> implements IUserNotificationService {
             result.add(vo);
         });
 
-        // 填充发送者昵称
         List<Long> senderIds = result.stream().map(NotificationVO::getSenderId).toList();
         List<UserSummary> senders = userPort.listByIds(senderIds);
         Map<Long, String> nicknames = UserSummaries.toNicknameMap(senders);
@@ -112,7 +110,6 @@ UserNotification> implements IUserNotificationService {
             throw new BizException(ErrorCode.FORBIDDEN, "不能读取他人通知");
         }
 
-        // 是自己的通知,可以正常读取
         notification.setIsRead(1);
         updateById(notification);
     }
