@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
 import cn.diaojiahong.myyoutube.video.api.CfRecommendPort;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
 import cn.diaojiahong.myyoutube.video.api.PreferencePort;
@@ -62,6 +63,7 @@ public class RecommendServiceImpl implements IRecommendService {
     private final CfRecommendPort cfRecommendPort;
     private final ViewHistoryPort viewHistoryPort;
     private final MeterRegistry metrics;
+    private final UserBlockPort blocks;
 
     /** CF 路开关: 关闭后退回 tag+热度两路 */
     @Value("${my-youtube.recommend.cf.enabled:true}")
@@ -98,17 +100,19 @@ public class RecommendServiceImpl implements IRecommendService {
         int safeSize = Math.max(1, size);
         Set<String> dislikedIds = dislikedContentIds(userId);
         int needed = (int) Math.min((long) safePage * safeSize, RECALL_CAP);
+        List<FieldValue> blockedAuthors = blocks.blockedAuthors(userId).stream()
+                .map(id -> FieldValue.of(id.longValue())).toList();
 
         // tag 偏好路: 无偏好(新用户)时整路跳过, 由热度路兜底
         List<Long> tagRoute = List.of();
         List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
         if (!preferences.isEmpty()) {
-            NativeQuery query = tagRouteQuery(userId, type, category, preferences, dislikedIds);
+            NativeQuery query = tagRouteQuery(userId, type, category, preferences, dislikedIds, blockedAuthors);
             tagRoute = recallUnviewed(query, userId, needed);
         }
 
         // 热度路: content 互动计数 + 时间衰减, 零标签的动态也天然进池
-        List<Long> hotRoute = recallUnviewed(hotRouteQuery(userId, type, category, dislikedIds), userId, needed);
+        List<Long> hotRoute = recallUnviewed(hotRouteQuery(userId, type, category, dislikedIds, blockedAuthors), userId, needed);
 
         // CF 路: 协同过滤扩散候选, 回 ES 过滤失效内容; 失败或无行为时退回两路
         List<Long> cfRoute = List.of();
@@ -118,7 +122,7 @@ public class RecommendServiceImpl implements IRecommendService {
                 CfRecommendPort.CfCandidates candidates = cfRecommendPort.candidates(
                         new CfRecommendPort.CfCandidatesQuery(userId, type, RECALL_CAP));
                 cfAlgorithm = candidates.getAlgorithm();
-                cfRoute = filterCfCandidates(candidates.getContentIds(), userId, type, category, dislikedIds, needed);
+                cfRoute = filterCfCandidates(candidates.getContentIds(), userId, type, category, dislikedIds, blockedAuthors, needed);
             } catch (Exception e) {
                 metrics.counter(MetricNames.RECOMMEND_FALLBACKS, "strategy", "cf").increment();
                 log.warn("CF 召回失败, 本轮退回 tag+热度两路 userId={}", userId, e);
@@ -145,7 +149,7 @@ public class RecommendServiceImpl implements IRecommendService {
      * CF 候选回 ES 套用统一过滤(published/公开/类型/非已看已踩), 命中者按 CF 原排序保留
      */
     private List<Long> filterCfCandidates(List<Long> candidateIds, Long userId, String type, String category,
-                                          Set<String> dislikedIds, int needed) {
+                                          Set<String> dislikedIds, List<FieldValue> blockedAuthors, int needed) {
         if (candidateIds == null || candidateIds.isEmpty()) {
             return List.of();
         }
@@ -153,7 +157,7 @@ public class RecommendServiceImpl implements IRecommendService {
         List<String> ids = candidateIds.stream().map(String::valueOf).toList();
         NativeQuery query = NativeQuery.builder()
                 .withQuery(q -> q.bool(b -> {
-                    applyCommonFilters(b, userId, type, category, dislikedIds);
+                    applyCommonFilters(b, userId, type, category, dislikedIds, blockedAuthors);
                     b.must(m -> m.ids(i -> i.values(ids)));
                     return b;
                 }))
@@ -198,7 +202,7 @@ public class RecommendServiceImpl implements IRecommendService {
      */
     private NativeQuery tagRouteQuery(Long userId, String type, String category,
                                       List<PreferencePort.TagPreferenceSummary> preferences,
-                                      Set<String> dislikedIds) {
+                                      Set<String> dislikedIds, List<FieldValue> blockedAuthors) {
         List<FunctionScore> functions = new ArrayList<>();
         // 关注作者加权(个性化信号之一)
         for (Long fid : followPort.getFollowIds(userId)) {
@@ -216,7 +220,7 @@ public class RecommendServiceImpl implements IRecommendService {
 
         return NativeQuery.builder()
                 .withQuery(q -> q.functionScore(fs -> fs.query(inner -> inner.bool(b -> {
-                            applyCommonFilters(b, userId, type, category, dislikedIds);
+                            applyCommonFilters(b, userId, type, category, dislikedIds, blockedAuthors);
                             return b;
                         }))
                         .functions(functions)
@@ -230,10 +234,10 @@ public class RecommendServiceImpl implements IRecommendService {
     /**
      * 热度路: likeCount/playCount 计分 + 发布时间高斯衰减
      */
-    private NativeQuery hotRouteQuery(Long userId, String type, String category, Set<String> dislikedIds) {
+    private NativeQuery hotRouteQuery(Long userId, String type, String category, Set<String> dislikedIds, List<FieldValue> blockedAuthors) {
         return NativeQuery.builder()
                 .withQuery(q -> q.functionScore(fs -> fs.query(inner -> inner.bool(b -> {
-                            applyCommonFilters(b, userId, type, category, dislikedIds);
+                            applyCommonFilters(b, userId, type, category, dislikedIds, blockedAuthors);
                             return b;
                         }))
                         .functions(List.of(
@@ -261,7 +265,7 @@ public class RecommendServiceImpl implements IRecommendService {
     }
 
     private void applyCommonFilters(co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery.Builder b,
-                                    Long userId, String type, String category, Set<String> dislikedIds) {
+                                    Long userId, String type, String category, Set<String> dislikedIds, List<FieldValue> blockedAuthors) {
         b.must(m -> m.term(t -> t.field("status").value("published")));
         if (type != null && !type.isBlank()) {
             // 独立类型流: 三路召回统一限定类型
@@ -274,6 +278,9 @@ public class RecommendServiceImpl implements IRecommendService {
             b.mustNot(m -> m.ids(ids -> ids.values(dislikedIds.stream().toList())));
         }
         b.mustNot(m -> m.term(t -> t.field("authorId").value(userId)));
+        if (!blockedAuthors.isEmpty()) {
+            b.mustNot(m -> m.terms(t -> t.field("authorId").terms(values -> values.value(blockedAuthors))));
+        }
         b.must(m -> m.term(t -> t.field("visibility").value("public")));
     }
 
@@ -330,8 +337,15 @@ public class RecommendServiceImpl implements IRecommendService {
     @Override
     @ObservedBusiness(BusinessOperation.RECOMMEND_FOLLOW)
     public List<Long> recommendForFollow(List<Long> followIds, Long userId, int page, int size) {
-        // 没有关注的人，直接返回空
         if (followIds == null || followIds.isEmpty()) {
+            return List.of();
+        }
+        List<Long> blocked = blocks.blockedAuthors(userId);
+        List<FieldValue> followFieldValues = followIds.stream()
+                .filter(id -> !blocked.contains(id))
+                .map(FieldValue::of)
+                .toList();
+        if (followFieldValues.isEmpty()) {
             return List.of();
         }
 
@@ -340,11 +354,6 @@ public class RecommendServiceImpl implements IRecommendService {
         int needed = (int) Math.min((long) safePage * safeSize, ES_RESULT_WINDOW);
         List<PreferencePort.TagPreferenceSummary> preferences = preferencePort.topPreferences(userId, 20);
         Set<String> dislikedIds = dislikedContentIds(userId);
-
-        // 把 followIds 转为 ES terms 需要的 FieldValue 列表
-        List<FieldValue> followFieldValues = followIds.stream()
-                .map(FieldValue::of)
-                .toList();
 
         NativeQuery query;
 

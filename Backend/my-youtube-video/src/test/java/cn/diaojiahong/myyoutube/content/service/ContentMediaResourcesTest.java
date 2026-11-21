@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource.Snapshot;
@@ -144,7 +145,7 @@ class ContentMediaResourcesTest {
                 new DynamicContentStrategy(dynamics, mock(IAudioService.class))));
         resources = new ContentMediaResources(new ContentMediaResourceLoader(registry), storage);
         var access = new ContentDisplayAccess(cache, new ContentAccessSnapshotLoader(contents, audioAccess),
-                new ContentAccessService(contents, audioAccess));
+                new ContentAccessService(contents, audioAccess, org.mockito.Mockito.mock(UserBlockPort.class)));
         streams = new ContentStreamService(cache, access, resources, storage, tokens, properties);
         understanding = new ContentUnderstandingResources(new ContentUnderstandingResourceLoader(understandingRows));
         reads = new ContentReadService(cache, access, resources, cards, understanding, storage, streams, properties);

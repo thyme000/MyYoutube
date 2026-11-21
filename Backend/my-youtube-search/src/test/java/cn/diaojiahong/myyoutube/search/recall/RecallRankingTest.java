@@ -36,7 +36,7 @@ class RecallRankingTest {
     @Test
     void oneFollowConditionCoversAnEntireSnapshotAndRoutesHaveIndependentCoefficients() {
         SearchContext ctx = SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L,
-                java.util.stream.LongStream.rangeClosed(1, 205).boxed().toList());
+                java.util.stream.LongStream.rangeClosed(1, 205).boxed().toList(), java.util.List.of());
         FunctionScoreQuery keyword = ranking.keyword(relevance, ctx).functionScore();
         FunctionScoreQuery vector = ranking.vector(relevance, ctx).functionScore();
         assertEquals(4, keyword.functions().size());

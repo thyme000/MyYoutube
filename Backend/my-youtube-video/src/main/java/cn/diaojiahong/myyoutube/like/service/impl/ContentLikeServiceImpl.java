@@ -29,6 +29,7 @@ import cn.diaojiahong.myyoutube.recommend.domain.po.ContentTag;
 import cn.diaojiahong.myyoutube.recommend.mapper.ContentTagMapper;
 import cn.diaojiahong.myyoutube.recommend.service.IUserTagPreferenceService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.hutool.core.bean.BeanUtil;
@@ -82,6 +83,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     private final CounterBuffer counterBuffer;
     private final ContentTagMapper contentTagMapper;
     private final IUserTagPreferenceService tagPreferences;
+    private final UserBlockPort blocks;
 
     // 24小时后过期
     private static final int STORAGE_EXPIRE = 24 * 60 * 60;
@@ -167,7 +169,8 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
     public PageResult<LikedContentVO> getLikedContentList(Long userId, ContentPageQuery pageQuery) {
         Long viewerId = getUserId();
         pageQuery.mediaType();
-        int total = contentLikeMapper.selectUserLikedCount(userId, viewerId, pageQuery.getType());
+        List<Long> blockedAuthors = blocks.blockedAuthors(viewerId);
+        int total = contentLikeMapper.selectUserLikedCount(userId, viewerId, pageQuery.getType(), blockedAuthors);
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
         // 查询用户点过赞的内容id
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
@@ -175,6 +178,7 @@ public class ContentLikeServiceImpl extends ServiceImpl<ContentLikeMapper, Conte
                 userId,
                 viewerId,
                 pageQuery.getType(),
+                blockedAuthors,
                 offset,
                 pageQuery.getPageSize());
         if (contentIds == null || contentIds.isEmpty()) {

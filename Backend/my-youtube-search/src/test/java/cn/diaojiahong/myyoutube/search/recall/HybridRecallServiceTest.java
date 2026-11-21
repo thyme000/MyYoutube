@@ -130,14 +130,14 @@ class HybridRecallServiceTest {
         vectors.setEnabled(true);
         ContentSearchCursorQuery query = new ContentSearchCursorQuery();
         query.setKeyword(" ");
-        assertEquals(List.of("keyword"), hybrid.recall(SearchContext.of(query, 7L, List.of()), 500, ids -> ids).ids());
+        assertEquals(List.of("keyword"), hybrid.recall(SearchContext.of(query, 7L, List.of(), java.util.List.of()), 500, ids -> ids).ids());
         verifyNoInteractions(queryVector);
     }
 
     @Test
     void followSnapshotRemainsImmutableAndIsSharedByBothRoutes() throws Exception {
         List<Long> followed = new java.util.ArrayList<>(List.of(11L));
-        SearchContext context = SearchContext.of(context().getQuery(), 7L, followed);
+        SearchContext context = SearchContext.of(context().getQuery(), 7L, followed, java.util.List.of());
         followed.clear();
         when(es.page(any(), anyInt())).thenReturn(RecallBatch.exhausted(List.of("keyword")));
         when(queryVector.recall(context)).thenAnswer(call -> {
@@ -158,6 +158,6 @@ class HybridRecallServiceTest {
     static SearchContext context() {
         ContentSearchCursorQuery query = new ContentSearchCursorQuery();
         query.setKeyword("搜索");
-        return SearchContext.of(query, 7L, List.of());
+        return SearchContext.of(query, 7L, List.of(), java.util.List.of());
     }
 }

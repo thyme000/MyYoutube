@@ -116,7 +116,7 @@ class KeywordRecallHttpTest {
                     new RecallSearchClient(es, new RecallProperties()),
                     new VectorProperties(),
                     new RecallRanking(new RecallRankingProperties()));
-            SearchContext ctx = SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L, List.of(7L));
+            SearchContext ctx = SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L, List.of(7L), java.util.List.of());
             ctx.getQuery().setCategory("music");
             assertEquals(List.of("42"), keyword.firstBatch(ctx).join().ids());
             JsonObject query = JsonUtil.GSON.fromJson(body.get(), JsonObject.class);
@@ -208,7 +208,7 @@ class KeywordRecallHttpTest {
         try (RestClient client = RestClient.builder(new HttpHost("127.0.0.1", server.getAddress().getPort())).build()) {
             var query = new TagSearchCursorQuery();
             query.setTagName("camera");
-            SearchContext context = SearchContext.forTag(query, 7L, List.of(9L));
+            SearchContext context = SearchContext.forTag(query, 7L, List.of(9L), java.util.List.of());
             var properties = new VectorProperties();
             var keyword = new KeywordRecallStrategy(
                     new RecallSearchClient(client, new RecallProperties()),

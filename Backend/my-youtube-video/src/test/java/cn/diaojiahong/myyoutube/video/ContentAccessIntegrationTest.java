@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.comment.domain.vo.CommentPageVO;
 import cn.diaojiahong.myyoutube.transcode.api.enums.TranscodeTaskStatus;
 import cn.diaojiahong.myyoutube.comment.cache.CommentListCache;
@@ -77,7 +78,7 @@ class ContentAccessIntegrationTest {
 
         @Bean
         ContentAccessService access(ContentMapper mapper) {
-            return new ContentAccessService(mapper, mock(AudioContentAccess.class));
+            return new ContentAccessService(mapper, mock(AudioContentAccess.class), org.mockito.Mockito.mock(UserBlockPort.class));
         }
 
         @Bean

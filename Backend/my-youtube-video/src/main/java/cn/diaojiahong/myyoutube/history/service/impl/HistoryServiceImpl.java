@@ -12,6 +12,7 @@ import cn.diaojiahong.myyoutube.history.domain.vo.HistoryVO;
 import cn.diaojiahong.myyoutube.history.mapper.UserViewHistoryMapper;
 import cn.diaojiahong.myyoutube.history.service.IHistoryService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
@@ -45,17 +46,20 @@ public class HistoryServiceImpl extends ServiceImpl<UserViewHistoryMapper, UserV
     private final UserPort userPort;
     private final FollowSnapshotCache followSnapshot;
     private final S3StorageUtil storageUtil;
+    private final UserBlockPort blocks;
 
     @Override
     public PageResult<HistoryVO> page(ContentPageQuery pageQuery) {
         Long userId = getUserId();
         pageQuery.mediaType();
-        int total = historyMapper.selectHistoryCount(userId, pageQuery.getType());
+        List<Long> blockedAuthors = blocks.blockedAuthors(userId);
+        int total = historyMapper.selectHistoryCount(userId, pageQuery.getType(), blockedAuthors);
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
         List<Long> contentIds = historyMapper.selectHistoryIds(
                 userId,
                 pageQuery.getType(),
+                blockedAuthors,
                 offset,
                 pageQuery.getPageSize());
         if (contentIds.isEmpty()) {

@@ -53,8 +53,11 @@ public class ContentSearchPage {
         int size = properties.getFirstPageSize();
         HybridRecallService.FirstPage page = hybridRecall.recall(context, size, ids -> {
             List<ContentSummary> rows = summaries.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(ids, null));
-            for (ContentSummary row : rows) hydrated.put(row.getId().toString(), row);
-            return rows.stream().map(row -> row.getId().toString()).toList();
+            return rows.stream().filter(row -> context.authorVisible(row.getAuthorId())).map(row -> {
+                String id = row.getId().toString();
+                hydrated.put(id, row);
+                return id;
+            }).toList();
         });
 
         // 混合排序可能只展示关键词候选的一部分，续查从头开始并排除已展示项，不能沿用召回批次末尾位置。

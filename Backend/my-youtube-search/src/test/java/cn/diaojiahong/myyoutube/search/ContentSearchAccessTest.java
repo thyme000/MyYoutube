@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -50,7 +51,7 @@ class ContentSearchAccessTest {
     final HotSearchService hot = mock(HotSearchService.class);
 
     final SearchServiceImpl search = new SearchServiceImpl(operations, follows, mock(ContentInternalPort.class),
-            summaries, mock(UserPort.class), mock(S3StorageUtil.class), hot, client, pages);
+            summaries, mock(UserPort.class), mock(S3StorageUtil.class), hot, client, pages, org.mockito.Mockito.mock(UserBlockPort.class));
 
     @BeforeEach
     void user() {

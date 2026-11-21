@@ -34,8 +34,9 @@ public interface UserViewHistoryMapper extends BaseMapper<UserViewHistory> {
     List<Long> selectHistoryIds(
             @Param("userId") Long userId,
             @Param("type") String type,
+            @Param("blockedAuthors") List<Long> blockedAuthors,
             @Param("offset") int offset,
             @Param("size") int size);
 
-    int selectHistoryCount(@Param("userId") Long userId, @Param("type") String type);
+    int selectHistoryCount(@Param("userId") Long userId, @Param("type") String type, @Param("blockedAuthors") List<Long> blockedAuthors);
 }

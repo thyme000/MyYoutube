@@ -22,6 +22,7 @@ import cn.diaojiahong.myyoutube.video.api.enums.NotificationTypeEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.RefTypeEnum;
 import cn.diaojiahong.myyoutube.follow.cache.FollowSnapshotCache;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
@@ -59,6 +60,7 @@ ContentCollect> implements IContentCollectService {
     private final S3StorageUtil storageUtil;
     private final CounterBuffer counterBuffer;
     private final NotificationPublisher notificationPublisher;
+    private final UserBlockPort blocks;
 
     @Override
     @ObservedBusiness(BusinessOperation.COLLECT)
@@ -119,12 +121,14 @@ ContentCollect> implements IContentCollectService {
     public PageResult<CollectVO> page(ContentPageQuery pageQuery) {
         Long userId = getUserId();
         pageQuery.mediaType();
-        int total = collectMapper.selectCollectCount(userId, pageQuery.getType());
+        List<Long> blockedAuthors = blocks.blockedAuthors(userId);
+        int total = collectMapper.selectCollectCount(userId, pageQuery.getType(), blockedAuthors);
         int totalPages = (total + pageQuery.getPageSize() - 1) / pageQuery.getPageSize();
         int offset = (pageQuery.getPageNo() - 1) * pageQuery.getPageSize();
         List<Long> contentIds = collectMapper.selectCollectIds(
                 userId,
                 pageQuery.getType(),
+                blockedAuthors,
                 offset,
                 pageQuery.getPageSize());
         if (contentIds.isEmpty()) {

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.user;
 
+import cn.diaojiahong.myyoutube.block.UserBlockService;
 import cn.diaojiahong.myyoutube.common.security.InternalApiCredentials;
 
 import cn.diaojiahong.myyoutube.auth.controller.AuthController;
@@ -329,7 +330,7 @@ class UserRoleIntegrationTest {
     private MockMvc profileMvc() {
         var filter = new UserIdHeaderFilter(new ObjectMapper());
         ReflectionTestUtils.setField(filter, "internalToken", INTERNAL_TOKEN);
-        return MockMvcBuilders.standaloneSetup(new UserController(users))
+        return MockMvcBuilders.standaloneSetup(new UserController(users, org.mockito.Mockito.mock(UserBlockService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).addFilters(filter).build();
     }
 

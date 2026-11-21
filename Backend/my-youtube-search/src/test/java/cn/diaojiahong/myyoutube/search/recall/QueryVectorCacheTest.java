@@ -32,7 +32,7 @@ class QueryVectorCacheTest {
         var query = new ContentSearchCursorQuery();
         query.setKeyword(text);
         query.setCategory("video");
-        return SearchContext.of(query, 7L, List.of());
+        return SearchContext.of(query, 7L, List.of(), java.util.List.of());
     }
 
     long deadline() {

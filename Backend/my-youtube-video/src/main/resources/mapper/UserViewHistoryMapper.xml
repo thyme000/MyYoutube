@@ -33,6 +33,10 @@
     <sql id="readable">
         AND c.is_delete = 0 AND c.status = 'published'
         AND (c.visibility = 'public' OR c.author_id = #{userId})
+        <if test="blockedAuthors != null and !blockedAuthors.isEmpty()">
+            AND c.author_id NOT IN
+            <foreach collection="blockedAuthors" item="authorId" open="(" separator="," close=")">#{authorId}</foreach>
+        </if>
         <if test="type != null">AND c.type = #{type}</if>
     </sql>
 

@@ -29,13 +29,13 @@ class TagSearchFlowTest {
         query.setTagName(context.getKeyword());
         query.setCursor(cursor);
         properties.setPageSize(pageSize);
-        return search.search(SearchContext.forTag(query, context.getUserId(), context.getFollowIds()));
+        return search.search(SearchContext.forTag(query, context.getUserId(), context.getFollowIds(), java.util.List.of()));
     }
 
     private SearchContext context(String tag) {
         TagSearchCursorQuery query = new TagSearchCursorQuery();
         query.setTagName(tag);
-        return SearchContext.forTag(query, 7L, List.of());
+        return SearchContext.forTag(query, 7L, List.of(), java.util.List.of());
     }
 
     private List<FieldValue> position(long id) {
@@ -125,7 +125,7 @@ class TagSearchFlowTest {
         query.setTagName("camera");
         assertThrows(
                 BizException.class,
-                () -> TagSearchCursor.decode(cursor, SearchContext.forTag(query, 8L, List.of())));
+                () -> TagSearchCursor.decode(cursor, SearchContext.forTag(query, 8L, List.of(), java.util.List.of())));
         assertThrows(BizException.class, () -> TagSearchCursor.decode("invalid", context("camera")));
     }
 

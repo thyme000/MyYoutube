@@ -79,6 +79,12 @@ CREATE TABLE IF NOT EXISTS `user_follow` (
     KEY `idx_follower_deleted` (`follower_id`, `is_deleted`)
 ) ENGINE=InnoDB COMMENT='关注关系';
 
+CREATE TABLE IF NOT EXISTS `user_block` (
+    `blocker_id` BIGINT NOT NULL,
+    `blocked_id` BIGINT NOT NULL,
+    PRIMARY KEY (`blocker_id`, `blocked_id`)
+) ENGINE=InnoDB COMMENT='用户拉黑关系';
+
 -- 初始用户, 密码明文: password (BCrypt)
 INSERT INTO `user` (`id`, `username`, `password`, `nickname`, `role`)
 VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'thyme', 'SUPER_ADMIN');

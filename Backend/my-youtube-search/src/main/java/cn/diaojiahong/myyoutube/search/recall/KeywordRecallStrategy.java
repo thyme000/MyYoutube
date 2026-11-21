@@ -62,6 +62,11 @@ public class KeywordRecallStrategy implements RecallStrategy {
         Query relevance = Query.of(q -> q.bool(b -> {
             b.must(m -> m.term(t -> t.field("status").value("published")));
             b.must(m -> m.term(t -> t.field("visibility").value("public")));
+            if (!ctx.getBlockedAuthors().isEmpty()) {
+                List<FieldValue> authors = ctx.getBlockedAuthors().stream()
+                        .map(id -> FieldValue.of(id.longValue())).toList();
+                b.mustNot(exclude -> exclude.terms(t -> t.field("authorId").terms(values -> values.value(authors))));
+            }
             if (!excluded.isEmpty()) b.mustNot(exclude -> exclude.ids(ids -> ids.values(List.copyOf(excluded))));
             if (ctx.getCategory() != null) {
                 b.must(m -> m.term(t -> t.field("category").value(ctx.getCategory())));

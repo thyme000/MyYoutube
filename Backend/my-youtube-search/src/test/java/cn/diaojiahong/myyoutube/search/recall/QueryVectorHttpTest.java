@@ -108,7 +108,7 @@ class QueryVectorHttpTest {
             Future<Boolean> idle = runtime.vectorExecutor.submit(() -> true);
             assertTrue(idle.get(2, TimeUnit.SECONDS));
             if (!blockedStage.equals("rpc")) assertTrue(peerClosed.await(2, TimeUnit.SECONDS));
-            SearchContext ctx = SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L, List.of(11L, 12L));
+            SearchContext ctx = SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L, List.of(11L, 12L), java.util.List.of());
             ctx.getQuery().setCategory("music");
             assertEquals(List.of("vector"), vector.firstBatch(ctx).join().ids());
             JsonObject body = JsonUtil.GSON.fromJson(requestBody.get(), com.google.gson.JsonObject.class);

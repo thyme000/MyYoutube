@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
 import cn.diaojiahong.myyoutube.content.domain.ContentUnderstandingResource;
@@ -377,7 +378,7 @@ class ReviewTransactionIntegrationTest {
         dynamicAudio(AudioReviewStatus.BANNED);
         state(ContentReviewState.APPROVED);
         jdbc.update("UPDATE content SET status='published' WHERE id=1");
-        var access = new ContentAccessService(contentRows, audioAccess);
+        var access = new ContentAccessService(contentRows, audioAccess, org.mockito.Mockito.mock(UserBlockPort.class));
         assertThrows(BizException.class, () -> access.readable(1L, 9L));
         assertEquals(ContentStatusEnum.PUBLISHED, contents.getById(1L).getStatus());
         ArgumentCaptor<AudioContentBanMessage> message = ArgumentCaptor.forClass(AudioContentBanMessage.class);
@@ -453,7 +454,7 @@ class ReviewTransactionIntegrationTest {
         dynamicAudio(AudioReviewStatus.BANNED);
         state(ContentReviewState.APPROVED);
         jdbc.update("UPDATE content SET type='video',status='published' WHERE id=1");
-        assertThrows(BizException.class, () -> new ContentAccessService(contentRows, audioAccess).readable(1L, 9L));
+        assertThrows(BizException.class, () -> new ContentAccessService(contentRows, audioAccess, org.mockito.Mockito.mock(UserBlockPort.class)).readable(1L, 9L));
         assertTrue(decisions.banByAudio(new AudioContentBanMessage(1L, 20L, 3)));
         assertEquals(ContentStatusEnum.BANNED, contents.getById(1L).getStatus());
     }
@@ -508,7 +509,7 @@ class ReviewTransactionIntegrationTest {
         state(ContentReviewState.AUTO_RUNNING);
         jdbc.update(change.equals("private") ? "UPDATE audio SET visibility='private'" : "UPDATE audio SET is_delete=1");
         assertTrue(decisions.machine(1L, 1, verdict("PASS")));
-        assertNotNull(new ContentAccessService(contentRows, audioAccess).readable(1L, 7L));
+        assertNotNull(new ContentAccessService(contentRows, audioAccess, org.mockito.Mockito.mock(UserBlockPort.class)).readable(1L, 7L));
         verify(mq, never()).asyncSend(
                 eq(AudioContentBanMessage.TOPIC),
                 any(AudioContentBanMessage.class),

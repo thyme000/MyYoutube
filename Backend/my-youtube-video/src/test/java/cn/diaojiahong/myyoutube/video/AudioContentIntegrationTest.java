@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import cn.diaojiahong.myyoutube.common.media.DynamicMedia;
@@ -138,7 +139,7 @@ class AudioContentIntegrationTest {
                 strategies,
                 access,
                 mock(ContentReviewRecordMapper.class),
-                mock(AuthorContentPageService.class));
+                mock(AuthorContentPageService.class), org.mockito.Mockito.mock(UserBlockPort.class));
         service = new AudioContentService(audioService, contents, cards);
         UserContext.setUser("9");
         for (long id : List.of(20L, 30L)) audios.insert(new Audio().setId(id).setUploaderId(9L).setTitle("音频" + id)

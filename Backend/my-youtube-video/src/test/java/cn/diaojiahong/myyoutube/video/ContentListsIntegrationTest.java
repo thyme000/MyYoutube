@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.collect.domain.vo.CollectVO;
 import cn.diaojiahong.myyoutube.collect.mapper.ContentCollectMapper;
 import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
@@ -108,7 +109,7 @@ class ContentListsIntegrationTest {
         @Bean
         UserNotificationServiceImpl notifications(ContentMapper mapper, IContentCommentService comments) {
             return new UserNotificationServiceImpl(
-                    new ContentAccessService(mapper,mock(AudioContentAccess.class)),
+                    new ContentAccessService(mapper,mock(AudioContentAccess.class), org.mockito.Mockito.mock(UserBlockPort.class)),
                     mock(UserPort.class),
                     comments);
         }
@@ -117,7 +118,7 @@ class ContentListsIntegrationTest {
         IContentShareService contentShares(cn.diaojiahong.myyoutube.share.mapper.ContentShareMapper shares,
                                            IContentService contents, ContentMapper mapper) {
             return new cn.diaojiahong.myyoutube.share.service.impl.ContentShareServiceImpl(
-                    shares, contents, new ContentAccessService(mapper,mock(AudioContentAccess.class)));
+                    shares, contents, new ContentAccessService(mapper,mock(AudioContentAccess.class), org.mockito.Mockito.mock(UserBlockPort.class)));
         }
     }
 
@@ -200,7 +201,7 @@ class ContentListsIntegrationTest {
         users = mock(UserPort.class);
         feeds = new ContentFeedServiceImpl(contentService,likes,mock(FollowSnapshotCache.class),users,
                 mock(S3StorageUtil.class),mock(RecommendPort.class),registry,audioAccess,reviewRecords,
-                new AuthorContentPageService(pageStore, audioAccess, statistics, pageProperties));
+                new AuthorContentPageService(pageStore, audioAccess, statistics, pageProperties), org.mockito.Mockito.mock(UserBlockPort.class));
     }
 
     @AfterEach
@@ -291,19 +292,34 @@ class ContentListsIntegrationTest {
 
     @Test
     void personalListsFilterBeforePaginationAndUseSamePredicateForCounts() {
-        assertEquals(List.of(8L,3L), collects.selectCollectIds(7L,"dynamic",0,2));
-        assertEquals(List.of(2L), collects.selectCollectIds(7L,"dynamic",2,2));
-        assertEquals(3,collects.selectCollectCount(7L,"dynamic"));
-        assertEquals(List.of(8L,3L,2L,1L),history.selectHistoryIds(7L,null,0,20));
-        assertEquals(4,history.selectHistoryCount(7L,null));
-        assertEquals(List.of(1L),history.selectHistoryIds(7L,"video",0,20));
-        assertEquals(1,history.selectHistoryCount(7L,"video"));
-        assertEquals(List.of(8L,4L,2L,1L),likes.selectListByUserId(7L,9L,null,0,20));
-        assertEquals(4,likes.selectUserLikedCount(7L,9L,null));
+        assertEquals(List.of(8L,3L), collects.selectCollectIds(7L,"dynamic",List.of(),0,2));
+        assertEquals(List.of(2L), collects.selectCollectIds(7L,"dynamic",List.of(),2,2));
+        assertEquals(3,collects.selectCollectCount(7L,"dynamic",List.of()));
+        assertEquals(List.of(8L,3L,2L,1L),history.selectHistoryIds(7L,null,List.of(),0,20));
+        assertEquals(4,history.selectHistoryCount(7L,null,List.of()));
+        assertEquals(List.of(1L),history.selectHistoryIds(7L,"video",List.of(),0,20));
+        assertEquals(1,history.selectHistoryCount(7L,"video",List.of()));
+        assertEquals(List.of(8L,4L,2L,1L),likes.selectListByUserId(7L,9L,null,List.of(),0,20));
+        assertEquals(4,likes.selectUserLikedCount(7L,9L,null,List.of()));
         jdbc.update("UPDATE content SET visibility='private' WHERE id=8");
-        assertEquals(2,collects.selectCollectCount(7L,"dynamic"));
-        assertEquals(3,history.selectHistoryCount(7L,null));
-        assertEquals(3,likes.selectUserLikedCount(7L,7L,null));
+        assertEquals(2,collects.selectCollectCount(7L,"dynamic",List.of()));
+        assertEquals(3,history.selectHistoryCount(7L,null,List.of()));
+        assertEquals(3,likes.selectUserLikedCount(7L,7L,null,List.of()));
+    }
+
+    @Test
+    void blockedAuthorsAreFilteredBeforePaginationWithoutDeletingPersonalRecords() {
+        List<Long> blocked = List.of(9L);
+        assertEquals(List.of(3L), collects.selectCollectIds(7L, "dynamic", blocked, 0, 1));
+        assertEquals(2, collects.selectCollectCount(7L, "dynamic", blocked));
+        assertEquals(List.of(3L), history.selectHistoryIds(7L, null, blocked, 0, 1));
+        assertEquals(3, history.selectHistoryCount(7L, null, blocked));
+        assertEquals(List.of(3L), likes.selectListByUserId(7L, 7L, null, blocked, 0, 1));
+        assertEquals(3, likes.selectUserLikedCount(7L, 7L, null, blocked));
+
+        assertEquals(List.of(8L), collects.selectCollectIds(7L, "dynamic", List.of(), 0, 1));
+        assertEquals(List.of(8L), history.selectHistoryIds(7L, null, List.of(), 0, 1));
+        assertEquals(List.of(8L), likes.selectListByUserId(7L, 7L, null, List.of(), 0, 1));
     }
 
     @Test
@@ -540,7 +556,7 @@ class ContentListsIntegrationTest {
     void forwardingAndShareCounterRecheckCurrentStateWithAuthenticatedViewer() {
         var internal = new InternalVideoController(mock(IContentTagService.class),contentService,
                 mock(cn.diaojiahong.myyoutube.video.mapper.ContentUnderstandingMapper.class),likes,
-                new ContentAccessService(contents,mock(AudioContentAccess.class)),
+                new ContentAccessService(contents,mock(AudioContentAccess.class), org.mockito.Mockito.mock(UserBlockPort.class)),
                 contentShares,
                 mock(NotificationPublisher.class),mock(IUserTagPreferenceService.class));
         assertEquals("dynamic",internal.forwardInfo(2L,9L).type());
@@ -558,7 +574,7 @@ class ContentListsIntegrationTest {
 
     @Test
     void inaccessibleContentCannotCreateCollectionsOrAcceptPlaybackReports() {
-        var access = new ContentAccessService(contents,mock(AudioContentAccess.class));
+        var access = new ContentAccessService(contents,mock(AudioContentAccess.class), org.mockito.Mockito.mock(UserBlockPort.class));
         CounterBuffer counter = mock(CounterBuffer.class);
         var collections = new cn.diaojiahong.myyoutube.collect.service.ContentCollectServiceImpl(
                 collects,
@@ -568,7 +584,8 @@ class ContentListsIntegrationTest {
                 mock(FollowSnapshotCache.class),
                 mock(S3StorageUtil.class),
                 counter,
-                mock(NotificationPublisher.class));
+                mock(NotificationPublisher.class),
+                mock(UserBlockPort.class));
         for (long id : List.of(4L,5L,6L,7L)) {
             assertThrows(BizException.class, () -> collections.collect(id));
         }
@@ -580,7 +597,7 @@ class ContentListsIntegrationTest {
 
     @Test
     void emptyPageAfterLastPageKeepsTheFilteredTotal() {
-        var access = new ContentAccessService(contents,mock(AudioContentAccess.class));
+        var access = new ContentAccessService(contents,mock(AudioContentAccess.class), org.mockito.Mockito.mock(UserBlockPort.class));
         var collections = new cn.diaojiahong.myyoutube.collect.service.ContentCollectServiceImpl(
                 collects,
                 summaries,
@@ -589,7 +606,8 @@ class ContentListsIntegrationTest {
                 mock(FollowSnapshotCache.class),
                 mock(S3StorageUtil.class),
                 mock(CounterBuffer.class),
-                mock(NotificationPublisher.class));
+                mock(NotificationPublisher.class),
+                mock(UserBlockPort.class));
         var query = new ContentPageQuery();
         query.setType("dynamic");
         query.setPageSize(2);

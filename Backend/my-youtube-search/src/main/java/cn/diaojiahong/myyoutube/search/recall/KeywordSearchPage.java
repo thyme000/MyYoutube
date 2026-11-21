@@ -39,7 +39,7 @@ public class KeywordSearchPage {
                 List<ContentSummary> rows = summaries.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(
                         batch.ids(),
                         null));
-                result.addAll(rows);
+                rows.stream().filter(row -> context.authorVisible(row.getAuthorId())).forEach(result::add);
 
                 checked += batch.ids().size();
                 more = batch.hasMore();

@@ -81,7 +81,7 @@ class LiveRecallRefillTest {
     SearchContext context() {
         var query = new ContentSearchCursorQuery();
         query.setKeyword("camera");
-        return SearchContext.of(query, 7L, List.of());
+        return SearchContext.of(query, 7L, List.of(), java.util.List.of());
     }
 
     @Test

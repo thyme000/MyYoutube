@@ -141,7 +141,7 @@ class LiveRecallRankingTest {
     }
 
     SearchContext context(List<Long> follows) {
-        return SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L, follows);
+        return SearchContext.of(HybridRecallServiceTest.context().getQuery(), 7L, follows, java.util.List.of());
     }
 
     void put(String id, Map<String, Object> fields) throws Exception {

@@ -1,8 +1,13 @@
 package cn.diaojiahong.myyoutube.user;
 
+import cn.diaojiahong.myyoutube.block.InternalUserBlockController;
+import cn.diaojiahong.myyoutube.block.UserBlockController;
+import cn.diaojiahong.myyoutube.block.UserBlockMapper;
+import cn.diaojiahong.myyoutube.block.UserBlockService;
 import cn.diaojiahong.myyoutube.common.filter.UserIdHeaderFilter;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import cn.diaojiahong.myyoutube.common.mq.EsSyncPublisher;
+import cn.diaojiahong.myyoutube.common.security.InternalApiCredentials;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.cache.UserSummaryCache;
@@ -16,6 +21,7 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -26,6 +32,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -37,12 +44,21 @@ class UserProfileAccessIntegrationTest {
     private JdbcTemplate jdbc;
     private SqlSession session;
     private MockMvc mvc;
+    private UserBlockService blocks;
 
     @BeforeEach
     void setup() throws Exception {
         var dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:profile-access;MODE=MySQL;NON_KEYWORDS=USER;DB_CLOSE_DELAY=-1", "sa", "");
         jdbc = new JdbcTemplate(dataSource);
+        jdbc.execute("DROP TABLE IF EXISTS user_block");
+        jdbc.execute("""
+                CREATE TABLE user_block (
+                    blocker_id BIGINT NOT NULL,
+                    blocked_id BIGINT NOT NULL,
+                    PRIMARY KEY (blocker_id, blocked_id)
+                )
+                """);
         jdbc.execute("DROP TABLE IF EXISTS user");
         jdbc.execute("""
                 CREATE TABLE user (
@@ -65,13 +81,18 @@ class UserProfileAccessIntegrationTest {
         factoryBean.setDataSource(dataSource);
         SqlSessionFactory factory = factoryBean.getObject();
         factory.getConfiguration().addMapper(UserMapper.class);
+        factory.getConfiguration().addMapper(UserBlockMapper.class);
         session = factory.openSession(true);
         var service = new UserServiceImpl(mock(S3StorageUtil.class), publisher, summaryCache);
         ReflectionTestUtils.setField(service, "baseMapper", session.getMapper(UserMapper.class));
 
         var filter = new UserIdHeaderFilter(new ObjectMapper());
         ReflectionTestUtils.setField(filter, "internalToken", "profile-test-token");
-        mvc = MockMvcBuilders.standaloneSetup(new UserController(service))
+        UserBlockMapper blockMapper = new SqlSessionTemplate(factory).getMapper(UserBlockMapper.class);
+        blocks = new UserBlockService(blockMapper, session.getMapper(UserMapper.class));
+        mvc = MockMvcBuilders.standaloneSetup(new UserController(service, blocks),
+                        new UserBlockController(blocks),
+                        new InternalUserBlockController(blocks, new InternalApiCredentials("profile-test-token")))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .addFilters(filter)
                 .build();
@@ -83,6 +104,47 @@ class UserProfileAccessIntegrationTest {
             session.close();
         }
         UserContext.removeUser();
+    }
+
+    @Test
+    void blockedProfileStillReturnsTheVisibleProfileAlongsideTheBlockFlag() throws Exception {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mvc.perform(put("/user/block/2")
+                            .header(UserIdHeaderFilter.USER_ID_HEADER, "1")
+                            .header(UserIdHeaderFilter.INTERNAL_TOKEN_HEADER, "profile-test-token"))
+                    .andExpect(status().isOk());
+        }
+
+        mvc.perform(get("/user/info/2")
+                        .header(UserIdHeaderFilter.USER_ID_HEADER, "1")
+                        .header(UserIdHeaderFilter.INTERNAL_TOKEN_HEADER, "profile-test-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.blockedByMe").value(true))
+                .andExpect(jsonPath("$.data.nickname").value("Bob"))
+                .andExpect(jsonPath("$.data.introduction").value("Bob bio"));
+        mvc.perform(get("/internal/user-block/authors").param("viewerId", "1"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/internal/user-block/authors")
+                        .param("viewerId", "1")
+                        .header(UserIdHeaderFilter.INTERNAL_TOKEN_HEADER, "profile-test-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0]").value(2));
+        mvc.perform(get("/internal/user-block/private-chat")
+                        .param("userId", "2").param("peerId", "1")
+                        .header(UserIdHeaderFilter.INTERNAL_TOKEN_HEADER, "profile-test-token"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("true"));
+
+        mvc.perform(delete("/user/block/2")
+                        .header(UserIdHeaderFilter.USER_ID_HEADER, "1")
+                        .header(UserIdHeaderFilter.INTERNAL_TOKEN_HEADER, "profile-test-token"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/user/info/2")
+                        .header(UserIdHeaderFilter.USER_ID_HEADER, "1")
+                        .header(UserIdHeaderFilter.INTERNAL_TOKEN_HEADER, "profile-test-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.blockedByMe").value(false))
+                .andExpect(jsonPath("$.data.nickname").value("Bob"));
     }
 
     @Test

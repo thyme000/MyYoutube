@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
@@ -40,7 +41,7 @@ class ContentDisplayAccessTest {
     private final AudioMapper audios = mock(AudioMapper.class);
     private final AfterCommitNotifications notifications = mock(AfterCommitNotifications.class);
     private final AudioContentAccess audioAccess = new AudioContentAccess(audios, notifications);
-    private final ContentAccessService liveAccess = new ContentAccessService(contents, audioAccess);
+    private final ContentAccessService liveAccess = new ContentAccessService(contents, audioAccess, org.mockito.Mockito.mock(UserBlockPort.class));
     private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
     @SuppressWarnings("unchecked")
     private final ValueOperations<String, String> values = mock(ValueOperations.class);

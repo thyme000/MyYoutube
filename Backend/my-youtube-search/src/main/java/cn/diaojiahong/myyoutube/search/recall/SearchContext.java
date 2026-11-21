@@ -20,19 +20,24 @@ public class SearchContext {
     private final String keyword;
 
     private final List<Long> followIds;
+    private final List<Long> blockedAuthors;
     private final boolean tagSearch;
 
-    public static SearchContext of(ContentSearchCursorQuery query, Long userId, List<Long> followIds) {
-        String keyword = query.getKeyword() == null ? "" : query.getKeyword().trim();
-        return new SearchContext(query, userId, keyword, List.copyOf(followIds), false);
+    boolean authorVisible(Long authorId) {
+        return authorId == null || !blockedAuthors.contains(authorId);
     }
 
-    public static SearchContext forTag(TagSearchCursorQuery source, Long userId, List<Long> followIds) {
+    public static SearchContext of(ContentSearchCursorQuery query, Long userId, List<Long> followIds, List<Long> blockedAuthors) {
+        String keyword = query.getKeyword() == null ? "" : query.getKeyword().trim();
+        return new SearchContext(query, userId, keyword, List.copyOf(followIds), List.copyOf(blockedAuthors), false);
+    }
+
+    public static SearchContext forTag(TagSearchCursorQuery source, Long userId, List<Long> followIds, List<Long> blockedAuthors) {
         var query = new ContentSearchCursorQuery();
         query.setKeyword(source.getTagName());
         query.setCursor(source.getCursor());
         String keyword = source.getTagName() == null ? "" : source.getTagName().trim();
-        return new SearchContext(query, userId, keyword, List.copyOf(followIds), true);
+        return new SearchContext(query, userId, keyword, List.copyOf(followIds), List.copyOf(blockedAuthors), true);
     }
 
     public boolean isSortByLatest() {

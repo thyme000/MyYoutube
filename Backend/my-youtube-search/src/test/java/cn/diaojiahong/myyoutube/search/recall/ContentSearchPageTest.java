@@ -87,7 +87,7 @@ class ContentSearchPageTest {
         query.setKeyword("camera");
         query.setCursor(cursor);
         query.setSortByLatest(latest);
-        return SearchContext.of(query, 7L, List.of());
+        return SearchContext.of(query, 7L, List.of(), java.util.List.of());
     }
 
     List<Long> ids(CursorPage<ContentSummary, String> page) {

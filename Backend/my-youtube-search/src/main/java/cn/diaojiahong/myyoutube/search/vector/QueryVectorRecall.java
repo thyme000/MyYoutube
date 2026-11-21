@@ -7,6 +7,7 @@ import cn.diaojiahong.myyoutube.search.hot.HotSearchService;
 import cn.diaojiahong.myyoutube.search.recall.RecallSearchClient;
 import cn.diaojiahong.myyoutube.search.recall.RecallRanking;
 import cn.diaojiahong.myyoutube.search.recall.SearchContext;
+import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import feign.Request;
@@ -52,9 +53,18 @@ public class QueryVectorRecall {
         ContentVectorService.QueryVector queryVector = vector;
         // 先扩展语义候选，再按业务加权取最终召回深度；加权不会影响 HNSW 候选遍历。
         int candidates = properties.getRecallSize() * 2;
+        Query filter = ContentVectorService.knnFilter(queryVector, ctx.getCategory());
+        if (!ctx.getBlockedAuthors().isEmpty()) {
+            List<FieldValue> authors = ctx.getBlockedAuthors().stream()
+                    .map(id -> FieldValue.of(id.longValue())).toList();
+            Query publicContent = filter;
+            filter = Query.of(q -> q.bool(b -> b.filter(publicContent)
+                    .mustNot(m -> m.terms(t -> t.field("authorId").terms(values -> values.value(authors))))));
+        }
+        Query candidatesFilter = filter;
         Query knn = Query.of(q -> q.knn(k -> k.field("vector").queryVector(queryVector.vector())
                 .k(candidates).numCandidates(Math.max(candidates * 3, 100))
-                .filter(ContentVectorService.knnFilter(queryVector, ctx.getCategory()))));
+                .filter(candidatesFilter)));
         SearchRequest request = SearchRequest.of(s -> s.index("content").size(properties.getRecallSize())
                 .source(source -> source.fetch(false)).query(ranking.vector(knn, ctx)));
         return searchClient.search(request);

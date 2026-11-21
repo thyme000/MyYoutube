@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.support;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCache;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
@@ -31,7 +32,7 @@ public final class ContentResourceTestSupport {
 
     public static ContentDisplayAccess uncachedAccess(ContentMapper contents, AudioContentAccess audio) {
         return new ContentDisplayAccess(uncachedCache(), new ContentAccessSnapshotLoader(contents, audio),
-                new ContentAccessService(contents, audio));
+                new ContentAccessService(contents, audio, org.mockito.Mockito.mock(UserBlockPort.class)));
     }
 
     public static ContentResourceCache uncachedCache() {

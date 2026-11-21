@@ -18,6 +18,7 @@ import cn.diaojiahong.myyoutube.like.domain.po.ContentLike;
 import cn.diaojiahong.myyoutube.like.mapper.ContentLikeMapper;
 import cn.diaojiahong.myyoutube.search.api.RecommendPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
@@ -47,6 +48,7 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     private final AudioContentAccess audioAccess;
     private final ContentReviewRecordMapper reviewRecords;
     private final AuthorContentPageService authorPages;
+    private final UserBlockPort blocks;
 
     @Override
     public PageResult<ContentFeedVO> feed(Long userId, ContentPageQuery query) {
@@ -57,9 +59,11 @@ public class ContentFeedServiceImpl implements IContentFeedService {
     public PageResult<ContentFeedVO> list(Long userId, ContentSortEnum sort, String category, ContentPageQuery query) {
         ContentTypeEnum type = query.mediaType();
         if (sort == ContentSortEnum.RECOMMENDED) return recommended(userId, category, type, query);
+        List<Long> blockedAuthors = blocks.blockedAuthors(userId);
         LambdaQueryWrapper<Content> filter = published()
                 .eq(Content::getVisibility, "public")
                 .ne(userId != null, Content::getAuthorId, userId)
+                .notIn(!blockedAuthors.isEmpty(), Content::getAuthorId, blockedAuthors)
                 .eq(category != null && !category.isBlank(), Content::getCategoryCode, category)
                 .eq(type != null, Content::getType, type);
         if (sort == ContentSortEnum.MOST_LIKED) filter.orderByDesc(Content::getLikeCount);
@@ -81,6 +85,9 @@ public class ContentFeedServiceImpl implements IContentFeedService {
 
     @Override
     public AuthorContentCursorVO byAuthor(Long viewer, Long author, AuthorContentCursorQuery query) {
+        if (viewer != null && !viewer.equals(author) && blocks.blockedAuthors(viewer).contains(author)) {
+            return new AuthorContentCursorVO(new CursorPage<>(List.of(), null), 0);
+        }
         UserSummary account = users.getUser(author);
         if (account != null && account.deleted()) {
             throw new BizException(ErrorCode.NOT_FOUND, "用户不存在");
@@ -97,9 +104,11 @@ public class ContentFeedServiceImpl implements IContentFeedService {
         ContentTypeEnum type = query.mediaType();
         List<Long> ids = follows.getFollowIds(userId);
         if (ids.isEmpty()) return PageResult.of(0, 0, List.of());
+        List<Long> blockedAuthors = blocks.blockedAuthors(userId);
         return page(userId, published()
                 .eq(type != null, Content::getType, type)
                 .in(Content::getAuthorId, ids)
+                .notIn(!blockedAuthors.isEmpty(), Content::getAuthorId, blockedAuthors)
                 .eq(Content::getVisibility, "public")
                 .orderByDesc(Content::getCreateTime), query, false);
     }

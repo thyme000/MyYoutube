@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.search;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.recommend.service.impl.RecommendServiceImpl;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
@@ -34,8 +35,9 @@ class RecommendViewHistoryTest {
     private final PreferencePort preferences = mock(PreferencePort.class);
     private final CfRecommendPort cf = mock(CfRecommendPort.class);
     private final ViewHistoryPort history = mock(ViewHistoryPort.class);
+    private final UserBlockPort blocks = mock(UserBlockPort.class);
     private final RecommendServiceImpl recommendations = new RecommendServiceImpl(
-            preferences, es, mock(FollowPort.class), cf, history, new SimpleMeterRegistry());
+            preferences, es, mock(FollowPort.class), cf, history, new SimpleMeterRegistry(), blocks);
 
     @BeforeEach
     void setup() {
@@ -60,6 +62,23 @@ class RecommendViewHistoryTest {
 
         assertEquals(List.of(500L, 501L), recommendations.recommendForFollow(List.of(9L), USER_ID, 1, 2));
         assertEquals(List.of(503L, 504L), recommendations.recommendForFollow(List.of(9L), USER_ID, 2, 2));
+    }
+
+    @Test
+    void recommendationsExcludeBlockedAuthorsInTheRecallQuery() {
+        when(blocks.blockedAuthors(USER_ID)).thenReturn(List.of(42L));
+        when(es.search(any(NativeQuery.class), eq(ContentDoc.class))).thenAnswer(call -> {
+            NativeQuery query = call.getArgument(0);
+            Query filter = query.getQuery().functionScore().query();
+            assertEquals(List.of(42L), filter.bool().mustNot().stream().filter(Query::isTerms)
+                    .filter(clause -> "authorId".equals(clause.terms().field()))
+                    .flatMap(clause -> clause.terms().terms().value().stream())
+                    .map(value -> value.longValue()).toList());
+            return hits(List.of());
+        });
+
+        assertEquals(List.of(), recommendations.recommend(USER_ID, "video", null, 1, 2));
+        verify(es).search(any(NativeQuery.class), eq(ContentDoc.class));
     }
 
     @Test

@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceWarmupProperties;
@@ -26,7 +27,7 @@ class ContentResourceWarmupLoaderTest {
     private final FollowPort followPort = mock(FollowPort.class);
     private final ContentResourceWarmupProperties properties = new ContentResourceWarmupProperties();
     private final ContentResourceWarmupLoader loader = new ContentResourceWarmupLoader(
-            new ContentAccessService(contents, audio), followPort, properties);
+            new ContentAccessService(contents, audio, org.mockito.Mockito.mock(UserBlockPort.class)), followPort, properties);
     private final Content content = new Content().setId(1L).setAuthorId(9L).setIsDelete(0)
             .setStatus(ContentStatusEnum.PUBLISHED).setVisibility(ContentVisibilityEnum.PUBLIC.getCode()).setPlayCount(0L);
 

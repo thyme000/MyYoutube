@@ -1,5 +1,7 @@
 package cn.diaojiahong.myyoutube.user.controller;
 
+import cn.diaojiahong.myyoutube.block.UserBlockService;
+import cn.diaojiahong.myyoutube.common.utils.UserContext;
 
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
@@ -35,6 +37,7 @@ import java.util.List;
 public class UserController {
 
     private final IUserService userService;
+    private final UserBlockService blocks;
 
     /**
      * 获取用户信息
@@ -42,7 +45,13 @@ public class UserController {
     @Operation(summary = "获取用户信息")
     @GetMapping("/info/{userId}")
     public Result<UserVO> getUserInfo(@PathVariable Long userId) {
-        return Result.success(userService.getUserInfo(userId));
+        // 拉黑不改资料可见性：始终走同一条资料查询路径，再按双方关系补拉黑标记
+        UserVO profile = userService.getUserInfo(userId);
+        String viewer = UserContext.getUserId();
+        if (viewer != null) {
+            profile.setBlockedByMe(blocks.isBlocked(Long.valueOf(viewer), userId));
+        }
+        return Result.success(profile);
     }
 
     /**

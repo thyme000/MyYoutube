@@ -15,7 +15,7 @@ class ContentSearchCursorTest {
         query.setKeyword(keyword);
         query.setCategory(category);
         query.setSortByLatest(latest);
-        return SearchContext.of(query, user, List.of());
+        return SearchContext.of(query, user, List.of(), java.util.List.of());
     }
 
     @Test

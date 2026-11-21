@@ -19,6 +19,7 @@ import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
 import cn.diaojiahong.myyoutube.search.service.ISearchService;
 import cn.diaojiahong.myyoutube.search.hot.HotSearchService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
@@ -63,6 +64,7 @@ public class SearchServiceImpl implements ISearchService {
     private final HotSearchService hotSearchService;
     private final ElasticsearchClient elasticsearchClient;
     private final ContentSearchPage contentSearchPage;
+    private final UserBlockPort blocks;
     private static final int STORAGE_EXPIRE_SECONDS = 3600 * 10;
 
     @Override
@@ -70,7 +72,7 @@ public class SearchServiceImpl implements ISearchService {
     public CursorPage<SearchVideoVO, String> searchVideo(ContentSearchCursorQuery query) {
         query.validate();
         Long userId = getUserId();
-        SearchContext context = SearchContext.of(query, userId, followPort.getFollowIds(userId));
+        SearchContext context = SearchContext.of(query, userId, followPort.getFollowIds(userId), blocks.blockedAuthors(userId));
         CursorPage<ContentSummary, String> page = contentSearchPage.search(context);
         List<SearchVideoVO> items = buildCards(page.items(), context.getFollowIds());
 
@@ -194,8 +196,11 @@ public class SearchServiceImpl implements ISearchService {
             List<String> ids = entries == null ? List.<String>of() : entries.stream()
                     .flatMap(entry -> entry.completion().options().stream())
                     .map(option -> option.id()).filter(Objects::nonNull).distinct().toList();
+            String viewer = UserContext.getUserId();
+            List<Long> blockedAuthors = viewer == null ? List.of() : blocks.blockedAuthors(Long.valueOf(viewer));
             Set<String> readable = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(ids, null))
-                    .stream().map(summary -> summary.getId().toString()).collect(Collectors.toSet());
+                    .stream().filter(summary -> !blockedAuthors.contains(summary.getAuthorId()))
+                    .map(summary -> summary.getId().toString()).collect(Collectors.toSet());
             appendSuggestTexts(videoResp, "video_suggest", merged, readable::contains);
             appendSuggestTexts(userResp, "user_suggest", merged, id -> true);
 
@@ -235,7 +240,7 @@ public class SearchServiceImpl implements ISearchService {
     public CursorPage<SearchVideoVO, String> searchByTag(TagSearchCursorQuery pageQuery) {
         Long userId = getUserId();
         pageQuery.validate();
-        SearchContext ctx = SearchContext.forTag(pageQuery, userId, followPort.getFollowIds(userId));
+        SearchContext ctx = SearchContext.forTag(pageQuery, userId, followPort.getFollowIds(userId), blocks.blockedAuthors(userId));
         CursorPage<ContentSummary, String> page = contentSearchPage.search(ctx);
         return new CursorPage<>(buildCards(page.items(), ctx.getFollowIds()), page.nextCursor());
     }

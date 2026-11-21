@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.service;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceCacheProperties;
 import cn.diaojiahong.myyoutube.content.domain.media.ContentMediaResource;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -53,7 +54,7 @@ class ContentReadContractTest {
         ContentTypeStrategyRegistry strategies = mock(ContentTypeStrategyRegistry.class);
         var cards = new ContentFeedServiceImpl(mock(IContentService.class), likes, follows, users, storage,
                 mock(RecommendPort.class), strategies, mock(AudioContentAccess.class),
-                mock(ContentReviewRecordMapper.class), mock(AuthorContentPageService.class));
+                mock(ContentReviewRecordMapper.class), mock(AuthorContentPageService.class), org.mockito.Mockito.mock(UserBlockPort.class));
 
         assertTrue(cards.assembleCards(9L, List.of(), Set.of()).isEmpty());
         assertTrue(cards.assembleCardsWithMedia(9L, List.of(), Set.of(), Map.of()).isEmpty());
@@ -108,7 +109,7 @@ class ContentReadContractTest {
         AudioContentAccess audios = mock(AudioContentAccess.class);
         when(audios.blocked(anyList())).thenReturn(Set.of(1L));
         when(audios.isReferenceBlocked(any())).thenReturn(true);
-        var access = new ContentAccessService(contents, audios);
+        var access = new ContentAccessService(contents, audios, org.mockito.Mockito.mock(UserBlockPort.class));
         var reads = new ContentReadService(
                 ContentResourceTestSupport.uncachedCache(),
                 ContentResourceTestSupport.uncachedAccess(contents, audios),
@@ -160,7 +161,7 @@ class ContentReadContractTest {
                 registry,
                 audios,
                 mock(ContentReviewRecordMapper.class),
-                mock(AuthorContentPageService.class));
+                mock(AuthorContentPageService.class), org.mockito.Mockito.mock(UserBlockPort.class));
         var service=new ContentReadService(
                 ContentResourceTestSupport.uncachedCache(),
                 ContentResourceTestSupport.uncachedAccess(contents, audios),

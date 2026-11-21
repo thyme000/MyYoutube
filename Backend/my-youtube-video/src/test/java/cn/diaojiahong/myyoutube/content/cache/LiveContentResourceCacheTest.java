@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.content.cache;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.content.cache.ContentResourceReader.FillPolicy;
 import cn.diaojiahong.myyoutube.common.exception.DependencyException;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -554,7 +555,7 @@ class LiveContentResourceCacheTest {
         var strategies = new ContentTypeStrategyRegistry(List.of(new VideoContentStrategy(videos)));
         var loader = new ContentMediaResourceLoader(strategies);
         AudioContentAccess audioAccess = mock(AudioContentAccess.class);
-        var access = new ContentAccessService(contents, audioAccess);
+        var access = new ContentAccessService(contents, audioAccess, org.mockito.Mockito.mock(UserBlockPort.class));
         var stateLoader = new ContentAccessSnapshotLoader(contents, audioAccess);
         var firstAccess = new ContentDisplayAccess(first, stateLoader, access);
         var secondAccess = new ContentDisplayAccess(second, stateLoader, access);

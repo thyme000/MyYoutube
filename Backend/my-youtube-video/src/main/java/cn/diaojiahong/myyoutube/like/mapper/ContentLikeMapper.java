@@ -20,11 +20,12 @@ public interface ContentLikeMapper extends BaseMapper<ContentLike> {
             @Param("userId") Long userId,
             @Param("viewerId") Long viewerId,
             @Param("type") String type,
+            @Param("blockedAuthors") List<Long> blockedAuthors,
             @Param("offset") int offset,
             @Param("size") int size);
 
     int selectUserLikedCount(
             @Param("userId") Long userId,
             @Param("viewerId") Long viewerId,
-            @Param("type") String type);
+            @Param("type") String type, @Param("blockedAuthors") List<Long> blockedAuthors);
 }

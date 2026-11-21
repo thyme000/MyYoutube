@@ -4,6 +4,7 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.content.domain.po.Content;
 import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentStatusEnum;
 import cn.diaojiahong.myyoutube.video.api.enums.ContentVisibilityEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -20,14 +21,17 @@ import java.util.stream.Collectors;
 public class ContentAccessService {
     private final ContentMapper contents;
     private final AudioContentAccess audioAccess;
+    private final UserBlockPort blocks;
 
     public Content readable(Long id, Long viewer) {
         return requireReadable(contents.selectById(id), viewer);
     }
 
     public Set<Long> readableIds(Collection<Long> ids, Long viewer) {
+        List<Long> blockedAuthors = viewer == null ? List.of() : blocks.blockedAuthors(viewer);
         List<Content> visible = contents.selectBatchIds(ids).stream()
                 .filter(content -> isVisible(content, viewer))
+                .filter(content -> !blockedAuthors.contains(content.getAuthorId()))
                 .toList();
         Set<Long> blocked = audioAccess.blocked(visible);
         return visible.stream().map(Content::getId)
@@ -55,7 +59,9 @@ public class ContentAccessService {
     }
 
     Content requireVisible(Content content, Long viewer) {
-        if (!isVisible(content, viewer)) {
+        if (!isVisible(content, viewer) || viewer != null
+                && !Objects.equals(content.getAuthorId(), viewer)
+                && blocks.blockedAuthors(viewer).contains(content.getAuthorId())) {
             throw notReadable();
         }
 

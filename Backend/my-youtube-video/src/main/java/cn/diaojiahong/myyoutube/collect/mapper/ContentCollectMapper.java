@@ -20,8 +20,9 @@ public interface ContentCollectMapper extends BaseMapper<ContentCollect> {
     List<Long> selectCollectIds(
             @Param("userId") Long userId,
             @Param("type") String type,
+            @Param("blockedAuthors") List<Long> blockedAuthors,
             @Param("offset") int offset,
             @Param("size") int size);
 
-    int selectCollectCount(@Param("userId") Long userId, @Param("type") String type);
+    int selectCollectCount(@Param("userId") Long userId, @Param("type") String type, @Param("blockedAuthors") List<Long> blockedAuthors);
 }

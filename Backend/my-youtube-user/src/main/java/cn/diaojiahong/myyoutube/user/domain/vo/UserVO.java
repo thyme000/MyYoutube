@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 public class UserVO {
     // 用户id
     private Long id;
+    private boolean blockedByMe;
     // 用户昵称
     private String nickname;
     // 用户头像url

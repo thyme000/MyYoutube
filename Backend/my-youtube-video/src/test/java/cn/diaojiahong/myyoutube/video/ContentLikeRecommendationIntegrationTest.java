@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.video;
 
+import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.comment.service.IContentCommentService;
 import cn.diaojiahong.myyoutube.common.counter.CounterBuffer;
 import cn.diaojiahong.myyoutube.common.counter.CounterType;
@@ -161,7 +162,7 @@ class ContentLikeRecommendationIntegrationTest {
             return new ContentLikeServiceImpl(access, mock(ContentSummaryPort.class),
                     mock(StringRedisTemplate.class), mock(UserPort.class), mock(S3StorageUtil.class), likes,
                     mock(ContentCommentLikeMapper.class), mock(IContentCommentService.class), mock(RocketMQTemplate.class),
-                    mock(FollowSnapshotCache.class), counterBuffer, tags, preferences);
+                    mock(FollowSnapshotCache.class), counterBuffer, tags, preferences, org.mockito.Mockito.mock(UserBlockPort.class));
         }
     }
 
