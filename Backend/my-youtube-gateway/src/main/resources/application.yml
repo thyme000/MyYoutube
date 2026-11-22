@@ -1,7 +1,7 @@
-# 网关不依赖 common 模块(servlet 栈), 共享配置无法 import, 自带以下键
+# 网关依赖 common，使用 WebFlux。共享本地配置可以 import，服务自身的键写在下面
 spring:
   main:
-    # common 依赖带 starter-web(servlet 栈), 不显式声明 Boot 会把网关起成 Servlet 应用, GlobalFilter 全失效
+    # 显式声明 reactive，网关使用 WebFlux 与 Reactor Netty，避免被判成 Servlet 应用后 GlobalFilter 失效
     web-application-type: reactive
   autoconfigure:
     # common 传递进来的 JDBC/MyBatis/RocketMQ 自动装配与网关无关, 显式排除防误启

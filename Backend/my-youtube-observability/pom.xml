@@ -5,6 +5,8 @@
   <dependencies>
     <dependency><groupId>cn.diaojiahong</groupId><artifactId>my-youtube-telemetry-skywalking</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>cn.diaojiahong</groupId><artifactId>my-youtube-common</artifactId><version>${project.version}</version></dependency>
+    <!-- 健康检查与 Prometheus 走 HTTP。本服务不扫描 MVC 过滤器与 Springdoc -->
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
     <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-registry-prometheus</artifactId></dependency>
   </dependencies>

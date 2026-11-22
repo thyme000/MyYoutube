@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>cn.diaojiahong</groupId>
+		<artifactId>my-youtube-parent</artifactId>
+		<version>0.0.1-SNAPSHOT</version>
+	</parent>
+	<artifactId>my-youtube-webmvc</artifactId>
+	<name>my-youtube-webmvc</name>
+	<description>Servlet / Spring MVC 基础设施: 过滤器、全局异常处理与 MVC 版 Springdoc</description>
+
+	<dependencies>
+		<dependency>
+			<groupId>cn.diaojiahong</groupId>
+			<artifactId>my-youtube-common</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>2.8.6</version>
+		</dependency>
+		<!-- 仅编译 FeignExceptionHandler; 不向未使用 OpenFeign 的服务传递 -->
+		<dependency>
+			<groupId>io.github.openfeign</groupId>
+			<artifactId>feign-core</artifactId>
+			<optional>true</optional>
+		</dependency>
+	</dependencies>
+</project>

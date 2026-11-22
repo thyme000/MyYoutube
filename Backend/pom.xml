@@ -16,6 +16,7 @@
 
 	<modules>
 		<module>my-youtube-common</module>
+		<module>my-youtube-webmvc</module>
 		<module>my-youtube-telemetry-skywalking</module>
 		<module>my-youtube-observability</module>
 		<module>my-youtube-security</module>

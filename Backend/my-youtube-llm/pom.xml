@@ -33,7 +33,7 @@
 			<groupId>com.alibaba.cloud</groupId>
 			<artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
 		</dependency>
-		<!-- common 组件(EsSyncPublisher/UserIdHeaderFilter)需要 RocketMQTemplate bean, 故保留 starter -->
+		<!-- common 的 EsSyncPublisher 需要 RocketMQTemplate bean, 故保留 starter -->
 		<dependency>
 			<groupId>org.apache.rocketmq</groupId>
 			<artifactId>rocketmq-spring-boot-starter</artifactId>
@@ -47,6 +47,11 @@
 		<dependency>
 			<groupId>cn.diaojiahong</groupId>
 			<artifactId>my-youtube-common</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>cn.diaojiahong</groupId>
+			<artifactId>my-youtube-webmvc</artifactId>
 			<version>${project.version}</version>
 		</dependency>
 	</dependencies>

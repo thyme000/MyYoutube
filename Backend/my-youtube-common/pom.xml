@@ -31,14 +31,16 @@
 			<artifactId>mybatis-plus-jsqlparser-4.9</artifactId>
 			<version>3.5.11</version>
 		</dependency>
+		<!-- Schema 注解。MVC 版 Springdoc 与嵌入式容器在 my-youtube-webmvc / 各服务 -->
 		<dependency>
-			<groupId>org.springdoc</groupId>
-			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-			<version>2.8.6</version>
+			<groupId>io.swagger.core.v3</groupId>
+			<artifactId>swagger-annotations-jakarta</artifactId>
+			<version>2.2.29</version>
 		</dependency>
+		<!-- Jackson2ObjectMapperBuilder 位于 spring-web，WebMVC 与 WebFlux 共用，不含 Servlet 容器 -->
 		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
+			<groupId>org.springframework</groupId>
+			<artifactId>spring-web</artifactId>
 		</dependency>
 		<!-- 中文转拼音 -->
 		<dependency>

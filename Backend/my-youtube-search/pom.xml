@@ -73,6 +73,11 @@
 			<artifactId>my-youtube-common</artifactId>
 			<version>${project.version}</version>
 		</dependency>
+		<dependency>
+			<groupId>cn.diaojiahong</groupId>
+			<artifactId>my-youtube-webmvc</artifactId>
+			<version>${project.version}</version>
+		</dependency>
 	
 	</dependencies>
 	<build>
