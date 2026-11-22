@@ -71,7 +71,8 @@ class LifecycleTests(unittest.TestCase):
             console = work / 'console.log'
             with console.open('wb') as output:
                 process = subprocess.Popen([sys.executable, '-m', 'model_runtime.server', '--service', 'ocr',
-                                            '--directory', str(work)], cwd=work, env=env,
+                                            '--directory', str(work), '--managed'], cwd=work, env=env,
+                                           stdin=subprocess.PIPE,
                                            stdout=output, stderr=subprocess.STDOUT)
             try:
                 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -97,3 +98,4 @@ class LifecycleTests(unittest.TestCase):
                 if process.poll() is None:
                     process.kill()
                     process.wait(timeout=5)
+                process.stdin.close()

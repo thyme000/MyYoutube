@@ -2,6 +2,7 @@ package cn.diaojiahong.myyoutube.transcode.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -120,6 +121,16 @@ class LocalModelServicesLiveTest {
         return mapper.readTree(root.resolve(service + "/.runtime/server.json").toFile()).path("pid").asLong();
     }
 
+    private void assertStartupState(AnnotationConfigApplicationContext context, String service, String expected)
+            throws IOException {
+        String actual = context.getBean(LocalModelServices.class).startupStates().get(service);
+        if (!expected.equals(actual)) {
+            Path launchLog = root.resolve(service).resolve(".runtime/transcode-launch.log");
+            String output = Files.isRegularFile(launchLog) ? Files.readString(launchLog) : "";
+            assertEquals(expected, actual, service + "\n" + output);
+        }
+    }
+
     private void assertStopped() throws Exception {
         for (String service : new String[]{"asr-svc", "ocr-svc"}) {
             assertTrue(Files.exists(root.resolve(service + "/stopped")), service);
@@ -135,12 +146,8 @@ class LocalModelServicesLiveTest {
         var parents = new ArrayList<ProcessHandle>();
         try (AnnotationConfigApplicationContext owner = startContext(true, "15s")) {
             awaitStartup(owner);
-            assertTrue(owner.getBean(LocalModelServices.class)
-                    .startupStates()
-                    .values()
-                    .stream()
-                    .allMatch("READY"::equals));
             for (String service : new String[]{"asr-svc", "ocr-svc"}) {
+                assertStartupState(owner, service, "READY");
                 parents.add(ProcessHandle.of(pid(service)).orElseThrow());
                 JsonNode record = mapper.readTree(root.resolve(service + "/.runtime/server.json").toFile());
                 assertTrue(Files.readString(root.resolve(service + "/.env"))
@@ -165,6 +172,8 @@ class LocalModelServicesLiveTest {
             awaitStartup(launcher);
             try (AnnotationConfigApplicationContext reused = startContext(true, "15s")) {
                 awaitStartup(reused);
+                assertStartupState(reused, "asr-svc", "READY");
+                assertStartupState(reused, "ocr-svc", "READY");
                 assertTrue(ProcessHandle.of(pid("asr-svc")).orElseThrow().isAlive());
             }
         }
@@ -179,8 +188,8 @@ class LocalModelServicesLiveTest {
         try (AnnotationConfigApplicationContext context=startContext(true,"15s")) {
             awaitStartup(context);
             assertTrue(context.isActive());
-            assertEquals("FAILED",context.getBean(LocalModelServices.class).startupStates().get("asr-svc"));
-            assertEquals("READY",context.getBean(LocalModelServices.class).startupStates().get("ocr-svc"));
+            assertStartupState(context, "asr-svc", "FAILED");
+            assertStartupState(context, "ocr-svc", "READY");
         }
         assertStopped();
     }

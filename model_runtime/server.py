@@ -8,6 +8,29 @@ import uvicorn
 
 from model_runtime.settings import SERVICES, load_settings, service_directory
 
+PARENT_SHUTDOWN_COMMAND = "shutdown"
+
+
+def read_parent_shutdown(requested):
+    if os.name != "nt":
+        return sys.stdin.readline().strip() == PARENT_SHUTDOWN_COMMAND
+
+    from _winapi import PeekNamedPipe
+    from msvcrt import get_osfhandle
+
+    command = (PARENT_SHUTDOWN_COMMAND + "\n").encode("ascii")
+    handle = get_osfhandle(sys.stdin.fileno())
+    # On Windows a pending read on inherited stdin can block worker startup.
+    while not requested.is_set():
+        try:
+            message, _, _ = PeekNamedPipe(handle, len(command))
+        except BrokenPipeError:
+            return False
+        if len(message) == len(command) or b"\n" in message:
+            return message == command
+        requested.wait(0.1)
+    return False
+
 
 class ModelServer(uvicorn.Server):
     async def shutdown(self, sockets=None):
@@ -33,7 +56,7 @@ def main():
 
     if args.managed:
         def read_control():
-            if sys.stdin.readline().strip() == "shutdown":
+            if read_parent_shutdown(requested):
                 shutdown()
         threading.Thread(target=read_control, daemon=True, name="model-parent-control").start()
     identity = SERVICES[args.service]
