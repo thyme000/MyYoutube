@@ -58,4 +58,7 @@ jobs:
         env:
           SERVER_PORT: '28086'
           MODEL_LOG_DIRECTORY: '${{ runner.temp }}/transcode-parent-log'
-        run: mvn -B -pl my-youtube-transcode -am -Dtest=LocalModelServicesTest,LocalModelServicesLiveTest,WorkerCorrelationTest -Dsurefire.failIfNoSpecifiedTests=false test
+        run: >-
+          mvn -B -pl my-youtube-transcode -am
+          '-Dtest=LocalModelServicesTest,LocalModelServicesLiveTest,WorkerCorrelationTest'
+          '-Dsurefire.failIfNoSpecifiedTests=false' test

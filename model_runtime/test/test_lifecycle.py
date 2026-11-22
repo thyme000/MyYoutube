@@ -9,7 +9,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from filelock import Timeout
 from model_runtime.lifecycle import server_record
@@ -25,7 +25,8 @@ def request_shutdown(record, token=None):
 
 class LifecycleTests(unittest.TestCase):
     def test_record_is_locked_authenticated_and_removed_after_failure(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, \
+                patch('socket.getfqdn', side_effect=AssertionError('control listener must not resolve its address')):
             stopped = Mock()
             record = Path(directory, '.runtime/server.json')
             with self.assertRaisesRegex(ValueError, 'startup failed'):

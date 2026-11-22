@@ -1,16 +1,18 @@
 from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
 import json
 import os
 from pathlib import Path
 import secrets
+from socketserver import TCPServer
 import threading
 import time
 
 from filelock import FileLock
 
 
-class ControlServer(HTTPServer):
+# HTTPServer resolves the hostname during bind. The loopback listener only needs its IP address.
+class ControlServer(TCPServer):
     def get_request(self):
         connection, address = super().get_request()
         connection.settimeout(2)
@@ -46,7 +48,7 @@ def server_record(identity, directory, port, shutdown):
             temporary.unlink(missing_ok=True)
             payload = {"pid": os.getpid(), "service": identity.name, "directory": str(Path(directory).resolve()),
                        "port": port, "recordedAt": time.time_ns() // 1_000_000,
-                       "controlPort": control.server_port, "controlToken": token}
+                       "controlPort": control.server_address[1], "controlToken": token}
             descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(descriptor, "w", encoding="utf-8") as output:
                 json.dump(payload, output)
