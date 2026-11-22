@@ -6,7 +6,7 @@ import unittest
 import weakref
 from unittest.mock import patch
 from pathlib import Path
-from model_runtime.settings import OcrSettings
+from model_runtime.settings import DiscoverySettings, OcrSettings
 
 from model_runtime.discovery import Registration
 
@@ -108,8 +108,7 @@ class BudgetTests(unittest.TestCase):
 
 class HealthTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        with patch.dict("os.environ", {}, clear=True):
-            app.app.state.discovery = Registration("ocr-health-test", 8088)
+        app.app.state.discovery = Registration("ocr-health-test", 8088, settings=DiscoverySettings())
         app.app.state.discovery.set_registered(True)
 
     async def test_restarting_or_dead_worker_is_not_ready(self):

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -8,11 +9,19 @@ from model_runtime.discovery import Registration, registration, REGISTERED
 from model_runtime.settings import DiscoverySettings
 
 
+def isolated_discovery_environment(overrides=None):
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith("NACOS_") and key not in ("SERVER_PORT", "MODEL_LOG_DIRECTORY")}
+    if overrides is not None:
+        environment.update(overrides)
+    return patch.dict(os.environ, environment, clear=True)
+
+
 class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_snapshot_and_port_ignore_later_environment_changes(self):
         client, _ = self.client(18088)
         settings = DiscoverySettings(namespace="service-space", group="service-group")
-        with patch.dict("os.environ", {"SERVER_PORT": "8086", "NACOS_NAMESPACE": "parent-space"}, clear=True), \
+        with isolated_discovery_environment({"SERVER_PORT": "8086", "NACOS_NAMESPACE": "parent-space"}), \
              patch("v2.nacos.NacosNamingService", return_value=client) as constructor:
             async with registration("ocr-svc", 18088, fixed_port=True, settings=settings):
                 self.assertEqual(constructor.call_args.args[0].namespace_id, "service-space")
@@ -41,7 +50,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_register_and_deregister_same_identity(self):
         client, _ = self.client(18088)
         env = {"SERVER_PORT": "18088", "NACOS_INSTANCE_IP": "127.0.0.1"}
-        with patch.dict("os.environ", env, clear=True), \
+        with isolated_discovery_environment(env), \
              patch("v2.nacos.NacosNamingService", return_value=client) as constructor:
             async with registration("ocr-svc", 8088) as state:
                 self.assertEqual(constructor.call_args.args[0].namespace_id, "public")
@@ -61,7 +70,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_discovery_enabled_by_default_for_both_services(self):
         for service, port in (("asr-svc", 8089), ("ocr-svc", 8088)):
             client, _ = self.client(port)
-            with self.subTest(service=service), patch.dict("os.environ", {}, clear=True), \
+            with self.subTest(service=service), isolated_discovery_environment(), \
                  patch("v2.nacos.NacosNamingService", return_value=client):
                 async with registration(service, port):
                     param = client.register_instance.call_args.args[0]
@@ -69,7 +78,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual((param.group_name, param.cluster_name), ("DEFAULT_GROUP", "DEFAULT"))
 
     async def test_explicit_opt_out_skips_discovery_and_remains_ready(self):
-        with patch.dict("os.environ", {"NACOS_ENABLED": "false"}, clear=True), \
+        with isolated_discovery_environment({"NACOS_ENABLED": "false"}), \
              patch("v2.nacos.NacosNamingService") as constructor:
             async with registration("ocr-svc", 8088) as state:
                 constructor.assert_not_called()
@@ -80,7 +89,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         client, _ = self.client()
         recovered, _ = self.client()
         client.register_instance.return_value = False
-        with patch.dict("os.environ", {}, clear=True), \
+        with isolated_discovery_environment(), \
              patch("v2.nacos.NacosNamingService", side_effect=[client, recovered]), \
              patch.object(Registration, "_retry_delay", return_value=0.01):
             async with registration("asr-svc", 8089) as state:
@@ -95,7 +104,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         async def blocked():
             await asyncio.Event().wait()
         client.grpc_client_proxy.start.side_effect = blocked
-        with patch.dict("os.environ", {"NACOS_OPERATION_TIMEOUT": "0.02"}, clear=True), \
+        with isolated_discovery_environment({"NACOS_OPERATION_TIMEOUT": "0.02"}), \
              patch("v2.nacos.NacosNamingService", side_effect=[client, recovered]), \
              patch.object(Registration, "_retry_delay", return_value=0.01):
             async with registration("asr-svc", 8089) as state:
@@ -108,7 +117,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         client, host = self.client()
         client.grpc_client_proxy.query_instance_of_service.side_effect = [
             SimpleNamespace(hosts=[]), SimpleNamespace(hosts=[host])]
-        with patch.dict("os.environ", {}, clear=True), patch("v2.nacos.NacosNamingService", return_value=client):
+        with isolated_discovery_environment(), patch("v2.nacos.NacosNamingService", return_value=client):
             async with registration("asr-svc", 8089) as state:
                 await state._verify()
                 self.assertEqual(client.register_instance.await_count, 2)
@@ -119,7 +128,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_operator_disabled_instance_is_not_forced_online(self):
         client, host = self.client()
         host.enabled = False
-        with patch.dict("os.environ", {}, clear=True), patch("v2.nacos.NacosNamingService", return_value=client):
+        with isolated_discovery_environment(), patch("v2.nacos.NacosNamingService", return_value=client):
             async with registration("asr-svc", 8089) as state:
                 await state._verify()
                 self.assertFalse(state.ready)
@@ -132,7 +141,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         old.grpc_client_proxy.query_instance_of_service.side_effect = ConnectionError("disconnected")
         failed.register_instance.return_value = False
         env = {"NACOS_CHECK_INTERVAL": "0.01", "NACOS_OPERATION_TIMEOUT": "0.1"}
-        with patch.dict("os.environ", env, clear=True), \
+        with isolated_discovery_environment(env), \
              patch("v2.nacos.NacosNamingService", side_effect=[old, failed, recovered]) as constructor, \
              patch.object(Registration, "_retry_delay", return_value=0.01):
             async with registration("asr-svc", 8089) as state:
@@ -153,7 +162,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.Event().wait()
         old.grpc_client_proxy.query_instance_of_service.side_effect = blocked
         env = {"NACOS_CHECK_INTERVAL": "0.01", "NACOS_OPERATION_TIMEOUT": "0.02"}
-        with patch.dict("os.environ", env, clear=True), \
+        with isolated_discovery_environment(env), \
              patch("v2.nacos.NacosNamingService", side_effect=[old, recovered]) as constructor, \
              patch.object(Registration, "_retry_delay", return_value=0.01):
             async with registration("asr-svc", 8089) as state:
@@ -166,7 +175,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_deregistration_failure_still_cleans_background_tasks(self):
         client, _ = self.client()
         client.deregister_instance.side_effect = ConnectionError("offline")
-        with patch.dict("os.environ", {}, clear=True), patch("v2.nacos.NacosNamingService", return_value=client):
+        with isolated_discovery_environment(), patch("v2.nacos.NacosNamingService", return_value=client):
             async with registration("asr-svc", 8089):
                 pass
         client.grpc_client_proxy.close_client.assert_awaited_once()
@@ -179,7 +188,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         old.grpc_client_proxy.close_client.side_effect = AttributeError("SDK changed")
         old.service_info_updater.stop.side_effect = RuntimeError("stop failed")
         env = {"NACOS_CHECK_INTERVAL": "0.01"}
-        with patch.dict("os.environ", env, clear=True), \
+        with isolated_discovery_environment(env), \
              patch("v2.nacos.NacosNamingService", side_effect=[old, recovered]), \
              patch.object(Registration, "_retry_delay", return_value=0.01):
             async with registration("asr-svc", 8089) as state:
@@ -192,21 +201,21 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         client.grpc_client_proxy.redo_service._listen_task.cancel()
         await asyncio.gather(client.grpc_client_proxy.redo_service._listen_task, return_exceptions=True)
         del client.grpc_client_proxy.redo_service
-        with patch.dict("os.environ", {}, clear=True), \
+        with isolated_discovery_environment(), \
              patch("v2.nacos.NacosNamingService", return_value=client):
             async with registration("asr-svc", 8089):
                 pass
         client.grpc_client_proxy.close_client.assert_awaited_once()
 
     async def test_backoff_is_capped_and_invalid_settings_fail(self):
-        with patch.dict("os.environ", {}, clear=True):
+        with isolated_discovery_environment():
             state = Registration("asr-svc", 8089)
             for failures, ceiling in ((1, 1), (3, 4), (50, 60)):
                 delay = state._retry_delay(failures)
                 self.assertGreaterEqual(delay, ceiling / 2)
                 self.assertLessEqual(delay, ceiling)
         for value in ("0", "-1", "nan", "inf"):
-            with self.subTest(value=value), patch.dict("os.environ", {"NACOS_CHECK_INTERVAL": value}, clear=True):
+            with self.subTest(value=value), isolated_discovery_environment({"NACOS_CHECK_INTERVAL": value}):
                 with self.assertRaises(ValueError):
                     Registration("asr-svc", 8089)
 

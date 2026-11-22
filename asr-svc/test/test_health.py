@@ -2,9 +2,9 @@ import json
 import os
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
 
 from model_runtime.discovery import Registration
+from model_runtime.settings import DiscoverySettings
 
 import app
 from model_runtime.pool import BoundedPool
@@ -20,8 +20,7 @@ def health_pool(worker, admitted=0):
 
 class HealthTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        with patch.dict("os.environ", {}, clear=True):
-            app.app.state.discovery = Registration("asr-health-test", 8089)
+        app.app.state.discovery = Registration("asr-health-test", 8089, settings=DiscoverySettings())
         app.app.state.discovery.set_registered(True)
 
     async def test_restarting_or_dead_worker_is_not_ready(self):

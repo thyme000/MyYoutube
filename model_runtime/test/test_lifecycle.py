@@ -1,5 +1,7 @@
 import json
+import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
@@ -48,13 +50,10 @@ class LifecycleTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
-            service_env(work, 'ocr')
-            import socket
             with socket.socket() as socket_probe:
                 socket_probe.bind(('127.0.0.1', 0))
                 port = socket_probe.getsockname()[1]
-            with (work / '.env').open('a') as file:
-                file.write(f'SERVER_PORT={port}\n')
+            service_env(work, 'ocr', f'SERVER_PORT={port}\n')
             work.joinpath('app.py').write_text(
                 "from contextlib import asynccontextmanager\n"
                 "from pathlib import Path\n"
@@ -63,30 +62,37 @@ class LifecycleTests(unittest.TestCase):
                 "async def lifespan(app):\n"
                 "    yield\n"
                 "    Path('stopped').touch()\n"
-                "app = FastAPI(lifespan=lifespan)\n")
-            import os
+                "app = FastAPI(lifespan=lifespan)\n"
+                "@app.get('/health')\n"
+                "async def health():\n"
+                "    return {'ready': True}\n")
             env = {**os.environ, 'PYTHONPATH': str(root)}
-            with (work / 'console.log').open('w+') as output:
+            console = work / 'console.log'
+            with console.open('wb') as output:
                 process = subprocess.Popen([sys.executable, '-m', 'model_runtime.server', '--service', 'ocr',
                                             '--directory', str(work)], cwd=work, env=env,
                                            stdout=output, stderr=subprocess.STDOUT)
-                try:
-                    deadline = time.monotonic() + 15
-                    while time.monotonic() < deadline:
-                        output.seek(0)
-                        logs = output.read()
-                        if 'Uvicorn running' in logs:
-                            break
-                        self.assertIsNone(process.poll(), logs)
+            try:
+                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                health = f'http://127.0.0.1:{port}/health'
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline and process.poll() is None:
+                    try:
+                        with opener.open(health, timeout=0.5) as response:
+                            self.assertEqual(response.status, 200)
+                        break
+                    except (urllib.error.URLError, TimeoutError):
                         time.sleep(0.05)
-                    else:
-                        self.fail('test server did not start')
-                    with request_shutdown(json.loads(work.joinpath('.runtime/server.json').read_text())):
-                        pass
-                    self.assertEqual(process.wait(timeout=10), 0)
-                    self.assertTrue(work.joinpath('stopped').exists())
-                    self.assertFalse(work.joinpath('.runtime/server.json').exists())
-                finally:
-                    if process.poll() is None:
-                        process.kill()
-                        process.wait(timeout=5)
+                else:
+                    logs = console.read_text(encoding='utf-8', errors='replace')
+                    self.fail(f'test server did not become ready (exit code {process.poll()})\n{logs}')
+
+                with request_shutdown(json.loads(work.joinpath('.runtime/server.json').read_text())) as response:
+                    self.assertEqual(response.status, 202)
+                self.assertEqual(process.wait(timeout=10), 0)
+                self.assertTrue(work.joinpath('stopped').exists())
+                self.assertFalse(work.joinpath('.runtime/server.json').exists())
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)

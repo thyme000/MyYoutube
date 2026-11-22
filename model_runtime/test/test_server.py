@@ -7,12 +7,12 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from model_runtime.server import main, ModelServer
-from model_runtime.test.fixtures import service_env
+from model_runtime.test.fixtures import isolated_logging, service_env
 
 
 class ServerTests(unittest.TestCase):
     def test_settings_are_loaded_before_application_import_and_actual_port_is_shared(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, isolated_logging():
             service_env(directory, 'ocr', 'SERVER_PORT=18088\n')
             application = SimpleNamespace(state=SimpleNamespace())
             server = Mock()

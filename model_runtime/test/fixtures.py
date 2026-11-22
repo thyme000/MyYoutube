@@ -1,4 +1,25 @@
+from contextlib import contextmanager
+import logging
 from pathlib import Path
+
+
+@contextmanager
+def isolated_logging():
+    root = logging.getLogger()
+    original_handlers = root.handlers
+    loggers = (root, logging.getLogger('httpx'), logging.getLogger('httpcore'))
+    levels = [logger.level for logger in loggers]
+    # configure_logging uses force=True, which closes all attached root handlers.
+    root.handlers = []
+    try:
+        yield
+    finally:
+        for handler in root.handlers[:]:
+            root.removeHandler(handler)
+            handler.close()
+        root.handlers = original_handlers
+        for logger, level in zip(loggers, levels):
+            logger.setLevel(level)
 
 
 def service_env(directory, kind="asr", extra=""):

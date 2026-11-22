@@ -5,7 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from model_runtime.logs import PrivateFormatter, PipeLogHandler, configure_logging
+from model_runtime.logs import PipeLogHandler, configure_logging
+from model_runtime.test.fixtures import isolated_logging
 
 
 class LogTests(unittest.TestCase):
@@ -21,26 +22,19 @@ class LogTests(unittest.TestCase):
 
     def test_rotation_and_console_share_redacted_formatter(self):
         root = logging.getLogger()
-        original, level = root.handlers[:], root.level
-        root.handlers = []
-        try:
-            with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"MODEL_LOG_DIRECTORY": directory}), \
-                    patch("sys.stderr", new_callable=io.StringIO) as console:
-                configure_logging("test")
-                root.warning("source https://storage/key?signature=secret status=500")
-                for handler in root.handlers:
-                    handler.flush()
-                text = next(Path(directory).glob("test.log")).read_text()
-                self.assertIn("[redacted-url]", text)
-                self.assertNotIn("secret", text)
-                self.assertIn("[redacted-url]", console.getvalue())
-                file = root.handlers[1]
-                self.assertEqual(file.maxBytes, 10 * 1024 * 1024)
-                self.assertEqual(file.backupCount, 3)
-        finally:
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"MODEL_LOG_DIRECTORY": directory}), \
+                patch("sys.stderr", new_callable=io.StringIO) as console, isolated_logging():
+            configure_logging("test")
+            root.warning("source https://storage/key?signature=secret status=500")
             for handler in root.handlers:
-                handler.close()
-            root.handlers, root.level = original, level
+                handler.flush()
+            text = Path(directory, "test.log").read_text()
+            self.assertIn("[redacted-url]", text)
+            self.assertNotIn("secret", text)
+            self.assertIn("[redacted-url]", console.getvalue())
+            file = root.handlers[1]
+            self.assertEqual(file.maxBytes, 10 * 1024 * 1024)
+            self.assertEqual(file.backupCount, 3)
 
 
 if __name__ == "__main__":
