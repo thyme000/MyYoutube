@@ -1,19 +1,19 @@
 package cn.diaojiahong.myyoutube.chat.notify;
 
-import cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper;
 import cn.diaojiahong.myyoutube.chat.domain.enums.ChatEventType;
 import cn.diaojiahong.myyoutube.chat.domain.po.ConversationMember;
 import cn.diaojiahong.myyoutube.chat.domain.vo.NotificationForSendMessageVO;
 import cn.diaojiahong.myyoutube.chat.domain.vo.NotificationForWithdrawMessageVO;
-import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
+import cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -23,16 +23,17 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public abstract class AbstractConversationNotifyStrategy implements ConversationNotifyStrategy {
 
-    protected static final long AVATAR_EXPIRE_SECONDS = 5 * 60;
+    private static final long AVATAR_EXPIRE_SECONDS = 5 * 60;
 
-    /** SSE 门铃信号: 提醒不在聊天页的用户刷新会话红点 */
+    /** 撤回与群公告触发会话列表刷新。 */
     public static final String CHAT_DIRTY_SIGNAL = "CHAT_DIRTY";
+    public static final String CHAT_MESSAGE_SIGNAL = "CHAT_MESSAGE";
 
     protected final PushFanoutPublisher pushFanoutPublisher;
-    protected final S3StorageUtil storageUtil;
+    private final S3StorageUtil storageUtil;
     protected final ConversationMemberMapper conversationMemberMapper;
 
-    protected boolean isSendEvent(ChatMessageMessage message) {
+    private boolean isSendEvent(ChatMessageMessage message) {
         return ChatEventType.SEND.getCode().equals(message.getEvent());
     }
 
@@ -40,14 +41,26 @@ public abstract class AbstractConversationNotifyStrategy implements Conversation
         return isSendEvent(message) || ChatEventType.WITHDRAW.getCode().equals(message.getEvent());
     }
 
-    /** 单个成员推送: WS 报文 + SSE 门铃(未在聊天页的用户靠门铃刷新红点) */
-    protected void pushMember(Long memberId, String json) {
-        pushFanoutPublisher.pushWs(memberId, json);
-        pushFanoutPublisher.pushSseSignal(memberId, CHAT_DIRTY_SIGNAL);
-    }
+    protected void pushMessage(Collection<Long> recipients, ChatMessageMessage message, UserSummary sender,
+                               String avatarKeyOrUrl) {
+        if (isSendEvent(message)) {
+            NotificationForSendMessageVO payload = buildSendVO(message, sender);
+            String avatarUrl = storageUtil.signGetUrl(avatarKeyOrUrl, AVATAR_EXPIRE_SECONDS);
+            payload.setAvatarUrl(avatarUrl);
+            String json = JsonUtil.toJson(payload);
+            for (Long memberId : recipients) {
+                pushFanoutPublisher.pushWs(memberId, json);
+                pushFanoutPublisher.pushSseSignal(memberId, CHAT_MESSAGE_SIGNAL, payload);
+            }
+            return;
+        }
 
-    protected List<Long> activeMemberIds(String conversationId) {
-        return conversationMemberMapper.selectActiveUserIds(conversationId);
+        NotificationForWithdrawMessageVO payload = buildWithdrawVO(message, sender);
+        String json = JsonUtil.toJson(payload);
+        for (Long memberId : recipients) {
+            pushFanoutPublisher.pushWs(memberId, json);
+            pushFanoutPublisher.pushSseSignal(memberId, CHAT_DIRTY_SIGNAL);
+        }
     }
 
     protected boolean isMuted(String conversationId, Long memberId) {
@@ -68,10 +81,11 @@ public abstract class AbstractConversationNotifyStrategy implements Conversation
                 .collect(Collectors.toSet());
     }
 
-    protected NotificationForSendMessageVO buildSendVO(ChatMessageMessage message, UserSummary sender) {
+    private NotificationForSendMessageVO buildSendVO(ChatMessageMessage message, UserSummary sender) {
         NotificationForSendMessageVO vo = new NotificationForSendMessageVO();
         vo.setConversationId(message.getConversationId());
         vo.setMessageId(message.getMessageId());
+        vo.setSeq(message.getSeq());
         vo.setContentType(message.getContentType());
         vo.setContent(message.getContent());
         vo.setSenderId(String.valueOf(message.getSenderId()));
@@ -79,7 +93,7 @@ public abstract class AbstractConversationNotifyStrategy implements Conversation
         return vo;
     }
 
-    protected NotificationForWithdrawMessageVO buildWithdrawVO(ChatMessageMessage message, UserSummary sender) {
+    private NotificationForWithdrawMessageVO buildWithdrawVO(ChatMessageMessage message, UserSummary sender) {
         NotificationForWithdrawMessageVO vo = new NotificationForWithdrawMessageVO();
         vo.setConversationId(message.getConversationId());
         vo.setMessageId(message.getMessageId());

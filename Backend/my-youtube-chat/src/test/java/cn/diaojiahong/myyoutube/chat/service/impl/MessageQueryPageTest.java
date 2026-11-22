@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
+import cn.diaojiahong.myyoutube.chat.domain.enums.MessageDirectionEnum;
 import cn.diaojiahong.myyoutube.chat.domain.enums.MessageStatusEnum;
 import cn.diaojiahong.myyoutube.chat.domain.enums.RecallTypeEnum;
 import cn.diaojiahong.myyoutube.chat.domain.vo.MessageItemVO;
@@ -9,8 +10,10 @@ import cn.diaojiahong.myyoutube.chat.mapper.MessageMapper;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.chat.service.strategy.TextChatContentStrategy;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
@@ -43,6 +46,7 @@ import java.util.function.Supplier;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -50,8 +54,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 消息查询的游标语义在真实 SQL 上验证: 历史向旧翻页、增量向新推进、
- * visibleAfterSeq 是两条查询共同的可见下限、撤回行保留但正文隐藏。
+ * 消息查询的游标语义在真实 SQL 上验证: BEFORE 向旧翻页、AFTER 向新推进、
+ * visibleAfterSeq 是两个方向共同的可见下限、撤回行保留但正文隐藏。
  */
 class MessageQueryPageTest {
 
@@ -136,27 +140,31 @@ class MessageQueryPageTest {
     }
 
     @Test
-    void syncPagingAdvancesTowardNewerMessages() {
+    void afterPagingAdvancesTowardNewerMessages() {
         seedMessages(25);
 
-        CursorPage<MessageItemVO, Long> first = sync(null);
+        BizException missing = assertThrows(BizException.class, () -> newer(null));
+        assertEquals(ErrorCode.INVALID_ARGUMENT, missing.getErrorCode());
+
+        CursorPage<MessageItemVO, Long> first = newer(0L);
         assertEquals(1L, first.items().get(0).getSeq());
         assertEquals(20L, first.items().get(19).getSeq());
         assertTrue(first.hasMore());
         assertEquals(20L, first.nextCursor());
 
-        CursorPage<MessageItemVO, Long> next = sync(20L);
+        CursorPage<MessageItemVO, Long> next = newer(first.nextCursor());
         assertEquals(21L, next.items().get(0).getSeq());
         assertEquals(5, next.items().size());
         assertFalse(next.hasMore());
+        assertNull(next.nextCursor());
 
-        // lastSeq 落在可见下限之下时, 增量从下限开始, 不回放已经清掉的历史
-        CursorPage<MessageItemVO, Long> replayed = sync(10L);
-        assertEquals(11L, replayed.items().get(0).getSeq());
+        // 游标落在可见下限之下时按下限取, 不回放已经清掉的历史
+        jdbc.update("UPDATE conversation_member SET visible_after_seq = 23 WHERE id = 'member11'");
+        assertEquals(List.of(24L, 25L), seqsOf(newer(10L)));
     }
 
     @Test
-    void visibleFloorAppliesToHistoryAndSyncAlike() {
+    void visibleFloorAppliesToBothDirections() {
         seedMessages(25);
         jdbc.update("UPDATE conversation_member SET visible_after_seq = 23 WHERE id = 'member11'");
 
@@ -164,8 +172,7 @@ class MessageQueryPageTest {
         assertEquals(2, history.size());
         assertEquals(25L, history.get(0).getSeq());
         assertEquals(24L, history.get(1).getSeq());
-        assertEquals(List.of(24L, 25L), seqsOf(sync(null)));
-        assertEquals(List.of(24L, 25L), seqsOf(sync(1L)));
+        assertEquals(List.of(24L, 25L), seqsOf(newer(23L)));
     }
 
     @Test
@@ -183,8 +190,8 @@ class MessageQueryPageTest {
         assertEquals(RecallTypeEnum.SENDER, recalled.getRecallType());
         assertEquals("消息1", items.get(2).getContent().getText());
 
-        // 增量同步同样返回撤回行, 正文同样隐藏
-        List<MessageItemVO> synced = sync(null).items();
+        // AFTER 方向同样返回撤回行, 正文同样隐藏
+        List<MessageItemVO> synced = newer(0L).items();
         assertEquals(3, synced.size());
         assertNull(synced.get(1).getContent());
     }
@@ -216,11 +223,11 @@ class MessageQueryPageTest {
     }
 
     private CursorPage<MessageItemVO, Long> history(Long cursor) {
-        return asUser(() -> queries.getMessageList("group-1", cursor));
+        return asUser(() -> queries.getMessageList("group-1", cursor, MessageDirectionEnum.BEFORE));
     }
 
-    private CursorPage<MessageItemVO, Long> sync(Long lastSeq) {
-        return asUser(() -> queries.syncMessageList("group-1", lastSeq));
+    private CursorPage<MessageItemVO, Long> newer(Long cursor) {
+        return asUser(() -> queries.getMessageList("group-1", cursor, MessageDirectionEnum.AFTER));
     }
 
     private List<Long> seqsOf(CursorPage<MessageItemVO, Long> page) {

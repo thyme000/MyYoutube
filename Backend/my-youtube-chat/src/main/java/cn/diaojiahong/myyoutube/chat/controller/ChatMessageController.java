@@ -3,6 +3,7 @@ package cn.diaojiahong.myyoutube.chat.controller;
 import cn.diaojiahong.myyoutube.chat.domain.dto.ChatMessageDTO;
 import cn.diaojiahong.myyoutube.chat.domain.dto.ChatMessageWithdrawDTO;
 import cn.diaojiahong.myyoutube.chat.domain.dto.ack.ChatMessageAckDTO;
+import cn.diaojiahong.myyoutube.chat.domain.enums.MessageDirectionEnum;
 import cn.diaojiahong.myyoutube.chat.domain.vo.MessageItemVO;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatMessageQueryService;
 import cn.diaojiahong.myyoutube.chat.service.impl.ChatMessageService;
@@ -35,34 +36,15 @@ public class ChatMessageController {
         return Result.success(chatMessageService.withdraw(chatMessageWithdrawDTO));
     }
 
-    /**
-     * 游标拉取历史消息(向更旧回溯)
-     * @param conversationId
-     * @param seq 上一页的 nextCursor，首页不传
-     * @return
-     */
-    @Operation(summary = "分页查询历史消息",
-            description = "游标分页: 续查把上一页的 nextCursor 作为 seq 原样回传(数字); 每页条数由服务端决定。")
+    @Operation(summary = "双向分页查询会话消息",
+            description = "direction=BEFORE(默认)向更旧回溯, 省略 cursor 取最新一页; direction=AFTER 向更新推进, 必须传 cursor。"
+                    + "续查把上一页的 nextCursor 作为 cursor 原样回传(数字); 每页条数由服务端决定。")
     @GetMapping("/list/{conversationId}")
     public Result<CursorPage<MessageItemVO, Long>> getMessageList(
             @PathVariable String conversationId,
-            @RequestParam(required = false) Long seq) {
-        return Result.success(chatMessageQueryService.getMessageList(conversationId, seq));
-    }
-
-    /**
-     * 重连查询增量消息: lastSeq 是客户端已知的业务水位(来自 WS 推送或已读记录), 与数字 nextCursor 同型可回传。
-     * @param conversationId
-     * @param lastSeq
-     * @return
-     */
-    @Operation(summary = "重连查询增量消息(同步消息)",
-            description = "lastSeq=已持有的最新 seq, 不传从最旧起; 续查把 nextCursor 作为 lastSeq 回传; 每页条数由服务端决定。")
-    @GetMapping("/sync/{conversationId}")
-    public Result<CursorPage<MessageItemVO, Long>> syncMessageList(
-            @PathVariable String conversationId,
-            @RequestParam(required = false) Long lastSeq) {
-        return Result.success(chatMessageQueryService.syncMessageList(conversationId, lastSeq));
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(defaultValue = "BEFORE") MessageDirectionEnum direction) {
+        return Result.success(chatMessageQueryService.getMessageList(conversationId, cursor, direction));
     }
 
     @Operation(summary = "清空自己的聊天记录")

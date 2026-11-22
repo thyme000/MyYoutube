@@ -1,5 +1,6 @@
 package cn.diaojiahong.myyoutube.chat.controller;
 
+import cn.diaojiahong.myyoutube.chat.domain.vo.ConversationUnreadVO;
 import cn.diaojiahong.myyoutube.chat.domain.vo.UserConversationVO;
 import cn.diaojiahong.myyoutube.chat.domain.vo.ValidUserConversationVO;
 import cn.diaojiahong.myyoutube.chat.service.impl.ConversationMemberService;
@@ -57,10 +58,11 @@ public class ChatUserConversationController {
         return Result.success(chatUserConversationService.openPrivate(peerUserId));
     }
 
-    @Operation(summary = "查询用户所有未读的消息")
+    @Operation(summary = "查询聊天未读",
+            description = "返回 totalUnread 与未读会话，总数是本次清单的未读数之和。从收件箱移除的私聊水位已推到当时的最新序号，未读为 0，新消息会让它重新出现。activeConversationId 仍是成员且不在清单里时，补回该会话的明细和 lastSeq；已在清单中的只返回一次。")
     @GetMapping("/unread")
-    public Result<Long> getUnreadMessages() {
-        return Result.success(chatUserConversationService.getUnreadMessages());
+    public Result<ConversationUnreadVO> listUnread(@RequestParam(required = false) String activeConversationId) {
+        return Result.success(chatUserConversationService.listUnread(activeConversationId));
     }
 
     @Operation(summary = "读取群公告")

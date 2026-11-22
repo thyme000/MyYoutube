@@ -7,6 +7,7 @@ import lombok.Data;
 public class NotificationForSendMessageVO {
     private String conversationId;
     private String messageId;
+    private Long seq;
     private ChatContentTypeEnum contentType;
     private String content;
     private String senderId;

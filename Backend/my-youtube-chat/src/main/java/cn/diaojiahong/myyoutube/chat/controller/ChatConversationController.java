@@ -47,7 +47,8 @@ public class ChatConversationController {
         return Result.success(chatConversationService.updateConversationName(conversationId, name));
     }
 
-    @Operation(summary = "删除会话")
+    @Operation(summary = "删除会话",
+            description = "私聊只隐藏自己的收件箱，并把已读水位推到这次看到的序号，不发送已读回执，历史消息保留。若这次读到的尾消息已经变化，返回状态冲突，本次不会隐藏。")
     @DeleteMapping("/delete/{conversationId}")
     public Result<String> deleteConversation(@PathVariable String conversationId) {
         return Result.success(chatConversationService.deleteConversation(conversationId));

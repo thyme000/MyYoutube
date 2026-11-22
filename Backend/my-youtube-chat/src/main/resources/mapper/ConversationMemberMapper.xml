@@ -2,16 +2,6 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper">
 
-    <update id="advanceReadSeq">
-        UPDATE conversation_member
-        SET last_read_seq = #{seq},
-            updated_at = #{now}
-        WHERE conversation_id = #{conversationId}
-          AND user_id = #{userId}
-          AND deleted = 0
-          AND last_read_seq &lt; #{seq}
-    </update>
-
     <update id="markRead">
         UPDATE conversation_member
         SET last_read_seq = LEAST(GREATEST(#{requestedSeq}, last_read_seq), #{maxSeq}),
@@ -37,21 +27,54 @@
           AND deleted = 0
     </update>
 
-    <select id="sumUnread" resultType="long">
-        SELECT COALESCE(SUM(GREATEST(c.last_seq - m.last_read_seq, 0)), 0)
+    <select id="findInboxHideState" resultType="cn.diaojiahong.myyoutube.chat.domain.dto.PrivateInboxHideState">
+        SELECT c.last_seq AS lastSeq,
+               m.id AS memberId,
+               m.last_message_id AS lastMessageId,
+               m.inbox_visible AS inboxVisible,
+               m.deleted AS deleted
+        FROM conversation_member m
+        JOIN conversation c ON c.id = m.conversation_id
+        WHERE m.conversation_id = #{conversationId}
+          AND m.user_id = #{userId}
+        LIMIT 1
+    </select>
+
+    <update id="hideInbox">
+        UPDATE conversation_member
+        SET inbox_visible = 0,
+            last_read_seq = GREATEST(last_read_seq, #{lastSeq}),
+            updated_at = #{now}
+        WHERE id = #{memberId}
+          AND deleted = 0
+          AND inbox_visible = 1
+          <!-- NULL 与 NULL 相等，语义同 MySQL 的 <=>。测试库 H2 不解析该运算符。 -->
+          AND (last_message_id = #{lastMessageId,jdbcType=VARCHAR}
+               OR (last_message_id IS NULL AND #{lastMessageId,jdbcType=VARCHAR} IS NULL))
+    </update>
+
+    <select id="listUnreadRows" resultType="cn.diaojiahong.myyoutube.chat.domain.dto.ConversationUnreadRow">
+        SELECT m.conversation_id AS conversationId,
+               c.last_seq AS lastSeq,
+               m.last_read_seq AS lastReadSeq
         FROM conversation_member m
         JOIN conversation c ON c.id = m.conversation_id
         WHERE m.user_id = #{userId}
           AND m.deleted = 0
           AND m.inbox_visible = 1
+          AND COALESCE(c.last_seq, 0) &gt; COALESCE(m.last_read_seq, 0)
     </select>
 
-    <select id="selectActiveUserIds" resultType="long">
-        SELECT user_id
-        FROM conversation_member
-        WHERE conversation_id = #{conversationId}
-          AND deleted = 0
-        ORDER BY id
+    <select id="findMemberUnreadRow" resultType="cn.diaojiahong.myyoutube.chat.domain.dto.ConversationUnreadRow">
+        SELECT m.conversation_id AS conversationId,
+               c.last_seq AS lastSeq,
+               m.last_read_seq AS lastReadSeq
+        FROM conversation_member m
+        JOIN conversation c ON c.id = m.conversation_id
+        WHERE m.user_id = #{userId}
+          AND m.conversation_id = #{conversationId}
+          AND m.deleted = 0
+        LIMIT 1
     </select>
 
     <select id="listByActivity" resultType="cn.diaojiahong.myyoutube.chat.domain.po.ConversationMember">
@@ -89,27 +112,5 @@
         ORDER BY IFNULL(m.pin, 0) DESC, COALESCE(m.last_message_at, m.created_at) DESC, m.id DESC
         LIMIT #{limit}
     </select>
-
-    <update id="applyTail">
-        UPDATE conversation_member
-        SET last_message_id = #{messageId},
-            inbox_visible = 1,
-            last_message_preview = #{preview},
-            last_message_sender_nickname = #{senderNickname},
-            last_message_at = #{messageAt},
-            is_last_message_recall = 0,
-            updated_at = #{messageAt}
-        WHERE conversation_id = #{conversationId}
-          AND deleted = 0
-    </update>
-
-    <update id="markTailRecalled">
-        UPDATE conversation_member
-        SET is_last_message_recall = 1,
-            updated_at = #{recalledAt}
-        WHERE conversation_id = #{conversationId}
-          AND last_message_id = #{messageId}
-          AND deleted = 0
-    </update>
 
 </mapper>

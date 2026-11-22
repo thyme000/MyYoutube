@@ -11,7 +11,10 @@ import cn.diaojiahong.myyoutube.chat.domain.dto.ChatMessageDTO;
 import cn.diaojiahong.myyoutube.chat.domain.dto.ack.ChatMessageAckDTO;
 import cn.diaojiahong.myyoutube.chat.domain.enums.ChatContentTypeEnum;
 import cn.diaojiahong.myyoutube.chat.domain.enums.ConversationStatus;
+import cn.diaojiahong.myyoutube.chat.domain.enums.MessageDirectionEnum;
 import cn.diaojiahong.myyoutube.chat.domain.po.ChatContent;
+import cn.diaojiahong.myyoutube.chat.domain.vo.ConversationUnreadItemVO;
+import cn.diaojiahong.myyoutube.chat.domain.vo.ConversationUnreadVO;
 import cn.diaojiahong.myyoutube.chat.domain.vo.MessageItemVO;
 import cn.diaojiahong.myyoutube.chat.domain.vo.UserConversationVO;
 import cn.diaojiahong.myyoutube.chat.mapper.ConversationMapper;
@@ -26,6 +29,7 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
+import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
@@ -66,6 +70,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -322,6 +327,78 @@ class FirstPrivateMessageTest {
     }
 
     @Test
+    void hidingAPrivateChatKeepsHistoryAndDoesNotSendAReadReceipt() {
+        String id = send(11L, 22L, "first").getConversationId();
+        long visibleAfter = memberLong(id, 22L, "visible_after_seq");
+        int messagesBefore = rowCount("message");
+
+        deleteAs(22L, id);
+
+        assertTrue(inboxFor(22L).isEmpty());
+        assertEquals(1, inboxFor(11L).size());
+        assertEquals(0, memberInt(id, 22L, "inbox_visible"));
+        assertEquals(1, memberInt(id, 11L, "inbox_visible"));
+        assertEquals(1L, memberLong(id, 22L, "last_read_seq"));
+        assertEquals(visibleAfter, memberLong(id, 22L, "visible_after_seq"));
+        assertEquals(messagesBefore, rowCount("message"));
+        assertEquals(List.of(1L), visibleSequences(22L, id));
+        verify(mq, never()).syncSend(eq(ReadMessageMessage.TOPIC), any(ReadMessageMessage.class));
+    }
+
+    @Test
+    void hidingAPrivateChatAgainLeavesTheReadCursorInPlace() {
+        String id = send(11L, 22L, "first").getConversationId();
+        deleteAs(22L, id);
+        long readSeq = memberLong(id, 22L, "last_read_seq");
+
+        deleteAs(22L, id);
+
+        assertEquals(readSeq, memberLong(id, 22L, "last_read_seq"));
+        assertEquals(0, memberInt(id, 22L, "inbox_visible"));
+        assertTrue(inboxFor(22L).isEmpty());
+        assertEquals(1, rowCount("message"));
+        verify(mq, never()).syncSend(eq(ReadMessageMessage.TOPIC), any(ReadMessageMessage.class));
+    }
+
+    @Test
+    void aNewMessageAfterHidingAddsOnlyOneUnread() {
+        String id = send(11L, 22L, "first").getConversationId();
+        deleteAs(22L, id);
+        when(follows.interrelated(any())).thenReturn(true);
+
+        send(11L, 22L, "second");
+
+        assertConversationInbox(22L, id, 11L, 1);
+        assertEquals(1, memberInt(id, 22L, "inbox_visible"));
+        assertEquals(List.of(1L, 2L), visibleSequences(22L, id));
+        assertEquals(0L, memberLong(id, 22L, "visible_after_seq"));
+    }
+
+    @Test
+    void passingAHiddenConversationKeepsTheUnreadTotal() {
+        when(users.getUser(33L)).thenReturn(user(33L));
+        String hidden = send(22L, 11L, "from-22").getConversationId();
+        String visible = send(33L, 11L, "from-33").getConversationId();
+        deleteAs(11L, hidden);
+
+        UserContext.setUser("11");
+        try {
+            ConversationUnreadVO plain = inbox.listUnread(null);
+            ConversationUnreadVO active = inbox.listUnread(hidden);
+
+            assertEquals(1L, plain.getTotalUnread());
+            assertEquals(plain.getTotalUnread(), active.getTotalUnread());
+            assertEquals(List.of(visible), unreadIds(plain));
+            assertEquals(List.of(visible, hidden), unreadIds(active));
+            ConversationUnreadItemVO hiddenItem = active.getConversations().get(1);
+            assertEquals(1L, hiddenItem.getLastSeq());
+            assertEquals(0L, hiddenItem.getUnreadCount().longValue());
+        } finally {
+            UserContext.removeUser();
+        }
+    }
+
+    @Test
     void hidingAndClearingArePersonalAndNewMessagesRestoreTheListItem() {
         String id = send(11L, 22L, "first").getConversationId();
         UserContext.setUser("22");
@@ -463,6 +540,31 @@ class FirstPrivateMessageTest {
         }
     }
 
+    private void deleteAs(long userId, String conversationId) {
+        UserContext.setUser(Long.toString(userId));
+        try {
+            assertEquals("删除成功", conversations.deleteConversation(conversationId));
+        } finally {
+            UserContext.removeUser();
+        }
+    }
+
+    private long memberLong(String conversationId, long userId, String column) {
+        return jdbc.queryForObject(
+                "SELECT " + column + " FROM conversation_member WHERE conversation_id = ? AND user_id = ?",
+                Long.class, conversationId, userId);
+    }
+
+    private int memberInt(String conversationId, long userId, String column) {
+        return jdbc.queryForObject(
+                "SELECT " + column + " FROM conversation_member WHERE conversation_id = ? AND user_id = ?",
+                Integer.class, conversationId, userId);
+    }
+
+    private static List<String> unreadIds(ConversationUnreadVO result) {
+        return result.getConversations().stream().map(ConversationUnreadItemVO::getConversationId).toList();
+    }
+
     private ChatMessageAckDTO send(long senderId, long peerId, String clientMsgId) {
         UserContext.setUser(Long.toString(senderId));
         try {
@@ -491,7 +593,7 @@ class FirstPrivateMessageTest {
     private List<Long> visibleSequences(long userId, String conversationId) {
         UserContext.setUser(Long.toString(userId));
         try {
-            return queries.getMessageList(conversationId, null).items().stream()
+            return queries.getMessageList(conversationId, null, MessageDirectionEnum.BEFORE).items().stream()
                     .map(MessageItemVO::getSeq).sorted().toList();
         } finally {
             UserContext.removeUser();
@@ -526,14 +628,14 @@ class FirstPrivateMessageTest {
         UserConversationVO item = items.get(0);
         assertEquals(conversationId, item.getConversationId());
         assertEquals(initiator, item.getCreatedBy());
-        assertEquals(unread, item.getUnreadCount());
+        assertEquals(unread, item.getUnreadCount().longValue());
         assertEquals("你好", item.getLastMessageContent());
     }
 
     private void assertEmptyConversationInbox(UserConversationVO item, long peerId) {
         assertEquals("用户" + peerId, item.getConversationName());
         assertNull(item.getCreatedBy());
-        assertEquals(0, item.getUnreadCount());
+        assertEquals(0L, item.getUnreadCount().longValue());
         assertNull(item.getLastMessageContent());
     }
 

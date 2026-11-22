@@ -14,7 +14,9 @@ import cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper;
 import cn.diaojiahong.myyoutube.chat.mapper.MessageMapper;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategyRegistry;
 import cn.diaojiahong.myyoutube.common.chain.SyncChainStepRegistry;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.mq.message.ChatMessageMessage;
@@ -44,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -92,9 +95,8 @@ class MqSendFailureToleranceTest {
     void withdrawReturnsAckWhenMqSendFails() {
         when(messages.selectById(MESSAGE_ID)).thenReturn(sentMessage());
         when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(privateConversation()));
-        when(members.selectActiveUserIds(CONVERSATION_ID)).thenReturn(List.of(OPERATOR_ID, 8L));
+        when(members.selectOne(any())).thenReturn(activeMember());
         when(messages.update(isNull(), any())).thenReturn(1);
-        when(members.markTailRecalled(eq(CONVERSATION_ID), eq(MESSAGE_ID), any())).thenReturn(1);
         when(mq.syncSend(anyString(), any(Object.class))).thenThrow(new IllegalStateException("MQ unavailable"));
 
         ChatMessageWithdrawDTO dto = new ChatMessageWithdrawDTO();
@@ -104,7 +106,7 @@ class MqSendFailureToleranceTest {
         assertEquals(MESSAGE_ID, ack.getMessageId());
         assertEquals(MessageStatusEnum.WITHDRAWN, ack.getStatus());
         verify(messages).update(isNull(), any());
-        verify(members).markTailRecalled(eq(CONVERSATION_ID), eq(MESSAGE_ID), any());
+        verify(members).update(isNull(), any());
         verify(mq, times(1)).syncSend(eq(ChatMessageMessage.TOPIC), any(ChatMessageMessage.class));
     }
 
@@ -112,7 +114,7 @@ class MqSendFailureToleranceTest {
     void withdrawStillFailsWhenDbWriteFails() {
         when(messages.selectById(MESSAGE_ID)).thenReturn(sentMessage());
         when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(privateConversation()));
-        when(members.selectActiveUserIds(CONVERSATION_ID)).thenReturn(List.of(OPERATOR_ID, 8L));
+        when(members.selectOne(any())).thenReturn(activeMember());
         when(messages.update(isNull(), any())).thenThrow(new DataIntegrityViolationException("db down"));
 
         ChatMessageWithdrawDTO dto = new ChatMessageWithdrawDTO();
@@ -158,7 +160,6 @@ class MqSendFailureToleranceTest {
     @Test
     void readReturnsQuietlyWhenMqSendFails() {
         when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(privateConversation()));
-        when(members.selectActiveUserIds(CONVERSATION_ID)).thenReturn(List.of(OPERATOR_ID, 8L));
         when(members.markRead(eq(CONVERSATION_ID), eq(OPERATOR_ID), eq(6L), eq(10L), any())).thenReturn(1);
         ConversationMember member = new ConversationMember();
         member.setLastReadSeq(6L);
@@ -174,7 +175,7 @@ class MqSendFailureToleranceTest {
     @Test
     void readDoesNotNotifyWhenWatermarkDoesNotAdvance() {
         when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(privateConversation()));
-        when(members.selectActiveUserIds(CONVERSATION_ID)).thenReturn(List.of(OPERATOR_ID, 8L));
+        when(members.selectOne(any())).thenReturn(activeMember());
         when(members.markRead(eq(CONVERSATION_ID), eq(OPERATOR_ID), eq(6L), eq(10L), any())).thenReturn(0);
 
         messageService().read(CONVERSATION_ID, 6L);
@@ -185,13 +186,25 @@ class MqSendFailureToleranceTest {
     @Test
     void readStillFailsWhenDbWriteFails() {
         when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(privateConversation()));
-        when(members.selectActiveUserIds(CONVERSATION_ID)).thenReturn(List.of(OPERATOR_ID, 8L));
+        when(members.selectOne(any())).thenReturn(activeMember());
         when(members.markRead(eq(CONVERSATION_ID), eq(OPERATOR_ID), eq(6L), eq(10L), any()))
                 .thenThrow(new DataIntegrityViolationException("db down"));
 
         assertThrows(DataIntegrityViolationException.class, () -> messageService().read(CONVERSATION_ID, 6L));
 
         verify(mq, never()).syncSend(anyString(), any(Object.class));
+    }
+
+    @Test
+    void readRejectsWhenCallerIsNotAnActiveMember() {
+        when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(privateConversation()));
+        when(members.selectOne(any())).thenReturn(null);
+
+        BizException ex = assertThrows(BizException.class, () -> messageService().read(CONVERSATION_ID, 6L));
+
+        assertEquals(ErrorCode.FORBIDDEN, ex.getErrorCode());
+        assertEquals("不是会话成员", ex.getMessage());
+        verify(members, never()).markRead(any(), any(), anyLong(), anyLong(), any());
     }
 
     private ChatMessageService messageService() {
@@ -227,6 +240,13 @@ class MqSendFailureToleranceTest {
         message.setRecalled(false);
         message.setCreatedAt(LocalDateTime.now());
         return message;
+    }
+
+    private static ConversationMember activeMember() {
+        ConversationMember member = new ConversationMember();
+        member.setUserId(OPERATOR_ID);
+        member.setDeleted(false);
+        return member;
     }
 
     private static Conversation privateConversation() {

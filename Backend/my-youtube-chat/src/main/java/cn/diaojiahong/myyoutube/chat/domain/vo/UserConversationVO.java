@@ -22,7 +22,7 @@ public class UserConversationVO {
     private Boolean pin;
     private Boolean mute;
     private Long lastReadSeq;
-    private Integer unreadCount;
+    private Long unreadCount;
     private Boolean banned;
     private Boolean conversationBanned;
     private Long createdBy;

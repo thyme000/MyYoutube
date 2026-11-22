@@ -100,7 +100,7 @@ public class ChatMessageService {
         Conversation existing = privateConversationService.findPrivateChat(senderId, peerId);
         if (existing != null) {
             // A 已打开、发送人还没打开过(如 B 直接发首条): 补发送人成员行(不可见档)后走常规发送,
-            // 发送失败时残留的行不进列表, 发送成功后 applyTail 把它点亮
+            // 发送失败时残留的行不进列表, 发送成功后把收件箱标成可见
             privateConversationService.ensurePrivateMember(existing.getId(), senderId, false, LocalDateTime.now());
             return sendToConversation(dto, userId, existing.getId());
         }
@@ -221,9 +221,24 @@ public class ChatMessageService {
         long seq = conversationMapper.selectLastSeq(conversationId);
         message.setSeq(seq);
         messageMapper.insert(message);
-        conversationMemberMapper.applyTail(conversationId, message.getId(), now, preview, senderNickname);
+        conversationMemberMapper.update(null, new LambdaUpdateWrapper<ConversationMember>()
+                .set(ConversationMember::getLastMessageId, message.getId())
+                .set(ConversationMember::getInboxVisible, true)
+                .set(ConversationMember::getLastMessagePreview, preview)
+                .set(ConversationMember::getLastMessageSenderNickname, senderNickname)
+                .set(ConversationMember::getLastMessageAt, now)
+                .set(ConversationMember::getIsLastMessageRecall, false)
+                .set(ConversationMember::getUpdatedAt, now)
+                .eq(ConversationMember::getConversationId, conversationId)
+                .eq(ConversationMember::getDeleted, false));
         // 自己发出的消息算已读，已读水位推进到本条。
-        conversationMemberMapper.advanceReadSeq(conversationId, message.getSenderId(), seq, now);
+        conversationMemberMapper.update(null, new LambdaUpdateWrapper<ConversationMember>()
+                .set(ConversationMember::getLastReadSeq, seq)
+                .set(ConversationMember::getUpdatedAt, now)
+                .eq(ConversationMember::getConversationId, conversationId)
+                .eq(ConversationMember::getUserId, message.getSenderId())
+                .eq(ConversationMember::getDeleted, false)
+                .lt(ConversationMember::getLastReadSeq, seq));
     }
 
     private ChatMessageAckDTO notifySent(Message message) {
@@ -286,7 +301,7 @@ public class ChatMessageService {
 
         Conversation conversation = getConversation(chatMessageDoc.getConversationId());
         // 退群/解散后不再持有撤回权: 群主靠 removeConversationMember 的守卫保证留在群里
-        activeMemberIds(chatMessageDoc.getConversationId());
+        requireActiveMember(chatMessageDoc.getConversationId());
         Long operatorId = Long.valueOf(userId);
         Long createdBy = conversation.getCreatedBy();
         boolean senderRecall = chatMessageDoc.getSenderId() != null && chatMessageDoc.getSenderId().equals(operatorId);
@@ -338,8 +353,12 @@ public class ChatMessageService {
             if (updated != 1) {
                 return false;
             }
-            conversationMemberMapper.markTailRecalled(
-                    chatMessageDoc.getConversationId(), chatMessageDoc.getId(), recallTime);
+            conversationMemberMapper.update(null, new LambdaUpdateWrapper<ConversationMember>()
+                    .set(ConversationMember::getIsLastMessageRecall, true)
+                    .set(ConversationMember::getUpdatedAt, recallTime)
+                    .eq(ConversationMember::getConversationId, chatMessageDoc.getConversationId())
+                    .eq(ConversationMember::getLastMessageId, chatMessageDoc.getId())
+                    .eq(ConversationMember::getDeleted, false));
             return true;
         });
         if (!Boolean.TRUE.equals(applied)) {
@@ -380,7 +399,7 @@ public class ChatMessageService {
     @ObservedBusiness(BusinessOperation.READ_MESSAGE)
     public void read(String conversationId, Long lastReadSeq) {
         Conversation conversation = getConversation(conversationId);
-        activeMemberIds(conversationId);
+        requireActiveMember(conversationId);
 
         Long currentUserId = Long.parseLong(getUserId());
         long maxSeq = conversation.getLastSeq() == null ? 0L : conversation.getLastSeq();
@@ -426,14 +445,6 @@ public class ChatMessageService {
             throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
         }
         return member;
-    }
-
-    private List<Long> activeMemberIds(String conversationId) {
-        List<Long> memberIds = conversationMemberMapper.selectActiveUserIds(conversationId);
-        if (!memberIds.contains(Long.valueOf(getUserId()))) {
-            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
-        }
-        return memberIds;
     }
 
     Conversation getConversation(String conversationId) {

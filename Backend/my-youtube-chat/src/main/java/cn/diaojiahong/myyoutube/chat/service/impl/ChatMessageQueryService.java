@@ -1,12 +1,15 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
 import cn.diaojiahong.myyoutube.chat.mapper.MessageMapper;
+import cn.diaojiahong.myyoutube.chat.domain.enums.MessageDirectionEnum;
 import cn.diaojiahong.myyoutube.chat.domain.po.Message;
 import cn.diaojiahong.myyoutube.chat.domain.po.ConversationMember;
 import cn.diaojiahong.myyoutube.chat.domain.vo.MessageItemVO;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategy;
 import cn.diaojiahong.myyoutube.chat.service.strategy.ChatContentTypeStrategyRegistry;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
@@ -34,22 +37,12 @@ public class ChatMessageQueryService {
     private final S3StorageUtil storageUtil;
     private final ChatContentTypeStrategyRegistry contentTypeStrategies;
 
-    public CursorPage<MessageItemVO, Long> getMessageList(String conversationId, Long seq) {
+    public CursorPage<MessageItemVO, Long> getMessageList(String conversationId, Long cursor, MessageDirectionEnum direction) {
         chatMessageService.getConversation(conversationId);
         // 成员校验只用于鉴权; 发送人信息按本页消息的 senderId 映射, 不依赖其是否仍在群里
         ConversationMember member = chatMessageService.requireActiveMember(conversationId);
-
-        Page<Message> page = pageByConversation(conversationId, visibleAfter(member), seq);
-        return toMessageCursorPage(page.getRecords());
-    }
-
-    public CursorPage<MessageItemVO, Long> syncMessageList(String conversationId, Long lastSeq) {
-        chatMessageService.getConversation(conversationId);
-        ConversationMember member = chatMessageService.requireActiveMember(conversationId);
-        long floor = visibleAfter(member);
-        long after = lastSeq == null ? floor : Math.max(lastSeq, floor);
-
-        Page<Message> page = syncPageByConversation(conversationId, after);
+        long visibleAfterSeq = visibleAfter(member);
+        Page<Message> page = pageByDirection(conversationId, visibleAfterSeq, cursor, direction);
         return toMessageCursorPage(page.getRecords());
     }
 
@@ -83,20 +76,23 @@ public class ChatMessageQueryService {
         return toMessageCursorPage(page.getRecords());
     }
 
-    private Page<Message> pageByConversation(String conversationId, long visibleAfterSeq, Long beforeSeq) {
+    /** visibleAfterSeq 是清空历史后的可见下限，两个方向都不回放它之前的消息。 */
+    private Page<Message> pageByDirection(
+            String conversationId,
+            long visibleAfterSeq,
+            Long cursor,
+            MessageDirectionEnum direction) {
         LambdaQueryWrapper<Message> query = new LambdaQueryWrapper<Message>()
                 .eq(Message::getConversationId, conversationId)
-                .gt(Message::getSeq, visibleAfterSeq)
-                .lt(beforeSeq != null, Message::getSeq, beforeSeq)
-                .orderByDesc(Message::getSeq);
-        return messageMapper.selectPage(fetchPage(), query);
-    }
-
-    private Page<Message> syncPageByConversation(String conversationId, long afterSeq) {
-        LambdaQueryWrapper<Message> query = new LambdaQueryWrapper<Message>()
-                .eq(Message::getConversationId, conversationId)
-                .gt(Message::getSeq, afterSeq)
-                .orderByAsc(Message::getSeq);
+                .gt(Message::getSeq, visibleAfterSeq);
+        if (direction == MessageDirectionEnum.AFTER) {
+            if (cursor == null) {
+                throw new BizException(ErrorCode.INVALID_ARGUMENT, "AFTER 方向必须携带 cursor");
+            }
+            query.gt(Message::getSeq, cursor).orderByAsc(Message::getSeq);
+        } else {
+            query.lt(cursor != null, Message::getSeq, cursor).orderByDesc(Message::getSeq);
+        }
         return messageMapper.selectPage(fetchPage(), query);
     }
 

@@ -5,6 +5,7 @@ import cn.diaojiahong.myyoutube.chat.mapper.ConversationMapper;
 import cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper;
 import cn.diaojiahong.myyoutube.chat.domain.enums.ConversationStatus;
 import cn.diaojiahong.myyoutube.chat.domain.enums.ConversationTypeEnum;
+import cn.diaojiahong.myyoutube.chat.domain.dto.PrivateInboxHideState;
 import cn.diaojiahong.myyoutube.chat.domain.po.Conversation;
 import cn.diaojiahong.myyoutube.chat.domain.po.ConversationMember;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -84,7 +85,7 @@ public class PrivateConversationService {
 
     /**
      * inboxVisible=false 的一档给「发送人还没打开过会话」的补行用: 发送失败时残留的行
-     * 不进任何人的列表, 发送成功后由 applyTail 置可见, 等价于随消息一起生效。
+     * 不进任何人的列表, 发送成功后把收件箱标成可见, 等价于随消息一起生效。
      */
     void ensurePrivateMember(String conversationId, Long userId, LocalDateTime now) {
         ensurePrivateMember(conversationId, userId, true, now);
@@ -157,6 +158,36 @@ public class PrivateConversationService {
                 throw new BizException(ErrorCode.STATE_CONFLICT, Conversation.WAITING_FOR_REPLY);
             }
             conversationMapper.activatePrivateChat(locked.getId());
+        }
+    }
+
+    /**
+     * 从自己的收件箱隐藏私聊，并把已读水位推到这次读到的序号。
+     * 水位只写在成员行上，不发已读回执；历史消息和 visible_after_seq 不动。
+     * 条件更新以第一次读到的尾消息为界，新消息先落库则这次不隐藏，也不重试。
+     */
+    void hidePrivateInbox(String conversationId, Long userId) {
+        PrivateInboxHideState seen = conversationMemberMapper.findInboxHideState(conversationId, userId);
+        if (seen == null || Boolean.TRUE.equals(seen.getDeleted())) {
+            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
+        }
+        if (!Boolean.TRUE.equals(seen.getInboxVisible())) {
+            return;
+        }
+
+        long lastSeq = seen.getLastSeq() == null ? 0L : seen.getLastSeq();
+        int updated = conversationMemberMapper.hideInbox(
+                seen.getMemberId(), seen.getLastMessageId(), lastSeq, LocalDateTime.now());
+        if (updated > 0) {
+            return;
+        }
+
+        ConversationMember current = conversationMemberMapper.selectById(seen.getMemberId());
+        if (current == null || Boolean.TRUE.equals(current.getDeleted())) {
+            throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
+        }
+        if (Boolean.TRUE.equals(current.getInboxVisible())) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "会话有新消息，未能隐藏");
         }
     }
 

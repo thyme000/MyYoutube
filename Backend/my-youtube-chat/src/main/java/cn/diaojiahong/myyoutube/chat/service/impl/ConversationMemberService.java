@@ -7,6 +7,9 @@ import cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper;
 import cn.diaojiahong.myyoutube.chat.domain.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.domain.po.Conversation;
 import cn.diaojiahong.myyoutube.chat.domain.po.ConversationMember;
+import cn.diaojiahong.myyoutube.chat.domain.dto.ConversationUnreadRow;
+import cn.diaojiahong.myyoutube.chat.domain.vo.ConversationUnreadItemVO;
+import cn.diaojiahong.myyoutube.chat.domain.vo.ConversationUnreadVO;
 import cn.diaojiahong.myyoutube.chat.domain.vo.UserConversationVO;
 import cn.diaojiahong.myyoutube.chat.domain.vo.ValidUserConversationVO;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
@@ -144,8 +147,39 @@ public class ConversationMemberService {
                 blocks.blockedAuthors(userId).contains(peerId));
     }
 
-    public Long getUnreadMessages() {
-        return conversationMemberMapper.sumUnread(getUserId());
+    /**
+     * 聊天未读。totalUnread 是本次清单里未读数之和。
+     * 从收件箱移除的私聊已把已读水位推到当时的最新序号，未读为 0；新消息会让它重新出现并计入总数。
+     * 当前打开且仍是成员的会话不在清单里时补一条明细和 lastSeq，已在清单里的不重复。
+     * 不是成员的 activeConversationId 忽略，不让一次查询因为当前会话失效而整单失败。
+     */
+    public ConversationUnreadVO listUnread(String activeConversationId) {
+        long userId = getUserId();
+        String activeId = activeConversationId == null ? "" : activeConversationId.trim();
+        List<ConversationUnreadItemVO> conversations = new ArrayList<>();
+        boolean activeIncluded = false;
+        long totalUnread = 0L;
+        for (ConversationUnreadRow row : conversationMemberMapper.listUnreadRows(userId)) {
+            ConversationUnreadItemVO item = toUnreadItem(row);
+            conversations.add(item);
+            totalUnread += item.getUnreadCount();
+            if (row.getConversationId().equals(activeId)) {
+                activeIncluded = true;
+            }
+        }
+        if (!activeId.isEmpty() && !activeIncluded) {
+            ConversationUnreadRow active = conversationMemberMapper.findMemberUnreadRow(userId, activeId);
+            if (active != null) {
+                ConversationUnreadItemVO item = toUnreadItem(active);
+                conversations.add(item);
+                totalUnread += item.getUnreadCount();
+            }
+        }
+
+        ConversationUnreadVO vo = new ConversationUnreadVO();
+        vo.setTotalUnread(totalUnread);
+        vo.setConversations(conversations);
+        return vo;
     }
 
     public void readAnnouncement(String conversationId) {
@@ -298,13 +332,26 @@ public class ConversationMemberService {
             boolean hasMore) {
     }
 
-    private static int unreadCount(Conversation conversation, ConversationMember member) {
+    private static long unreadCount(Conversation conversation, ConversationMember member) {
         long lastSeq = conversation.getLastSeq() == null ? 0L : conversation.getLastSeq();
-        long readSeq = member.getLastReadSeq() == null ? 0L : member.getLastReadSeq();
+        return unreadBetween(lastSeq, member.getLastReadSeq());
+    }
+
+    private static ConversationUnreadItemVO toUnreadItem(ConversationUnreadRow row) {
+        long lastSeq = row.getLastSeq() == null ? 0L : row.getLastSeq();
+        ConversationUnreadItemVO vo = new ConversationUnreadItemVO();
+        vo.setConversationId(row.getConversationId());
+        vo.setLastSeq(lastSeq);
+        vo.setUnreadCount(unreadBetween(lastSeq, row.getLastReadSeq()));
+        return vo;
+    }
+
+    private static long unreadBetween(long lastSeq, Long lastReadSeq) {
+        long readSeq = lastReadSeq == null ? 0L : lastReadSeq;
         long unread = lastSeq - readSeq;
         if (unread < 0L) {
             unread = 0L;
         }
-        return (int) unread;
+        return unread;
     }
 }

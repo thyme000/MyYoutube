@@ -33,13 +33,11 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -86,7 +84,7 @@ class WithdrawNullGuardTest {
         message.setCreatedAt(null);
         when(messages.selectById(MESSAGE_ID)).thenReturn(message);
         when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(privateConversation()));
-        when(members.selectActiveUserIds(CONVERSATION_ID)).thenReturn(List.of(OPERATOR_ID, 8L));
+        when(members.selectOne(any())).thenReturn(activeMember());
 
         BizException ex = assertThrows(BizException.class, () -> messageService().withdraw(dto()));
 
@@ -101,22 +99,21 @@ class WithdrawNullGuardTest {
         message.setCreatedAt(null);
         when(messages.selectById(MESSAGE_ID)).thenReturn(message);
         when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(group()));
-        when(members.selectActiveUserIds(CONVERSATION_ID)).thenReturn(List.of(OPERATOR_ID, 8L));
+        when(members.selectOne(any())).thenReturn(activeMember());
         when(messages.update(isNull(), any())).thenReturn(1);
-        when(members.markTailRecalled(eq(CONVERSATION_ID), eq(MESSAGE_ID), any())).thenReturn(1);
 
         ChatMessageAckDTO ack = messageService().withdraw(dto());
 
         assertEquals(MessageStatusEnum.WITHDRAWN, ack.getStatus());
         verify(messages).update(isNull(), any());
-        verify(members).markTailRecalled(eq(CONVERSATION_ID), eq(MESSAGE_ID), any());
+        verify(members).update(isNull(), any());
     }
 
     @Test
     void withdrawFallsBackToCurrentRowWhenUpdateMisses() {
         when(messages.selectById(MESSAGE_ID)).thenReturn(sentMessage(), withdrawnMessage());
         when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(privateConversation()));
-        when(members.selectActiveUserIds(CONVERSATION_ID)).thenReturn(List.of(OPERATOR_ID, 8L));
+        when(members.selectOne(any())).thenReturn(activeMember());
         when(messages.update(isNull(), any())).thenReturn(0);
 
         ChatMessageAckDTO ack = messageService().withdraw(dto());
@@ -129,13 +126,28 @@ class WithdrawNullGuardTest {
     void withdrawRejectsWithNotFoundWhenRowVanishes() {
         when(messages.selectById(MESSAGE_ID)).thenReturn(sentMessage(), (Message) null);
         when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(privateConversation()));
-        when(members.selectActiveUserIds(CONVERSATION_ID)).thenReturn(List.of(OPERATOR_ID, 8L));
+        when(members.selectOne(any())).thenReturn(activeMember());
         when(messages.update(isNull(), any())).thenReturn(0);
 
         BizException ex = assertThrows(BizException.class, () -> messageService().withdraw(dto()));
 
         assertEquals(ErrorCode.NOT_FOUND, ex.getErrorCode());
         assertEquals("消息不存在", ex.getMessage());
+    }
+
+    @Test
+    void withdrawRejectsAGroupOwnerWhoIsNoLongerAMember() {
+        Message message = sentMessage();
+        message.setSenderId(8L);
+        when(messages.selectById(MESSAGE_ID)).thenReturn(message);
+        when(chatConversations.getById(CONVERSATION_ID)).thenReturn(Optional.of(group()));
+        when(members.selectOne(any())).thenReturn(null);
+
+        BizException ex = assertThrows(BizException.class, () -> messageService().withdraw(dto()));
+
+        assertEquals(ErrorCode.FORBIDDEN, ex.getErrorCode());
+        assertEquals("不是会话成员", ex.getMessage());
+        verify(messages, never()).update(isNull(), any());
     }
 
     private ChatMessageService messageService() {
@@ -151,6 +163,13 @@ class WithdrawNullGuardTest {
         when(tx.execute(any()))
                 .thenAnswer(call -> call.<TransactionCallback<?>>getArgument(0).doInTransaction(null));
         return tx;
+    }
+
+    private static ConversationMember activeMember() {
+        ConversationMember member = new ConversationMember();
+        member.setUserId(OPERATOR_ID);
+        member.setDeleted(false);
+        return member;
     }
 
     private static ChatMessageWithdrawDTO dto() {

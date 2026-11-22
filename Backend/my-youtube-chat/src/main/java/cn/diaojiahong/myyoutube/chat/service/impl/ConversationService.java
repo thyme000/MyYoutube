@@ -235,10 +235,9 @@ public class ConversationService {
         ws.put("conversationId", conversationId);
         ws.put("version", next);
         String json = JsonUtil.toJson(ws);
-        for (Long memberId : activeMemberIds(conversationId)) {
+        for (Long memberId : conversationMemberMapper.selectActiveUserIds(conversationId)) {
             if (!memberId.equals(userId)) {
                 pushFanoutPublisher.pushWs(memberId, json);
-                // 与消息推送对齐: 不在聊天页的成员靠门铃刷新红点/公告角标
                 pushFanoutPublisher.pushSseSignal(memberId, AbstractConversationNotifyStrategy.CHAT_DIRTY_SIGNAL);
             }
         }
@@ -248,7 +247,7 @@ public class ConversationService {
     public String deleteConversation(String conversationId) {
         Long userId = getUserId();
         Conversation conversation = getConversation(conversationId);
-        List<Long> memberIds = activeMemberIds(conversationId);
+        List<Long> memberIds = conversationMemberMapper.selectActiveUserIds(conversationId);
         if (!memberIds.contains(userId)) {
             throw new BizException(ErrorCode.FORBIDDEN, "不是会话成员");
         }
@@ -260,7 +259,7 @@ public class ConversationService {
                 dissolved = true;
                 List<Long> others = transactionTemplate.execute(tx -> {
                     requireActiveConversation(conversationMapper.lockById(conversationId));
-                    List<Long> recipients = activeMemberIds(conversationId).stream()
+                    List<Long> recipients = conversationMemberMapper.selectActiveUserIds(conversationId).stream()
                             .filter(memberId -> !memberId.equals(userId)).toList();
                     conversationMapper.update(null, new LambdaUpdateWrapper<Conversation>()
                             .eq(Conversation::getId, conversationId)
@@ -283,7 +282,7 @@ public class ConversationService {
                 markMembersDeleted(conversationId, List.of(userId));
             }
         } else if (conversation.getType() == ConversationTypeEnum.SINGLE) {
-            privateConversationService.setPrivateInboxVisible(conversationId, userId, false);
+            privateConversationService.hidePrivateInbox(conversationId, userId);
         }
         log.info("Conversation deleted conversationId={} type={} operatorId={} dissolved={}",
                 conversationId, conversation.getType(), userId, dissolved);
@@ -338,7 +337,7 @@ public class ConversationService {
             throw new BizException(ErrorCode.STATE_CONFLICT, "私聊不能查询成员");
         }
 
-        List<Long> memberIds = activeMemberIds(conversationId);
+        List<Long> memberIds = conversationMemberMapper.selectActiveUserIds(conversationId);
         if (!memberIds.contains(getUserId())) {
             throw new BizException(ErrorCode.FORBIDDEN, "你不是该群的成员");
         }
@@ -373,7 +372,7 @@ public class ConversationService {
                 .eq(Conversation::getId, conversationId)
                 .set(Conversation::getBanned, banned)
                 .set(Conversation::getUpdatedAt, LocalDateTime.now()));
-        List<Long> memberIds = activeMemberIds(conversationId).stream()
+        List<Long> memberIds = conversationMemberMapper.selectActiveUserIds(conversationId).stream()
                 .filter(memberId -> !memberId.equals(getUserId()))
                 .toList();
         Map<String, Object> data = new HashMap<>(2);
@@ -392,7 +391,7 @@ public class ConversationService {
             throw new BizException(ErrorCode.STATE_CONFLICT, "私聊没有公告");
         }
 
-        if (!activeMemberIds(conversationId).contains(getUserId())) {
+        if (!conversationMemberMapper.selectActiveUserIds(conversationId).contains(getUserId())) {
             throw new BizException(ErrorCode.FORBIDDEN, "你不是该群的成员");
         }
 
@@ -407,7 +406,7 @@ public class ConversationService {
     public void banConversationMember(Long userId, String conversationId, Boolean banned) {
         Conversation conversation = getConversation(conversationId);
         Long operatorId = getUserId();
-        List<Long> memberIds = activeMemberIds(conversationId);
+        List<Long> memberIds = conversationMemberMapper.selectActiveUserIds(conversationId);
         if (!memberIds.contains(operatorId)) {
             throw new BizException(ErrorCode.FORBIDDEN, "你不是该群的成员");
         }
@@ -443,10 +442,6 @@ public class ConversationService {
         data.put("conversationId", conversationId);
         String json = JsonUtil.toJson(data);
         pushFanoutPublisher.pushWs(userId, json);
-    }
-
-    private List<Long> activeMemberIds(String conversationId) {
-        return conversationMemberMapper.selectActiveUserIds(conversationId);
     }
 
     private static void requireGroupName(String name) {

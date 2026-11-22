@@ -9,6 +9,5 @@ public class NotificationForWithdrawMessageVO {
     private String messageId;
     private String senderId;
     private String senderNickname;
-    private String avatarUrl;
     private RecallTypeEnum recallType;
 }

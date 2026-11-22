@@ -1,12 +1,14 @@
 package cn.diaojiahong.myyoutube.chat.service.impl;
 
 import cn.diaojiahong.myyoutube.chat.domain.dto.CreateConversationDTO;
+import cn.diaojiahong.myyoutube.chat.domain.dto.PrivateInboxHideState;
 import cn.diaojiahong.myyoutube.chat.domain.enums.ConversationTypeEnum;
 import cn.diaojiahong.myyoutube.chat.domain.po.Conversation;
 import cn.diaojiahong.myyoutube.chat.domain.po.ConversationMember;
 import cn.diaojiahong.myyoutube.chat.mapper.ConversationMapper;
 import cn.diaojiahong.myyoutube.chat.mapper.ConversationMemberMapper;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.push.PushFanoutPublisher;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
@@ -14,7 +16,6 @@ import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -22,18 +23,19 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -67,16 +69,94 @@ class ConversationPrivateChatTest {
     }
 
     @Test
-    void deletingAPrivateChatOnlyMarksTheCaller() {
+    void deletingAPrivateChatHidesOnlyTheCallerAtTheSeenTail() {
         when(conversations.selectById("chat")).thenReturn(single());
         when(members.selectActiveUserIds("chat")).thenReturn(List.of(11L, 22L));
+        when(members.findInboxHideState("chat", 11L)).thenReturn(hideState("mine", "msg-1", 4L, true));
+        when(members.hideInbox(eq("mine"), eq("msg-1"), eq(4L), any())).thenReturn(1);
 
-        service.deleteConversation("chat");
+        assertEquals("删除成功", service.deleteConversation("chat"));
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<LambdaUpdateWrapper<ConversationMember>> wrapper = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
-        verify(members).update(isNull(), wrapper.capture());
-        assertTrue(wrapper.getValue().getSqlSegment().contains("user_id"));
+        verify(members).hideInbox(eq("mine"), eq("msg-1"), eq(4L), any());
+        verify(members, never()).update(any(), any());
+        verify(members, never()).selectById(any());
+    }
+
+    @Test
+    void hidingAgainSucceedsWhenTheInboxIsAlreadyHidden() {
+        when(conversations.selectById("chat")).thenReturn(single());
+        when(members.selectActiveUserIds("chat")).thenReturn(List.of(11L, 22L));
+        when(members.findInboxHideState("chat", 11L)).thenReturn(hideState("mine", "msg-1", 4L, false));
+
+        assertEquals("删除成功", service.deleteConversation("chat"));
+
+        verify(members, never()).hideInbox(any(), any(), anyLong(), any());
+    }
+
+    @Test
+    void hidingSucceedsWhenTheRowIsHiddenBeforeTheUpdateLands() {
+        when(conversations.selectById("chat")).thenReturn(single());
+        when(members.selectActiveUserIds("chat")).thenReturn(List.of(11L, 22L));
+        when(members.findInboxHideState("chat", 11L)).thenReturn(hideState("mine", "msg-1", 4L, true));
+        when(members.hideInbox(eq("mine"), eq("msg-1"), eq(4L), any())).thenReturn(0);
+        ConversationMember current = member("mine", false, "msg-1");
+        when(members.selectById("mine")).thenReturn(current);
+
+        assertEquals("删除成功", service.deleteConversation("chat"));
+
+        verify(members, times(1)).hideInbox(eq("mine"), eq("msg-1"), eq(4L), any());
+    }
+
+    @Test
+    void hidingFailsWhenTheTailChangesAfterTheRead() {
+        when(conversations.selectById("chat")).thenReturn(single());
+        when(members.selectActiveUserIds("chat")).thenReturn(List.of(11L, 22L));
+        when(members.findInboxHideState("chat", 11L)).thenReturn(hideState("mine", "msg-1", 4L, true));
+        when(members.hideInbox(eq("mine"), eq("msg-1"), eq(4L), any())).thenReturn(0);
+        when(members.selectById("mine")).thenReturn(member("mine", true, "msg-2"));
+
+        BizException error = assertThrows(BizException.class, () -> service.deleteConversation("chat"));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, error.getErrorCode());
+        assertEquals("会话有新消息，未能隐藏", error.getMessage());
+        verify(members, times(1)).hideInbox(eq("mine"), eq("msg-1"), eq(4L), any());
+    }
+
+    @Test
+    void hidingRejectsWhenTheMemberIsRemovedBeforeTheUpdateLands() {
+        when(conversations.selectById("chat")).thenReturn(single());
+        when(members.selectActiveUserIds("chat")).thenReturn(List.of(11L, 22L));
+        when(members.findInboxHideState("chat", 11L)).thenReturn(hideState("mine", "msg-1", 4L, true));
+        when(members.hideInbox(eq("mine"), eq("msg-1"), eq(4L), any())).thenReturn(0);
+        ConversationMember removed = member("mine", true, "msg-1");
+        removed.setDeleted(true);
+        when(members.selectById("mine")).thenReturn(removed);
+
+        BizException error = assertThrows(BizException.class, () -> service.deleteConversation("chat"));
+
+        assertEquals(ErrorCode.FORBIDDEN, error.getErrorCode());
+        assertEquals("不是会话成员", error.getMessage());
+        verify(members, times(1)).hideInbox(eq("mine"), eq("msg-1"), eq(4L), any());
+    }
+
+    @Test
+    void hidingAMissingOrDeletedMemberKeepsTheExistingPermissionError() {
+        when(members.findInboxHideState("chat", 11L)).thenReturn(null);
+
+        BizException missing = assertThrows(BizException.class,
+                () -> privateConversationService.hidePrivateInbox("chat", 11L));
+
+        assertEquals(ErrorCode.FORBIDDEN, missing.getErrorCode());
+        assertEquals("不是会话成员", missing.getMessage());
+
+        PrivateInboxHideState deleted = hideState("mine", "msg-1", 4L, true);
+        deleted.setDeleted(true);
+        when(members.findInboxHideState("chat", 11L)).thenReturn(deleted);
+        BizException gone = assertThrows(BizException.class,
+                () -> privateConversationService.hidePrivateInbox("chat", 11L));
+        assertEquals(ErrorCode.FORBIDDEN, gone.getErrorCode());
+        assertEquals("不是会话成员", gone.getMessage());
+        verify(members, never()).hideInbox(any(), any(), anyLong(), any());
     }
 
     @Test
@@ -133,6 +213,25 @@ class ConversationPrivateChatTest {
         dto.setType(ConversationTypeEnum.SINGLE);
         dto.setMemberIds(List.of(22L));
         return dto;
+    }
+
+    private static PrivateInboxHideState hideState(String memberId, String lastMessageId, long lastSeq, boolean visible) {
+        PrivateInboxHideState state = new PrivateInboxHideState();
+        state.setMemberId(memberId);
+        state.setLastMessageId(lastMessageId);
+        state.setLastSeq(lastSeq);
+        state.setInboxVisible(visible);
+        state.setDeleted(false);
+        return state;
+    }
+
+    private static ConversationMember member(String id, boolean visible, String lastMessageId) {
+        ConversationMember member = new ConversationMember();
+        member.setId(id);
+        member.setDeleted(false);
+        member.setInboxVisible(visible);
+        member.setLastMessageId(lastMessageId);
+        return member;
     }
 
     private static Conversation single() {

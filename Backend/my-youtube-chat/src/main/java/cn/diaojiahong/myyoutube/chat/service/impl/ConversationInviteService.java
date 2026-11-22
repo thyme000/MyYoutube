@@ -205,7 +205,7 @@ public class ConversationInviteService {
         if (conversation.getType() == ConversationTypeEnum.SINGLE) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "私聊不能邀请成员");
         }
-        if (!activeMemberIds(conversation.getId()).contains(inviterId)) {
+        if (!conversationMemberMapper.selectActiveUserIds(conversation.getId()).contains(inviterId)) {
             throw new BizException(ErrorCode.FORBIDDEN, "你不是该群的成员");
         }
         if (!followPort.interrelated(new FollowPort.InterrelatedQuery(inviterId, List.of(inviteeId)))) {
@@ -213,12 +213,8 @@ public class ConversationInviteService {
         }
     }
 
-    private List<Long> activeMemberIds(String conversationId) {
-        return conversationMemberMapper.selectActiveUserIds(conversationId);
-    }
-
     private boolean isActiveMember(String conversationId, Long userId) {
-        return activeMemberIds(conversationId).contains(userId);
+        return conversationMemberMapper.selectActiveUserIds(conversationId).contains(userId);
     }
 
     private ConversationInvite findInvite(String conversationId, Long inviteeId) {
