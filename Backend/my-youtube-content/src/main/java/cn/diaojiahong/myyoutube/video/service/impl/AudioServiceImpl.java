@@ -1,0 +1,345 @@
+package cn.diaojiahong.myyoutube.video.service.impl;
+
+import cn.hutool.crypto.digest.DigestUtil;
+import cn.diaojiahong.myyoutube.search.api.AudioSearchPort;
+import cn.diaojiahong.myyoutube.video.domain.vo.AudioPage;
+import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.common.page.CursorPageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageQuery;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
+import cn.diaojiahong.myyoutube.common.utils.UserContext;
+import cn.diaojiahong.myyoutube.content.support.ContentSubmissionRules;
+import cn.diaojiahong.myyoutube.notification.support.ReviewFeedback;
+import cn.diaojiahong.myyoutube.user.api.UserPort;
+import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
+import cn.diaojiahong.myyoutube.video.config.AudioProcessingProperties;
+import cn.diaojiahong.myyoutube.video.domain.dto.AudioUploadDTO;
+import cn.diaojiahong.myyoutube.common.media.AudioPreparationContracts;
+import cn.diaojiahong.myyoutube.video.service.AudioUploadService;
+import cn.diaojiahong.myyoutube.video.domain.enums.*;
+import cn.diaojiahong.myyoutube.content.api.enums.ContentVisibilityEnum;
+import cn.diaojiahong.myyoutube.video.domain.po.Audio;
+import cn.diaojiahong.myyoutube.video.domain.vo.AudioVO;
+import cn.diaojiahong.myyoutube.video.mapper.AudioMapper;
+import cn.diaojiahong.myyoutube.video.service.IAudioService;
+import cn.diaojiahong.myyoutube.video.service.AudioIndexChanges;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class AudioServiceImpl implements IAudioService {
+    public static final String VISIBILITY_PUBLIC = ContentVisibilityEnum.PUBLIC.getCode();
+
+    public static final String VISIBILITY_PRIVATE = ContentVisibilityEnum.PRIVATE.getCode();
+    private static final long SIGN_SECONDS = 1200;
+    private final AudioMapper audioMapper;
+    private final S3StorageUtil storageUtil;
+    private final UserPort users;
+    private final ContentSubmissionRules rules;
+    private final AudioProcessingProperties processing;
+    private final AudioSearchPort search;
+
+    @Override
+    public String registerUpload(AudioUploadDTO dto) {
+        Long userId = getUserId();
+        if (dto == null || dto.getRequestId() == null || !dto.getRequestId().matches("[A-Za-z0-9_-]{1,64}"))
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "请提供有效的音频上传请求标识");
+        validateFile(dto.getAudio(), "audio", AudioPreparationContracts.MAX_SOURCE_BYTES);
+        if (dto.getCover() != null) validateFile(dto.getCover(), "image", 8L * 1024 * 1024);
+        String requestedTitle = StringUtils.hasText(dto.getTitle()) ? dto.getTitle().trim() : null;
+        String fingerprint = fingerprint(dto, requestedTitle);
+        Audio existing = request(userId, dto.getRequestId());
+        if (existing != null) return replay(existing, fingerprint);
+        String title = rules.title(requestedTitle == null ? defaultTitle(userId) : requestedTitle);
+        String source = storageUtil.buildUniqueObjectKey(userId, "audio", dto.getAudio().filename());
+        String cover = dto.getCover() == null ? null : storageUtil.buildUniqueObjectKey(
+                userId,
+                "audio-cover",
+                dto.getCover().filename());
+        LocalDateTime now = LocalDateTime.now().withNano(0);
+        Audio audio = new Audio()
+                .setUploaderId(userId)
+                .setTitle(title)
+                .setRequestId(dto.getRequestId())
+                .setRequestFingerprint(fingerprint)
+                .setSourceObjectKey(source)
+                .setSourceCoverObjectKey(cover)
+                .setVisibility(VISIBILITY_PUBLIC)
+                .setIsDelete(0)
+                .setUploadSize(dto.getAudio().bytes()).setUploadContentType(dto.getAudio().contentType())
+                .setCoverUploadSize(dto.getCover() == null ? null : dto.getCover().bytes())
+                .setCoverUploadContentType(dto.getCover() == null ? null : dto.getCover().contentType())
+                .setUploadDeadline(now.plusSeconds(AudioUploadService.UPLOAD_SECONDS + AudioUploadService.GRACE_SECONDS))
+                .setUploadAfter(now)
+                .setProcessingStatus(AudioProcessingStatus.UPLOADING).setReviewStatus(AudioReviewStatus.PENDING)
+                .setPreparationAttempt(0).setPreparationRetry(false);
+        try {
+            audioMapper.insert(audio);
+        } catch (DuplicateKeyException e) {
+            existing = request(userId, dto.getRequestId());
+            if (existing == null) throw e;
+            return replay(existing, fingerprint);
+        }
+        return audio.getId().toString();
+    }
+
+    @Override
+    public AudioVO getMine(Long id) {
+        return views(List.of(owned(id, getUserId())), true).get(0);
+    }
+
+    @Override
+    public boolean retry(Long id) {
+        Audio audio = owned(id, getUserId());
+        if (audio.getReviewStatus() != AudioReviewStatus.PENDING) return false;
+        if (audio.getProcessingStatus() == AudioProcessingStatus.PROCESSING) return true;
+        if (audio.getProcessingStatus() != AudioProcessingStatus.FAILED
+                && audio.getAnalysisStatus() != AudioAnalysisStatus.FAILED) {
+            return false;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (audio.getProcessingStatus() == AudioProcessingStatus.READY
+                && audio.getAnalysisStatus() == AudioAnalysisStatus.FAILED
+                && audio.getReviewStatus() == AudioReviewStatus.PENDING)
+            return audioMapper.update(null, new LambdaUpdateWrapper<Audio>().eq(Audio::getId, id).eq(
+                    Audio::getReviewStatus,
+                    AudioReviewStatus.PENDING)
+                    .eq(Audio::getIsDelete, 0).eq(Audio::getAnalysisStatus, AudioAnalysisStatus.FAILED)
+                    .set(
+                            Audio::getAnalysisStatus,
+                            audio.getTranscriptKey() == null ? AudioAnalysisStatus.RECOGNIZING : AudioAnalysisStatus.SCREENING)
+                    .set(Audio::getPreparationRetry, true).set(Audio::getPreparationAfter, now)
+                    .set(Audio::getProcessingDeadline, now.plusMinutes(processing.getDeadlineMinutes()))
+                    .set(Audio::getErrorMessage, null)) > 0;
+        return audioMapper.update(null, new LambdaUpdateWrapper<Audio>().eq(Audio::getId, id).eq(
+                Audio::getUploaderId,
+                audio.getUploaderId())
+                .eq(Audio::getIsDelete, 0).eq(Audio::getReviewStatus, AudioReviewStatus.PENDING)
+                .eq(Audio::getProcessingStatus, AudioProcessingStatus.FAILED).eq(
+                        Audio::getPreparationAttempt,
+                        audio.getPreparationAttempt())
+                .set(Audio::getProcessingStatus, AudioProcessingStatus.PROCESSING).set(Audio::getPreparationRetry, true)
+                .set(Audio::getPreparationAfter, now).set(
+                        Audio::getProcessingDeadline,
+                        now.plusMinutes(processing.getDeadlineMinutes()))
+                .set(Audio::getErrorMessage, null)) > 0;
+    }
+
+    @Override
+    public PageResult<AudioVO> myAudios(PageQuery pageQuery) {
+        Page<Audio> page = audioMapper.selectPage(pageQuery.toPage(), new LambdaQueryWrapper<Audio>()
+                .eq(Audio::getUploaderId, getUserId()).eq(Audio::getIsDelete, 0)
+                .orderByDesc(Audio::getCreateTime).orderByDesc(Audio::getId));
+        return PageResult.of(page.getTotal(), page.getPages(), views(page.getRecords(), true));
+    }
+
+    @Override
+    public AudioPage library(String keyword, CursorPageQuery page) {
+        return search(keyword, page, null);
+    }
+
+    @Override
+    public AudioPage searchMine(String keyword, CursorPageQuery page) {
+        return search(keyword, page, getUserId());
+    }
+
+    private AudioPage search(String keyword, CursorPageQuery page, Long owner) {
+        AudioDiscoveryContracts.Query query = new AudioDiscoveryContracts.Query(
+                keyword, owner, page.getCursor(), CursorPageQuery.PAGE_SIZE);
+        query.validate();
+        AudioDiscoveryContracts.Slice slice = search.search(query);
+        if (slice == null || slice.ids() == null) throw new IllegalStateException("Missing audio search result");
+
+        Map<Long, Audio> found = slice.ids().isEmpty()
+                ? Map.of()
+                : audioMapper.selectBatchIds(slice.ids()).stream()
+                        .collect(Collectors.toMap(Audio::getId, audio -> audio));
+        List<Audio> visible = slice.ids().stream()
+                .distinct()
+                .map(found::get)
+                .filter(Objects::nonNull)
+                .filter(audio -> audio.getIsDelete() == 0)
+                .filter(audio -> owner != null ? owner.equals(audio.getUploaderId()) : publiclyVisible(audio))
+                .toList();
+        return new AudioPage(views(visible, owner != null), slice.nextCursor(), slice.nextCursor() != null);
+    }
+
+    @Override
+    public AudioVO detail(Long id) {
+        return views(List.of(getPublic(id)), false).get(0);
+    }
+
+    @Override
+    public Audio getPublic(Long id) {
+        Audio audio = audioMapper.selectById(id);
+        if (audio == null || !publiclyVisible(audio)) throw new BizException(ErrorCode.NOT_FOUND, "音频不存在或不可访问");
+        return audio;
+    }
+
+    private boolean publiclyVisible(Audio audio) {
+        return audio.getIsDelete() == 0 && audio.getProcessingStatus() == AudioProcessingStatus.READY
+
+                        && audio.getReviewStatus() == AudioReviewStatus.APPROVED
+                        && VISIBILITY_PUBLIC.equals(audio.getVisibility());
+    }
+
+    @Override
+    public void setVisibility(Long id, String visibility) {
+        Audio audio = owned(id, getUserId());
+        if (!VISIBILITY_PUBLIC.equals(visibility) && !VISIBILITY_PRIVATE.equals(visibility))
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "可见性参数无效");
+        if (audio.getProcessingStatus() != AudioProcessingStatus.READY
+                || audio.getReviewStatus() != AudioReviewStatus.APPROVED)
+            throw new BizException(ErrorCode.STATE_CONFLICT, "审核通过后才可调整音频可见性");
+        if (audioMapper.update(null, AudioIndexChanges.bump(new LambdaUpdateWrapper<Audio>()).eq(Audio::getId, id).eq(
+                Audio::getUploaderId,
+                audio.getUploaderId())
+                .eq(Audio::getIsDelete, 0).eq(Audio::getProcessingStatus, AudioProcessingStatus.READY)
+                .eq(Audio::getReviewStatus, AudioReviewStatus.APPROVED).set(Audio::getVisibility, visibility)) == 0)
+            throw new BizException(ErrorCode.STATE_CONFLICT, "音频状态已变化，请刷新后重试");
+    }
+
+    @Override
+    public void delete(Long id) {
+        Audio audio = owned(id, getUserId());
+        audioMapper.update(null, AudioIndexChanges.bump(new LambdaUpdateWrapper<Audio>()).eq(Audio::getId, id).eq(
+                Audio::getUploaderId,
+                audio.getUploaderId())
+                .eq(Audio::getIsDelete, 0).set(Audio::getIsDelete, 1).set(Audio::getPreparationAfter, null));
+    }
+
+    @Override
+    public Audio getReferenceable(Long audioId, Long userId) {
+        return requireReferenceable(audioMapper.selectById(audioId), userId);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Audio lockReferenceable(Long audioId, Long userId) {
+        // 与私密、删除和审核更新串行，锁一直保留到内容及快照提交完成。
+        return requireReferenceable(audioMapper.selectOne(new LambdaQueryWrapper<Audio>()
+                .eq(Audio::getId, audioId).last("FOR UPDATE")), userId);
+    }
+
+    private Audio requireReferenceable(Audio audio, Long userId) {
+        if (audio == null || !Integer.valueOf(0).equals(audio.getIsDelete()))
+            throw new BizException(ErrorCode.NOT_FOUND, "音频不存在或已被删除");
+        if (audio.getProcessingStatus() != AudioProcessingStatus.READY
+                || audio.getReviewStatus() != AudioReviewStatus.APPROVED)
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "所选音频尚未通过审核或已不可用，请重新选择");
+        if (!VISIBILITY_PUBLIC.equals(audio.getVisibility()) && !Objects.equals(audio.getUploaderId(), userId))
+            throw new BizException(ErrorCode.FORBIDDEN, "无权使用该音频");
+        return audio;
+    }
+
+    private List<AudioVO> views(List<Audio> rows, boolean owner) {
+        if (rows.isEmpty()) return List.of();
+        List<Long> ids = rows.stream()
+                .filter(a -> a.getCoverObjectKey() == null)
+                .map(Audio::getUploaderId)
+                .distinct()
+                .toList();
+        List<UserSummary> summaries = ids.isEmpty() ? List.of() : users.listByIds(ids);
+        Map<Long,String> avatars = summaries == null ? Map.<Long, String>of() : summaries.stream()
+                .filter(u -> u != null && u.getId() != null && StringUtils.hasText(u.getAvatarUrl()))
+                .collect(Collectors.toMap(UserSummary::getId, UserSummary::getAvatarUrl, (a, b) -> a));
+        return rows.stream().map(audio -> {
+            AudioVO vo = toVO(audio, owner);
+            String key = audio.getCoverObjectKey() == null ? avatars.get(audio.getUploaderId()) : audio.getCoverObjectKey();
+            if (StringUtils.hasText(key)
+                    && audio.getReviewStatus() != AudioReviewStatus.BANNED) {
+                vo.setCoverUrl(storageUtil.signGetUrl(key, SIGN_SECONDS));
+            }
+            return vo;
+        }).toList();
+    }
+
+    private AudioVO toVO(Audio audio, boolean owner) {
+        var vo = new AudioVO();
+        vo.setId(audio.getId().toString());
+        vo.setTitle(audio.getTitle());
+        vo.setUploaderId(audio.getUploaderId().toString());
+        vo.setDurationMs(audio.getDurationMs());
+        vo.setFileSize(audio.getFileSize());
+        vo.setMime(audio.getMime());
+        vo.setProcessingStatus(audio.getProcessingStatus());
+        vo.setReviewStatus(audio.getReviewStatus());
+        if (owner) {
+            vo.setAnalysisStatus(audio.getAnalysisStatus());
+            vo.setErrorMessage(audio.getErrorMessage());
+            if (audio.getReviewStatus() != AudioReviewStatus.PENDING)
+                vo.setReviewReason(ReviewFeedback.message("音频", audio.getReviewStatus() == AudioReviewStatus.APPROVED));
+        }
+        vo.setVisibility(audio.getVisibility());
+        vo.setCreateTime(audio.getCreateTime());
+        if (audio.getProcessingStatus() == AudioProcessingStatus.READY
+                && audio.getReviewStatus() != AudioReviewStatus.BANNED
+                && StringUtils.hasText(audio.getObjectKey())) {
+            vo.setPreviewUrl(storageUtil.signGetUrl(audio.getObjectKey(), SIGN_SECONDS));
+        }
+        return vo;
+    }
+
+    private Audio owned(Long id, Long userId) {
+        Audio audio = audioMapper.selectById(id);
+        if (audio == null
+                || !Integer.valueOf(0).equals(audio.getIsDelete())
+                || !Objects.equals(audio.getUploaderId(), userId))
+            throw new BizException(ErrorCode.NOT_FOUND, "音频不存在");
+        return audio;
+    }
+
+    private Audio request(Long userId, String requestId) {
+        return audioMapper.selectOne(new LambdaQueryWrapper<Audio>().eq(Audio::getUploaderId, userId).eq(
+                Audio::getRequestId,
+                requestId));
+    }
+
+    private String replay(Audio existing, String fingerprint) {
+        if (!fingerprint.equals(existing.getRequestFingerprint()) || !Integer.valueOf(0).equals(existing.getIsDelete()))
+            throw new BizException(ErrorCode.STATE_CONFLICT, "该上传请求已受理，请勿更换参数或重复使用请求标识");
+        return existing.getId().toString();
+    }
+
+    private String defaultTitle(Long userId) {
+        List<UserSummary> list = users.listByIds(List.of(userId));
+        String nickname = list == null ? null : list.stream().filter(u -> u != null && userId.equals(u.getId()))
+                .map(UserSummary::getNickname).filter(StringUtils::hasText).findFirst().orElse(null);
+        return (nickname == null ? "用户" + userId : nickname.trim()) + " 的音频";
+    }
+
+    private static void validateFile(AudioUploadDTO.File file, String type, long limit) {
+        if (file == null || file.filename() == null || file.filename().isBlank() || file.filename().length() > 255
+                || file.bytes() < 1
+                || file.bytes() > limit
+                || file.contentType() == null
+                || file.contentType().length() > 128
+                || !file.contentType().matches(type + "/[a-zA-Z0-9.+-]+"))
+            throw new BizException(ErrorCode.INVALID_ARGUMENT, "上传文件名称、大小或类型无效");
+    }
+
+    private static String fingerprint(AudioUploadDTO dto, String title) {
+        return DigestUtil.sha256Hex(JsonUtil.toJson(Arrays.asList(dto.getAudio(), dto.getCover(), title)));
+    }
+
+    private static Long getUserId() {
+        String value = UserContext.getUserId();
+        if (value == null) throw new BizException(ErrorCode.UNAUTHORIZED, "用户未登录");
+        return Long.valueOf(value);
+    }
+}

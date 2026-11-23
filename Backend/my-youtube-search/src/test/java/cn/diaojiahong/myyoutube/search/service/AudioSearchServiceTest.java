@@ -2,7 +2,7 @@ package cn.diaojiahong.myyoutube.search.service;
 
 import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts.*;
 import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts;
-import cn.diaojiahong.myyoutube.video.api.AudioDocumentPort;
+import cn.diaojiahong.myyoutube.content.api.AudioDocumentPort;
 import cn.diaojiahong.myyoutube.search.domain.doc.AudioDoc;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import co.elastic.clients.elasticsearch.*;

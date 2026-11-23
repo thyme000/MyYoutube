@@ -7,7 +7,7 @@ import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.UserCounterAdminPort;
-import cn.diaojiahong.myyoutube.video.api.VideoCounterAdminPort;
+import cn.diaojiahong.myyoutube.content.api.ContentCounterAdminPort;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -27,10 +27,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class AdminCounterDriftAuthorizationTest {
 
-    private final VideoCounterAdminPort videos = mock(VideoCounterAdminPort.class);
+    private final ContentCounterAdminPort contents = mock(ContentCounterAdminPort.class);
     private final UserCounterAdminPort users = mock(UserCounterAdminPort.class);
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminCounterDriftController(
-                    videos, users, AuthorizationFixture.authorization()))
+                    contents, users, AuthorizationFixture.authorization()))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
 
@@ -50,13 +50,13 @@ class AdminCounterDriftAuthorizationTest {
                             .content("{\"type\":\"content:like\",\"ids\":[11]}"))
                     .andExpect(status().is(user.isEmpty() ? 401 : 403));
         }
-        verifyNoInteractions(videos, users);
+        verifyNoInteractions(contents, users);
     }
 
     @Test
     void routesVideoAndUserTypesToTheServiceThatOwnsTheTable() throws Exception {
         UserContext.setUser("1");
-        when(videos.drifts("content:like", 9L, 20))
+        when(contents.drifts("content:like", 9L, 20))
                 .thenReturn(new CursorPage<>(List.of(new CounterDrift(11, 5, 1, 4)), 11L));
         when(users.drifts("user:fans", null, 20))
                 .thenReturn(new CursorPage<>(List.of(new CounterDrift(2, 0, 1, -1)), null));
@@ -69,14 +69,14 @@ class AdminCounterDriftAuthorizationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].id").value(2));
 
-        verify(videos).drifts("content:like", 9L, 20);
+        verify(contents).drifts("content:like", 9L, 20);
         verify(users).drifts("user:fans", null, 20);
     }
 
     @Test
     void repairForwardsTheSelectedIds() throws Exception {
         UserContext.setUser("1");
-        when(videos.repair(new CounterRepairRequest("content:share", List.of(11L)))).thenReturn(1);
+        when(contents.repair(new CounterRepairRequest("content:share", List.of(11L)))).thenReturn(1);
 
         mvc.perform(post("/admin/counter-drifts/repair")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -84,7 +84,7 @@ class AdminCounterDriftAuthorizationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").value(1));
 
-        verify(videos).repair(new CounterRepairRequest("content:share", List.of(11L)));
+        verify(contents).repair(new CounterRepairRequest("content:share", List.of(11L)));
         verifyNoInteractions(users);
     }
 
@@ -95,6 +95,6 @@ class AdminCounterDriftAuthorizationTest {
         mvc.perform(get("/admin/counter-drifts").param("type", "nope"))
                 .andExpect(status().isBadRequest());
 
-        verifyNoInteractions(videos, users);
+        verifyNoInteractions(contents, users);
     }
 }

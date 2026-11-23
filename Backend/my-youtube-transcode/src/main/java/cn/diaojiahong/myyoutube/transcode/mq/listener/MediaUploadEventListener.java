@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.transcode.mq.listener;
 import cn.diaojiahong.myyoutube.common.mq.message.MediaUploadEventMessage;
-import cn.diaojiahong.myyoutube.video.api.MediaDraftPort;
-import cn.diaojiahong.myyoutube.video.api.AudioUploadPort;
+import cn.diaojiahong.myyoutube.content.api.MediaDraftPort;
+import cn.diaojiahong.myyoutube.content.api.AudioUploadPort;
 import lombok.RequiredArgsConstructor;
 import org.apache.rocketmq.common.consumer.ConsumeFromWhere;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;

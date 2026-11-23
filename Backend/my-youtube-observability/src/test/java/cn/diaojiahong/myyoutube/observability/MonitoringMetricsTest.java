@@ -18,7 +18,7 @@ class MonitoringMetricsTest {
     void defaultQueueTargetsCoverAllPipelineConsumerGroups() {
         Map<String,String> groups = MonitoringConfiguration.defaultGroups("custom-ingest");
         assertEquals(13, groups.size());
-        assertFalse(groups.containsKey("video_publication_count"));
+        assertFalse(groups.containsKey("content_publication_count"));
         var registry = new SimpleMeterRegistry();
         var sampler = new MqMetrics(groups, (group, topic) -> new MqMetrics.Stock(1, 2), registry, Clock.systemUTC());
         sampler.sample();
@@ -27,11 +27,11 @@ class MonitoringMetricsTest {
                     1,
                     registry.get(MetricNames.MQ_CONSUMER_PENDING).tags("group", group, "kind", kind).gauge().value());
         assertEquals(PublicationEffectMessage.TOPIC,
-                groups.get("video_publication_notice"));
+                groups.get("content_publication_notice"));
         assertEquals(PublicationEffectMessage.TOPIC,
-                groups.get("video_publication_audio_count"));
+                groups.get("content_publication_audio_count"));
         assertEquals(AudioContentBanMessage.TOPIC,
-                groups.get("video_audio_content_ban"));
+                groups.get("content_audio_content_ban"));
     }
 
     @Test

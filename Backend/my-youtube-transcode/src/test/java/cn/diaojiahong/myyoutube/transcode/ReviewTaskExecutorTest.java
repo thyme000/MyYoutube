@@ -15,7 +15,7 @@ import cn.diaojiahong.myyoutube.common.resilience.ModelCallGuard;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
 import cn.diaojiahong.myyoutube.transcode.task.ReviewTaskExecutor;
-import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
+import cn.diaojiahong.myyoutube.content.api.ContentPipelinePort;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;

@@ -3,7 +3,7 @@ package cn.diaojiahong.myyoutube.search;
 import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts;
 import cn.diaojiahong.myyoutube.search.domain.doc.AudioDoc;
 import cn.diaojiahong.myyoutube.search.service.AudioSearchService;
-import cn.diaojiahong.myyoutube.video.api.AudioDocumentPort;
+import cn.diaojiahong.myyoutube.content.api.AudioDocumentPort;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch.core.GetResponse;

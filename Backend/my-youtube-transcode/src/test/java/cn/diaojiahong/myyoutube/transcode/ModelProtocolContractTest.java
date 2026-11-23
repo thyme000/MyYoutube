@@ -13,7 +13,7 @@ import cn.diaojiahong.myyoutube.transcode.config.FeignRetryConfiguration;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import cn.diaojiahong.myyoutube.transcode.service.*;
 import cn.diaojiahong.myyoutube.transcode.task.MediaTaskExecutor;
-import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
+import cn.diaojiahong.myyoutube.content.api.ContentPipelinePort;
 import com.sun.net.httpserver.HttpServer;
 import feign.FeignException;
 import feign.Retryer;
@@ -108,7 +108,7 @@ class ModelProtocolContractTest {
         return new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(FeignAutoConfiguration.class,
                         JacksonAutoConfiguration.class, HttpMessageConvertersAutoConfiguration.class))
                 .withPropertyValues("my-youtube.asr.url=" + url, "my-youtube.ocr.url=" + url,
-                        "my-youtube.video-service.url=" + url, "my-youtube.transcode-service.url=" + url)
+                        "my-youtube.content-service.url=" + url, "my-youtube.transcode-service.url=" + url)
                 .withUserConfiguration(Clients.class);
     }
 

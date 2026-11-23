@@ -1,6 +1,6 @@
 -- MyYoutube MySQL 建表脚本(微服务多 schema 版)
 -- 主键两种风格: BIGINT 自增(AUTO) / 雪花ID(ASSIGN_ID, 应用生成, 不用 AUTO_INCREMENT)
--- 库划分与微服务一一对应: user_db(user 服务) / video_db(video 服务) / chat_db(chat 服务)
+-- 库划分与微服务一一对应: user_db(user 服务) / content_db(内容服务) / chat_db(chat 服务)
 -- search_db 保存热搜历史；admin 服务无自有 MySQL 库
 
 -- ==================== user_db: 用户库 ====================
@@ -91,9 +91,9 @@ VALUES (1, 'thyme', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6
 INSERT INTO `user` (`id`, `username`, `password`, `nickname`)
 VALUES (2, 'test', '$2a$10$fUZbRM.EdgUr5NK12rt7q.1T1b55RnIZvT3228v1gbmZbgxpojK6u', 'test');
 
--- ==================== video_db: 视频库(视频+互动+标签+通知) ====================
-CREATE DATABASE IF NOT EXISTS video_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE video_db;
+-- ==================== content_db: 内容库(视频、图文动态、互动、标签和通知) ====================
+CREATE DATABASE IF NOT EXISTS content_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE content_db;
 
 -- 统一内容池(消费者视角的跨内容表: 互动计数/分发/推荐/搜索都挂这里)
 -- 发布时先插本表拿雪花id, 领域表(video/dynamic)主键与之相同; 以后新增内容类型只需注册一个 type
@@ -314,7 +314,7 @@ CREATE TABLE IF NOT EXISTS `user_tag_preference` (
 ) ENGINE=InnoDB COMMENT='用户标签偏好';
 
 -- 用户-内容行为流水表(推荐用)
-CREATE TABLE IF NOT EXISTS `user_video_behavior` (
+CREATE TABLE IF NOT EXISTS `user_content_behavior` (
     `id`          BIGINT      NOT NULL COMMENT '雪花ID',
     `user_id`     BIGINT      NOT NULL COMMENT '用户ID',
     `content_id`  BIGINT      NOT NULL COMMENT '内容ID',
@@ -326,7 +326,7 @@ CREATE TABLE IF NOT EXISTS `user_video_behavior` (
     UNIQUE KEY `uk_user_content_session_event` (`user_id`, `content_id`, `session_id`, `event_type`),
     KEY `idx_user_time` (`user_id`, `created_at`),
     KEY `idx_content_id` (`content_id`)
-) ENGINE=InnoDB COMMENT='用户视频行为流水';
+) ENGINE=InnoDB COMMENT='用户内容行为流水';
 
 -- 用户不感兴趣的作品，每条独立到期
 CREATE TABLE IF NOT EXISTS `content_dislike` (
@@ -427,7 +427,7 @@ CREATE TABLE IF NOT EXISTS `dynamic` (
     `media_json` JSON NOT NULL COMMENT '有序图片、画布、转场和可选原始音频快照，无签名URL'
 ) ENGINE=InnoDB COMMENT='原生图集媒体';
 
--- 可靠管线事件与业务状态同库、同事务记录。video_db 与 transcode_db 各一份。
+-- 可靠管线事件与业务状态同库、同事务记录。content_db 与 transcode_db 各一份。
 CREATE TABLE IF NOT EXISTS pipeline_event_outbox (
     event_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY COMMENT '事件标识',
     aggregate_type VARCHAR(16) NOT NULL COMMENT 'TASK/PIPELINE/DRAFT/CONTENT/RETRY_BATCH',
@@ -452,8 +452,8 @@ CREATE TABLE IF NOT EXISTS pipeline_event_outbox (
 CREATE DATABASE IF NOT EXISTS transcode_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE transcode_db;
 
--- 列定义和表注释从 video_db.pipeline_event_outbox 复制
-CREATE TABLE IF NOT EXISTS pipeline_event_outbox LIKE video_db.pipeline_event_outbox;
+-- 列定义和表注释从 content_db.pipeline_event_outbox 复制
+CREATE TABLE IF NOT EXISTS pipeline_event_outbox LIKE content_db.pipeline_event_outbox;
 
 -- 懒转码任务表(动态成片生成; task_key 为元数据内容哈希, 同 key 在途任务复用即幂等)
 CREATE TABLE IF NOT EXISTS `transcode_task` (
@@ -474,8 +474,8 @@ CREATE TABLE IF NOT EXISTS `transcode_task` (
     KEY `idx_create_time` (`create_time`)
 ) ENGINE=InnoDB COMMENT='动态成片转码任务';
 
--- ==================== video_db: 视频上传草稿 ====================
-USE video_db;
+-- ==================== content_db: 视频上传草稿 ====================
+USE content_db;
 
 -- 视频上传后转码 READY；图集原生素材校验后 READY；提交冻结为 submitted。
 CREATE TABLE IF NOT EXISTS `media_draft` (
@@ -575,7 +575,7 @@ CREATE TABLE IF NOT EXISTS media_task (
     KEY idx_task_delivery(phase, completion_ack, status, id)
 ) ENGINE=InnoDB COMMENT='媒体处理任务';
 
-USE video_db;
+USE content_db;
 CREATE TABLE IF NOT EXISTS content_understanding (
     event_sequence BIGINT NOT NULL DEFAULT 0 COMMENT '已写入发件箱的最后事件序号',
     content_id BIGINT NOT NULL PRIMARY KEY COMMENT '内容ID, 与 content 相同',

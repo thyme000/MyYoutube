@@ -26,7 +26,7 @@ spring:
         cluster-name: ${NACOS_CLUSTER:DEFAULT}
 
   datasource:
-    # 必填：账号需能访问 user_db、video_db、chat_db、transcode_db。
+    # 必填：账号需能访问 user_db、content_db、chat_db、transcode_db。
     # 首次启动前导入 resources/schema.sql；Compose 只自动创建 my_youtube 空库。
     # 数据库地址/端口通过 DATASOURCE_HOST、DATASOURCE_PORT 覆盖，库名由各服务决定。
     url: jdbc:mysql://${DATASOURCE_HOST:localhost}:${DATASOURCE_PORT:3306}/${my-youtube.db-name}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
@@ -77,8 +77,8 @@ my-youtube:
   # 网关 lb:// 路由仍依赖 Nacos，以下 URL 不会改变网关路由。
   user-service:
     url: ${USER_SERVICE_URL:}
-  video-service:
-    url: ${VIDEO_SERVICE_URL:}
+  content-service:
+    url: ${CONTENT_SERVICE_URL:}
   chat-service:
     url: ${CHAT_SERVICE_URL:}
   search-service:

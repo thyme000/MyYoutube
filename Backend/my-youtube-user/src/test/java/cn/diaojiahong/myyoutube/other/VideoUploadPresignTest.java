@@ -5,7 +5,7 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.other.domain.vo.StoragePresignVO;
 import cn.diaojiahong.myyoutube.other.service.impl.OtherService;
-import cn.diaojiahong.myyoutube.video.api.MediaDraftPort;
+import cn.diaojiahong.myyoutube.content.api.MediaDraftPort;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;

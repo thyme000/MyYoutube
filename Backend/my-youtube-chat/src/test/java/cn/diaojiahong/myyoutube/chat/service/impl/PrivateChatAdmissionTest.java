@@ -23,7 +23,7 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
-import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
+import cn.diaojiahong.myyoutube.content.api.ContentInternalPort;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

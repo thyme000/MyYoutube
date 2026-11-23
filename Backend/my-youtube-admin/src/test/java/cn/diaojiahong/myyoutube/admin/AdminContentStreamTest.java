@@ -7,7 +7,7 @@ import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.security.PlaybackTokens;
 import cn.diaojiahong.myyoutube.user.api.UserRolePort;
 import cn.diaojiahong.myyoutube.user.api.enums.UserRole;
-import cn.diaojiahong.myyoutube.video.api.ContentAdminPort;
+import cn.diaojiahong.myyoutube.content.api.ContentAdminPort;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

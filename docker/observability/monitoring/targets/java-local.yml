@@ -3,7 +3,7 @@
 - targets: ["host.docker.internal:8081"]
   labels: {service: "my-youtube-user-service"}
 - targets: ["host.docker.internal:8082"]
-  labels: {service: "my-youtube-video-service"}
+  labels: {service: "my-youtube-content-service"}
 - targets: ["host.docker.internal:8083"]
   labels: {service: "my-youtube-chat-service"}
 - targets: ["host.docker.internal:8084"]

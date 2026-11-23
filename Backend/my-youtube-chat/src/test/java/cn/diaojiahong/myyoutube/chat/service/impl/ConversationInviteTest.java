@@ -17,7 +17,7 @@ import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import cn.diaojiahong.myyoutube.video.api.NotificationPort;
+import cn.diaojiahong.myyoutube.content.api.NotificationPort;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;

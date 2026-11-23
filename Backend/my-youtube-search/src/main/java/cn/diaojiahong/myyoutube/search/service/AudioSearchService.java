@@ -5,7 +5,7 @@ import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.media.AudioDiscoveryContracts.*;
 import cn.diaojiahong.myyoutube.search.api.AudioSearchPort;
 import cn.diaojiahong.myyoutube.search.domain.doc.AudioDoc;
-import cn.diaojiahong.myyoutube.video.api.AudioDocumentPort;
+import cn.diaojiahong.myyoutube.content.api.AudioDocumentPort;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.*;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;

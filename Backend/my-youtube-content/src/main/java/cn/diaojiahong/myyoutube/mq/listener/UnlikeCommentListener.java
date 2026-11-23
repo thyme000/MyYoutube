@@ -1,0 +1,38 @@
+package cn.diaojiahong.myyoutube.mq.listener;
+
+import cn.diaojiahong.myyoutube.mq.message.LikeCommentMessage;
+import cn.diaojiahong.myyoutube.content.api.enums.NotificationTypeEnum;
+import cn.diaojiahong.myyoutube.notification.service.IUserNotificationService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import cn.diaojiahong.myyoutube.notification.domain.po.UserNotification;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
+import org.apache.rocketmq.spring.core.RocketMQListener;
+import org.springframework.stereotype.Component;
+import cn.diaojiahong.myyoutube.mq.message.CommentMessage;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+@RocketMQMessageListener(
+        topic = CommentMessage.TOPIC,
+        consumerGroup = "comment_unlike_group",
+        selectorExpression = LikeCommentMessage.CANCEL_LIKE_TAG,
+        maxReconsumeTimes = 3)
+public class UnlikeCommentListener implements RocketMQListener<LikeCommentMessage> {
+
+    private final IUserNotificationService userNotificationService;
+
+    /**
+     * 删除原来的点赞评论通知
+     */
+    @Override
+    public void onMessage(LikeCommentMessage lc) {
+        log.debug("Comment unlike notification received commentId={} senderId={}", lc.getCommentId(), lc.getSenderId());
+        userNotificationService.remove(new LambdaQueryWrapper<UserNotification>()
+                .eq(UserNotification::getType, NotificationTypeEnum.COMMENT_LIKE.getCode())
+                .eq(UserNotification::getSenderId, lc.getSenderId())
+                .eq(UserNotification::getRefId, lc.getCommentId()));
+    }
+}

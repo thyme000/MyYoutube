@@ -9,14 +9,14 @@ from service_targets import diagnose_logs
 
 class LogDiagnosticsTests(unittest.TestCase):
     def test_missing_empty_and_present_sources_are_distinct(self):
-        services = [{"name": "video", "service": "my-youtube-video-service", "kind": "java"}]
+        services = [{"name": "content", "service": "my-youtube-content-service", "kind": "java"}]
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"OBSERVABILITY_LOG_DIRECTORY": directory}):
-            file = Path(directory).resolve() / "my-youtube-video-service.log"
-            self.assertEqual(diagnose_logs(services, {"video"}), [("video", "MISSING", str(file))])
+            file = Path(directory).resolve() / "my-youtube-content-service.log"
+            self.assertEqual(diagnose_logs(services, {"content"}), [("content", "MISSING", str(file))])
             file.touch()
-            self.assertEqual(diagnose_logs(services, {"video"})[0][1], "EMPTY")
+            self.assertEqual(diagnose_logs(services, {"content"})[0][1], "EMPTY")
             file.write_text("{}\n")
-            self.assertEqual(diagnose_logs(services, {"video"})[0][1], "SOURCE_PRESENT")
+            self.assertEqual(diagnose_logs(services, {"content"})[0][1], "SOURCE_PRESENT")
             self.assertEqual(diagnose_logs(services, set()), [])
 
     def test_custom_python_mount_and_ingest_filename(self):

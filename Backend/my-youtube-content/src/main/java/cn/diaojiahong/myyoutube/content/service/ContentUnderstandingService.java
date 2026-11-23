@@ -1,0 +1,371 @@
+package cn.diaojiahong.myyoutube.content.service;
+
+import cn.diaojiahong.myyoutube.common.media.PreparationContracts.ItemRole;
+import cn.diaojiahong.myyoutube.common.pipeline.PipelineEventCode;
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+import cn.diaojiahong.myyoutube.common.media.PipelineStatus;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.media.*;
+import cn.diaojiahong.myyoutube.common.media.PipelineContracts.*;
+import cn.diaojiahong.myyoutube.common.mq.message.*;
+import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
+import cn.diaojiahong.myyoutube.common.exception.BizException;
+import cn.diaojiahong.myyoutube.content.domain.po.Content;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceInvalidator;
+import cn.diaojiahong.myyoutube.content.cache.ContentResourceRegion;
+import cn.diaojiahong.myyoutube.recommend.auto.TagResultMapper;
+import cn.diaojiahong.myyoutube.recommend.service.IContentTagService;
+import cn.diaojiahong.myyoutube.transcode.api.MediaTaskPort;
+import cn.diaojiahong.myyoutube.content.config.ContentPipelineProperties;
+import cn.diaojiahong.myyoutube.content.domain.enums.ContentReviewState;
+import cn.diaojiahong.myyoutube.content.domain.enums.ContentReviewSource;
+import cn.diaojiahong.myyoutube.content.domain.po.ContentReviewRecord;
+import cn.diaojiahong.myyoutube.content.domain.po.ContentUnderstanding;
+import cn.diaojiahong.myyoutube.content.mapper.ContentReviewRecordMapper;
+import cn.diaojiahong.myyoutube.content.mapper.ContentUnderstandingMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.google.gson.JsonObject;
+import io.micrometer.core.instrument.MeterRegistry;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.*;
+import java.time.*;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ContentUnderstandingService {
+    private final ContentUnderstandingMapper understanding;
+    private final cn.diaojiahong.myyoutube.content.mapper.ContentMapper contents;
+    private final ContentReviewRecordMapper records;
+    private final ContentPipelineProperties properties;
+    private final MediaTaskPort tasks;
+    private final ContentArtifactStore artifacts;
+    private final TagResultMapper tagMapper;
+    private final IContentTagService contentTags;
+    private final RocketMQTemplate mq;
+    private final TransactionTemplate transaction;
+    private final MeterRegistry metrics;
+    private final ContentObservation observation;
+    private final ContentResourceInvalidator cacheInvalidator;
+
+    public Long enroll(cn.diaojiahong.myyoutube.content.domain.po.Content content, ContentMedia media) {
+        long id = IdWorker.getId(), submitted = System.currentTimeMillis();
+        var input = new Input(id, content.getId(), content.getAuthorId(), content.getTitle(),
+                content.getDescription(), content.getTags(), content.getCoverObjectKey(), media, submitted);
+        MediaInputs.validate(media, content.getCoverObjectKey());
+        ContentUnderstanding row = new ContentUnderstanding().setContentId(content.getId()).setPipelineId(id)
+                .setState(ContentReviewState.WAITING_PIPELINE).setInputJson(JsonUtil.toJson(input))
+                .setSubmissionAck(false).setReceived(false).setRetryRequested(false).setReviewAttempt(0)
+                .setSubmittedAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(submitted), ZoneOffset.UTC));
+        understanding.insert(row);
+        observation.record(row, PipelineEventCode.CONTENT_SUBMITTED,
+                null, ContentReviewState.WAITING_PIPELINE.name());
+        afterCommit(() -> log.info("Content submitted for understanding contentId={} pipelineId={} authorId={} media={}",
+                content.getId(), id, content.getAuthorId(), media.type()));
+        afterCommit(() -> submit(input));
+        return id;
+    }
+
+    private void submit(Input input) {
+        mq.syncSend(ContentSubmittedMessage.TOPIC, new ContentSubmittedMessage(input));
+        var ack = new TransactionTemplate(transaction.getTransactionManager());
+        ack.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        ack.executeWithoutResult(tx -> understanding.update(null, new LambdaUpdateWrapper<ContentUnderstanding>().eq(
+                ContentUnderstanding::getPipelineId,
+                input.pipelineId())
+                .set(ContentUnderstanding::getSubmissionAck, true)));
+    }
+
+    public void accept(ContentUnderstoodMessage event) {
+        PipelineContracts.Manifest manifest = Objects.requireNonNull(event.manifest());
+        ContentUnderstanding current = understanding.selectById(manifest.contentId());
+        if (current == null
+                || !Objects.equals(current.getPipelineId(), manifest.pipelineId())) {
+            throw new IllegalArgumentException("Unknown Pipeline");
+        }
+        if (Boolean.TRUE.equals(current.getReceived()) || current.getState() == ContentReviewState.CANCELLED) {
+            SkipReason reason = Boolean.TRUE.equals(current.getReceived())
+                    ? SkipReason.ALREADY_RECEIVED : SkipReason.CANCELLED;
+            log.debug(
+                    "Pipeline manifest ignored contentId={} pipelineId={} reason={}",
+                    manifest.contentId(),
+                    manifest.pipelineId(),
+                    reason);
+            tasks.received(manifest.pipelineId());
+            return;
+        }
+
+        LoadedArtifacts loaded = loadArtifacts(manifest, current);
+        Long receivedAt = transaction.execute(tx -> storeArtifacts(manifest, loaded));
+
+        recordReceipt(manifest, receivedAt);
+        tasks.received(manifest.pipelineId());
+    }
+
+    private LoadedArtifacts loadArtifacts(Manifest manifest, ContentUnderstanding current) {
+        if (!PipelineStatus.COMPLETED.equals(manifest.status())
+                || !manifest.hasCompleteResults()) {
+            throw new IllegalArgumentException("Incomplete Pipeline manifest");
+        }
+        if (!manifest.input().equals(JsonUtil.fromJson(current.getInputJson(), Input.class))) {
+            throw new IllegalArgumentException("Pipeline input mismatch");
+        }
+
+        JsonObject asr = StructuredJson.object(manifest.result(MediaTaskType.ASR));
+        JsonObject ocr = StructuredJson.object(manifest.result(MediaTaskType.OCR));
+        JsonObject cover = StructuredJson.object(manifest.result(MediaTaskType.COVER));
+        JsonObject summaryPointer = StructuredJson.object(manifest.result(MediaTaskType.SUMMARY));
+        JsonObject tagPointer = StructuredJson.object(manifest.result(MediaTaskType.TAG));
+        ContentArtifacts.Summary summary = artifacts.read(
+                summaryPointer.get(ContentArtifacts.ARTIFACT_KEY).getAsString(),
+                ContentArtifacts.Summary.class);
+        String rawTags = artifacts.read(tagPointer.get(ContentArtifacts.ARTIFACT_KEY).getAsString(), JsonObject.class).toString();
+        TagResultMapper.validate(rawTags);
+        if (summary == null
+                || summary.summary() == null
+                || summary.chapters() == null
+                || cover.get(ContentArtifacts.COVER_OBJECT_KEY).getAsString().isBlank()) {
+            throw new IllegalArgumentException("Malformed Pipeline artifacts");
+        }
+
+        String coverKey = cover.get(ContentArtifacts.COVER_OBJECT_KEY).getAsString();
+        validateCover(manifest.input(), coverKey);
+        return new LoadedArtifacts(coverKey, asr, ocr, summaryPointer, tagPointer, summary, rawTags);
+    }
+
+    private void validateCover(Input input, String coverKey) {
+        MediaInputs.objectKey(coverKey);
+        if (input.media().dynamic() != null && !coverKey.equals(input.coverObjectKey())) {
+            throw new IllegalArgumentException("图集封面与提交快照不一致");
+        }
+        if (input.media().video() != null && input.media().preparation() != null
+                && input.media().preparation().items().stream()
+                .noneMatch(item -> ItemRole.FRAME.equals(item.role()) && coverKey.equals(item.objectKey()))) {
+            throw new IllegalArgumentException("视频封面不属于公共准备帧");
+        }
+    }
+
+    private Long storeArtifacts(Manifest manifest, LoadedArtifacts loaded) {
+        ContentUnderstanding row = locked(manifest.contentId());
+        if (!Objects.equals(row.getPipelineId(), manifest.pipelineId()) || Boolean.TRUE.equals(row.getReceived())
+                || row.getState() == ContentReviewState.CANCELLED) {
+            return null;
+        }
+
+        Content content = contents.selectById(manifest.contentId());
+        if (content == null || Integer.valueOf(1).equals(content.getIsDelete())) {
+            understanding.update(null, patch(row).set(ContentUnderstanding::getState, ContentReviewState.CANCELLED));
+            observation.record(row, PipelineEventCode.CONTENT_CANCELLED,
+                    row.getState().name(), ContentReviewState.CANCELLED.name());
+            log.info("Pipeline artifacts discarded contentId={} pipelineId={} reason={}",
+                    manifest.contentId(), manifest.pipelineId(), SkipReason.CONTENT_DELETED);
+            return null;
+        }
+
+        TagResultMapper.Mapped mapped = tagMapper.map(loaded.rawTags());
+        contentTags.saveAutoTags(content.getId(), mapped.weights());
+        contents.update(null, new LambdaUpdateWrapper<Content>()
+                .eq(Content::getId, content.getId())
+                .setSql("index_version = index_version + 1")
+                .set(Content::getCoverObjectKey, loaded.coverKey())
+                .set(Content::getTags, String.join(",", mapped.names()))
+                .set(Content::getCategoryCode, mapped.categoryCode()));
+        cacheInvalidator.evictAfterCommit(ContentResourceRegion.CONTENT_STATE, content.getId().toString());
+
+        long readyAt = System.currentTimeMillis();
+        understanding.update(null, patch(row)
+                .set(ContentUnderstanding::getSubtitleKey, loaded.asr().get(ContentArtifacts.VTT_KEY).getAsString())
+                .set(ContentUnderstanding::getSegmentsKey, loaded.asr().get(ContentArtifacts.SEGMENTS_KEY).getAsString())
+                .set(ContentUnderstanding::getOcrKey, loaded.ocr().get(ContentArtifacts.ARTIFACT_KEY).getAsString())
+                .set(ContentUnderstanding::getSummaryKey,
+                        loaded.summaryPointer().get(ContentArtifacts.ARTIFACT_KEY).getAsString())
+                .set(ContentUnderstanding::getTagKey,
+                        loaded.tagPointer().get(ContentArtifacts.ARTIFACT_KEY).getAsString())
+                .set(ContentUnderstanding::getSummary, loaded.summary().summary())
+                .set(ContentUnderstanding::getChaptersJson, JsonUtil.toJson(loaded.summary().chapters()))
+                .set(ContentUnderstanding::getReceived, true)
+                .set(ContentUnderstanding::getRetryRequested, false)
+                .set(ContentUnderstanding::getReceivedAt, LocalDateTime.ofInstant(Instant.ofEpochMilli(readyAt), ZoneOffset.UTC))
+                .set(ContentUnderstanding::getState,
+                        properties.isAutoReview() ? ContentReviewState.AUTO_PENDING : ContentReviewState.MANUAL_PENDING));
+        cacheInvalidator.evictAfterCommit(ContentResourceRegion.UNDERSTANDING, content.getId().toString());
+        observation.record(row, PipelineEventCode.ARTIFACTS_STORED, row.getState().name(),
+                properties.isAutoReview() ? ContentReviewState.AUTO_PENDING.name() : ContentReviewState.MANUAL_PENDING.name());
+        if (properties.isAutoReview()) afterCommit(() -> requestReview(manifest.pipelineId()));
+        return readyAt;
+    }
+
+    private void recordReceipt(Manifest manifest, Long receivedAt) {
+        if (receivedAt != null) {
+            long readyElapsedMs = Math.max(0, receivedAt - manifest.input().submittedAt());
+            metrics.timer(MetricNames.MEDIA_PIPELINE_READY_DURATION).record(readyElapsedMs, TimeUnit.MILLISECONDS);
+            log.info("Pipeline artifacts stored contentId={} pipelineId={} review={} readyElapsedMs={}",
+                    manifest.contentId(),
+                    manifest.pipelineId(),
+                    properties.isAutoReview() ? ContentReviewSource.AUTO : ContentReviewSource.MANUAL,
+                    readyElapsedMs);
+        } else {
+            log.debug("Pipeline artifacts not stored contentId={} pipelineId={} reason={}",
+                    manifest.contentId(), manifest.pipelineId(), SkipReason.STALE_OR_CANCELLED);
+        }
+    }
+
+    private record LoadedArtifacts(String coverKey, JsonObject asr, JsonObject ocr, JsonObject summaryPointer,
+            JsonObject tagPointer, ContentArtifacts.Summary summary, String rawTags) {}
+
+    private enum SkipReason {
+        ALREADY_RECEIVED, CANCELLED, CONTENT_DELETED, STALE_OR_CANCELLED,
+        NOT_REGISTERED, ARTIFACTS_ALREADY_RECEIVED, MISSING
+    }
+
+    private void requestReview(Long pipelineId) {
+        mq.syncSend(ReviewRequestedMessage.TOPIC, new ReviewRequestedMessage(pipelineId));
+    }
+
+    public boolean retry(Long contentId) {
+        ContentUnderstanding row = understanding.selectById(contentId);
+        if (row == null
+                || Boolean.TRUE.equals(row.getReceived())
+                || row.getState() != ContentReviewState.WAITING_PIPELINE) {
+            log.debug("Pipeline retry rejected contentId={} reason={}", contentId, retryRejectionReason(row));
+            return false;
+        }
+        MediaTaskPort.PipelineView pipeline = tasks.pipeline(row.getPipelineId());
+        if (pipeline == null || !PipelineStatus.WAITING_ARTIFACTS.equals(pipeline.status())) {
+            log.debug(
+                    "Pipeline retry rejected contentId={} pipelineId={} reason=PIPELINE_{}",
+                    contentId,
+                    row.getPipelineId(),
+                    pipeline == null ? SkipReason.MISSING : pipeline.status());
+            return false;
+        }
+        transaction.executeWithoutResult(tx -> understanding.update(null, patch(row).eq(
+                ContentUnderstanding::getReceived,
+                false)
+                .set(ContentUnderstanding::getRetryRequested, true)));
+        return retryRequested(row);
+    }
+
+    private String retryRejectionReason(ContentUnderstanding row) {
+        if (row == null) {
+            return SkipReason.NOT_REGISTERED.name();
+        }
+        if (Boolean.TRUE.equals(row.getReceived())) {
+            return SkipReason.ARTIFACTS_ALREADY_RECEIVED.name();
+        }
+        return "STATE_" + row.getState();
+    }
+
+    private boolean retryRequested(ContentUnderstanding row) {
+        boolean applied = tasks.retry(row.getPipelineId());
+        if (applied) understanding.update(null, patch(row).set(ContentUnderstanding::getRetryRequested, false));
+        return applied;
+    }
+
+    @Scheduled(fixedDelay = 300000, initialDelay = 300000)
+    public void reconcile() {
+        if (!properties.isAutoReview()) handoffReviews();
+        long cursor = 0;
+        while (true) {
+            List<ContentUnderstanding> rows = understanding.selectList(new LambdaQueryWrapper<ContentUnderstanding>().gt(
+                    ContentUnderstanding::getContentId,
+                    cursor)
+                    .and(q -> q.eq(ContentUnderstanding::getSubmissionAck, false).or().eq(
+                            ContentUnderstanding::getRetryRequested,
+                            true)
+                            .or().eq(ContentUnderstanding::getState, ContentReviewState.AUTO_PENDING))
+                    .orderByAsc(ContentUnderstanding::getContentId).last("LIMIT 100"));
+            if (rows.isEmpty()) break;
+            cursor = rows.get(rows.size()-1).getContentId();
+            for (ContentUnderstanding row : rows) try {
+                if (!Boolean.TRUE.equals(row.getSubmissionAck())) submit(JsonUtil.fromJson(
+                        row.getInputJson(),
+                        Input.class));
+                if (Boolean.TRUE.equals(row.getRetryRequested())) retryRequested(row);
+                if (properties.isAutoReview()
+                        && row.getState() == ContentReviewState.AUTO_PENDING) {
+                    requestReview(row.getPipelineId());
+                }
+            } catch (Exception e) {
+                log.error("Pipeline registration recovery failed pipelineId={}", row.getPipelineId(), e);
+            }
+        }
+    }
+
+    public Map<String, Object> status(Long contentId) {
+        ContentUnderstanding row = understanding.selectById(contentId);
+        if (row == null) throw new BizException(ErrorCode.STATE_CONFLICT, "内容尚未提交加工");
+        var result = new LinkedHashMap<String, Object>();
+        result.put("understanding", row);
+        result.put("pipeline", tasks.pipeline(row.getPipelineId()));
+        result.put(
+                "reviews",
+                records.selectList(new LambdaQueryWrapper<ContentReviewRecord>().eq(ContentReviewRecord::getContentId, contentId).orderByAsc(ContentReviewRecord::getCreateTime)));
+        return result;
+    }
+
+    public List<MediaTaskPort.PipelineView> waiting(int page, int size) {
+        return tasks.waiting(page, size);
+    }
+
+    private void handoffReviews() {
+        long cursor = 0;
+        while (true) {
+            List<ContentUnderstanding> page = understanding.selectList(new LambdaQueryWrapper<ContentUnderstanding>().gt(
+                    ContentUnderstanding::getContentId,
+                    cursor)
+                    .in(ContentUnderstanding::getState, ContentReviewState.AUTO_PENDING, ContentReviewState.AUTO_RUNNING)
+                    .orderByAsc(ContentUnderstanding::getContentId)
+                    .last("LIMIT 100"));
+            if (page.isEmpty()) return;
+            cursor = page.get(page.size() - 1).getContentId();
+            for (ContentUnderstanding candidate : page) transaction.executeWithoutResult(tx -> {
+                ContentUnderstanding row = locked(candidate.getContentId());
+                if (row == null
+                        || !Set.of(ContentReviewState.AUTO_PENDING, ContentReviewState.AUTO_RUNNING)
+                        .contains(row.getState())) {
+                    return;
+                }
+                understanding.update(null, patch(row).set(ContentUnderstanding::getState, ContentReviewState.MANUAL_PENDING));
+                observation.record(row, PipelineEventCode.REVIEW_MANUAL_PENDING,
+                        row.getState().name(), ContentReviewState.MANUAL_PENDING.name());
+            });
+        }
+    }
+
+    public ContentUnderstanding locked(Long id) {
+        return understanding.selectOne(new LambdaQueryWrapper<ContentUnderstanding>().eq(ContentUnderstanding::getContentId, id).last("FOR UPDATE"));
+    }
+
+    /** 直接查库，供提交回执等业务读取；展示产物请使用 ContentUnderstandingResources。 */
+    public ContentUnderstanding get(Long id) {
+        return understanding.selectById(id);
+    }
+
+    private LambdaUpdateWrapper<ContentUnderstanding> patch(ContentUnderstanding row) {
+        return new LambdaUpdateWrapper<ContentUnderstanding>()
+                .eq(ContentUnderstanding::getContentId, row.getContentId())
+                .eq(ContentUnderstanding::getPipelineId, row.getPipelineId());
+    }
+
+    private void afterCommit(Runnable action) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    action.run();
+                } catch (Exception e) {
+                    log.error("Pipeline notification deferred to recovery", e);
+                }
+            }
+        });
+    }
+}

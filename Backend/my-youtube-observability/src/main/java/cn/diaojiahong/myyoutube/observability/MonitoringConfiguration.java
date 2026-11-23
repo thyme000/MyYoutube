@@ -50,12 +50,12 @@ public class MonitoringConfiguration {
                 Map.entry("transcode_content_submitted", ContentSubmittedMessage.TOPIC),
                 Map.entry("transcode_review_requested", ReviewRequestedMessage.TOPIC),
                 Map.entry("transcode_media_upload_event_group", MediaUploadEventMessage.TOPIC),
-                Map.entry("video_content_understood", ContentUnderstoodMessage.TOPIC),
-                Map.entry("video_review_result", PipelineContracts.ReviewResult.TOPIC),
-                Map.entry("video_audio_content_ban", AudioContentBanMessage.TOPIC),
-                Map.entry("video_publication_search", PublicationEffectMessage.TOPIC),
-                Map.entry("video_publication_notice", PublicationEffectMessage.TOPIC),
-                Map.entry("video_publication_audio_count", PublicationEffectMessage.TOPIC));
+                Map.entry("content_understood", ContentUnderstoodMessage.TOPIC),
+                Map.entry("content_review_result", PipelineContracts.ReviewResult.TOPIC),
+                Map.entry("content_audio_content_ban", AudioContentBanMessage.TOPIC),
+                Map.entry("content_publication_search", PublicationEffectMessage.TOPIC),
+                Map.entry("content_publication_notice", PublicationEffectMessage.TOPIC),
+                Map.entry("content_publication_audio_count", PublicationEffectMessage.TOPIC));
     }
 
     @Bean

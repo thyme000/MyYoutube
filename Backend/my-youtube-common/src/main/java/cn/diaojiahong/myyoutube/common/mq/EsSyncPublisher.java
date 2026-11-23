@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * ES 文档同步的 MQ 生产门面: TOPIC+TAG 拼接与延迟合并秒数统一在此。
- * 内容文档的消息体组装(video/dynamic 领域对象 → ContentDocMessage)在 video 模块的 ContentDocMessages。
+ * 内容文档的消息体组装(video/dynamic 领域对象 → ContentDocMessage)在内容模块的 ContentDocMessages。
  */
 @Component
 @RequiredArgsConstructor

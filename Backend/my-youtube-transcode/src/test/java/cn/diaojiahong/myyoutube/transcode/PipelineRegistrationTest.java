@@ -16,7 +16,7 @@ import cn.diaojiahong.myyoutube.transcode.preparation.PreparationLifecycle;
 import cn.diaojiahong.myyoutube.transcode.service.MediaTaskDispatcher;
 import cn.diaojiahong.myyoutube.transcode.service.MediaTaskService;
 import cn.diaojiahong.myyoutube.transcode.service.PipelineEventJournal;
-import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
+import cn.diaojiahong.myyoutube.content.api.ContentPipelinePort;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;

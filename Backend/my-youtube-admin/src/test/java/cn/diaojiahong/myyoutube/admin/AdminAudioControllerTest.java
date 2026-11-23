@@ -6,7 +6,7 @@ import cn.diaojiahong.myyoutube.common.result.ErrorCode;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.video.api.AudioAdminPort;
+import cn.diaojiahong.myyoutube.content.api.AudioAdminPort;
 import cn.diaojiahong.myyoutube.common.handler.GlobalExceptionHandler;
 import org.junit.jupiter.api.*;
 import org.springframework.http.MediaType;

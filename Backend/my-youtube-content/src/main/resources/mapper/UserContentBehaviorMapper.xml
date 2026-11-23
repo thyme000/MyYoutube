@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.diaojiahong.myyoutube.recommend.mapper.UserContentBehaviorMapper">
+    <insert id="insertIgnore">
+        INSERT IGNORE INTO user_content_behavior (id, user_id, content_id, session_id, event_type, duration_ms)
+        VALUES (#{id}, #{userId}, #{contentId}, #{sessionId}, #{eventType}, #{durationMs})
+    </insert>
+
+    <select id="recentPositiveSeeds" resultType="cn.diaojiahong.myyoutube.recommend.mapper.UserContentBehaviorMapper$Seed">
+        <bind name="play" value="@cn.diaojiahong.myyoutube.recommend.domain.enums.EventEnum@PLAY.code"/>
+        <bind name="finish" value="@cn.diaojiahong.myyoutube.recommend.domain.enums.EventEnum@FINISH.code"/>
+        SELECT content_id AS contentId, MAX(created_at) AS createdAt
+        FROM (
+            SELECT content_id, created_at
+            FROM user_content_behavior
+            WHERE user_id = #{userId} AND created_at &gt;= #{since} AND event_type IN (#{play}, #{finish})
+            UNION ALL
+            SELECT content_id, create_time AS created_at
+            FROM content_like
+            WHERE user_id = #{userId} AND create_time &gt;= #{since}
+        ) positive_feedback
+        GROUP BY content_id
+        ORDER BY createdAt DESC, contentId DESC
+        LIMIT #{limit}
+    </select>
+</mapper>

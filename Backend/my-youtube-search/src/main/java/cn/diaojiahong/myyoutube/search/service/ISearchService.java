@@ -7,18 +7,18 @@ import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.TagSearchCursorQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.ContentSearchCursorQuery;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchUserVO;
-import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
+import cn.diaojiahong.myyoutube.search.domain.vo.SearchContentVO;
 
 import java.util.List;
 
 public interface ISearchService {
-    CursorPage<SearchVideoVO, String> searchVideo(ContentSearchCursorQuery query);
+    CursorPage<SearchContentVO, String> searchContent(ContentSearchCursorQuery query);
 
     PageResult<SearchUserVO> searchUser(SearchUserPageQuery pageQuery);
 
     List<String> prompt(String keyword);
 
-    CursorPage<SearchVideoVO, String> searchByTag(TagSearchCursorQuery pageQuery);
+    CursorPage<SearchContentVO, String> searchByTag(TagSearchCursorQuery pageQuery);
 
     List<String> hot();
 }

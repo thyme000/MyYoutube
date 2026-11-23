@@ -48,7 +48,7 @@
 		</dependency>
 		<dependency>
 			<groupId>cn.diaojiahong</groupId>
-			<artifactId>my-youtube-video-api</artifactId>
+			<artifactId>my-youtube-content-api</artifactId>
 			<version>${project.version}</version>
 		</dependency>
 		<dependency>

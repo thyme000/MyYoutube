@@ -21,7 +21,7 @@
 		</dependency>
 		<dependency>
 			<groupId>cn.diaojiahong</groupId>
-			<artifactId>my-youtube-video</artifactId>
+			<artifactId>my-youtube-content</artifactId>
 			<version>${project.version}</version>
 			<scope>test</scope>
 		</dependency>

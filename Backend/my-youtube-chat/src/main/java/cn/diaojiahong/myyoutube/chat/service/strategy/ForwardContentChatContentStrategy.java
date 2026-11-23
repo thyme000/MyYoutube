@@ -6,7 +6,7 @@ import cn.diaojiahong.myyoutube.chat.domain.po.ChatContent;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
+import cn.diaojiahong.myyoutube.content.api.ContentInternalPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

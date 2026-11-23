@@ -4,7 +4,7 @@ import cn.diaojiahong.myyoutube.admin.security.AdminAuthorization;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.common.page.PageQuery;
 import cn.diaojiahong.myyoutube.common.page.PageResult;
-import cn.diaojiahong.myyoutube.video.api.AudioAdminPort;
+import cn.diaojiahong.myyoutube.content.api.AudioAdminPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 

@@ -7,7 +7,7 @@ import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.TagSearchCursorQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.ContentSearchCursorQuery;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchUserVO;
-import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
+import cn.diaojiahong.myyoutube.search.domain.vo.SearchContentVO;
 import cn.diaojiahong.myyoutube.search.service.ISearchService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,8 +29,8 @@ public class SearchController {
             summary = "搜索内容",
             description = "可搜索标题、描述、标签、用户昵称等。条数由服务端决定：综合首批用配置的首批数量，最新排序和后续页用配置的每页条数。过滤或补取限制可导致短页。返回 items、nextCursor、hasMore，是否继续只看 hasMore；不返回总数")
     @GetMapping("/video")
-    public Result<CursorPage<SearchVideoVO, String>> searchVideo(@ModelAttribute ContentSearchCursorQuery query) {
-        return Result.success(searchService.searchVideo(query));
+    public Result<CursorPage<SearchContentVO, String>> searchContent(@ModelAttribute ContentSearchCursorQuery query) {
+        return Result.success(searchService.searchContent(query));
     }
 
     @Operation(summary = "用户搜索用户", description = "可搜索用户昵称、用户简介等")
@@ -47,7 +47,7 @@ public class SearchController {
 
     @Operation(summary = "根据标签搜索内容", description = "游标分页，过滤不可见内容，预算用尽时可能返回短页")
     @GetMapping("/tag")
-    public Result<CursorPage<SearchVideoVO, String>> searchByTag(@ModelAttribute TagSearchCursorQuery pageQuery) {
+    public Result<CursorPage<SearchContentVO, String>> searchByTag(@ModelAttribute TagSearchCursorQuery pageQuery) {
         return Result.success(searchService.searchByTag(pageQuery));
     }
 

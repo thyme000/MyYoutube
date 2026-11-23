@@ -10,7 +10,7 @@ import java.util.List;
 
 /**
  * MQ消息体,用来更新统一内容池的 ES 文档。
- * 生产方在 video 服务, 消费方在 search 服务, 消息体放 common 单点。
+ * 生产方在内容服务, 消费方在 search 服务, 消息体放 common 单点。
  */
 @Data
 @Builder

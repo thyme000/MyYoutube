@@ -4,13 +4,13 @@ import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
 
 import cn.diaojiahong.myyoutube.common.monitoring.ObservedBusiness;
 import cn.diaojiahong.myyoutube.common.monitoring.BusinessOperation;
-import cn.diaojiahong.myyoutube.video.api.CfRecommendPort;
+import cn.diaojiahong.myyoutube.content.api.CfRecommendPort;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.recommend.domain.doc.ContentDoc;
 import cn.diaojiahong.myyoutube.recommend.service.IRecommendService;
-import cn.diaojiahong.myyoutube.video.api.PreferencePort;
-import cn.diaojiahong.myyoutube.video.api.ViewHistoryPort;
+import cn.diaojiahong.myyoutube.content.api.PreferencePort;
+import cn.diaojiahong.myyoutube.content.api.ViewHistoryPort;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.Time;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;

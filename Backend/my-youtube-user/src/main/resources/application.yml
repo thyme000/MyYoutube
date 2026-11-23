@@ -18,6 +18,6 @@ server:
 
 my-youtube:
   db-name: user_db
-  # video-service 已注册进 Nacos, 置空走负载均衡; 回退时设 VIDEO_SERVICE_URL=http://localhost:8090
-  video-service:
-    url: ${VIDEO_SERVICE_URL:}
+  # content-service 已注册进 Nacos, 置空走负载均衡; 回退时设 CONTENT_SERVICE_URL=http://localhost:8082
+  content-service:
+    url: ${CONTENT_SERVICE_URL:}

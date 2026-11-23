@@ -20,7 +20,7 @@ import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
+import cn.diaojiahong.myyoutube.content.api.ContentInternalPort;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;

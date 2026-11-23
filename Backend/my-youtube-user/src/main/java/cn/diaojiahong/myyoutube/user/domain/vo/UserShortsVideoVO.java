@@ -1,6 +1,6 @@
 package cn.diaojiahong.myyoutube.user.domain.vo;
 
-import cn.diaojiahong.myyoutube.video.api.dto.ContentCardVO;
+import cn.diaojiahong.myyoutube.content.api.dto.ContentCardVO;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 

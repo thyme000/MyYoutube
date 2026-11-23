@@ -84,7 +84,7 @@ class UserAdministrationIntegrationTest {
         jdbc = new JdbcTemplate(source);
         String schema = Files.readString(Path.of("../../resources/schema.sql"));
         String userSchema = schema.substring(schema.indexOf("CREATE TABLE IF NOT EXISTS `user`"),
-                schema.indexOf("-- ==================== video_db"));
+                schema.indexOf("-- ==================== content_db"));
         new ResourceDatabasePopulator(new ByteArrayResource(userSchema.getBytes(StandardCharsets.UTF_8)))
                 .execute(source);
         jdbc.update("""

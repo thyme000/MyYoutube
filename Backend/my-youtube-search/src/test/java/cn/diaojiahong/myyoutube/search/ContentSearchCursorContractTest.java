@@ -3,7 +3,7 @@ package cn.diaojiahong.myyoutube.search;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.search.controller.SearchController;
 import cn.diaojiahong.myyoutube.search.domain.dto.ContentSearchCursorQuery;
-import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
+import cn.diaojiahong.myyoutube.search.domain.vo.SearchContentVO;
 import cn.diaojiahong.myyoutube.search.service.ISearchService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -19,9 +19,9 @@ class ContentSearchCursorContractTest {
     @Test
     void endpointBindsCursorAndReturnsItemsWithoutPageTotals() throws Exception {
         ISearchService service = mock(ISearchService.class);
-        SearchVideoVO row = new SearchVideoVO();
+        SearchContentVO row = new SearchContentVO();
         row.setId("9007199254740993");
-        when(service.searchVideo(any())).thenReturn(new CursorPage<>(List.of(row), "next"));
+        when(service.searchContent(any())).thenReturn(new CursorPage<>(List.of(row), "next"));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new SearchController(service)).build();
 
         mvc.perform(get("/search/video").param("keyword", "camera").param("cursor", "previous")
@@ -33,7 +33,7 @@ class ContentSearchCursorContractTest {
                 .andExpect(jsonPath("$.data.total").doesNotExist()).andExpect(jsonPath("$.data.pages").doesNotExist());
 
         ArgumentCaptor<ContentSearchCursorQuery> query = ArgumentCaptor.forClass(ContentSearchCursorQuery.class);
-        verify(service).searchVideo(query.capture());
+        verify(service).searchContent(query.capture());
         assertEquals("previous", query.getValue().getCursor());
         assertTrue(query.getValue().isSortByLatest());
     }

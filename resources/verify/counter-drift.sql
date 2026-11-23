@@ -13,9 +13,9 @@ SELECT 'content.like_count' AS counter,
        COALESCE(MIN(diff), 0)            AS min_diff,
        COALESCE(MAX(diff), 0)            AS max_diff
 FROM (SELECT c.id, c.like_count - COALESCE(l.cnt, 0) AS diff
-      FROM video_db.content c
+      FROM content_db.content c
                LEFT JOIN (SELECT content_id, COUNT(*) AS cnt
-                          FROM video_db.content_like
+                          FROM content_db.content_like
                           GROUP BY content_id) l ON l.content_id = c.id) t
 
 UNION ALL
@@ -29,9 +29,9 @@ SELECT 'comment.like_count',
        COALESCE(MIN(diff), 0),
        COALESCE(MAX(diff), 0)
 FROM (SELECT c.id, c.like_count - COALESCE(cl.cnt, 0) AS diff
-      FROM video_db.content_comment c
+      FROM content_db.content_comment c
                LEFT JOIN (SELECT comment_id, COUNT(*) AS cnt
-                          FROM video_db.content_comment_like
+                          FROM content_db.content_comment_like
                           WHERE is_liked = 1
                           GROUP BY comment_id) cl ON cl.comment_id = c.id) t
 
@@ -81,9 +81,9 @@ SELECT 'author_like_count',
        COALESCE(MAX(diff), 0)
 FROM (SELECT c.author_id, COALESCE(a.like_count, 0) - c.cnt AS diff
       FROM (SELECT author_id, SUM(like_count) AS cnt
-            FROM video_db.content
+            FROM content_db.content
             GROUP BY author_id) c
-               LEFT JOIN video_db.author_like_count a ON a.author_id = c.author_id) t
+               LEFT JOIN content_db.author_like_count a ON a.author_id = c.author_id) t
 
 UNION ALL
 
@@ -97,12 +97,12 @@ SELECT 'user.like_count',
        COALESCE(MAX(diff), 0)
 FROM (SELECT u.id, u.like_count - COALESCE(a.like_count, 0) AS diff
       FROM user_db.user u
-               LEFT JOIN video_db.author_like_count a ON a.author_id = u.id) t;
+               LEFT JOIN content_db.author_like_count a ON a.author_id = u.id) t;
 
 -- 只看偏差明细(排查用, 与上面的汇总二选一)
 -- SELECT * FROM (
 --     SELECT 'content.like_count' AS counter, c.id AS ref_id, c.like_count AS db_value, COALESCE(l.cnt, 0) AS truth
---     FROM video_db.content c
---              LEFT JOIN (SELECT content_id, COUNT(*) cnt FROM video_db.content_like GROUP BY content_id) l
+--     FROM content_db.content c
+--              LEFT JOIN (SELECT content_id, COUNT(*) cnt FROM content_db.content_like GROUP BY content_id) l
 --                        ON l.content_id = c.id
 -- ) t WHERE db_value <> truth;

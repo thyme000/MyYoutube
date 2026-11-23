@@ -1,8 +1,8 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
-import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
-import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
+import cn.diaojiahong.myyoutube.content.api.ContentSummaryPort;
+import cn.diaojiahong.myyoutube.content.api.dto.ContentSummary;
 import com.google.gson.JsonObject;
 import com.sun.net.httpserver.HttpServer;
 import feign.Feign;

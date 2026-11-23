@@ -10,7 +10,7 @@ import cn.diaojiahong.myyoutube.transcode.api.*;
 import cn.diaojiahong.myyoutube.transcode.cover.VideoCoverGenerator;
 import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
 import cn.diaojiahong.myyoutube.transcode.task.*;
-import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
+import cn.diaojiahong.myyoutube.content.api.ContentPipelinePort;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

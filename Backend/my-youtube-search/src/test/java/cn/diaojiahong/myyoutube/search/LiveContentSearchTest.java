@@ -16,7 +16,7 @@ import cn.diaojiahong.myyoutube.search.vector.VectorProperties;
 import cn.diaojiahong.myyoutube.search.domain.doc.UserDocRepository;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
+import cn.diaojiahong.myyoutube.content.api.ContentInternalPort;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;

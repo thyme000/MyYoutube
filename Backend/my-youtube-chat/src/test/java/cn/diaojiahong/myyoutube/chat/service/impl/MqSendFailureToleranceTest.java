@@ -25,7 +25,7 @@ import cn.diaojiahong.myyoutube.mq.message.ReadMessageMessage;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
-import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
+import cn.diaojiahong.myyoutube.content.api.ContentInternalPort;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;

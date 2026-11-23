@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 
 /**
- * 内部接口: 供 video 服务经 Feign 调用。提交按 task_key(内容哈希) 幂等 ——
+ * 内部接口: 供内容服务经 Feign 调用。提交按 task_key(内容哈希) 幂等 ——
  * 已有 DONE 直接镜像一条即时完成记录(成片缓存共享); 在途任务各请求者独立建行,
  * 完成时同 key 全部落 DONE 并逐用户 SSE 通知。
  */

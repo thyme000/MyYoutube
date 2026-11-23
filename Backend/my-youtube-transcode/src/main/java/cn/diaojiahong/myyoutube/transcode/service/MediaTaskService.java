@@ -42,7 +42,7 @@ public class MediaTaskService {
     private final MediaTaskDispatcher dispatcher;
     private final PipelineProperties properties;
     private final MeterRegistry metrics;
-    private final cn.diaojiahong.myyoutube.video.api.ContentPipelinePort video;
+    private final cn.diaojiahong.myyoutube.content.api.ContentPipelinePort video;
     private final PipelineEventJournal eventJournal;
 
     @Autowired(required = false)

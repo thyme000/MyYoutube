@@ -9,7 +9,7 @@ import cn.diaojiahong.myyoutube.transcode.domain.po.MediaTask;
 import cn.diaojiahong.myyoutube.transcode.domain.po.Pipeline;
 import cn.diaojiahong.myyoutube.transcode.mapper.*;
 import cn.diaojiahong.myyoutube.transcode.preparation.PreparationRegistry;
-import cn.diaojiahong.myyoutube.video.api.MediaRetryOwnerPort;
+import cn.diaojiahong.myyoutube.content.api.MediaRetryOwnerPort;
 import cn.diaojiahong.myyoutube.common.media.PipelineContracts.Input;
 import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import lombok.RequiredArgsConstructor;

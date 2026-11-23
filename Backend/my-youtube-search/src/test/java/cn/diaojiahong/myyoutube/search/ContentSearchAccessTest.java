@@ -12,10 +12,10 @@ import cn.diaojiahong.myyoutube.search.recall.SearchContentSummaryClient;
 import cn.diaojiahong.myyoutube.search.recall.SearchContext;
 import cn.diaojiahong.myyoutube.search.service.impl.SearchServiceImpl;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
-import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
-import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
+import cn.diaojiahong.myyoutube.content.api.ContentInternalPort;
+import cn.diaojiahong.myyoutube.content.api.ContentSummaryPort;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
-import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
+import cn.diaojiahong.myyoutube.content.api.dto.ContentSummary;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.CompletionSuggestOption;
@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
+import cn.diaojiahong.myyoutube.search.domain.vo.SearchContentVO;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import static org.junit.jupiter.api.Assertions.*;
@@ -77,20 +77,20 @@ class ContentSearchAccessTest {
         when(pages.search(any())).thenReturn(new CursorPage<>(List.of(summary(1)), "next"));
         ContentSearchCursorQuery query = new ContentSearchCursorQuery();
         query.setKeyword("  搜索词  ");
-        search.searchVideo(query);
+        search.searchContent(query);
         verify(hot).record(7L, "  搜索词  ");
 
         clearInvocations(hot);
         query.setCursor("next");
-        search.searchVideo(query);
+        search.searchContent(query);
         verifyNoInteractions(hot);
 
         query.setCursor(null);
         when(pages.search(any())).thenReturn(new CursorPage<>(List.of(), null));
-        search.searchVideo(query);
+        search.searchContent(query);
         verifyNoInteractions(hot);
         when(pages.search(any())).thenThrow(new IllegalStateException("search failed"));
-        assertThrows(IllegalStateException.class, () -> search.searchVideo(query));
+        assertThrows(IllegalStateException.class, () -> search.searchContent(query));
         verifyNoInteractions(hot);
     }
 
@@ -103,7 +103,7 @@ class ContentSearchAccessTest {
     @Test
     void contentResultsForwardTheCursorWithoutApplyingAnOffset() {
         when(pages.search(any())).thenReturn(new CursorPage<>(List.of(summary(3), summary(2)), "next"));
-        CursorPage<?, String> result = search.searchVideo(new ContentSearchCursorQuery());
+        CursorPage<?, String> result = search.searchContent(new ContentSearchCursorQuery());
         assertEquals("next", result.nextCursor());
         assertEquals(2, result.items().size());
     }
@@ -123,7 +123,7 @@ class ContentSearchAccessTest {
         query.setSortByLatest(latest);
         assertEquals(
                 List.of(true, false),
-                search.searchVideo(query).items().stream().map(item -> item.getIsFollow()).toList());
+                search.searchContent(query).items().stream().map(item -> item.getIsFollow()).toList());
         verify(follows, times(1)).getFollowIds(7L);
     }
 
@@ -133,9 +133,9 @@ class ContentSearchAccessTest {
         when(follows.getFollowIds(7L)).thenThrow(failure);
         assertSame(
                 failure,
-                assertThrows(IllegalStateException.class, () -> search.searchVideo(new ContentSearchCursorQuery())));
+                assertThrows(IllegalStateException.class, () -> search.searchContent(new ContentSearchCursorQuery())));
         doReturn(null).when(follows).getFollowIds(7L);
-        assertThrows(NullPointerException.class, () -> search.searchVideo(new ContentSearchCursorQuery()));
+        assertThrows(NullPointerException.class, () -> search.searchContent(new ContentSearchCursorQuery()));
         verifyNoInteractions(pages, summaries);
     }
 
@@ -152,10 +152,10 @@ class ContentSearchAccessTest {
         ThreadPoolTaskExecutor caller = new ThreadPoolTaskExecutor();
         caller.initialize();
         try {
-            Future<CursorPage<SearchVideoVO, String>> response = caller.submit(() -> {
+            Future<CursorPage<SearchContentVO, String>> response = caller.submit(() -> {
                 UserContext.setUser("7");
                 try {
-                    return search.searchVideo(new ContentSearchCursorQuery());
+                    return search.searchContent(new ContentSearchCursorQuery());
                 } finally {
                     UserContext.removeUser();
                 }
@@ -189,7 +189,7 @@ class ContentSearchAccessTest {
 
     @Test
     void stalePrivateContentCannotLeakThroughCompletionSuggestions() throws Exception {
-        SearchResponse<Void> content = response("video_suggest", List.of(option("1", "公开标题"), option("2", "已私密标题")));
+        SearchResponse<Void> content = response("content_suggest", List.of(option("1", "公开标题"), option("2", "已私密标题")));
         SearchResponse<Void> user = response("user_suggest", List.of(option("7", "公开用户")));
         when(client.search(any(Function.class), eq(Void.class))).thenReturn(content, user);
         when(summaries.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(List.of("1", "2"), null)))

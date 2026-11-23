@@ -21,11 +21,11 @@
 		<module>my-youtube-observability</module>
 		<module>my-youtube-security</module>
 		<module>my-youtube-user</module>
-		<module>my-youtube-video</module>
+		<module>my-youtube-content</module>
 		<module>my-youtube-chat</module>
 		<module>my-youtube-search</module>
 		<module>my-youtube-gateway</module>
-		<module>my-youtube-video-api</module>
+		<module>my-youtube-content-api</module>
 		<module>my-youtube-user-api</module>
 		<module>my-youtube-search-api</module>
 		<module>my-youtube-transcode-api</module>

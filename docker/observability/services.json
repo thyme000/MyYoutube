@@ -1,7 +1,7 @@
 [
   {"name": "gateway", "service": "my-youtube-gateway", "kind": "java", "target": "host.docker.internal:8080"},
   {"name": "user", "service": "my-youtube-user-service", "kind": "java", "target": "host.docker.internal:8081"},
-  {"name": "video", "service": "my-youtube-video-service", "kind": "java", "target": "host.docker.internal:8082"},
+  {"name": "content", "service": "my-youtube-content-service", "kind": "java", "target": "host.docker.internal:8082"},
   {"name": "chat", "service": "my-youtube-chat-service", "kind": "java", "target": "host.docker.internal:8083"},
   {"name": "search", "service": "my-youtube-search-service", "kind": "java", "target": "host.docker.internal:8084"},
   {"name": "admin", "service": "my-youtube-admin-service", "kind": "java", "target": "host.docker.internal:8085"},

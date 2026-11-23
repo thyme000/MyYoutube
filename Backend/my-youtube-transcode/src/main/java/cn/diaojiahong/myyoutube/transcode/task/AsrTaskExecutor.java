@@ -8,7 +8,7 @@ import cn.diaojiahong.myyoutube.common.utils.JsonUtil;
 import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.transcode.api.AsrPort;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
-import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
+import cn.diaojiahong.myyoutube.content.api.ContentPipelinePort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

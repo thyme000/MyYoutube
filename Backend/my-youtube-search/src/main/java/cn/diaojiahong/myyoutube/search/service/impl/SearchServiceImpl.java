@@ -15,16 +15,16 @@ import cn.diaojiahong.myyoutube.search.domain.dto.SearchUserPageQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.TagSearchCursorQuery;
 import cn.diaojiahong.myyoutube.search.domain.dto.ContentSearchCursorQuery;
 import cn.diaojiahong.myyoutube.search.domain.vo.SearchUserVO;
-import cn.diaojiahong.myyoutube.search.domain.vo.SearchVideoVO;
+import cn.diaojiahong.myyoutube.search.domain.vo.SearchContentVO;
 import cn.diaojiahong.myyoutube.search.service.ISearchService;
 import cn.diaojiahong.myyoutube.search.hot.HotSearchService;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.UserBlockPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummaries;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
-import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
-import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
+import cn.diaojiahong.myyoutube.content.api.ContentSummaryPort;
+import cn.diaojiahong.myyoutube.content.api.ContentInternalPort;
+import cn.diaojiahong.myyoutube.content.api.dto.ContentSummary;
 import cn.hutool.core.bean.BeanUtil;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
@@ -69,12 +69,12 @@ public class SearchServiceImpl implements ISearchService {
 
     @Override
     @ObservedBusiness(BusinessOperation.SEARCH_CONTENT)
-    public CursorPage<SearchVideoVO, String> searchVideo(ContentSearchCursorQuery query) {
+    public CursorPage<SearchContentVO, String> searchContent(ContentSearchCursorQuery query) {
         query.validate();
         Long userId = getUserId();
         SearchContext context = SearchContext.of(query, userId, followPort.getFollowIds(userId), blocks.blockedAuthors(userId));
         CursorPage<ContentSummary, String> page = contentSearchPage.search(context);
-        List<SearchVideoVO> items = buildCards(page.items(), context.getFollowIds());
+        List<SearchContentVO> items = buildCards(page.items(), context.getFollowIds());
 
         boolean first = query.getCursor() == null || query.getCursor().isBlank();
         if (first && !items.isEmpty()) hotSearchService.record(userId, query.getKeyword());
@@ -174,8 +174,8 @@ public class SearchServiceImpl implements ISearchService {
         }
 
         try {
-            SearchResponse<Void> videoResp = elasticsearchClient.search(s -> s.index("content")
-                    .suggest(su -> su.suggesters("video_suggest", sg -> sg.prefix(q)
+            SearchResponse<Void> contentResponse = elasticsearchClient.search(s -> s.index("content")
+                    .suggest(su -> su.suggesters("content_suggest", sg -> sg.prefix(q)
                             .completion(c -> c.field("suggest").size(8).skipDuplicates(true))
                     )), Void.class);
 
@@ -185,7 +185,7 @@ public class SearchServiceImpl implements ISearchService {
                     )), Void.class);
 
             Set<String> merged = new LinkedHashSet<>();
-            List<Suggestion<Void>> entries = videoResp.suggest().get("video_suggest");
+            List<Suggestion<Void>> entries = contentResponse.suggest().get("content_suggest");
             List<String> ids = entries == null ? List.<String>of() : entries.stream()
                     .flatMap(entry -> entry.completion().options().stream())
                     .map(option -> option.id()).filter(Objects::nonNull).distinct().toList();
@@ -194,7 +194,7 @@ public class SearchServiceImpl implements ISearchService {
             Set<String> readable = contentSummaryPort.listByIdsOrdered(new ContentSummaryPort.SummaryQuery(ids, null))
                     .stream().filter(summary -> !blockedAuthors.contains(summary.getAuthorId()))
                     .map(summary -> summary.getId().toString()).collect(Collectors.toSet());
-            appendSuggestTexts(videoResp, "video_suggest", merged, readable::contains);
+            appendSuggestTexts(contentResponse, "content_suggest", merged, readable::contains);
             appendSuggestTexts(userResp, "user_suggest", merged, id -> true);
 
             return merged.stream().limit(10).toList();
@@ -230,7 +230,7 @@ public class SearchServiceImpl implements ISearchService {
 
     @Override
     @ObservedBusiness(BusinessOperation.SEARCH_TAG)
-    public CursorPage<SearchVideoVO, String> searchByTag(TagSearchCursorQuery pageQuery) {
+    public CursorPage<SearchContentVO, String> searchByTag(TagSearchCursorQuery pageQuery) {
         Long userId = getUserId();
         pageQuery.validate();
         SearchContext ctx = SearchContext.forTag(pageQuery, userId, followPort.getFollowIds(userId), blocks.blockedAuthors(userId));
@@ -243,13 +243,13 @@ public class SearchServiceImpl implements ISearchService {
         return hotSearchService.hot();
     }
 
-    private List<SearchVideoVO> buildCards(List<ContentSummary> videos, List<Long> followIds) {
-        if (videos.isEmpty()) return List.of();
-        List<SearchVideoVO> result = BeanUtil.copyToList(videos, SearchVideoVO.class);
+    private List<SearchContentVO> buildCards(List<ContentSummary> contents, List<Long> followIds) {
+        if (contents.isEmpty()) return List.of();
+        List<SearchContentVO> result = BeanUtil.copyToList(contents, SearchContentVO.class);
         Set<Long> followedAuthors = new HashSet<>(followIds);
         result.forEach(vo -> vo.setIsFollow(followedAuthors.contains(vo.getAuthorId())));
         // 填充用户昵称和头像url(一次批量取摘要, 本地投影)
-        List<UserSummary> authors = userPort.listByIds(videos.stream().map(ContentSummary::getAuthorId).collect(Collectors.toList()));
+        List<UserSummary> authors = userPort.listByIds(contents.stream().map(ContentSummary::getAuthorId).collect(Collectors.toList()));
         Map<Long, String> authorNicknames = UserSummaries.toNicknameMap(authors);
         Map<Long, String> authorAvatarUrls = UserSummaries.toAvatarMap(authors);
         if (authorNicknames == null || authorAvatarUrls == null) {
@@ -268,7 +268,7 @@ public class SearchServiceImpl implements ISearchService {
         });
         List<Long> likedIds = isLike(
                 getUserId(),
-                videos.stream().map(ContentSummary::getId).collect(Collectors.toList()));
+                contents.stream().map(ContentSummary::getId).collect(Collectors.toList()));
         if (likedIds != null && !likedIds.isEmpty()) {
             Map<Long, Boolean> isLikes = likedIds.stream().collect(Collectors.toMap(id -> id, id -> true));
             result.forEach(vo -> {
@@ -278,12 +278,12 @@ public class SearchServiceImpl implements ISearchService {
         return result;
     }
 
-    private List<Long> isLike(Long userId, List<Long> videoIds) {
-        if (videoIds == null || videoIds.isEmpty()) {
+    private List<Long> isLike(Long userId, List<Long> contentIds) {
+        if (contentIds == null || contentIds.isEmpty()) {
             return Collections.emptyList();
         }
 
-        Map<Long, Boolean> likedMap = contentInternalPort.likedMap(userId, new HashSet<>(videoIds));
+        Map<Long, Boolean> likedMap = contentInternalPort.likedMap(userId, new HashSet<>(contentIds));
         return likedMap.entrySet().stream().filter(Map.Entry::getValue).map(Map.Entry::getKey).toList();
     }
 

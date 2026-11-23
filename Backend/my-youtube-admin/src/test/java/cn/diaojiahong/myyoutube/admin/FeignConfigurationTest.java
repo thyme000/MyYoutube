@@ -3,7 +3,7 @@ package cn.diaojiahong.myyoutube.admin;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.feign.InternalApiErrorDecoder;
 import cn.diaojiahong.myyoutube.common.feign.InternalFeignConfiguration;
-import cn.diaojiahong.myyoutube.video.api.ContentAdminPort;
+import cn.diaojiahong.myyoutube.content.api.ContentAdminPort;
 import com.sun.net.httpserver.HttpServer;
 import feign.Retryer;
 import feign.codec.ErrorDecoder;
@@ -28,7 +28,7 @@ class FeignConfigurationTest {
                 JacksonAutoConfiguration.class,
                 HttpMessageConvertersAutoConfiguration.class))
                 .withPropertyValues(
-                        "my-youtube.video-service.url=http://127.0.0.1:1",
+                        "my-youtube.content-service.url=http://127.0.0.1:1",
                         "my-youtube.llm-service.url=http://127.0.0.1:1");
     }
 
@@ -48,7 +48,7 @@ class FeignConfigurationTest {
         server.start();
         try {
             runner()
-                    .withPropertyValues("my-youtube.video-service.url=http://127.0.0.1:" + server.getAddress().getPort())
+                    .withPropertyValues("my-youtube.content-service.url=http://127.0.0.1:" + server.getAddress().getPort())
                     .withUserConfiguration(Clients.class).run(context -> {
                         assertThat(context).hasNotFailed();
                         FeignClientFactory factory = context.getBean(FeignClientFactory.class);

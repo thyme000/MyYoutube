@@ -18,7 +18,7 @@ import org.springframework.cloud.openfeign.support.SpringMvcContract;
 import org.springframework.cloud.openfeign.support.SpringEncoder;
 import org.springframework.boot.autoconfigure.http.HttpMessageConverters;
 import cn.diaojiahong.myyoutube.common.feign.ModelErrorDecoder;
-import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
+import cn.diaojiahong.myyoutube.content.api.ContentPipelinePort;
 import cn.diaojiahong.myyoutube.transcode.task.MediaTaskExecutor;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import java.net.InetSocketAddress;
@@ -108,8 +108,8 @@ class MediaTaskIntegrationTest {
         }
 
         @Bean
-        cn.diaojiahong.myyoutube.video.api.ContentPipelinePort video() {
-            return mock(cn.diaojiahong.myyoutube.video.api.ContentPipelinePort.class);
+        cn.diaojiahong.myyoutube.content.api.ContentPipelinePort video() {
+            return mock(cn.diaojiahong.myyoutube.content.api.ContentPipelinePort.class);
         }
 
         @Bean
@@ -137,7 +137,7 @@ class MediaTaskIntegrationTest {
         MediaTaskService tasks(MediaTaskMapper tasks, PipelineMapper pipelines, TransactionTemplate transaction,
                 MediaTaskDispatcher dispatcher,
                 io.micrometer.core.instrument.MeterRegistry metrics,
-                cn.diaojiahong.myyoutube.video.api.ContentPipelinePort video,
+                cn.diaojiahong.myyoutube.content.api.ContentPipelinePort video,
                 MediaPreparationMapper preparations,
                 cn.diaojiahong.myyoutube.common.observability.PipelineEvents events) {
             var lifecycle = new cn.diaojiahong.myyoutube.transcode.preparation.PreparationLifecycle(preparations);
@@ -164,7 +164,7 @@ class MediaTaskIntegrationTest {
     @Autowired PipelineMapper pipelineRows;
     @Autowired MediaTaskDispatcher dispatcher;
     @Autowired SimpleMeterRegistry metrics;
-    @Autowired cn.diaojiahong.myyoutube.video.api.ContentPipelinePort video;
+    @Autowired cn.diaojiahong.myyoutube.content.api.ContentPipelinePort video;
     @Autowired DataSource dataSource;
     @Autowired cn.diaojiahong.myyoutube.common.observability.PipelineObservationProperties observations;
     @Autowired TransactionTemplate transaction;

@@ -6,7 +6,7 @@ import cn.diaojiahong.myyoutube.common.resilience.ModelCallGuard;
 import cn.diaojiahong.myyoutube.common.resilience.ModelCallFailure;
 import cn.diaojiahong.myyoutube.common.utils.*;
 import cn.diaojiahong.myyoutube.llm.api.LlmPort;
-import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
+import cn.diaojiahong.myyoutube.content.api.ContentPipelinePort;
 import cn.diaojiahong.myyoutube.common.media.MediaTaskType;
 import com.google.gson.*;
 import lombok.RequiredArgsConstructor;

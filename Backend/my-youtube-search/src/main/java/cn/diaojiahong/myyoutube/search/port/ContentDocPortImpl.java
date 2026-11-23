@@ -15,7 +15,7 @@ import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
+import cn.diaojiahong.myyoutube.content.api.ContentInternalPort;
 import cn.diaojiahong.myyoutube.search.service.ContentDocumentWriter;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;

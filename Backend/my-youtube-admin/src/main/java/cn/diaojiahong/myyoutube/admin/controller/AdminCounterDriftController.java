@@ -7,7 +7,7 @@ import cn.diaojiahong.myyoutube.common.counter.CounterType;
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
 import cn.diaojiahong.myyoutube.common.result.Result;
 import cn.diaojiahong.myyoutube.user.api.UserCounterAdminPort;
-import cn.diaojiahong.myyoutube.video.api.VideoCounterAdminPort;
+import cn.diaojiahong.myyoutube.content.api.ContentCounterAdminPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AdminCounterDriftController {
 
-    private final VideoCounterAdminPort videos;
+    private final ContentCounterAdminPort contents;
     private final UserCounterAdminPort users;
     private final AdminAuthorization authorization;
 
@@ -33,7 +33,7 @@ public class AdminCounterDriftController {
         CounterType counterType = CounterType.fromCode(type);
         CursorPage<CounterDrift, Long> page = switch (counterType) {
             case CONTENT_LIKE, COMMENT_LIKE, CONTENT_COLLECT, CONTENT_SHARE ->
-                    videos.drifts(counterType.code(), cursor, size);
+                    contents.drifts(counterType.code(), cursor, size);
             case USER_FANS, USER_ATTENTION -> users.drifts(counterType.code(), cursor, size);
         };
         return Result.success(page);
@@ -44,7 +44,7 @@ public class AdminCounterDriftController {
         authorization.requireAdmin();
         CounterType counterType = CounterType.fromCode(request.type());
         int repaired = switch (counterType) {
-            case CONTENT_LIKE, COMMENT_LIKE, CONTENT_COLLECT, CONTENT_SHARE -> videos.repair(request);
+            case CONTENT_LIKE, COMMENT_LIKE, CONTENT_COLLECT, CONTENT_SHARE -> contents.repair(request);
             case USER_FANS, USER_ATTENTION -> users.repair(request);
         };
         return Result.success(repaired);

@@ -174,7 +174,7 @@ class RecallRefillTest {
         assertEquals(List.of("1"), hybrid.recall(HybridRecallServiceTest.context(), 500, ids -> {
             if (ids.contains("3")) throw new DependencyException(
                     ErrorCode.DEPENDENCY_UNAVAILABLE,
-                    "video unavailable",
+                    "content unavailable",
                     null);
             return List.of("1");
         }).ids());
@@ -184,7 +184,7 @@ class RecallRefillTest {
     void initialHydrationFailureIsNotReportedAsNoResults() throws Exception {
         when(keyword.firstBatch(any())).thenReturn(CompletableFuture.completedFuture(more("1", "2")));
         assertThrows(DependencyException.class, () -> hybrid.recall(HybridRecallServiceTest.context(), 500, ids -> {
-            throw new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "video unavailable", null);
+            throw new DependencyException(ErrorCode.DEPENDENCY_UNAVAILABLE, "content unavailable", null);
         }).ids());
     }
 

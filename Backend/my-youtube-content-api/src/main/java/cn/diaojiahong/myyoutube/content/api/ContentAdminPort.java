@@ -1,0 +1,80 @@
+package cn.diaojiahong.myyoutube.content.api;
+
+import cn.diaojiahong.myyoutube.common.feign.PropagateBusinessErrors;
+import cn.diaojiahong.myyoutube.common.result.ErrorCode;
+import cn.diaojiahong.myyoutube.common.page.PageResult;
+import cn.diaojiahong.myyoutube.content.api.dto.ContentSummary;
+import cn.diaojiahong.myyoutube.content.api.dto.ContentMediaVO;
+import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+
+/**
+ * 内容服务对外契约: 管理端视频操作
+ */
+@PropagateBusinessErrors({ErrorCode.INVALID_ARGUMENT, ErrorCode.NOT_FOUND, ErrorCode.STATE_CONFLICT, ErrorCode.UNAUTHORIZED})
+@FeignClient(name = "my-youtube-content-service", contextId = "contentAdminPort",
+        path = ContentAdminPort.BASE_PATH, url = "${my-youtube.content-service.url:}")
+public interface ContentAdminPort {
+    String BASE_PATH = "/internal/admin/content";
+    String MASTER_PLAYLIST_PATH = "/streams/master";
+    String RENDITION_PLAYLIST_PATH = "/streams/playlist";
+
+    @PostMapping("/media")
+    ContentMediaVO media(@RequestBody ReviewMedia request);
+
+    record ReviewMedia(Long contentId, Long viewer) {}
+
+    record ReviewStream(Long contentId, Long viewer, int index, String token) {}
+
+    @PostMapping(MASTER_PLAYLIST_PATH)
+    String masterPlaylist(@RequestBody ReviewStream request);
+
+    @PostMapping(RENDITION_PLAYLIST_PATH)
+    String playlist(@RequestBody ReviewStream request);
+
+    @PostMapping("/mark-status")
+    Boolean markStatus(@RequestBody MarkStatus mark);
+
+    @PostMapping("/page")
+    PageResult<ContentSummary> pageContents(@RequestBody AdminContentQuery query);
+
+    @PostMapping("/content/get")
+    java.util.Map<String, Object> contentStatus(@RequestBody ContentId id);
+
+    @PostMapping("/content/waiting")
+    List<java.util.Map<String, Object>> waitingContent(@RequestBody AdminContentQuery query);
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class ContentId {
+        private Long contentId;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class MarkStatus {
+        private Long contentId;
+        private String statusCode;
+        private String reason;
+        private Long actorId;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class AdminContentQuery {
+        private String statusCode;
+        private String categoryCode;
+        private Long userId;
+        private long pageNo;
+        private long pageSize;
+        private String type;
+    }
+}

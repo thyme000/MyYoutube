@@ -10,7 +10,7 @@ import cn.diaojiahong.myyoutube.search.domain.doc.UserDoc;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import cn.diaojiahong.myyoutube.search.vector.ContentVectorPublisher;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
-import cn.diaojiahong.myyoutube.video.api.ContentInternalPort;
+import cn.diaojiahong.myyoutube.content.api.ContentInternalPort;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -29,9 +29,9 @@ import static org.mockito.Mockito.*;
 
 class ContentPublicationSyncTest {
     @Test
-    void rebuildCreatesFullDocumentAndUsesCurrentVideoState() {
+    void rebuildCreatesFullDocumentAndUsesCurrentContentState() {
         ContentDocRepository repository = mock(ContentDocRepository.class);
-        ContentInternalPort videos = mock(ContentInternalPort.class);
+        ContentInternalPort contents = mock(ContentInternalPort.class);
         ElasticsearchOperations operations = mock(ElasticsearchOperations.class);
         when(operations.update(any(UpdateQuery.class), any()))
                 .thenReturn(UpdateResponse.of(UpdateResponse.Result.UPDATED));
@@ -40,7 +40,7 @@ class ContentPublicationSyncTest {
         when(operations.getElasticsearchConverter()).thenReturn(converter);
         ContentVectorPublisher vectors = mock(ContentVectorPublisher.class);
         var writer = new ContentDocumentWriter(operations, mock(UserPort.class), vectors);
-        var port = new ContentDocPortImpl(repository, videos, writer, operations);
+        var port = new ContentDocPortImpl(repository, contents, writer, operations);
         ContentDocMessage message = ContentDocMessage.builder()
                 .contentId(1L)
                 .indexVersion(1L)
@@ -48,7 +48,7 @@ class ContentPublicationSyncTest {
                 .title("新视频")
                 .authorId(9L)
                 .description("简介").summary("内容摘要").statusCode("published").visibilityCode("public").tags("技术").build();
-        when(videos.searchDocument(1L)).thenReturn(message);
+        when(contents.searchDocument(1L)).thenReturn(message);
         port.rebuildContent(1L);
         message.setStatusCode("banned");
         message.setIndexVersion(2L);
@@ -73,7 +73,7 @@ class ContentPublicationSyncTest {
         ordered.verify(operations).update(any(UpdateQuery.class), eq(IndexCoordinates.of("content")));
         ordered.verify(vectors).publish(1L);
         verifyNoMoreInteractions(vectors);
-        when(videos.searchDocument(1L)).thenReturn(null);
+        when(contents.searchDocument(1L)).thenReturn(null);
         port.rebuildContent(1L);
         verify(repository, never()).deleteById(any());
         verify(operations, times(2)).update(any(UpdateQuery.class), any());

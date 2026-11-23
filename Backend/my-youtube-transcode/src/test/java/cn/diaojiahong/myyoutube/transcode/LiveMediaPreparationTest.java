@@ -11,7 +11,7 @@ import cn.diaojiahong.myyoutube.transcode.mapper.*;
 import cn.diaojiahong.myyoutube.transcode.preparation.*;
 import cn.diaojiahong.myyoutube.transcode.service.MediaTaskService;
 import cn.diaojiahong.myyoutube.transcode.task.PrepareTaskExecutor;
-import cn.diaojiahong.myyoutube.video.api.MediaDraftPort;
+import cn.diaojiahong.myyoutube.content.api.MediaDraftPort;
 import java.time.LocalDateTime;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.*;
@@ -264,9 +264,9 @@ class LiveMediaPreparationTest {
                 List.of(new DynamicMedia.Image("upload/image", 0, 3000, .5, .5)), null, 3000));
         PreparationContracts.Manifest first = prepare(new Request(101L, 1L, 0, 9L, media, "upload/image"));
         prepare(new Request(102L, 1L, 1, 9L, media, "upload/image"));
-        MediaDraftPort video = org.mockito.Mockito.mock(cn.diaojiahong.myyoutube.video.api.MediaDraftPort.class);
+        MediaDraftPort video = org.mockito.Mockito.mock(cn.diaojiahong.myyoutube.content.api.MediaDraftPort.class);
         org.mockito.Mockito.when(video.preparationReference(org.mockito.ArgumentMatchers.any())).thenAnswer(call -> {
-            cn.diaojiahong.myyoutube.video.api.MediaDraftPort.PreparationReference ref = call.getArgument(0);
+            cn.diaojiahong.myyoutube.content.api.MediaDraftPort.PreparationReference ref = call.getArgument(0);
             return ref.preparationId().equals(102L) ? "RETAINED" : "RELEASED";
         });
         var factory = new com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean();

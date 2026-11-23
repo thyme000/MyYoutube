@@ -15,7 +15,7 @@ import cn.diaojiahong.myyoutube.transcode.mapper.*;
 import cn.diaojiahong.myyoutube.transcode.preparation.*;
 import cn.diaojiahong.myyoutube.transcode.service.*;
 import cn.diaojiahong.myyoutube.transcode.task.PrepareTaskExecutor;
-import cn.diaojiahong.myyoutube.video.api.MediaDraftPort;
+import cn.diaojiahong.myyoutube.content.api.MediaDraftPort;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -43,7 +43,7 @@ class PreparationWorkflowTest {
     @Autowired PreparationItemMapper items;
     @Autowired MediaTaskMapper taskRows;
     @Autowired PipelineMapper pipelines;
-    @Autowired cn.diaojiahong.myyoutube.video.api.ContentPipelinePort contentVideo;
+    @Autowired cn.diaojiahong.myyoutube.content.api.ContentPipelinePort contentVideo;
     @Autowired MediaTaskService tasks;
     @Autowired MediaTaskDispatcher dispatcher;
     @Autowired TransactionTemplate transaction;
@@ -832,7 +832,7 @@ class PreparationWorkflowTest {
         assertEquals(3000, manifest.items().get(3).timeMs());
     }
 
-    PreparationReclaimer reclaimer(cn.diaojiahong.myyoutube.video.api.MediaDraftPort video) {
+    PreparationReclaimer reclaimer(cn.diaojiahong.myyoutube.content.api.MediaDraftPort video) {
         return new PreparationReclaimer(preparations, items, taskRows, pipelines,
                 new PreparationLifecycle(preparations),
                 video,
@@ -841,8 +841,8 @@ class PreparationWorkflowTest {
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 
-    cn.diaojiahong.myyoutube.video.api.MediaDraftPort released() {
-        MediaDraftPort video = mock(cn.diaojiahong.myyoutube.video.api.MediaDraftPort.class);
+    cn.diaojiahong.myyoutube.content.api.MediaDraftPort released() {
+        MediaDraftPort video = mock(cn.diaojiahong.myyoutube.content.api.MediaDraftPort.class);
         when(video.preparationReference(any())).thenReturn("RELEASED");
         return video;
     }

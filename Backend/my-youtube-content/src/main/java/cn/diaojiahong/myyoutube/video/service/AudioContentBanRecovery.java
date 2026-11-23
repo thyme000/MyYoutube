@@ -1,0 +1,86 @@
+package cn.diaojiahong.myyoutube.video.service;
+
+import cn.diaojiahong.myyoutube.common.monitoring.MetricNames;
+
+import cn.diaojiahong.myyoutube.video.config.AudioCascadeProperties;
+import cn.diaojiahong.myyoutube.content.mapper.ContentMapper;
+import cn.diaojiahong.myyoutube.content.service.ReviewDecisionService;
+import cn.diaojiahong.myyoutube.common.mq.message.AudioContentBanMessage;
+import io.micrometer.core.instrument.MeterRegistry;
+import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RedissonClient;
+import org.redisson.api.RLock;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
+import java.util.List;
+
+@Service
+@Slf4j
+public class AudioContentBanRecovery {
+    private final ContentMapper contents;
+    private final ReviewDecisionService decisions;
+    private final AudioCascadeProperties properties;
+    private final RedissonClient redisson;
+    private final MeterRegistry metrics;
+    private final LongSupplier ticker;
+    // 游标只决定扫描顺序；失败记录绕回后重试，重启后由数据库状态排除已完成项。
+    private long cursor;
+
+    @Autowired
+    public AudioContentBanRecovery(ContentMapper contents, ReviewDecisionService decisions,
+            AudioCascadeProperties properties, RedissonClient redisson, MeterRegistry metrics) {
+        this(contents, decisions, properties, redisson, metrics, System::nanoTime);
+    }
+
+    AudioContentBanRecovery(ContentMapper contents, ReviewDecisionService decisions,
+            AudioCascadeProperties properties, RedissonClient redisson, MeterRegistry metrics, LongSupplier ticker) {
+        this.contents = contents;
+        this.decisions = decisions;
+        this.properties = properties;
+        this.redisson = redisson;
+        this.metrics = metrics;
+        this.ticker = ticker;
+    }
+
+    @Scheduled(
+            fixedDelayString = "#{@audioCascadeProperties.scanIntervalMs}",
+            initialDelayString = "#{@audioCascadeProperties.scanIntervalMs}")
+    public void recover() {
+        RLock lock = redisson.getLock("content:audio-ban-recovery");
+        if (!lock.tryLock()) return;
+        try {
+            long deadline = ticker.getAsLong() + TimeUnit.MILLISECONDS.toNanos(properties.getRoundBudgetMs());
+            List<AudioContentBanMessage> page = contents.pendingAudioBans(cursor, properties.getBatchSize());
+            if (page.isEmpty()) {
+                cursor = 0;
+                return;
+            }
+            for (AudioContentBanMessage message : page) {
+                if (ticker.getAsLong() - deadline >= 0) return;
+                try {
+                    decisions.banByAudio(message);
+                } catch (Exception error) {
+                    failed(message.contentId(), "record", error);
+                }
+                cursor = message.contentId();
+            }
+            if (page.size() < properties.getBatchSize()) cursor = 0;
+        } catch (Exception error) {
+            failed(null, "scan", error);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void failed(Long contentId, String scope, Exception error) {
+        metrics.counter(MetricNames.AUDIO_CASCADE_RECOVERY_FAILED, "scope", scope).increment();
+        log.warn(
+                "Audio cascade recovery deferred contentId={} scope={} reason={}",
+                contentId,
+                scope,
+                error.getClass().getSimpleName());
+    }
+}

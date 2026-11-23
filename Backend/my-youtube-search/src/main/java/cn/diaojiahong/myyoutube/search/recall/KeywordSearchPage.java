@@ -1,8 +1,8 @@
 package cn.diaojiahong.myyoutube.search.recall;
 
 import cn.diaojiahong.myyoutube.common.page.CursorPage;
-import cn.diaojiahong.myyoutube.video.api.ContentSummaryPort;
-import cn.diaojiahong.myyoutube.video.api.dto.ContentSummary;
+import cn.diaojiahong.myyoutube.content.api.ContentSummaryPort;
+import cn.diaojiahong.myyoutube.content.api.dto.ContentSummary;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

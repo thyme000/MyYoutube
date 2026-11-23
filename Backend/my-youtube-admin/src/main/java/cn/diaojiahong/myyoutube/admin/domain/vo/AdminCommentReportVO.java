@@ -1,7 +1,7 @@
 package cn.diaojiahong.myyoutube.admin.domain.vo;
 
-import cn.diaojiahong.myyoutube.video.api.enums.CommentReportReasonEnum;
-import cn.diaojiahong.myyoutube.video.api.enums.CommentReportStatusEnum;
+import cn.diaojiahong.myyoutube.content.api.enums.CommentReportReasonEnum;
+import cn.diaojiahong.myyoutube.content.api.enums.CommentReportStatusEnum;
 import lombok.Data;
 
 import java.time.LocalDateTime;

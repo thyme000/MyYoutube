@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * search 服务内部接口: 供 video 等服务经 Feign 调用, 不经网关暴露
+ * search 服务内部接口: 供内容服务等经 Feign 调用, 不经网关暴露
  */
 @RestController
 @RequestMapping("/internal")

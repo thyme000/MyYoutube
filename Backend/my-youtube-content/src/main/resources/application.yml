@@ -1,0 +1,116 @@
+spring:
+  config:
+    import:
+      - classpath:application-common.yml
+      - optional:classpath:application-local.yml
+  task.scheduling:
+    pool.size: 4
+    thread-name-prefix: media-schedule-
+  application:
+    name: my-youtube-content-service
+  datasource:
+    hikari:
+      # 计数落库并行占用 4 条，其余留给请求
+      maximum-pool-size: 9
+
+rocketmq:
+  producer:
+    group: myyoutube_content_producer
+
+server:
+  port: ${SERVER_PORT:8082}
+
+# 全部服务已注册进 Nacos, 置空走负载均衡
+my-youtube:
+  db-name: content_db
+  content-resource-cache:
+    # 普通读取达到累计播放量门槛使用常规产物 TTL，否则使用短 TTL；0 表示全部使用常规 TTL。
+    # 大 V 发布预热不受播放量门槛限制，使用常规产物 TTL。
+    artifact-min-play-count: ${CONTENT_RESOURCE_CACHE_MIN_PLAY_COUNT:100}
+    short-artifact-ttl-seconds: ${CONTENT_RESOURCE_CACHE_SHORT_TTL_SECONDS:60}
+    warmup:
+      enabled: ${CONTENT_RESOURCE_CACHE_WARMUP_ENABLED:true}
+      min-fans: ${CONTENT_RESOURCE_CACHE_WARMUP_MIN_FANS:10000}
+  audio-cascade:
+    scan-interval-ms: 300000
+    batch-size: 200
+    round-budget-ms: 5000
+  author-content-page:
+    scan-limit: 500
+    scan-budget-ms: 200
+    page-size: 10
+  publication:
+    scan-interval-ms: 2000
+    batch-size: 100
+    lease-seconds: 30
+    waiting-seconds: 15
+    deadline-minutes: 30
+    retry-backoff-seconds: [5, 30, 120]
+    max-attempts: 3
+  content-moderation:
+    blocked-location: ${CONTENT_BLOCKED_LOCATION:content-moderation/blocked.txt}
+  s3:
+    video-upload-notification-enabled: ${S3_VIDEO_UPLOAD_NOTIFICATION_ENABLED:true}
+    video-upload-notification-queue-arn: ${S3_VIDEO_UPLOAD_NOTIFICATION_QUEUE_ARN:arn:rustfs:sqs::primary:webhook}
+    video-upload-notification-check-interval-ms: ${S3_VIDEO_UPLOAD_NOTIFICATION_CHECK_INTERVAL_MS:60000}
+  user-service:
+    url: ${USER_SERVICE_URL:}
+  search-service:
+    url: ${SEARCH_SERVICE_URL:}
+  chat-service:
+    url: ${CHAT_SERVICE_URL:}
+  transcode-service:
+    url: ${TRANSCODE_SERVICE_URL:}
+  llm-service:
+    url: ${LLM_SERVICE_URL:}
+  recommend:
+    cf:
+      # 在线相似度表选择: itemcf | swing, 两份都离线算好, 改这里重启即切换
+      algorithm: swing
+  autotag:
+    # 默认只按文本打标，显式开启后才发送图片
+    vision-enabled: ${TAG_VISION_ENABLED:false}
+    # 打标防线阈值, 必填无默认(0~1), 缺失服务拒绝启动; 真实值填 application-local.yml
+    # min-confidence: 0.5
+  comment:
+    # 评论数达到该值才建名单缓存, 未达标直查 DB
+    cache-threshold: ${COMMENT_CACHE_THRESHOLD:50}
+    # 名单封顶条数; latest 超出的部分继续走 DB keyset, hot 到此为止(排序值会变, 不能跨界续)
+    latest-cap: ${COMMENT_LATEST_CAP:200}
+    hot-cap: ${COMMENT_HOT_CAP:100}
+    # 名单固定 TTL(秒)不续期: latest 排序值无缓冲滞后故取短, hot 对齐点赞缓冲落库周期
+    latest-ttl-seconds: ${COMMENT_LATEST_TTL_SECONDS:5}
+    hot-ttl-seconds: ${COMMENT_HOT_TTL_SECONDS:5}
+
+spring.cloud.openfeign.client.config:
+  default:
+    connectTimeout: 5000
+    readTimeout: 130000
+my-youtube.content-pipeline:
+  # 关闭整个机器审核时，完成加工后直接转人工审核
+  auto-review: ${CONTENT_AUTO_REVIEW:true}
+  # 画面审核独立开启；关闭时仅审文本，审批仍由 auto-review 和审核阈值控制
+  review-vision-enabled: ${CONTENT_REVIEW_VISION_ENABLED:false}
+  max-risk: ${CONTENT_REVIEW_MAX_RISK:0.2}
+  min-confidence: ${CONTENT_REVIEW_MIN_CONFIDENCE:0.9}
+  evidence-chunk-characters: 12000
+  review-model: ${CONTENT_REVIEW_MODEL:qwen3.5:9b}
+
+management:
+  metrics.distribution.percentiles-histogram:
+    "[media.pipeline.duration]": true
+    "[media.pipeline.ready.duration]": true
+    "[media.node.wait]": true
+    "[media.node.retry.wait]": true
+    "[model.calls.duration]": true
+sentinel:
+  nacos:
+    enabled: ${SENTINEL_NACOS_ENABLED:false}
+    server-addr: ${NACOS_ADDR:localhost:8848}
+    namespace: ${NACOS_NAMESPACE:}
+    username: ${NACOS_USERNAME:}
+    password: ${NACOS_PASSWORD:}
+    data-id: ${spring.application.name}-model-degrade.json
+    group: SENTINEL_GROUP
+
+media.monitor.dlq-groups: content_understood,content_review_result,content_publication_search,content_publication_notice,content_publication_audio_count,content_audio_content_ban,content_playback_report

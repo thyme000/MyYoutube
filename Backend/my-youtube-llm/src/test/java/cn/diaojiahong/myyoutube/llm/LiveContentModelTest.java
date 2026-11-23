@@ -11,7 +11,7 @@ import cn.diaojiahong.myyoutube.recommend.auto.*;
 import cn.diaojiahong.myyoutube.recommend.tag.TagPoolHolder;
 import cn.diaojiahong.myyoutube.transcode.config.PipelineProperties;
 import cn.diaojiahong.myyoutube.transcode.task.*;
-import cn.diaojiahong.myyoutube.video.api.ContentPipelinePort;
+import cn.diaojiahong.myyoutube.content.api.ContentPipelinePort;
 import cn.diaojiahong.myyoutube.common.prompt.PromptTemplates;
 import com.google.gson.JsonObject;
 import feign.Feign;

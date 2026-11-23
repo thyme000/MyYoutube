@@ -4,7 +4,7 @@ import cn.diaojiahong.myyoutube.admin.controller.AdminController;
 import cn.diaojiahong.myyoutube.admin.service.IAdminService;
 import cn.diaojiahong.myyoutube.common.exception.BizException;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
-import cn.diaojiahong.myyoutube.video.api.ContentAdminPort;
+import cn.diaojiahong.myyoutube.content.api.ContentAdminPort;
 import org.junit.jupiter.api.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;

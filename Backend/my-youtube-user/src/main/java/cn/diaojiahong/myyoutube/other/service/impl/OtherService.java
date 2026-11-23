@@ -8,7 +8,7 @@ import cn.diaojiahong.myyoutube.common.utils.S3StorageUtil;
 import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.other.domain.vo.StoragePresignVO;
 import cn.diaojiahong.myyoutube.other.service.IOtherService;
-import cn.diaojiahong.myyoutube.video.api.MediaDraftPort;
+import cn.diaojiahong.myyoutube.content.api.MediaDraftPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

@@ -12,7 +12,7 @@ import cn.diaojiahong.myyoutube.common.utils.UserContext;
 import cn.diaojiahong.myyoutube.user.api.FollowPort;
 import cn.diaojiahong.myyoutube.user.api.UserPort;
 import cn.diaojiahong.myyoutube.user.api.dto.UserSummary;
-import cn.diaojiahong.myyoutube.video.api.NotificationPort;
+import cn.diaojiahong.myyoutube.content.api.NotificationPort;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
