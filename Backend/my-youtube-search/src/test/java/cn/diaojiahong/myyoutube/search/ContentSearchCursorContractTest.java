@@ -24,7 +24,7 @@ class ContentSearchCursorContractTest {
         when(service.searchContent(any())).thenReturn(new CursorPage<>(List.of(row), "next"));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new SearchController(service)).build();
 
-        mvc.perform(get("/search/video").param("keyword", "camera").param("cursor", "previous")
+        mvc.perform(get("/search/content").param("keyword", "camera").param("cursor", "previous")
                         .param("sortByLatest", "true"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.items[0].id").value("9007199254740993"))

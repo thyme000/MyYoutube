@@ -28,7 +28,7 @@ public class SearchController {
     @Operation(
             summary = "搜索内容",
             description = "可搜索标题、描述、标签、用户昵称等。条数由服务端决定：综合首批用配置的首批数量，最新排序和后续页用配置的每页条数。过滤或补取限制可导致短页。返回 items、nextCursor、hasMore，是否继续只看 hasMore；不返回总数")
-    @GetMapping("/video")
+    @GetMapping("/content")
     public Result<CursorPage<SearchContentVO, String>> searchContent(@ModelAttribute ContentSearchCursorQuery query) {
         return Result.success(searchService.searchContent(query));
     }
